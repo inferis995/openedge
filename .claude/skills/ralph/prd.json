@@ -1095,8 +1095,8 @@
         "Verify in browser: site dropdown filters correctly, area appears in tree"
       ],
       "priority": 102,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created frontend/src/components/dialogs/CreateAreaDialog.tsx with shadcn Dialog component. Features: Select dropdown for parent site fetched from getSites() API (filtered by current org via X-Organization-ID header), auto-selects first site if only one exists, Input field for area name with validation (min 2 characters), breadcrumb context in dialog description showing 'Organization > {site_name} > New Area', Create button calls api.createArea() with site_id and name, success toast with confirmation message including site name, error toast with API error message, keyboard shortcuts (Enter to submit, Escape to close), form reset on dialog close, loading states during sites fetch and submission, disabled Create button when inputs are invalid or submitting, onSuccess callback for hierarchy refresh. Build passes: npm run build (440.43 kB JS, 28.13 kB CSS). Go code compiles with go build ./... ."
     },
     {
       "id": "US-103",

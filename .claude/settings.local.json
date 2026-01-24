@@ -4,7 +4,10 @@
       "Bash(if not exist \"tasks\" mkdir \"tasks\")",
       "Bash(./ralph.sh:*)",
       "Bash(chmod:*)",
-      "Bash(bash:*)"
+      "Bash(bash:*)",
+      "Bash(docker ps:*)",
+      "Bash(docker-compose down:*)",
+      "Bash(docker-compose up:*)"
     ]
   }
 }

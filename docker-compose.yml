@@ -113,11 +113,11 @@ services:
 
   web-ui:
     build:
-      context: services/web-ui
+      context: frontend
       dockerfile: Dockerfile
     container_name: industrial-web-ui
     ports:
-      - "3000:80"
+      - "3004:80"
     depends_on:
       core-api:
         condition: service_healthy
