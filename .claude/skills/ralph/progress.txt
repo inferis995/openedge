@@ -1742,3 +1742,77 @@ All components created in `frontend/src/components/ui/`:
 #### Next Priority:
 - **US-043**: Create main layout with header and navigation
 
+
+### 2026-01-24 - Main Layout with Header and Navigation (Iteration 35)
+
+#### Completed User Stories:
+- **US-043**: Created main layout with header and navigation
+
+#### Features Implemented:
+- `frontend/src/components/Layout.tsx` - Main layout component with:
+  - Header showing application title "Industrial Edge Middleware" and current organization name
+  - Change organization button that clears localStorage and redirects to /login
+  - Sidebar with navigation links: Configuration (/config), Trend/Historian (/trend), Alarms (/alarms)
+  - Active link highlighting with violet-600 color
+  - Mobile-responsive sidebar with hamburger menu (Menu/X icons)
+  - Organization info displayed in both sidebar and header
+  - useEffect hook to fetch and validate organization from API on mount
+  - Automatic redirect to /login if organization ID not found or invalid
+
+- `frontend/src/App.tsx` - Updated with protected routing structure:
+  - `ProtectedRoute` component that checks for organization ID in localStorage
+  - `/login` route rendered without Layout (public access)
+  - Protected routes wrapped with Layout component
+  - Routes: `/config` (ConfigPage), `/trend` (TrendPage placeholder), `/alarms` (AlarmsPage placeholder)
+  - Default redirect from `/` to `/config` when authenticated
+
+#### Layout Structure:
+- **Sidebar (dark, bg-gray-900)**: Fixed on desktop (w-64), slide-out drawer on mobile
+  - Logo area with Building2 icon and "Industrial Edge" title
+  - Organization name display
+  - Navigation links with icons (Settings, TrendingUp, AlertTriangle)
+  - Change Organization button at bottom
+
+- **Header (white, border-b)**: Fixed height (h-16)
+  - Mobile menu button (hidden on desktop)
+  - Page title dynamically based on active route
+  - Organization display and Change button (desktop only)
+
+- **Main Content (light, bg-gray-50)**: Flexible height with scroll
+  - Padding of 6 (24px) for content
+  - Overflow-y-auto for scrollable content area
+
+#### Design System Integration:
+- Dark sidebar (bg-gray-900) with white text
+- Light content area (bg-gray-50)
+- Violet accent color (bg-violet-600) for active navigation
+- Gray borders for separation (border-gray-200, border-gray-800)
+- Inter font family (inherited from index.css)
+- Consistent spacing using Tailwind spacing scale
+
+#### Icons Used:
+- Building2 - Application logo
+- Settings - Configuration page
+- TrendingUp - Trend/Historian page
+- AlertTriangle - Alarms page
+- LogOut - Change organization button
+- Menu - Mobile menu open
+- X - Mobile menu close
+
+#### Responsive Behavior:
+- Desktop (lg breakpoint): Fixed sidebar always visible
+- Mobile: Hidden sidebar with hamburger menu, overlay backdrop when open
+
+#### Files Created:
+- `frontend/src/components/Layout.tsx` - Main layout component with header and sidebar
+
+#### Files Modified:
+- `frontend/src/App.tsx` - Added ProtectedRoute component, wrapped routes with Layout, added TrendPage and AlarmsPage placeholders
+- `frontend/src/pages/ConfigPage.tsx` - Removed min-h-screen since layout handles viewport
+
+#### Typecheck:
+- `npm run type-check` passes successfully
+- `npm run build` creates production build successfully (386.47 kB JS, 25.97 kB CSS)
+
+#### Next Priority:
+- **US-044**: Create API types from OpenAPI specification (Note: US-044 types already exist in src/types/api.ts from US-041, may need verification)

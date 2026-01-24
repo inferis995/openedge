@@ -661,8 +661,8 @@
         "Verify in browser: navigation works, layout persists"
       ],
       "priority": 43,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created src/components/Layout.tsx with: header showing app title 'Industrial Edge Middleware', current organization name (fetched from API), and change organization button. Sidebar with navigation links: Configuration (/config), Trend/Historian (/trend), Alarms (/alarms) using lucide-react icons (Settings, TrendingUp, AlertTriangle). Route guard (ProtectedRoute) redirects to /login if no organization selected. Dark sidebar (bg-gray-900) with light content (bg-gray-50) theme following design system. Mobile-responsive sidebar with hamburger menu. Active link highlighting with violet-600 color. Updated App.tsx to use Layout component for protected routes. Typecheck passes with npm run type-check. Build succeeds (386.47 kB JS, 25.97 kB CSS)."
     },
     {
       "id": "US-044",
