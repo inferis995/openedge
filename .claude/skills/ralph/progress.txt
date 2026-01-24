@@ -814,3 +814,59 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-027**: Create engine-alarm service structure
 
+
+### 2026-01-24 - Engine-Alarm Service Structure (Iteration 20)
+
+#### Completed User Stories:
+- **US-027**: Created engine-alarm service container structure
+
+#### Features Implemented:
+- `services/engine-alarm/Dockerfile` - Multi-stage build (golang:1.21-alpine -> alpine:3.19)
+- `services/engine-alarm/main.go` - Engine alarm service with:
+  - MQTT subscription to `data/#` topic for all real-time data
+  - PostgreSQL connection for loading tag alarm configuration
+  - Redis client for alarm state persistence
+  - `AlarmService` struct managing alarm detection and state tracking
+
+#### Alarm Service Architecture:
+- `AlarmState` type with states: ACTIVE, RTN (Return to Normal), ACKNOWLEDGED, CLEAR
+- `AlarmEvent` struct for MQTT event publishing (tag, state, message, timestamp)
+- `TagAlarmConfig` struct for alarm configuration (tag_id, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority)
+- Thread-safe alarm state tracking with `sync.RWMutex` protected map
+- Graceful shutdown handling with SIGINT/SIGTERM signals
+
+#### Alarm Detection Logic:
+- `handleDataMessage(topic, payload)` - Processes incoming MQTT data messages
+- `getTagAlarmConfig(org, site, area, gateway, alias)` - Queries PostgreSQL for alarm config
+- `checkAlarmCondition(config, value, timestamp)` - Evaluates alarm thresholds
+- `transitionToAlarm(tagID, timestamp, message)` - Transitions state to ACTIVE
+- `transitionToRTN(tagID, timestamp)` - Transitions state to RTN
+
+#### Supported Operators:
+- `>` - Triggers alarm when value exceeds threshold
+- `<` - Triggers alarm when value below threshold
+- `=` - Triggers alarm when value equals threshold
+- Boolean values trigger on `true`, clear on `false`
+
+#### Alarm State Persistence:
+- Redis key format: `alarm:{tag_id}` stores state, message, timestamp
+- `loadAlarmStates()` restores existing states from Redis on startup
+- MQTT event publishing to `events/alarms/{tag_id}` on state transitions
+- State persists in Redis for reliability across service restarts
+
+#### Environment Variables:
+- `MQTT_HOST` (default: localhost), `MQTT_PORT` (default: 1883), `MQTT_CLIENT_ID` (default: engine-alarm)
+- `REDIS_HOST` (default: localhost), `REDIS_PORT` (default: 6379)
+- `DB_HOST` (default: localhost), `DB_PORT` (default: 5432)
+- `DB_USER` (default: postgres), `DB_PASSWORD` (default: postgres), `DB_NAME` (default: industrial_edge)
+
+#### Files Created:
+- `services/engine-alarm/Dockerfile` - Docker container definition
+- `services/engine-alarm/main.go` - Alarm service main entry point
+
+#### Files Modified:
+- `docker-compose.yml` - Added engine-alarm service with proper environment variables and dependencies
+
+#### Next Priority:
+- **US-028**: Implement alarm detection logic
+
