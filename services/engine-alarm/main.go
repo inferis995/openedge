@@ -20,9 +20,10 @@ import (
 )
 
 const (
-	mqttTopicData        = "data/#"
-	mqttTopicAlarmEvents = "events/alarms"
-	redisKeyAlarmState   = "alarm:%d"
+	mqttTopicData              = "data/#"
+	mqttTopicAlarmEvents       = "events/alarms"
+	mqttTopicAlarmAcknowledge  = "sys/command/acknowledge"
+	redisKeyAlarmState         = "alarm:%d"
 )
 
 // AlarmState represents the current state of an alarm
@@ -149,6 +150,13 @@ func main() {
 		log.Fatalf("Failed to subscribe to %s: %v", mqttTopicData, err)
 	}
 	log.Println("Successfully subscribed to data topics")
+
+	// Subscribe to acknowledge command topics
+	log.Printf("Subscribing to MQTT topic: %s", mqttTopicAlarmAcknowledge)
+	if err := mqttClient.Subscribe(mqttTopicAlarmAcknowledge, service.handleAcknowledgeCommand); err != nil {
+		log.Fatalf("Failed to subscribe to %s: %v", mqttTopicAlarmAcknowledge, err)
+	}
+	log.Println("Successfully subscribed to acknowledge command topic")
 
 	// Handle graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -461,6 +469,72 @@ func (s *AlarmService) updateAlarmToClear(tagID int, clearedAt time.Time) error 
 		log.Printf("No ACTIVE alarm found to update to CLEAR for tag %d", tagID)
 	}
 	return nil
+}
+
+// handleAcknowledgeCommand processes acknowledge commands from the API
+func (s *AlarmService) handleAcknowledgeCommand(topic string, payload []byte) {
+	select {
+	case <-s.shutdown:
+		return
+	default:
+	}
+
+	// Parse payload: expected format {"alarm_id": <id>}
+	var ackCmd struct {
+		AlarmID int `json:"alarm_id"`
+	}
+	if err := json.Unmarshal(payload, &ackCmd); err != nil {
+		log.Printf("Failed to parse acknowledge command payload: %v", err)
+		return
+	}
+
+	// Get the alarm record from database to verify it's ACTIVE
+	var tagID int
+	var currentState string
+	err := s.db.QueryRow("SELECT tag_id, state FROM alarms WHERE id = $1", ackCmd.AlarmID).Scan(&tagID, &currentState)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("Alarm %d not found", ackCmd.AlarmID)
+		} else {
+			log.Printf("Failed to query alarm %d: %v", ackCmd.AlarmID, err)
+		}
+		return
+	}
+
+	// Only transition to ACKNOWLEDGED if currently ACTIVE
+	if currentState != string(AlarmStateActive) {
+		log.Printf("Alarm %d is not in ACTIVE state (current: %s), skipping acknowledge", ackCmd.AlarmID, currentState)
+		return
+	}
+
+	// Update state to ACKNOWLEDGED in memory and Redis
+	s.setAlarmState(tagID, AlarmStateAcknowledged)
+
+	key := fmt.Sprintf(redisKeyAlarmState, tagID)
+	stateData := map[string]interface{}{
+		"state":     AlarmStateAcknowledged,
+		"message":   "Acknowledged",
+		"timestamp": time.Now().UnixMilli(),
+	}
+	stateJSON, _ := json.Marshal(stateData)
+	if err := s.redisClient.Set(key, string(stateJSON), 0); err != nil {
+		log.Printf("Failed to update alarm state in Redis: %v", err)
+	}
+
+	// Publish alarm event to MQTT
+	event := AlarmEvent{
+		TagID:     tagID,
+		State:     AlarmStateAcknowledged,
+		Message:   "Acknowledged",
+		Timestamp: time.Now().UnixMilli(),
+	}
+	eventJSON, _ := json.Marshal(event)
+	eventTopic := fmt.Sprintf("%s/%d", mqttTopicAlarmEvents, tagID)
+	if err := s.mqttClient.Publish(eventTopic, string(eventJSON)); err != nil {
+		log.Printf("Failed to publish alarm event: %v", err)
+	}
+
+	log.Printf("Alarm %d for tag %d acknowledged via API command", ackCmd.AlarmID, tagID)
 }
 
 // Helper functions

@@ -1023,3 +1023,67 @@ CREATE TABLE alarms (
 #### Next Priority:
 - **US-031**: Create alarm acknowledge API endpoint
 
+
+### 2026-01-24 - Alarm Acknowledge API Endpoint (Iteration 24)
+
+#### Completed User Stories:
+- **US-031**: Created alarm acknowledge API endpoint
+
+#### Features Implemented:
+- `internal/handlers/alarms.go` - Alarm acknowledge handler with:
+  - `NewAlarmsHandler(db, mqttClient)` - Creates handler with database and MQTT client
+  - `Acknowledge()` - Handles POST /api/alarms/{id}/acknowledge endpoint
+- `services/engine-alarm/main.go` - Enhanced with acknowledge command handling:
+  - Added `mqttTopicAlarmAcknowledge` constant for `sys/command/acknowledge`
+  - Added subscription to acknowledge command topic
+  - `handleAcknowledgeCommand()` - Processes acknowledge commands from API
+
+#### API Endpoint:
+- `POST /api/alarms/{id}/acknowledge` - Acknowledges an active alarm
+
+#### Request/Response:
+- **Request**: No body required (ID from URL)
+- **Response (200 OK)**:
+```json
+{
+  "id": 1,
+  "tag_id": 5,
+  "state": "ACKNOWLEDGED",
+  "message": "Value 42.50 exceeds threshold 40.00",
+  "triggered_at": "2024-01-24T10:30:00Z",
+  "acknowledged_at": "2024-01-24T10:35:00Z",
+  "cleared_at": null
+}
+```
+
+#### Error Handling:
+- `400 Bad Request` - Invalid alarm ID or alarm not in ACTIVE state (returns current_state)
+- `404 Not Found` - Alarm ID not found in database
+- `500 Internal Server Error` - Database query or update failed
+
+#### MQTT Integration:
+1. When alarm is acknowledged via API:
+   - core-api updates database with state=ACKNOWLEDGED and acknowledged_at timestamp
+   - core-api publishes `{"alarm_id": <id>}` to `sys/command/acknowledge` topic
+
+2. Engine-alarm service receives acknowledge command:
+   - Validates alarm is ACTIVE in database
+   - Updates in-memory alarm state to ACKNOWLEDGED
+   - Updates Redis key `alarm:{tag_id}` with new state
+   - Publishes event to `events/alarms/{tag_id}` topic
+
+#### State Machine Behavior:
+- ACTIVE → ACKNOWLEDGED (via API)
+- ACKNOWLEDGED → RTN (via value returning to normal, handled by existing checkAlarmCondition logic)
+- Once acknowledged, alarm will no longer re-trigger ACTIVE until value returns to normal (RTN) first
+
+#### Files Created:
+- `internal/handlers/alarms.go` - Alarm acknowledge handler
+
+#### Files Modified:
+- `services/engine-alarm/main.go` - Added acknowledge command subscription and handler
+- `services/core-api/main.go` - Added alarmsHandler and route registration
+
+#### Next Priority:
+- **US-032**: Implement gateway health monitoring with MQTT LWT
+

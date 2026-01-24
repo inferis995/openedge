@@ -481,8 +481,8 @@
         "Verify via API call"
       ],
       "priority": 31,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created internal/handlers/alarms.go with Acknowledge() handler that validates alarm state, updates database with acknowledged_at timestamp, and publishes MQTT command to sys/command/acknowledge for engine-alarm service sync. Integrated into core-api with route POST /api/alarms/:id/acknowledge. Engine-alarm service subscribes to acknowledge command and updates in-memory state and Redis. Typecheck passes."
     },
     {
       "id": "US-032",

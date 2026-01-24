@@ -112,6 +112,7 @@ func main() {
 	areasHandler := handlers.NewAreasHandler(database)
 	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient)
 	tagsHandler := handlers.NewTagsHandler(database, mqttClient, redisClient)
+	alarmsHandler := handlers.NewAlarmsHandler(database, mqttClient)
 
 	// Create history handler with InfluxDB client (optional)
 	var historyHandler *handlers.HistoryHandler
@@ -158,6 +159,12 @@ func main() {
 			tags.GET("", tagsHandler.List)
 			tags.PUT("/:id", tagsHandler.Update)
 			tags.GET("/:id/current", tagsHandler.GetCurrentValue)
+		}
+
+		// Alarms endpoints
+		alarms := api.Group("/alarms")
+		{
+			alarms.POST("/:id/acknowledge", alarmsHandler.Acknowledge)
 		}
 
 		// History endpoint (only if InfluxDB is configured)
