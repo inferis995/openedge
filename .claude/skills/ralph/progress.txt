@@ -479,3 +479,43 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-021**: Create engine-historian service structure
 
+### 2026-01-24 - Engine-Historian Service Structure (Iteration 14)
+
+#### Completed User Stories:
+- **US-021**: Created engine-historian service container structure
+
+#### Features Implemented:
+- `services/engine-historian/Dockerfile` - Multi-stage build (golang:1.21-alpine -> alpine:3.19)
+- `services/engine-historian/main.go` - Engine historian service with:
+  - MQTT client with subscription to `data/#` topic for all real-time data
+  - InfluxDB client with WriteAPI (batch size: 1000, flush interval: 1000ms)
+  - Redis client for caching (used in US-024 for real-time values)
+  - Environment variable configuration:
+    - `MQTT_HOST` (default: localhost), `MQTT_PORT` (default: 1883)
+    - `REDIS_HOST` (default: localhost), `REDIS_PORT` (default: 6379)
+    - `INFLUX_URL` (default: http://localhost:8086)
+    - `INFLUX_TOKEN` (required)
+    - `INFLUX_ORG` (default: industrial), `INFLUX_BUCKET` (default: historian)
+  - `handleDataMessage(topic, payload)` callback for incoming MQTT messages
+    - Parses topic structure: `data/{org}/{site}/{area}/{gateway}/{alias}`
+    - Extracts hierarchy names for multi-tenant isolation
+    - TODO in US-022: Parse JSON payload, apply deadband, buffer for batch write
+  - `handleInfluxErrors()` goroutine for handling WriteAPI batch write errors
+  - Graceful shutdown with SIGINT/SIGTERM handling
+  - InfluxDB connection health check on startup
+
+#### Files Created:
+- `services/engine-historian/Dockerfile` - Docker container definition
+- `services/engine-historian/main.go` - Historian service main entry point
+
+#### Files Modified:
+- `go.mod` - Added github.com/influxdata/influxdb-client-go/v2 v2.13.0 and related dependencies
+
+#### Dependencies Added:
+- github.com/influxdata/influxdb-client-go/v2 v2.13.0
+- github.com/influxdata/line-protocol v0.0.0-20200327222509-2487e7298839
+- github.com/google/uuid v1.3.1
+
+#### Next Priority:
+- **US-022**: Implement historian data buffering and batch write
+
