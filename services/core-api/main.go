@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"github.com/influxdata/influxdb-client-go/v2"
+	_ "github.com/ralph/industrial-edge-middleware/docs"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/handlers"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
@@ -196,6 +199,9 @@ func main() {
 			}
 		}
 	}
+
+	// Swagger documentation endpoints
+	api.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Start server
 	port := getEnv("PORT", "8080")

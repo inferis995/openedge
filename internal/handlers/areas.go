@@ -11,6 +11,14 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
+// Area represents an area in the system
+type Area struct {
+	ID        int    `json:"id" example:"1"`
+	SiteID    int    `json:"site_id" example:"1"`
+	Name      string `json:"name" example:"Production Line"`
+	CreatedAt string `json:"created_at" example:"2024-01-24T10:00:00Z"`
+}
+
 // AreasHandler handles area-related HTTP requests
 type AreasHandler struct {
 	db *sql.DB
@@ -28,6 +36,19 @@ type CreateAreaRequest struct {
 }
 
 // Create handles POST /api/areas
+// @Summary Create a new area
+// @Description Create a new area for the specified site
+// @Tags areas
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param request body CreateAreaRequest true "Area creation request"
+// @Success 201 {object} Area
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Site not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/areas [post]
 func (h *AreasHandler) Create(c *gin.Context) {
 	var req CreateAreaRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -82,6 +103,19 @@ func (h *AreasHandler) Create(c *gin.Context) {
 
 // List handles GET /api/areas?site_id={id}
 // Filters by organization from context (multi-tenant isolation)
+// @Summary List areas
+// @Description Get a list of areas for the specified site
+// @Tags areas
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param site_id query int true "Site ID"
+// @Success 200 {array} Area
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Site not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/areas [get]
 func (h *AreasHandler) List(c *gin.Context) {
 	// Get organization ID from context (set by middleware)
 	orgID, ok := middleware.GetOrganizationID(c)

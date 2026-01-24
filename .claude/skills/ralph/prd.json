@@ -572,8 +572,8 @@
         "Typecheck passes"
       ],
       "priority": 37,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created docs/docs.go, docs/swagger.json, docs/swagger.yaml. Added swagger annotations to all handlers (organizations, sites, areas, gateways, tags, alarms, history). Added swagger route to core-api at GET /api/docs/*any. Installed github.com/swaggo/swag, github.com/swaggo/gin-swagger, github.com/swaggo/files dependencies. Typecheck passes."
     }
   ]
 }

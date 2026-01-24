@@ -46,6 +46,22 @@ type HistoryDataPoint struct {
 }
 
 // Query handles GET /api/history?tag_id={id}&start={iso}&end={iso}&agg={agg}&interval={interval}
+// @Summary Query historical data
+// @Description Query historical data for a tag from InfluxDB
+// @Tags history
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param tag_id query int true "Tag ID"
+// @Param start query string true "Start time (ISO 8601)"
+// @Param end query string true "End time (ISO 8601)"
+// @Param agg query string false "Aggregation function (mean, max, min, sum, first, last, count, median, stddev)"
+// @Param interval query string false "Aggregation interval (e.g., 1m, 5m, 1h, 1d)"
+// @Success 200 {array} HistoryDataPoint
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/history [get]
 func (h *HistoryHandler) Query(c *gin.Context) {
 	// Get organization ID from context
 	orgID, ok := middleware.GetOrganizationID(c)

@@ -112,6 +112,19 @@ func (h *GatewaysHandler) enrichGatewayWithHealth(gateway models.Gateway) Gatewa
 }
 
 // Create handles POST /api/gateways
+// @Summary Create a new gateway
+// @Description Create a new gateway for the specified area
+// @Tags gateways
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param request body CreateGatewayRequest true "Gateway creation request"
+// @Success 201 {object} models.Gateway
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Area not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/gateways [post]
 func (h *GatewaysHandler) Create(c *gin.Context) {
 	var req CreateGatewayRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -183,6 +196,19 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 
 // List handles GET /api/gateways?area_id={id}
 // Filters by organization from context (multi-tenant isolation)
+// @Summary List gateways
+// @Description Get a list of gateways for the specified area
+// @Tags gateways
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param area_id query int true "Area ID"
+// @Success 200 {array} GatewayWithHealth
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Area not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/gateways [get]
 func (h *GatewaysHandler) List(c *gin.Context) {
 	// Get organization ID from context (set by middleware)
 	orgID, ok := middleware.GetOrganizationID(c)
@@ -257,6 +283,19 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 
 // Get handles GET /api/gateways/{id}
 // Filters by organization from context (multi-tenant isolation)
+// @Summary Get a gateway
+// @Description Get a single gateway by ID
+// @Tags gateways
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Gateway ID"
+// @Success 200 {object} GatewayWithHealth
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Gateway not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/gateways/{id} [get]
 func (h *GatewaysHandler) Get(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -310,6 +349,20 @@ func (h *GatewaysHandler) Get(c *gin.Context) {
 
 // Update handles PUT /api/gateways/{id}
 // Filters by organization from context (multi-tenant isolation)
+// @Summary Update a gateway
+// @Description Update a gateway by ID
+// @Tags gateways
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Gateway ID"
+// @Param request body UpdateGatewayRequest true "Gateway update request"
+// @Success 200 {object} GatewayWithHealth
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Gateway not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/gateways/{id} [put]
 func (h *GatewaysHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)

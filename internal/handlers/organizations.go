@@ -8,6 +8,13 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
+// Organization represents an organization in the system
+type Organization struct {
+	ID        int       `json:"id" example:"1"`
+	Name      string    `json:"name" example:"Acme Corp"`
+	CreatedAt string    `json:"created_at" example:"2024-01-24T10:00:00Z"`
+}
+
 // OrganizationsHandler handles organization-related HTTP requests
 type OrganizationsHandler struct {
 	db *sql.DB
@@ -24,6 +31,16 @@ type CreateOrganizationRequest struct {
 }
 
 // Create handles POST /api/organizations
+// @Summary Create a new organization
+// @Description Create a new organization with the specified name
+// @Tags organizations
+// @Accept json
+// @Produce json
+// @Param request body CreateOrganizationRequest true "Organization creation request"
+// @Success 201 {object} Organization
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/organizations [post]
 func (h *OrganizationsHandler) Create(c *gin.Context) {
 	var req CreateOrganizationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -46,6 +63,14 @@ func (h *OrganizationsHandler) Create(c *gin.Context) {
 }
 
 // List handles GET /api/organizations
+// @Summary List all organizations
+// @Description Get a list of all organizations
+// @Tags organizations
+// @Accept json
+// @Produce json
+// @Success 200 {array} Organization
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/organizations [get]
 func (h *OrganizationsHandler) List(c *gin.Context) {
 	rows, err := h.db.Query("SELECT id, name, created_at FROM organizations ORDER BY id")
 	if err != nil {

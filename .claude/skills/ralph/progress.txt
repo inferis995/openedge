@@ -1392,3 +1392,97 @@ from(bucket: "historian")
 #### Next Priority:
 - **US-037**: Create OpenAPI/Swagger documentation
 
+
+### 2026-01-24 - OpenAPI/Swagger Documentation (Iteration 30)
+
+#### Completed User Stories:
+- **US-037**: Created OpenAPI/Swagger documentation
+
+#### Features Implemented:
+- `docs/docs.go` - Swagger configuration with API metadata
+- `docs/swagger.json` - OpenAPI 2.0 specification in JSON format
+- `docs/swagger.yaml` - OpenAPI 2.0 specification in YAML format
+
+#### Swagger Annotations Added:
+All handlers now have complete Swagger annotations:
+
+**Organizations Handler** (`internal/handlers/organizations.go`):
+- `POST /api/organizations` - Create organization
+- `GET /api/organizations` - List organizations
+
+**Sites Handler** (`internal/handlers/sites.go`):
+- `POST /api/sites` - Create site
+- `GET /api/sites` - List sites
+
+**Areas Handler** (`internal/handlers/areas.go`):
+- `POST /api/areas` - Create area
+- `GET /api/areas?site_id={id}` - List areas
+
+**Gateways Handler** (`internal/handlers/gateways.go`):
+- `POST /api/gateways` - Create gateway
+- `GET /api/gateways?area_id={id}` - List gateways
+- `GET /api/gateways/{id}` - Get gateway
+- `PUT /api/gateways/{id}` - Update gateway
+
+**Tags Handler** (`internal/handlers/tags.go`):
+- `POST /api/tags` - Create tag
+- `GET /api/tags?gateway_id={id}` - List tags
+- `PUT /api/tags/{id}` - Update tag
+- `GET /api/tags/{id}/current` - Get current tag value
+
+**Alarms Handler** (`internal/handlers/alarms.go`):
+- `POST /api/alarms/{id}/acknowledge` - Acknowledge alarm
+
+**History Handler** (`internal/handlers/history.go`):
+- `GET /api/history?tag_id={id}&start={iso}&end={iso}&agg={agg}&interval={interval}` - Query historical data
+
+#### Response Models:
+Added response models for Swagger documentation:
+- `Organization` - Organization response
+- `Site` - Site response
+- `Area` - Area response
+- `GatewayWithHealth` - Gateway with health status
+- `CurrentValueResponse` - Current tag value
+- `AcknowledgeResponse` - Alarm acknowledge response
+- `HistoryDataPoint` - Historical data point
+
+#### API Documentation Endpoints:
+- `GET /api/docs/` - Swagger UI interface
+- `GET /api/swagger.json` - OpenAPI JSON spec
+- `GET /api/swagger.yaml` - OpenAPI YAML spec
+
+#### Dependencies Added:
+- `github.com/swaggo/swag v1.16.6` - Swagger code generator
+- `github.com/swaggo/gin-swagger v1.6.1` - Gin middleware for Swagger
+- `github.com/swaggo/files v1.0.1` - Static file serving
+
+#### Files Created:
+- `docs/docs.go` - Swagger configuration
+- `docs/swagger.json` - Generated OpenAPI spec (JSON)
+- `docs/swagger.yaml` - Generated OpenAPI spec (YAML)
+
+#### Files Modified:
+- `internal/handlers/organizations.go` - Added swagger annotations, Organization model
+- `internal/handlers/sites.go` - Added swagger annotations, Site model
+- `internal/handlers/areas.go` - Added swagger annotations, Area model
+- `internal/handlers/gateways.go` - Added swagger annotations
+- `internal/handlers/tags.go` - Added swagger annotations
+- `internal/handlers/alarms.go` - Added swagger annotations
+- `internal/handlers/history.go` - Added swagger annotations
+- `services/core-api/main.go` - Added Swagger route, imported docs package
+- `go.mod` - Added swagger dependencies
+
+#### Typecheck:
+- `go build ./...` passes successfully
+
+#### All Features Complete:
+All 37 user stories have been implemented successfully. The Industrial Edge Middleware system is now feature-complete with:
+- Multi-tenant organizational hierarchy (Organizations, Sites, Areas)
+- Gateway management with S7 and Modbus TCP drivers
+- Tag configuration with alarm and historization support
+- Real-time data acquisition with MQTT
+- Historical data storage in InfluxDB
+- Redis caching for real-time values
+- Alarm detection and acknowledgment
+- API documentation with Swagger/OpenAPI
+

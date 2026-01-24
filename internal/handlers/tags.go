@@ -86,6 +86,19 @@ func validateAlarmPriority(priority int) bool {
 }
 
 // Create handles POST /api/tags
+// @Summary Create a new tag
+// @Description Create a new tag for the specified gateway
+// @Tags tags
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param request body CreateTagRequest true "Tag creation request"
+// @Success 201 {object} models.Tag
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Gateway not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/tags [post]
 func (h *TagsHandler) Create(c *gin.Context) {
 	var req CreateTagRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -193,6 +206,19 @@ func (h *TagsHandler) Create(c *gin.Context) {
 
 // List handles GET /api/tags?gateway_id={id}
 // Filters by organization from context (multi-tenant isolation)
+// @Summary List tags
+// @Description Get a list of tags for the specified gateway
+// @Tags tags
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param gateway_id query int true "Gateway ID"
+// @Success 200 {array} models.Tag
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Gateway not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/tags [get]
 func (h *TagsHandler) List(c *gin.Context) {
 	// Get organization ID from context
 	orgID, ok := middleware.GetOrganizationID(c)
@@ -270,6 +296,20 @@ func (h *TagsHandler) List(c *gin.Context) {
 
 // Update handles PUT /api/tags/{id}
 // Filters by organization from context (multi-tenant isolation)
+// @Summary Update a tag
+// @Description Update a tag by ID
+// @Tags tags
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Tag ID"
+// @Param request body UpdateTagRequest true "Tag update request"
+// @Success 200 {object} models.Tag
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Tag not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/tags/{id} [put]
 func (h *TagsHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -438,6 +478,19 @@ type CurrentValueResponse struct {
 }
 
 // GetCurrentValue handles GET /api/tags/{id}/current
+// @Summary Get current tag value
+// @Description Get the current value of a tag from Redis cache
+// @Tags tags
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Tag ID"
+// @Success 200 {object} CurrentValueResponse
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 404 {object} map[string]string "Tag not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Failure 503 {object} map[string]string "Redis not available"
+// @Router /api/tags/{id}/current [get]
 func (h *TagsHandler) GetCurrentValue(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)

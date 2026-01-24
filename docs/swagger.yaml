@@ -1,0 +1,1022 @@
+definitions:
+  github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig:
+    additionalProperties: true
+    type: object
+  github_com_ralph_industrial-edge-middleware_internal_models.Gateway:
+    properties:
+      area_id:
+        type: integer
+      connection_config:
+        $ref: '#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig'
+      created_at:
+        type: string
+      driver_type:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: integer
+      name:
+        type: string
+      scan_rate_ms:
+        type: integer
+    type: object
+  github_com_ralph_industrial-edge-middleware_internal_models.Tag:
+    properties:
+      alarm_enabled:
+        type: boolean
+      alarm_operator:
+        type: string
+      alarm_priority:
+        type: integer
+      alarm_threshold:
+        type: number
+      alias:
+        type: string
+      code:
+        type: string
+      created_at:
+        type: string
+      data_type:
+        type: string
+      gateway_id:
+        type: integer
+      historize:
+        type: boolean
+      historize_deadband:
+        type: number
+      id:
+        type: integer
+    type: object
+  internal_handlers.AcknowledgeResponse:
+    properties:
+      acknowledged_at:
+        type: string
+      cleared_at:
+        type: string
+      id:
+        type: integer
+      message:
+        type: string
+      state:
+        type: string
+      tag_id:
+        type: integer
+      triggered_at:
+        type: string
+    type: object
+  internal_handlers.Area:
+    properties:
+      created_at:
+        example: "2024-01-24T10:00:00Z"
+        type: string
+      id:
+        example: 1
+        type: integer
+      name:
+        example: Production Line
+        type: string
+      site_id:
+        example: 1
+        type: integer
+    type: object
+  internal_handlers.CreateAreaRequest:
+    properties:
+      name:
+        type: string
+      site_id:
+        type: integer
+    required:
+    - name
+    - site_id
+    type: object
+  internal_handlers.CreateGatewayRequest:
+    properties:
+      area_id:
+        type: integer
+      connection_config:
+        $ref: '#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig'
+      driver_type:
+        type: string
+      name:
+        type: string
+      scan_rate_ms:
+        type: integer
+    required:
+    - area_id
+    - connection_config
+    - driver_type
+    - name
+    type: object
+  internal_handlers.CreateOrganizationRequest:
+    properties:
+      name:
+        type: string
+    required:
+    - name
+    type: object
+  internal_handlers.CreateSiteRequest:
+    properties:
+      name:
+        type: string
+      org_id:
+        type: integer
+    required:
+    - name
+    - org_id
+    type: object
+  internal_handlers.CreateTagRequest:
+    properties:
+      alarm_enabled:
+        type: boolean
+      alarm_operator:
+        type: string
+      alarm_priority:
+        type: integer
+      alarm_threshold:
+        type: number
+      alias:
+        type: string
+      code:
+        type: string
+      data_type:
+        type: string
+      gateway_id:
+        type: integer
+      historize:
+        type: boolean
+      historize_deadband:
+        type: number
+    required:
+    - alias
+    - code
+    - data_type
+    - gateway_id
+    type: object
+  internal_handlers.CurrentValueResponse:
+    properties:
+      q:
+        type: integer
+      ts:
+        type: integer
+      v: {}
+    type: object
+  internal_handlers.GatewayWithHealth:
+    properties:
+      area_id:
+        type: integer
+      connection_config:
+        $ref: '#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig'
+      connection_status:
+        description: '"online" or "offline"'
+        type: string
+      created_at:
+        type: string
+      driver_type:
+        type: string
+      enabled:
+        type: boolean
+      id:
+        type: integer
+      last_seen:
+        description: Unix timestamp in milliseconds
+        type: integer
+      name:
+        type: string
+      scan_rate_ms:
+        type: integer
+    type: object
+  internal_handlers.HistoryDataPoint:
+    properties:
+      quality:
+        type: integer
+      timestamp:
+        type: integer
+      value: {}
+    type: object
+  internal_handlers.Organization:
+    properties:
+      created_at:
+        example: "2024-01-24T10:00:00Z"
+        type: string
+      id:
+        example: 1
+        type: integer
+      name:
+        example: Acme Corp
+        type: string
+    type: object
+  internal_handlers.Site:
+    properties:
+      created_at:
+        example: "2024-01-24T10:00:00Z"
+        type: string
+      id:
+        example: 1
+        type: integer
+      name:
+        example: Factory 1
+        type: string
+      org_id:
+        example: 1
+        type: integer
+    type: object
+  internal_handlers.UpdateGatewayRequest:
+    properties:
+      connection_config:
+        $ref: '#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig'
+      driver_type:
+        type: string
+      enabled:
+        type: boolean
+      name:
+        type: string
+      scan_rate_ms:
+        type: integer
+    type: object
+  internal_handlers.UpdateTagRequest:
+    properties:
+      alarm_enabled:
+        type: boolean
+      alarm_operator:
+        type: string
+      alarm_priority:
+        type: integer
+      alarm_threshold:
+        type: number
+      alias:
+        type: string
+      code:
+        type: string
+      data_type:
+        type: string
+      historize:
+        type: boolean
+      historize_deadband:
+        type: number
+    type: object
+info:
+  contact: {}
+paths:
+  /api/alarms/{id}/acknowledge:
+    post:
+      consumes:
+      - application/json
+      description: Acknowledge an active alarm
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Alarm ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.AcknowledgeResponse'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Alarm not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Acknowledge an alarm
+      tags:
+      - alarms
+  /api/areas:
+    get:
+      consumes:
+      - application/json
+      description: Get a list of areas for the specified site
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Site ID
+        in: query
+        name: site_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_handlers.Area'
+            type: array
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Site not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List areas
+      tags:
+      - areas
+    post:
+      consumes:
+      - application/json
+      description: Create a new area for the specified site
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Area creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateAreaRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_handlers.Area'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Site not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new area
+      tags:
+      - areas
+  /api/gateways:
+    get:
+      consumes:
+      - application/json
+      description: Get a list of gateways for the specified area
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Area ID
+        in: query
+        name: area_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_handlers.GatewayWithHealth'
+            type: array
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Area not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List gateways
+      tags:
+      - gateways
+    post:
+      consumes:
+      - application/json
+      description: Create a new gateway for the specified area
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Gateway creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateGatewayRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.Gateway'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Area not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new gateway
+      tags:
+      - gateways
+  /api/gateways/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Get a single gateway by ID
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Gateway ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.GatewayWithHealth'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Gateway not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get a gateway
+      tags:
+      - gateways
+    put:
+      consumes:
+      - application/json
+      description: Update a gateway by ID
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Gateway ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Gateway update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.UpdateGatewayRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.GatewayWithHealth'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Gateway not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update a gateway
+      tags:
+      - gateways
+  /api/history:
+    get:
+      consumes:
+      - application/json
+      description: Query historical data for a tag from InfluxDB
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Tag ID
+        in: query
+        name: tag_id
+        required: true
+        type: integer
+      - description: Start time (ISO 8601)
+        in: query
+        name: start
+        required: true
+        type: string
+      - description: End time (ISO 8601)
+        in: query
+        name: end
+        required: true
+        type: string
+      - description: Aggregation function (mean, max, min, sum, first, last, count,
+          median, stddev)
+        in: query
+        name: agg
+        type: string
+      - description: Aggregation interval (e.g., 1m, 5m, 1h, 1d)
+        in: query
+        name: interval
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_handlers.HistoryDataPoint'
+            type: array
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Query historical data
+      tags:
+      - history
+  /api/organizations:
+    get:
+      consumes:
+      - application/json
+      description: Get a list of all organizations
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_handlers.Organization'
+            type: array
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List all organizations
+      tags:
+      - organizations
+    post:
+      consumes:
+      - application/json
+      description: Create a new organization with the specified name
+      parameters:
+      - description: Organization creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateOrganizationRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_handlers.Organization'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new organization
+      tags:
+      - organizations
+  /api/sites:
+    get:
+      consumes:
+      - application/json
+      description: Get a list of sites for the authorized organization
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/internal_handlers.Site'
+            type: array
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List sites
+      tags:
+      - sites
+    post:
+      consumes:
+      - application/json
+      description: Create a new site for the specified organization
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Site creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateSiteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/internal_handlers.Site'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new site
+      tags:
+      - sites
+  /api/tags:
+    get:
+      consumes:
+      - application/json
+      description: Get a list of tags for the specified gateway
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Gateway ID
+        in: query
+        name: gateway_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.Tag'
+            type: array
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Gateway not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: List tags
+      tags:
+      - tags
+    post:
+      consumes:
+      - application/json
+      description: Create a new tag for the specified gateway
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Tag creation request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.CreateTagRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.Tag'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Gateway not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Create a new tag
+      tags:
+      - tags
+  /api/tags/{id}:
+    put:
+      consumes:
+      - application/json
+      description: Update a tag by ID
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Tag ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Tag update request
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handlers.UpdateTagRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.Tag'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Forbidden
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Tag not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Update a tag
+      tags:
+      - tags
+  /api/tags/{id}/current:
+    get:
+      consumes:
+      - application/json
+      description: Get the current value of a tag from Redis cache
+      parameters:
+      - description: Organization ID
+        in: header
+        name: X-Organization-ID
+        required: true
+        type: integer
+      - description: Tag ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.CurrentValueResponse'
+        "400":
+          description: Invalid request
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Tag not found
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Server error
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Redis not available
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get current tag value
+      tags:
+      - tags
+swagger: "2.0"

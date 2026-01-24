@@ -42,6 +42,18 @@ type AcknowledgeResponse struct {
 }
 
 // Acknowledge handles POST /api/alarms/{id}/acknowledge
+// @Summary Acknowledge an alarm
+// @Description Acknowledge an active alarm
+// @Tags alarms
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Alarm ID"
+// @Success 200 {object} AcknowledgeResponse
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 404 {object} map[string]string "Alarm not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/alarms/{id}/acknowledge [post]
 func (h *AlarmsHandler) Acknowledge(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
