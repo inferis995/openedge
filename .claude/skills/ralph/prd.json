@@ -373,8 +373,8 @@
         "Typecheck passes"
       ],
       "priority": 24,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added RealtimeValue struct with V (value), Ts (timestamp), Q (quality) fields. Added realtimeCacheTTL constant set to 5184000 seconds (60 days). Added storeRealtimeValue() function that stores current value in Redis with key format realtime:{tag_id}. Function is called in handleDataMessage() after tag info lookup and before historize check, ensuring all tag values are cached regardless of historize flag. JSON payload format matches MQTT payload structure. Typecheck passes."
     },
     {
       "id": "US-025",

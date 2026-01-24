@@ -632,3 +632,53 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-024**: Implement historian Redis cache for real-time values
 
+
+### 2026-01-24 - Historian Redis Cache for Real-Time Values (Iteration 17)
+
+#### Completed User Stories:
+- **US-024**: Implemented historian Redis cache for real-time values
+
+#### Features Implemented:
+- `services/engine-historian/main.go` - Enhanced with real-time value caching functionality
+- `RealtimeValue` struct - Stores cached values with:
+  - V (value): interface{} for bool, float64, int
+  - Ts (timestamp): int64 in milliseconds
+  - Q (quality): int (0=good, 1=bad)
+- `realtimeCacheTTL` constant - Set to 5184000 seconds (60 days)
+
+#### Real-Time Caching Logic:
+1. **Cache Storage** (`storeRealtimeValue`):
+   - Stores current value in Redis with key format `realtime:{tag_id}`
+   - Stores complete payload including value, timestamp, and quality
+   - Sets TTL to 60 days (5184000 seconds)
+   - Overwrites existing key if present
+
+2. **Cache Update Timing**:
+   - Called in `handleDataMessage()` after tag info lookup
+   - **Always stores**, even if `historize=false` (for all real-time queries)
+   - Stores before historize/deadband checks to ensure latest value is cached
+
+#### Redis Key Format:
+- `realtime:{tag_id}` - Current value for tag (TTL: 5184000s / 60 days)
+
+#### Value Storage Format (JSON):
+```json
+{
+  "v": <value>,
+  "ts": <timestamp_ms>,
+  "q": <quality>
+}
+```
+
+#### Design Decisions:
+- Real-time cache is independent of historize flag - all tag values are cached
+- Cache updates happen before deadband filtering to ensure latest value is always available
+- 60-day TTL provides long-term cached access while preventing memory bloat
+- Key format uses tag_id for efficient lookups in US-026 (GET /api/tags/{id}/current)
+
+#### Files Modified:
+- `services/engine-historian/main.go` - Added RealtimeValue struct, realtimeCacheTTL constant, storeRealtimeValue() function, integrated into handleDataMessage()
+
+#### Next Priority:
+- **US-025**: Create historical data query API endpoint
+

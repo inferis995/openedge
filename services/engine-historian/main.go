@@ -75,6 +75,17 @@ type PreviousValue struct {
 	Value interface{} `json:"v"`
 }
 
+// RealtimeValue represents the current value stored in Redis for real-time queries
+type RealtimeValue struct {
+	V interface{} `json:"v"` // Value
+	Ts int64      `json:"ts"` // Timestamp in milliseconds
+	Q  int        `json:"q"`  // Quality (0 = good, 1 = bad)
+}
+
+const (
+	realtimeCacheTTL = 5184000 // 60 days in seconds
+)
+
 func main() {
 	// Load configuration from environment variables
 	mqttHost := getEnv("MQTT_HOST", "localhost")
@@ -239,6 +250,9 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 		log.Printf("Failed to get tag info for %s: %v", topic, err)
 		return
 	}
+
+	// Store current value in Redis for real-time queries (always store, even if not historized)
+	s.storeRealtimeValue(tagInfo.ID, mqttPayload)
 
 	// Skip if historize is disabled
 	if !tagInfo.Historize {
@@ -470,6 +484,19 @@ func (s *HistorianService) storePreviousValue(tagID int, value interface{}) {
 	prevValueJSON, _ := json.Marshal(prevValue)
 	// Store with no expiration (will be overwritten on next value)
 	s.redisClient.Set(prevValueKey, string(prevValueJSON), 0)
+}
+
+// storeRealtimeValue stores the current value in Redis for real-time queries
+func (s *HistorianService) storeRealtimeValue(tagID int, payload MQTTPayload) {
+	realtimeKey := fmt.Sprintf("realtime:%d", tagID)
+	realtimeValue := RealtimeValue{
+		V:  payload.V,
+		Ts: payload.Ts,
+		Q:  payload.Q,
+	}
+	realtimeJSON, _ := json.Marshal(realtimeValue)
+	// Store with 60 day TTL (5184000 seconds)
+	s.redisClient.Set(realtimeKey, string(realtimeJSON), realtimeCacheTTL)
 }
 
 func getEnv(key, defaultValue string) string {
