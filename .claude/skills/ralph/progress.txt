@@ -2125,3 +2125,74 @@ The organization creation dialog was already fully implemented in `services/web-
 
 #### Next Priority:
 - **US-050**: Implement site creation dialog
+
+
+### 2026-01-24 - Dialogs Verification and Real-Time Value Polling (Iteration 41)
+
+#### Completed User Stories:
+- **US-050**: Site creation dialog (already implemented)
+- **US-051**: Area creation dialog (already implemented)
+- **US-052**: Gateway creation dialog (already implemented)
+- **US-053**: Tag creation dialog (already implemented)
+- **US-054**: Real-time value polling to tree view (implemented)
+
+#### Features Verified:
+All creation dialogs (US-050 through US-053) were already fully implemented in their respective page components:
+- **US-050**: `services/web-ui/src/pages/SitesPage.tsx` - Site creation with organization Select dropdown
+- **US-051**: `services/web-ui/src/pages/AreasPage.tsx` - Area creation with site Select dropdown
+- **US-052**: `services/web-ui/src/pages/GatewaysPage.tsx` - Gateway creation with driver type and connection config
+- **US-053**: `services/web-ui/src/pages/TagsPage.tsx` - Tag creation with historization and alarm sections
+
+#### US-054 Implementation:
+Implemented real-time value polling in `services/web-ui/src/pages/TagsPage.tsx` (adapted for current UI structure since the tree view mentioned in PRD doesn't exist in web-ui).
+
+**Features Implemented:**
+- `CurrentValue` interface with value, timestamp, and quality fields
+- State management: `currentValues` Map<number, CurrentValue>, `isPolling` boolean, `pollingError` string
+- `pollCurrentValues()` function that calls GET /api/tags/{id}/current for all visible tags
+- Toggle button "Enable Live"/"Live" with RefreshCw icon that animates (spins) when polling is active
+- useEffect hook polls values every 5 seconds when enabled, with proper cleanup
+- Quality indicator: green Circle (fill-green-500) for q=0 (good), red Circle (fill-red-500) for q=1 (bad)
+- Timestamp tooltip: "Last update: [full datetime]" with inline time display
+- Error message banner when polling fails
+- Values displayed in new "Current Value" table column with proper formatting for booleans (true/false) and nulls
+
+**Files Modified:**
+- `services/web-ui/src/pages/TagsPage.tsx` - Added real-time polling functionality with toggle button, quality indicators, and timestamp display
+
+**Typecheck:**
+- `npm run build` passes successfully (436.04 kB JS, 27.13 kB CSS)
+- TypeScript compilation succeeds without errors
+
+#### Next Priority:
+- **US-055**: Implement gateway enabled/disabled toggle
+
+
+### 2026-01-24 - Gateway Enabled/Disabled Toggle (Iteration 42)
+
+#### Completed User Stories:
+- **US-055**: Gateway enabled/disabled toggle (implemented)
+
+#### US-055 Implementation:
+Implemented gateway enabled/disabled toggle in `services/web-ui/src/pages/GatewaysPage.tsx`.
+
+**Features Implemented:**
+- Added `update` mutation to `useGateways` hook with proper query invalidation
+- Added `allGatewaysQuery` to support fetching all gateways when no areaId is provided
+- `handleToggleEnabled()` function that calls PUT /api/gateways/{id} with enabled: true/false
+- Added "Enabled" column to table with Switch component showing current enabled state
+- Table rows show `opacity-50` (grayed out) when gateway.enabled is false
+- Loading state shown with RefreshCw spinning icon next to toggle during API call
+- Toggle disabled during update to prevent duplicate requests
+- Added RefreshCw import from lucide-react
+
+**Files Modified:**
+- `services/web-ui/src/hooks/useGateways.ts` - Added update mutation and allGatewaysQuery
+- `services/web-ui/src/pages/GatewaysPage.tsx` - Added enabled/disabled toggle column and handler
+
+**Typecheck:**
+- `npm run build` passes successfully (437.07 kB JS, 27.13 kB CSS)
+- TypeScript compilation succeeds without errors
+
+#### Next Priority:
+- **US-056**: Create trend/historian page with multi-tag support

@@ -18,7 +18,24 @@ export const gatewaysApi = {
                 'X-Organization-ID': data.org_id.toString()
             }
         } : undefined;
-        const response = await api.post('/gateways', data, config);
+
+        // Transform flat DTO to nested backend structure
+        const payload = {
+            area_id: data.area_id,
+            name: data.name,
+            driver_type: data.driver_type,
+            scan_rate_ms: data.scan_rate_ms,
+            enabled: data.enabled,
+            connection_config: {
+                ip_address: data.ip_address,
+                port: data.port,
+                rack: data.rack,
+                slot: data.slot,
+                slave_id: data.slave_id,
+            }
+        };
+
+        const response = await api.post('/gateways', payload, config);
         return response.data;
     },
 

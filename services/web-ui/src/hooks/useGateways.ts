@@ -11,6 +11,13 @@ export const useGateways = (areaId?: number | null) => {
         enabled: !!areaId,
     });
 
+    // Also fetch all gateways when no areaId is provided
+    const allGatewaysQuery = useQuery({
+        queryKey: ['gateways', 'all'],
+        queryFn: () => gatewaysApi.getAll(),
+        enabled: !areaId,
+    });
+
     const createMutation = useMutation({
         mutationFn: (data: CreateGatewayDto) => gatewaysApi.create(data),
         onSuccess: () => {
@@ -25,18 +32,27 @@ export const useGateways = (areaId?: number | null) => {
         },
     });
 
+    const updateMutation = useMutation({
+        mutationFn: ({ id, data }: { id: number; data: Partial<CreateGatewayDto> }) => gatewaysApi.update(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['gateways'] });
+        },
+    });
+
     const testConnectionMutation = useMutation({
         mutationFn: (id: number) => gatewaysApi.testConnection(id),
     });
 
     return {
-        gateways: query.data || [],
-        isLoading: query.isLoading,
-        isError: query.isError,
+        gateways: query.data || allGatewaysQuery.data || [],
+        isLoading: query.isLoading || allGatewaysQuery.isLoading,
+        isError: query.isError || allGatewaysQuery.isError,
         create: createMutation.mutateAsync,
         isCreating: createMutation.isPending,
         remove: deleteMutation.mutateAsync,
         isDeleting: deleteMutation.isPending,
+        update: updateMutation.mutateAsync,
+        isUpdating: updateMutation.isPending,
         testConnection: testConnectionMutation.mutateAsync,
         isTesting: testConnectionMutation.isPending,
     };

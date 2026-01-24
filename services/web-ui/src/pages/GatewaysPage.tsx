@@ -29,7 +29,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Wifi, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Wifi, ChevronRight, RefreshCw } from 'lucide-react';
 import { CreateGatewayDto } from '@/types';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
@@ -37,11 +37,12 @@ import { Badge } from '@/components/ui/badge';
 const GatewaysPage = () => {
     const navigate = useNavigate();
     const { selectedAreaId, selectedSiteId } = useNavigationStore();
-    const { gateways, isLoading, create, remove, testConnection } = useGateways(selectedAreaId);
+    const { gateways, isLoading, create, remove, testConnection, update, isUpdating } = useGateways(selectedAreaId);
     const { areas } = useAreas(selectedSiteId); // Get areas for current site
 
     const [isOpen, setIsOpen] = useState(false);
     const [testResult, setTestResult] = useState<{ id: number, success: boolean, message: string } | null>(null);
+    const [updatingGatewayId, setUpdatingGatewayId] = useState<number | null>(null);
 
     // Form State
     const [formData, setFormData] = useState<Partial<CreateGatewayDto>>({
@@ -103,6 +104,18 @@ const GatewaysPage = () => {
             setTimeout(() => setTestResult(null), 3000);
         } catch (error) {
             setTestResult({ id, success: false, message: 'Connection failed' });
+        }
+    };
+
+    const handleToggleEnabled = async (e: React.MouseEvent, id: number, currentEnabled: boolean) => {
+        e.stopPropagation();
+        setUpdatingGatewayId(id);
+        try {
+            await update({ id, data: { enabled: !currentEnabled } });
+        } catch (error) {
+            console.error('Failed to toggle gateway enabled state', error);
+        } finally {
+            setUpdatingGatewayId(null);
         }
     };
 
@@ -274,13 +287,14 @@ const GatewaysPage = () => {
                             <TableHead>Type</TableHead>
                             <TableHead>Config</TableHead>
                             <TableHead>Status</TableHead>
+                            <TableHead>Enabled</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {gateways.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center">
+                                <TableCell colSpan={7} className="h-24 text-center">
                                     No gateways found. {selectedAreaId ? 'Create one for the selected area.' : 'Select an area to filter or add a new gateway.'}
                                 </TableCell>
                             </TableRow>
@@ -288,7 +302,7 @@ const GatewaysPage = () => {
                             gateways.map((gw) => (
                                 <TableRow
                                     key={gw.id}
-                                    className="cursor-pointer hover:bg-slate-50"
+                                    className={`cursor-pointer hover:bg-slate-50 ${!gw.enabled ? 'opacity-50' : ''}`}
                                     onClick={() => handleSelect(gw.id)}
                                 >
                                     <TableCell>{gw.id}</TableCell>
@@ -313,6 +327,18 @@ const GatewaysPage = () => {
                                         <div className="flex items-center gap-2">
                                             <div className={`h-2.5 w-2.5 rounded-full ${gw.status === 'online' ? 'bg-green-500' : 'bg-red-500'}`} />
                                             <span className="text-sm capitalize">{gw.status || 'Unknown'}</span>
+                                        </div>
+                                    </TableCell>
+                                    <TableCell>
+                                        <div className="flex items-center gap-2">
+                                            <Switch
+                                                checked={gw.enabled}
+                                                onCheckedChange={() => handleToggleEnabled({ currentTarget: gw.id } as any, gw.id, gw.enabled)}
+                                                disabled={updatingGatewayId === gw.id || isUpdating}
+                                            />
+                                            {updatingGatewayId === gw.id && (
+                                                <RefreshCw size={14} className="animate-spin text-muted-foreground" />
+                                            )}
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-right">

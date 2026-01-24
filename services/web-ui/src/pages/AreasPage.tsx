@@ -51,8 +51,8 @@ const AreasPage = () => {
 
         let orgIdToUse = selectedOrgId || undefined;
 
-        // If no orgId in store, fetch the site to get it
-        if (!orgIdToUse && selectedSiteForCreate) {
+        // Always fetch the site to get the authoritative org_id
+        if (selectedSiteForCreate) {
             try {
                 const siteData = await sitesApi.get(parseInt(selectedSiteForCreate));
                 orgIdToUse = siteData.org_id;

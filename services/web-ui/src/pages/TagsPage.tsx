@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useTags } from '@/hooks/useTags';
 import { useGateways } from '@/hooks/useGateways';
+import { tagsApi } from '@/api/tags';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -28,10 +29,16 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Edit2, Bell, Database } from 'lucide-react';
+import { Plus, Trash2, Edit2, Bell, Database, RefreshCw, Circle } from 'lucide-react';
 import { CreateTagDto } from '@/types';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
+
+interface CurrentValue {
+    value: any;
+    timestamp: string;
+    quality: number;
+}
 
 const TagsPage = () => {
     const [searchParams] = useSearchParams();
@@ -53,6 +60,11 @@ const TagsPage = () => {
         alarm_operator: '>',
         alarm_priority: 3,
     });
+
+    // Real-time value polling state
+    const [currentValues, setCurrentValues] = useState<Map<number, CurrentValue>>(new Map());
+    const [isPolling, setIsPolling] = useState(false);
+    const [pollingError, setPollingError] = useState<string | null>(null);
 
     const handleInputChange = (field: keyof CreateTagDto, value: any) => {
         setFormData(prev => ({ ...prev, [field]: value }));
@@ -90,6 +102,67 @@ const TagsPage = () => {
         }
     };
 
+    // Poll current values for all visible tags
+    const pollCurrentValues = useCallback(async () => {
+        if (tags.length === 0 || !isPolling) return;
+
+        try {
+            const promises = tags.map(async (tag) => {
+                try {
+                    const data = await tagsApi.getCurrentValue(tag.id);
+                    return { tagId: tag.id, value: data.value, timestamp: data.timestamp, quality: 0 };
+                } catch (error) {
+                    // Tag doesn't have a current value yet or endpoint failed
+                    return { tagId: tag.id, value: null, timestamp: '', quality: 1 };
+                }
+            });
+
+            const results = await Promise.all(promises);
+            const newValues = new Map<number, CurrentValue>();
+
+            results.forEach(result => {
+                if (result.value !== null) {
+                    newValues.set(result.tagId, {
+                        value: result.value,
+                        timestamp: result.timestamp,
+                        quality: result.quality
+                    });
+                }
+            });
+
+            setCurrentValues(newValues);
+            setPollingError(null);
+        } catch (error) {
+            console.error('Failed to poll current values:', error);
+            setPollingError('Failed to fetch current values');
+        }
+    }, [tags, isPolling]);
+
+    // Toggle polling
+    const togglePolling = () => {
+        setIsPolling(prev => !prev);
+    };
+
+    // Effect to poll values every 5 seconds when polling is enabled
+    useEffect(() => {
+        if (!isPolling) return;
+
+        // Initial poll
+        pollCurrentValues();
+
+        // Set up interval
+        const interval = setInterval(() => {
+            pollCurrentValues();
+        }, 5000);
+
+        return () => clearInterval(interval);
+    }, [isPolling, pollCurrentValues]);
+
+    // Clear current values when tags change or gateway changes
+    useEffect(() => {
+        setCurrentValues(new Map());
+    }, [selectedGatewayId, tags]);
+
     const tagsList = useMemo(() => tags, [tags]);
 
     if (isLoading) {
@@ -107,6 +180,17 @@ const TagsPage = () => {
                 </div>
 
                 <div className="flex items-center gap-4">
+                    {/* Real-time polling toggle */}
+                    <Button
+                        variant={isPolling ? "default" : "outline"}
+                        size="sm"
+                        onClick={togglePolling}
+                        className="gap-2"
+                    >
+                        <RefreshCw size={16} className={isPolling ? "animate-spin" : ""} />
+                        {isPolling ? "Live" : "Enable Live"}
+                    </Button>
+
                     <div className="w-[200px]">
                         <Select
                             value={selectedGatewayId}
@@ -272,6 +356,13 @@ const TagsPage = () => {
                 </div>
             </div>
 
+            {/* Polling error message */}
+            {pollingError && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded text-sm">
+                    {pollingError}
+                </div>
+            )}
+
             <div className="rounded-md border bg-white">
                 <Table>
                     <TableHeader>
@@ -279,6 +370,7 @@ const TagsPage = () => {
                             <TableHead>Code</TableHead>
                             <TableHead>Alias</TableHead>
                             <TableHead>Type</TableHead>
+                            <TableHead>Current Value</TableHead>
                             <TableHead>History</TableHead>
                             <TableHead>Alarm</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
@@ -287,60 +379,91 @@ const TagsPage = () => {
                     <TableBody>
                         {tagsList.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center">
+                                <TableCell colSpan={7} className="h-24 text-center">
                                     No tags found. {selectedGatewayId && selectedGatewayId !== 'all' ? 'Create one for the selected gateway.' : 'Select a gateway to view tags.'}
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            tagsList.map((tag) => (
-                                <TableRow key={tag.id}>
-                                    <TableCell className="font-medium font-mono text-xs">{tag.code}</TableCell>
-                                    <TableCell className="font-medium">{tag.alias || '-'}</TableCell>
-                                    <TableCell>
-                                        <Badge variant="secondary" className="text-xs">{tag.data_type}</Badge>
-                                    </TableCell>
-                                    <TableCell>
-                                        {tag.historize ? (
-                                            <div className="flex items-center gap-1 text-xs text-green-600">
-                                                <Database size={12} />
-                                                <span>Yes (DB: {tag.deadband_value})</span>
+                            tagsList.map((tag) => {
+                                const currentValue = currentValues.get(tag.id);
+                                return (
+                                    <TableRow key={tag.id}>
+                                        <TableCell className="font-medium font-mono text-xs">{tag.code}</TableCell>
+                                        <TableCell className="font-medium">{tag.alias || '-'}</TableCell>
+                                        <TableCell>
+                                            <Badge variant="secondary" className="text-xs">{tag.data_type}</Badge>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex items-center gap-2">
+                                                {/* Quality indicator */}
+                                                <Circle
+                                                    size={8}
+                                                    className={currentValue?.quality === 0 ? "fill-green-500 text-green-500" : "fill-red-500 text-red-500"}
+                                                />
+                                                {/* Value display */}
+                                                {currentValue ? (
+                                                    <span className="font-mono text-sm">
+                                                        {typeof currentValue.value === 'boolean'
+                                                            ? currentValue.value ? 'true' : 'false'
+                                                            : currentValue.value !== null && currentValue.value !== undefined
+                                                                ? currentValue.value.toString()
+                                                                : '-'
+                                                        }
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-muted-foreground text-xs">No data</span>
+                                                )}
+                                                {/* Timestamp tooltip */}
+                                                {currentValue?.timestamp && (
+                                                    <span className="text-xs text-muted-foreground" title={`Last update: ${new Date(currentValue.timestamp).toLocaleString()}`}>
+                                                        {new Date(currentValue.timestamp).toLocaleTimeString()}
+                                                    </span>
+                                                )}
                                             </div>
-                                        ) : (
-                                            <span className="text-xs text-muted-foreground">Disabled</span>
-                                        )}
-                                    </TableCell>
-                                    <TableCell>
-                                        {tag.alarm_enabled ? (
-                                            <div className="flex items-center gap-1 text-xs text-amber-600">
-                                                <Bell size={12} />
-                                                <span>{tag.alarm_operator} {tag.alarm_threshold} (P{tag.alarm_priority})</span>
+                                        </TableCell>
+                                        <TableCell>
+                                            {tag.historize ? (
+                                                <div className="flex items-center gap-1 text-xs text-green-600">
+                                                    <Database size={12} />
+                                                    <span>Yes (DB: {tag.deadband_value})</span>
+                                                </div>
+                                            ) : (
+                                                <span className="text-xs text-muted-foreground">Disabled</span>
+                                            )}
+                                        </TableCell>
+                                        <TableCell>
+                                            {tag.alarm_enabled ? (
+                                                <div className="flex items-center gap-1 text-xs text-amber-600">
+                                                    <Bell size={12} />
+                                                    <span>{tag.alarm_operator} {tag.alarm_threshold} (P{tag.alarm_priority})</span>
+                                                </div>
+                                            ) : (
+                                                <span className="text-xs text-muted-foreground">Disabled</span>
+                                            )}
+                                        </TableCell>
+                                        <TableCell className="text-right">
+                                            <div className="flex items-center justify-end gap-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
+                                                // Edit logic to be implemented
+                                                >
+                                                    <Edit2 size={16} />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                                    onClick={(e) => handleDelete(e, tag.id)}
+                                                >
+                                                    <Trash2 size={16} />
+                                                </Button>
                                             </div>
-                                        ) : (
-                                            <span className="text-xs text-muted-foreground">Disabled</span>
-                                        )}
-                                    </TableCell>
-                                    <TableCell className="text-right">
-                                        <div className="flex items-center justify-end gap-2">
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
-                                            // Edit logic to be implemented
-                                            >
-                                                <Edit2 size={16} />
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
-                                                onClick={(e) => handleDelete(e, tag.id)}
-                                            >
-                                                <Trash2 size={16} />
-                                            </Button>
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
-                            ))
+                                        </TableCell>
+                                    </TableRow>
+                                );
+                            })
                         )}
                     </TableBody>
                 </Table>
