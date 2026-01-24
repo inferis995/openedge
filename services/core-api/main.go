@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/handlers"
+	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 )
 
 func main() {
@@ -32,17 +34,40 @@ func main() {
 	}
 	defer database.Close()
 
+	// Load MQTT configuration
+	mqttHost := getEnv("MQTT_HOST", "localhost")
+	mqttPort := getEnvInt("MQTT_PORT", 1883)
+	mqttClientID := getEnv("MQTT_CLIENT_ID", "core-api")
+
+	mqttCfg := mqtt.Config{
+		Host:          mqttHost,
+		Port:          mqttPort,
+		ClientID:      mqttClientID,
+		CleanSession:  true,
+		AutoReconnect: true,
+		KeepAlive:     30 * time.Second,
+	}
+
+	mqttClient := mqtt.NewClient(mqttCfg)
+	if err := mqttClient.Connect(); err != nil {
+		log.Printf("Warning: Failed to connect to MQTT broker: %v", err)
+		log.Println("MQTT reload commands will not be available")
+	} else {
+		log.Println("MQTT client connected successfully")
+		defer mqttClient.Disconnect(250)
+	}
+
 	log.Println("Industrial Edge Middleware - core-api starting...")
 
 	// Create Gin router
 	router := gin.Default()
 
-	// Create handlers
+	// Create handlers with MQTT client
 	orgsHandler := handlers.NewOrganizationsHandler(database)
 	sitesHandler := handlers.NewSitesHandler(database)
 	areasHandler := handlers.NewAreasHandler(database)
-	gatewaysHandler := handlers.NewGatewaysHandler(database)
-	tagsHandler := handlers.NewTagsHandler(database)
+	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient)
+	tagsHandler := handlers.NewTagsHandler(database, mqttClient)
 
 	// Register routes
 	api := router.Group("/api")

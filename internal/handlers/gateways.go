@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -9,14 +10,23 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
+// MQTTClient interface for publishing reload commands
+type MQTTClient interface {
+	Publish(topic string, payload interface{}) error
+}
+
 // GatewaysHandler handles gateway-related HTTP requests
 type GatewaysHandler struct {
-	db *sql.DB
+	db          *sql.DB
+	mqttClient  MQTTClient
 }
 
 // NewGatewaysHandler creates a new gateways handler
-func NewGatewaysHandler(db *sql.DB) *GatewaysHandler {
-	return &GatewaysHandler{db: db}
+func NewGatewaysHandler(db *sql.DB, mqttClient MQTTClient) *GatewaysHandler {
+	return &GatewaysHandler{
+		db:         db,
+		mqttClient: mqttClient,
+	}
 }
 
 // CreateGatewayRequest represents the request body for creating a gateway
@@ -197,6 +207,16 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update gateway"})
 		return
+	}
+
+	// Publish reload command to MQTT
+	if h.mqttClient != nil {
+		topic := fmt.Sprintf("sys/command/reload/%d", gateway.ID)
+		if err := h.mqttClient.Publish(topic, "reload"); err != nil {
+			// Log error but don't fail the request
+			// The MQTT connection might be down temporarily
+			// The driver will still work with old config until reconnected
+		}
 	}
 
 	c.JSON(http.StatusOK, gateway)

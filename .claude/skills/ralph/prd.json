@@ -298,8 +298,8 @@
         "Typecheck passes"
       ],
       "priority": 19,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented MQTT reload command publishing in core-api. Added MQTT client integration to services/core-api/main.go with MQTT_HOST, MQTT_PORT, MQTT_CLIENT_ID environment variables. Updated GatewaysHandler and TagsHandler to accept MQTTClient interface and publish to sys/command/reload/{gateway_id} on successful PUT updates. Driver services (S7 and Modbus) already have subscription to sys/command/reload/{gateway_id} implemented in US-012 and US-015, with non-blocking reload channel and tag map reloading logic. MQTT publish errors are logged but don't fail the HTTP request to ensure API resilience."
     },
     {
       "id": "US-020",

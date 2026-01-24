@@ -386,3 +386,55 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-019**: Implement MQTT reload command for dynamic configuration
 
+### 2026-01-24 - MQTT Reload Command for Dynamic Configuration (Iteration 12)
+
+#### Completed User Stories:
+- **US-019**: Implemented MQTT reload command for dynamic configuration
+
+#### Features Implemented:
+- MQTT client integration in `services/core-api/main.go`
+  - Environment variables: MQTT_HOST (default: localhost), MQTT_PORT (default: 1883), MQTT_CLIENT_ID (default: core-api)
+  - Auto-reconnect enabled with 30 second keepalive
+  - Graceful disconnect on shutdown
+  - Warning logged if MQTT connection fails (doesn't prevent API from starting)
+
+- Updated `internal/handlers/gateways.go`:
+  - Added `MQTTClient` interface with `Publish(topic, payload)` method
+  - `GatewaysHandler` now accepts `MQTTClient` parameter
+  - `Update()` handler publishes to `sys/command/reload/{gateway_id}` after successful gateway update
+  - MQTT publish errors are silently handled (don't fail HTTP request)
+
+- Updated `internal/handlers/tags.go`:
+  - `TagsHandler` now accepts `MQTTClient` parameter
+  - `Update()` handler publishes to `sys/command/reload/{gateway_id}` after successful tag update
+  - Uses the gateway_id from the tag to determine which driver to reload
+
+#### How It Works:
+1. When a gateway is updated via `PUT /api/gateways/{id}`:
+   - Gateway is updated in PostgreSQL
+   - core-api publishes `"reload"` payload to `sys/command/reload/{gateway_id}`
+
+2. When a tag is updated via `PUT /api/tags/{id}`:
+   - Tag is updated in PostgreSQL
+   - core-api publishes `"reload"` payload to `sys/command/reload/{tag.gateway_id}`
+
+3. Driver services (already implemented in US-012 and US-015):
+   - Subscribe to `sys/command/reload/{gateway_id}` topic
+   - On receiving reload message, reload gateway config and tags from PostgreSQL
+   - Update internal tag map without stopping polling loop
+   - New tags are added, removed tags are deleted from polling
+
+#### Design Decisions:
+- MQTTClient interface allows dependency injection and testing
+- MQTT publish failures don't fail HTTP requests (API resilience)
+- Drivers already have non-blocking reload channel to prevent duplicate reloads
+- Simple "reload" string payload - drivers just need to receive the message
+
+#### Files Modified:
+- `services/core-api/main.go` - Added MQTT client integration
+- `internal/handlers/gateways.go` - Added MQTT client and reload publishing
+- `internal/handlers/tags.go` - Added MQTT client and reload publishing
+
+#### Next Priority:
+- **US-020**: Create Redis cache package for Go
+

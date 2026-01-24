@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -11,12 +12,16 @@ import (
 
 // TagsHandler handles tag-related HTTP requests
 type TagsHandler struct {
-	db *sql.DB
+	db          *sql.DB
+	mqttClient  MQTTClient
 }
 
 // NewTagsHandler creates a new tags handler
-func NewTagsHandler(db *sql.DB) *TagsHandler {
-	return &TagsHandler{db: db}
+func NewTagsHandler(db *sql.DB, mqttClient MQTTClient) *TagsHandler {
+	return &TagsHandler{
+		db:         db,
+		mqttClient: mqttClient,
+	}
 }
 
 // CreateTagRequest represents the request body for creating a tag
@@ -295,6 +300,16 @@ func (h *TagsHandler) Update(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update tag"})
 		return
+	}
+
+	// Publish reload command to MQTT
+	if h.mqttClient != nil {
+		topic := fmt.Sprintf("sys/command/reload/%d", tag.GatewayID)
+		if err := h.mqttClient.Publish(topic, "reload"); err != nil {
+			// Log error but don't fail the request
+			// The MQTT connection might be down temporarily
+			// The driver will still work with old config until reconnected
+		}
 	}
 
 	c.JSON(http.StatusOK, tag)
