@@ -130,7 +130,7 @@ func main() {
 	// Create history handler with InfluxDB client (optional)
 	var historyHandler *handlers.HistoryHandler
 	if influxClient != nil {
-		historyHandler = handlers.NewHistoryHandler(influxClient, influxOrg, influxBucket)
+		historyHandler = handlers.NewHistoryHandler(influxClient, influxOrg, influxBucket, database)
 	}
 
 	// Register routes

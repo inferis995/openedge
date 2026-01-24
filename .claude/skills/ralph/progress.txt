@@ -1338,3 +1338,57 @@ curl http://localhost:8080/api/sites?organization_id=1
 #### Next Priority:
 - **US-036**: Create InfluxDB organization tagging
 
+
+### 2026-01-24 - InfluxDB Organization Tagging (Iteration 29)
+
+#### Completed User Stories:
+- **US-036**: Implemented InfluxDB organization tagging for multi-tenant historical data isolation
+
+#### Features Implemented:
+- `internal/handlers/history.go` - Enhanced with organization filtering:
+  - Added `db *sql.DB` field to `HistoryHandler` struct for PostgreSQL access
+  - Updated `NewHistoryHandler()` to accept database parameter
+  - Added `getTagOrganization(tagID, orgID)` helper function:
+    - Verifies tag ownership by joining tags→gateways→areas→sites→organizations tables
+    - Returns organization name for Flux query filtering
+    - Returns error if tag not found or doesn't belong to the requesting organization
+  - Updated `Query()` handler with multi-tenant security:
+    - Extracts organization ID from middleware context using `middleware.GetOrganizationID()`
+    - Calls `getTagOrganization()` to verify ownership and get org name
+    - Returns `403 Forbidden` if tag not found or access denied
+  - Updated `buildFluxQuery()` to include organization filter:
+    - Added `orgName string` parameter
+    - Added Flux filter: `|> filter(fn: (r) => r.organization == "%s")`
+    - Ensures users can only query data from their own organization
+
+#### Multi-Tenant Security Model:
+1. **Organization Tag in InfluxDB**: Already implemented in US-022 (engine-historian/main.go:276)
+2. **Ownership Verification**: PostgreSQL JOIN verifies tag belongs to requesting organization
+3. **Flux Query Isolation**: Organization name filter ensures cross-organization data is inaccessible
+4. **Access Control**: Returns 403 for tags outside user's organization context
+
+#### InfluxDB Organization Tag:
+- Tag key: `organization`
+- Tag value: org_name from topic structure (e.g., "acme-corp", "factory-1")
+- All historical data points include this tag for multi-tenant isolation
+
+#### Flux Query Example:
+```flux
+from(bucket: "historian")
+  |> range(start: 2024-01-01T00:00:00Z, stop: 2024-01-01T23:59:59Z)
+  |> filter(fn: (r) => r._measurement == "tag_data")
+  |> filter(fn: (r) => r.tag_id == "5")
+  |> filter(fn: (r) => r.organization == "acme-corp")  // NEW: Organization filter
+  |> filter(fn: (r) => r._field == "value")
+```
+
+#### Files Modified:
+- `internal/handlers/history.go` - Added database field, getTagOrganization(), organization filter in Flux query
+- `services/core-api/main.go` - Updated NewHistoryHandler() to pass database parameter
+
+#### Typecheck:
+- `go build ./...` passes successfully
+
+#### Next Priority:
+- **US-037**: Create OpenAPI/Swagger documentation
+

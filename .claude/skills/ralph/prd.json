@@ -557,8 +557,8 @@
         "Typecheck passes"
       ],
       "priority": 36,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Organization tag already included in InfluxDB data points (engine-historian/main.go:276). Updated internal/handlers/history.go to: 1) Get organization ID from middleware context, 2) Verify tag ownership via PostgreSQL JOIN across tags→gateways→areas→sites→organizations, 3) Add organization filter to Flux query (|> filter(fn: (r) => r.organization == orgName)), 4) Return 403 Forbidden if tag not found or access denied. Added db field to HistoryHandler struct and getTagOrganization() function. Updated core-api to pass database to NewHistoryHandler(). Typecheck passes."
     },
     {
       "id": "US-037",
