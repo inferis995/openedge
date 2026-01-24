@@ -282,3 +282,51 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-017**: Implement Modbus driver data publishing to MQTT
 
+### 2026-01-24 - Modbus Driver MQTT Publishing (Iteration 10)
+
+#### Completed User Stories:
+- **US-017**: Implemented Modbus driver data publishing to MQTT
+
+#### Features Implemented:
+- Modbus client integration in `services/driver-modbus/main.go`
+- `connectModbus()` - Creates Modbus client from gateway connection_config and connects with retry
+- `poll()` - Reads all tags using Modbus client and publishes to MQTT
+- `readTag()` - Reads a single tag value via modbus.ReadTag() and returns value with quality
+- `publishTagValue()` - Publishes tag value to MQTT with JSON payload
+- `hasValueChanged()` / `updatePreviousValue()` - Report by Exception implementation
+- `valuesEqual()` - Type-safe value comparison for BOOL, INT, REAL
+
+#### MQTT Topic Structure:
+- Topic format: `data/{org}/{site}/{area}/{gateway}/{alias}`
+- All names are slugified (lowercase, spaces to hyphens)
+
+#### MQTT Payload Format:
+```json
+{
+  "v": <value>,
+  "ts": <timestamp_ms>,
+  "q": <quality>
+}
+```
+- `v`: The tag value (bool, int16, float32)
+- `ts`: Unix timestamp in milliseconds
+- `q`: Quality (0 = good, 1 = bad)
+
+#### Report by Exception (RBE):
+- Stores previous values in thread-safe map `previousValues`
+- Only publishes when value has changed from previous read
+- First read for any tag is always published
+- Bad quality (q=1) is always published immediately
+- Type-specific comparison for accurate change detection
+
+#### Error Handling:
+- Auto-reconnect to Modbus device on connection loss
+- Bad quality (q=1) published when read errors occur
+- Graceful Modbus disconnect on service shutdown
+
+#### Files Modified:
+- `services/driver-modbus/main.go` - Added Modbus integration, MQTT publishing, RBE
+
+#### Next Priority:
+- **US-018**: Create driver-manager service for container orchestration
+

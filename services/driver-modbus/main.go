@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ralph/industrial-edge-middleware/internal/db"
+	"github.com/ralph/industrial-edge-middleware/internal/modbus"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 )
@@ -39,6 +40,7 @@ type Driver struct {
 	gatewayID  int
 	database   *sql.DB
 	mqttClient *mqtt.Client
+	modbusClient *modbus.Client
 	config     *GatewayConfig
 	configMu   sync.RWMutex
 	stopChan   chan struct{}
@@ -139,6 +141,13 @@ func main() {
 
 	log.Println("Shutting down driver-modbus...")
 	close(driver.stopChan)
+
+	// Disconnect from Modbus device
+	if driver.modbusClient != nil {
+		if err := driver.modbusClient.Disconnect(); err != nil {
+			log.Printf("Error disconnecting from Modbus device: %v", err)
+		}
+	}
 }
 
 // loadConfig loads the gateway configuration from PostgreSQL
@@ -302,7 +311,6 @@ func (d *Driver) run() {
 }
 
 // poll reads data from Modbus device and publishes to MQTT
-// Note: Actual Modbus client implementation will be added in US-016
 func (d *Driver) poll() {
 	d.configMu.RLock()
 	config := d.config
@@ -310,6 +318,14 @@ func (d *Driver) poll() {
 
 	if config == nil || !config.Gateway.Enabled {
 		return
+	}
+
+	// Ensure Modbus connection is active
+	if d.modbusClient == nil || !d.modbusClient.IsConnected() {
+		if err := d.connectModbus(); err != nil {
+			log.Printf("Failed to connect to Modbus device: %v", err)
+			return
+		}
 	}
 
 	// Build topic prefix: data/{org}/{site}/{area}/{gateway}
@@ -322,17 +338,57 @@ func (d *Driver) poll() {
 
 	timestamp := time.Now().UnixMilli()
 
-	// TODO: US-016 will implement actual Modbus client and tag reading
-	// For now, log that we would poll
-	log.Printf("Poll cycle: would read %d tags for gateway %s (topic prefix: %s)",
-		len(config.Tags), config.Gateway.Name, topicPrefix)
-
-	// Placeholder: iterate tags to demonstrate structure
+	// Read all tags and publish to MQTT
 	for _, tag := range config.Tags {
-		// In US-016, this will read from Modbus and call publishTagValue
-		_ = tag
-		_ = timestamp
+		value, quality := d.readTag(&tag)
+
+		// Report by Exception: only publish if value changed
+		if d.hasValueChanged(tag.ID, value) || quality != 0 {
+			d.publishTagValue(topicPrefix, tag, value, timestamp, quality)
+			d.updatePreviousValue(tag.ID, value)
+		}
 	}
+}
+
+// connectModbus creates and connects a Modbus client from the gateway config
+func (d *Driver) connectModbus() error {
+	d.configMu.RLock()
+	config := d.config
+	d.configMu.RUnlock()
+
+	if config == nil {
+		return fmt.Errorf("no configuration loaded")
+	}
+
+	// Create Modbus client from connection config
+	client, err := modbus.NewClientFromConfig(config.Gateway.ConnectionConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create Modbus client: %w", err)
+	}
+
+	// Connect with retry (up to 3 attempts with 2 second intervals)
+	if err := client.ConnectWithRetry(3, 2*time.Second); err != nil {
+		return fmt.Errorf("failed to connect to Modbus device: %w", err)
+	}
+
+	d.modbusClient = client
+	log.Printf("Connected to Modbus device for gateway %s", config.Gateway.Name)
+	return nil
+}
+
+// readTag reads a single tag value from the Modbus device
+func (d *Driver) readTag(tag *models.Tag) (interface{}, int) {
+	if d.modbusClient == nil || !d.modbusClient.IsConnected() {
+		return nil, 1 // Bad quality
+	}
+
+	value, err := d.modbusClient.ReadTag(tag.Code, tag.DataType)
+	if err != nil {
+		log.Printf("Error reading tag %s (%s): %v", tag.Alias, tag.Code, err)
+		return nil, 1 // Bad quality
+	}
+
+	return value, 0 // Good quality
 }
 
 // publishTagValue publishes a tag value to MQTT

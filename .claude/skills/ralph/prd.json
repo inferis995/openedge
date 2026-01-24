@@ -266,8 +266,8 @@
         "Typecheck passes"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Updated services/driver-modbus/main.go to integrate Modbus client with MQTT publishing. Features: Modbus connection management with auto-reconnect via connectModbus(), polling loop reads all tags via modbus.ReadTag(), publishes to data/{org}/{site}/{area}/{gateway}/{alias} with JSON payload {v, ts, q}, Report by Exception using previousValues map for change detection, readTag() helper returns value with quality (0=good, 1=bad), graceful disconnect on shutdown."
     },
     {
       "id": "US-018",
