@@ -9,9 +9,9 @@ export const useHistory = (params: HistoryQueryParams, enabled = true) => {
     });
 
     return {
-        data: query.data || [],
+        data: Array.isArray(query.data) ? query.data : [],
         isLoading: query.isLoading,
-        isError: query.isError,
+        isError: query.isError || (query.data && !Array.isArray(query.data)),
         error: query.error,
         refetch: query.refetch,
     };

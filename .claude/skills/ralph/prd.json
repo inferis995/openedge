@@ -1038,8 +1038,8 @@
         "Verify in browser: toast appears for new MQTT alarm events"
       ],
       "priority": 63,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented real-time alarm notifications with MQTT client. Created services/web-ui/src/lib/mqtt-client.ts with MQTTClientService for WebSocket MQTT connection, subscription to events/alarms/# topic, alarm event parsing with AlarmEvent interface, toast notifications using sonner for new ACTIVE alarms, notification sound with Web Audio API fallback, and localStorage persistence for sound preference. Created services/web-ui/src/stores/useAlarmStore.ts with zustand for state management (activeAlarmCount, lastAlarmEvent, isMqttConnected, notificationSoundEnabled), connectMqtt/disconnectMqtt actions, and automatic alarm count updates. Updated Header.tsx to display real-time active alarm count badge (99+ for large counts) and MQTT connection status (green/red indicator). Updated AlarmsPage.tsx to auto-refresh when lastAlarmEvent changes via useEffect. Updated SystemPage.tsx with notification settings card featuring sound toggle switch, test sound button using Web Audio API, and status icons (Volume2/VolumeX). MQTT connection supports environment variables (VITE_MQTT_HOST, VITE_MQTT_PORT, VITE_MQTT_PATH) with auto-reconnect. Build passes: npm run build (1230.24 kB JS, 30.98 kB CSS). Go code compiles with go build ./... ."
     }
   ]
 }

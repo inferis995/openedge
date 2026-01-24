@@ -1,14 +1,22 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Bell, RefreshCw, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAlarmStore } from '@/stores/useAlarmStore';
+import { useEffect } from 'react';
 
 const Header = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    // Mock active alarms count (will be real later)
-    const activeAlarms = 3;
+    // Get real-time alarm state from store
+    const { activeAlarmCount, isMqttConnected, connectMqtt } = useAlarmStore();
+
+    // Connect to MQTT on mount
+    useEffect(() => {
+        connectMqtt();
+    }, [connectMqtt]);
 
     const getBreadcrumbs = () => {
         const path = location.pathname;
@@ -48,18 +56,38 @@ const Header = () => {
             </div>
 
             <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 px-3 py-1.5 bg-secondary/50 rounded-md text-xs font-medium">
-                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-                    MQTT Connected
+                {/* MQTT Connection Status */}
+                <div className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium",
+                    isMqttConnected ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400" : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-400"
+                )}>
+                    <span className={cn(
+                        "w-2 h-2 rounded-full",
+                        isMqttConnected ? "bg-green-500 animate-pulse" : "bg-red-500"
+                    )}></span>
+                    {isMqttConnected ? 'MQTT Connected' : 'MQTT Disconnected'}
                 </div>
 
-                <Button variant="ghost" size="icon" className="relative" onClick={() => navigate('/alarms')}>
+                {/* Alarms Button with Badge */}
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="relative"
+                    onClick={() => navigate('/alarms')}
+                    title={activeAlarmCount > 0 ? `${activeAlarmCount} active alarm${activeAlarmCount > 1 ? 's' : ''}` : 'No active alarms'}
+                >
                     <Bell size={20} />
-                    {activeAlarms > 0 && (
-                        <span className="absolute top-2 right-2 h-2 w-2 rounded-full bg-red-500" />
+                    {activeAlarmCount > 0 && (
+                        <Badge
+                            variant="destructive"
+                            className="absolute -top-1 -right-1 h-5 min-w-5 px-1 flex items-center justify-center text-xs"
+                        >
+                            {activeAlarmCount > 99 ? '99+' : activeAlarmCount}
+                        </Badge>
                     )}
                 </Button>
 
+                {/* Reload Config Button */}
                 <Button variant="outline" size="sm" className="gap-2">
                     <RefreshCw size={14} />
                     Reload Config

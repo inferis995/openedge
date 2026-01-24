@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAlarms } from '@/hooks/useAlarms';
 import { useTags } from '@/hooks/useTags';
+import { useAlarmStore } from '@/stores/useAlarmStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,6 +28,9 @@ import { Alarm } from '@/types';
 
 const AlarmsPage = () => {
     const [searchParams, setSearchParams] = useSearchParams();
+
+    // Get alarm store for real-time updates
+    const { lastAlarmEvent, setLastAlarmEvent } = useAlarmStore();
 
     // Get filter state from URL params or defaults
     const getStateParam = () => {
@@ -70,6 +74,16 @@ const AlarmsPage = () => {
         applyFilters ? tagIdFilter : undefined,
         autoRefresh ? 10000 : false // 10 seconds
     );
+
+    // Auto-refresh alarms list when new MQTT alarm event is received
+    useEffect(() => {
+        if (lastAlarmEvent) {
+            // Refetch alarms to get the latest data
+            refetch();
+            // Clear the event after processing
+            setLastAlarmEvent(null);
+        }
+    }, [lastAlarmEvent, refetch, setLastAlarmEvent]);
 
     // Update URL params when filters change
     const updateUrlParams = useCallback((params: Record<string, string | number | null>) => {

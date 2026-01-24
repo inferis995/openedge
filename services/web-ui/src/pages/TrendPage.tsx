@@ -24,6 +24,7 @@ const TAG_COLORS = [
 ];
 
 const TrendPage = () => {
+    console.log('TrendPage v3 (Paranoid Mode) rendering...');
     // State for selected tags
     const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
 
@@ -40,6 +41,7 @@ const TrendPage = () => {
 
     // Fetch all tags (without gatewayId filter to get all tags)
     const { tags } = useTags(null);
+    const safeTags = useMemo(() => Array.isArray(tags) ? tags : [], [tags]);
 
     // Fetch historical data for selected tags
     const historyQueries = selectedTagIds.map(tagId => {
@@ -57,34 +59,42 @@ const TrendPage = () => {
 
     // Combine all history data
     const chartData = useMemo(() => {
-        // Create a map of all timestamps
-        const timestampMap = new Map<number, Record<string, string | number>>();
+        try {
+            // Create a map of all timestamps
+            const timestampMap = new Map<number, Record<string, string | number>>();
 
-        historyQueries.forEach((query, index) => {
-            const tagId = selectedTagIds[index];
-            const tag = tags.find(t => t.id === tagId);
-            const tagKey = tag?.alias || tag?.code || `Tag ${tagId}`;
+            historyQueries.forEach((query, index) => {
+                const tagId = selectedTagIds[index];
+                const tag = safeTags.find(t => t.id === tagId);
+                const tagKey = tag?.alias || tag?.code || `Tag ${tagId}`;
 
-            if (!query.data) return;
-            query.data.forEach((point: HistoryDataPoint) => {
-                const ts = point.timestamp * 1000; // Convert to milliseconds
-                if (!timestampMap.has(ts)) {
-                    timestampMap.set(ts, { timestamp: ts, date: new Date(ts).toLocaleString() });
-                }
-                const entry = timestampMap.get(ts)!;
-                entry[`${tagKey}_value`] = typeof point.value === 'number' ? point.value : 0;
-                entry[`${tagKey}_quality`] = point.quality;
+                // Defensive check: ensure query.data is an array before iterating
+                if (!query.data || !Array.isArray(query.data)) return;
+
+                query.data.forEach((point: HistoryDataPoint) => {
+                    if (!point) return;
+                    const ts = point.timestamp * 1000; // Convert to milliseconds
+                    if (!timestampMap.has(ts)) {
+                        timestampMap.set(ts, { timestamp: ts, date: new Date(ts).toLocaleString() });
+                    }
+                    const entry = timestampMap.get(ts)!;
+                    entry[`${tagKey}_value`] = typeof point.value === 'number' ? point.value : 0;
+                    entry[`${tagKey}_quality`] = point.quality;
+                });
             });
-        });
 
-        // Convert map to array and sort by timestamp
-        return Array.from(timestampMap.values()).sort((a, b) => (a.timestamp as number) - (b.timestamp as number));
-    }, [historyQueries, selectedTagIds, tags]);
+            // Convert map to array and sort by timestamp
+            return Array.from(timestampMap.values()).sort((a, b) => (a.timestamp as number) - (b.timestamp as number));
+        } catch (error) {
+            console.error("Error calculating chart data", error);
+            return [];
+        }
+    }, [historyQueries, selectedTagIds, safeTags]);
 
     // Get selected tag objects
     const selectedTags = useMemo(() => {
-        return selectedTagIds.map(id => tags.find(t => t.id === id)).filter(Boolean) as Tag[];
-    }, [selectedTagIds, tags]);
+        return selectedTagIds.map(id => safeTags.find(t => t.id === id)).filter(Boolean) as Tag[];
+    }, [selectedTagIds, safeTags]);
 
     // Handle tag selection
     const handleAddTag = (tagIdStr: string) => {
@@ -171,7 +181,7 @@ const TrendPage = () => {
     };
 
     // Available tags (excluding already selected)
-    const availableTags = tags.filter(tag => !selectedTagIds.includes(tag.id));
+    const availableTags = safeTags.filter(tag => !selectedTagIds.includes(tag.id));
 
     return (
         <div className="space-y-6">

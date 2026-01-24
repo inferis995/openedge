@@ -40,7 +40,7 @@ export const useTags = (gatewayId?: number | null) => {
     });
 
     return {
-        tags: query.data || [],
+        tags: Array.isArray(query.data) ? query.data : [],
         isLoading: query.isLoading,
         isError: query.isError,
         create: createMutation.mutateAsync,
