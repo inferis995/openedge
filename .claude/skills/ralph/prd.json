@@ -28,8 +28,8 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created internal/mqtt/client.go with Config struct (Host, Port, ClientID, Username, Password, CleanSession, AutoReconnect, KeepAlive, LWTTopic, LWTPayload, LWTRetained). Implemented Connect(), Disconnect(), Subscribe(), Unsubscribe(), Publish(), PublishWithQoS() methods. Package uses github.com/eclipse/paho.mqtt.golang. All MQTT import errors resolved - services now can import internal/mqtt without errors. Remaining errors are for other internal packages (redis, models, handlers, middleware, modbus, s7) to be addressed in US-003 through US-007."
     },
     {
       "id": "US-003",

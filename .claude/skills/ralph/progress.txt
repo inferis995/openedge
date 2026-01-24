@@ -11,8 +11,16 @@ Project: Web UI di configurazione per Industrial Edge Middleware
 - Package compiles successfully with go build ./internal/db
 - Note: Services still fail to compile because other internal packages (mqtt, redis, models, handlers, middleware, modbus, s7) are missing - these will be addressed in US-002 through US-007
 
+**COMPLETED: US-002** - Create internal/mqtt package with base client
+- Created internal/mqtt/client.go with full MQTT client implementation
+- Config struct includes: Host, Port, ClientID, Username, Password, CleanSession, AutoReconnect, KeepAlive, LWTTopic, LWTPayload, LWTRetained
+- Implemented methods: Connect(), Disconnect(), Subscribe(), Unsubscribe(), Publish(), PublishWithQoS()
+- Uses github.com/eclipse/paho.mqtt.golang library
+- All MQTT import errors resolved across all services
+- Package compiles successfully with go build ./internal/mqtt
+- Features: auto-reconnect, LWT (Last Will and Testament) for health monitoring, re-subscription on reconnect
+
 #### Pending User Stories:
-- **US-002**: Create internal/mqtt package with base client
 - **US-003**: Create internal/redis package with base client
 - **US-004**: Create internal/models package with entity structs
 - **US-005**: Create internal/handlers package with base handlers
@@ -41,6 +49,6 @@ Project: Web UI di configurazione per Industrial Edge Middleware
 - **US-028**: Add loading states and skeleton loaders
 
 #### Next Priority:
-- **US-002**: Create internal/mqtt package with base client
+- **US-003**: Create internal/redis package with base client
 
 ---

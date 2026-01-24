@@ -1,27 +1,13 @@
 package mqtt
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"log"
 	"sync"
 	"time"
 
-	pahomqtt "github.com/eclipse/paho.mqtt.golang"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
-
-// MessageHandler is a callback function for received messages
-type MessageHandler func(topic string, payload []byte)
-
-// Client wraps the Paho MQTT client with reconnection and publish/subscribe capabilities
-type Client struct {
-	client        pahomqtt.Client
-	options       *pahomqtt.ClientOptions
-	mu            sync.RWMutex
-	subscriptions map[string]MessageHandler
-	connected     bool
-}
 
 // Config holds the MQTT client configuration
 type Config struct {
@@ -38,96 +24,69 @@ type Config struct {
 	LWTRetained   bool
 }
 
-// generateUniqueID generates a short random hex string for unique identification
-func generateUniqueID() string {
-	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		// Fallback to timestamp if random fails
-		return fmt.Sprintf("%d", time.Now().UnixNano()%100000)
-	}
-	return hex.EncodeToString(b)
-}
+// MessageHandler is a function that handles incoming MQTT messages
+type MessageHandler func(topic string, payload []byte)
 
-// DefaultConfig returns a Config with sensible defaults
-func DefaultConfig() Config {
-	return Config{
-		Host:          "localhost",
-		Port:          1883,
-		ClientID:      fmt.Sprintf("mqtt-client-%d", time.Now().UnixNano()),
-		CleanSession:  true,
-		AutoReconnect: true,
-		KeepAlive:     30 * time.Second,
-	}
+// Client represents an MQTT client
+type Client struct {
+	config      Config
+	client      mqtt.Client
+	handlers    map[string]mqtt.MessageHandler
+	handlersMu  sync.RWMutex
+	connectOnce sync.Once
 }
 
 // NewClient creates a new MQTT client with the given configuration
-// Automatically appends a unique suffix to ClientID to prevent "identifier rejected" errors
-func NewClient(cfg Config) *Client {
+func NewClient(config Config) *Client {
+	opts := mqtt.NewClientOptions()
+	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", config.Host, config.Port))
+	opts.SetClientID(config.ClientID)
+
+	// Set AutoReconnect - default to true if not specified
+	autoReconnect := config.AutoReconnect
+	if !autoReconnect {
+		autoReconnect = true
+	}
+	opts.SetAutoReconnect(autoReconnect)
+	opts.SetMaxReconnectInterval(10 * time.Second)
+
+	// Set KeepAlive if specified
+	if config.KeepAlive > 0 {
+		opts.SetKeepAlive(config.KeepAlive)
+	}
+
+	// Set CleanSession if specified
+	if config.CleanSession {
+		opts.SetCleanSession(true)
+	}
+
+	// Set authentication if provided
+	if config.Username != "" {
+		opts.SetUsername(config.Username)
+	}
+	if config.Password != "" {
+		opts.SetPassword(config.Password)
+	}
+
+	// Set Last Will and Testament if provided
+	if config.LWTTopic != "" {
+		lwtPayload := config.LWTPayload
+		if lwtPayload == "" {
+			lwtPayload = "offline"
+		}
+		opts.SetWill(config.LWTTopic, lwtPayload, 0, config.LWTRetained)
+	}
+
 	c := &Client{
-		subscriptions: make(map[string]MessageHandler),
+		config:   config,
+		handlers: make(map[string]mqtt.MessageHandler),
 	}
 
-	// Generate unique client ID by appending a random suffix
-	// This prevents "identifier rejected" errors when multiple instances connect
-	uniqueClientID := fmt.Sprintf("%s-%s", cfg.ClientID, generateUniqueID())
+	opts.OnConnect = c.onConnect
+	opts.SetConnectionLostHandler(c.onConnectionLost)
 
-	// Apply sensible defaults for critical settings
-	// KeepAlive of 0 can cause connection issues with some brokers
-	keepAlive := cfg.KeepAlive
-	if keepAlive == 0 {
-		keepAlive = 30 * time.Second
-	}
-
-	opts := pahomqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", cfg.Host, cfg.Port))
-	opts.SetClientID(uniqueClientID)
-	opts.SetCleanSession(true)  // Always use clean session to avoid session state issues
-	opts.SetAutoReconnect(true) // Always enable auto-reconnect for reliability
-	opts.SetKeepAlive(keepAlive)
-	opts.SetConnectTimeout(10 * time.Second)
-	opts.SetWriteTimeout(5 * time.Second)
-	opts.SetPingTimeout(10 * time.Second)
-
-	log.Printf("MQTT client ID: %s (keepalive: %v)", uniqueClientID, keepAlive)
-
-	if cfg.Username != "" {
-		opts.SetUsername(cfg.Username)
-	}
-	if cfg.Password != "" {
-		opts.SetPassword(cfg.Password)
-	}
-
-	// Set Last Will Testament if configured
-	if cfg.LWTTopic != "" {
-		opts.SetWill(cfg.LWTTopic, cfg.LWTPayload, 1, cfg.LWTRetained)
-	}
-
-	// Connection lost handler
-	opts.SetConnectionLostHandler(func(client pahomqtt.Client, err error) {
-		log.Printf("MQTT connection lost: %v", err)
-		c.mu.Lock()
-		c.connected = false
-		c.mu.Unlock()
-	})
-
-	// On connect handler - resubscribe to all topics
-	opts.SetOnConnectHandler(func(client pahomqtt.Client) {
-		log.Printf("MQTT connected to %s:%d", cfg.Host, cfg.Port)
-		c.mu.Lock()
-		c.connected = true
-		c.mu.Unlock()
-
-		// Resubscribe to all topics on reconnect
-		c.resubscribe()
-	})
-
-	// Reconnecting handler
-	opts.SetReconnectingHandler(func(client pahomqtt.Client, opts *pahomqtt.ClientOptions) {
-		log.Println("MQTT attempting to reconnect...")
-	})
-
-	c.options = opts
-	c.client = pahomqtt.NewClient(opts)
+	client := mqtt.NewClient(opts)
+	c.client = client
 
 	return c
 }
@@ -136,104 +95,86 @@ func NewClient(cfg Config) *Client {
 func (c *Client) Connect() error {
 	token := c.client.Connect()
 	if token.Wait() && token.Error() != nil {
-		return fmt.Errorf("failed to connect to MQTT broker: %w", token.Error())
+		return token.Error()
 	}
+	log.Printf("[MQTT] Connected to broker at %s:%d as %s", c.config.Host, c.config.Port, c.config.ClientID)
 	return nil
 }
 
-// Disconnect gracefully disconnects from the MQTT broker
-func (c *Client) Disconnect(quiesce uint) {
-	c.client.Disconnect(quiesce)
-	c.mu.Lock()
-	c.connected = false
-	c.mu.Unlock()
+// Disconnect closes the connection to the MQTT broker
+func (c *Client) Disconnect(timeout int) {
+	c.client.Disconnect(uint(timeout))
+	log.Printf("[MQTT] Disconnected from broker")
 }
 
-// IsConnected returns whether the client is currently connected
-func (c *Client) IsConnected() bool {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.connected && c.client.IsConnected()
-}
-
-// Publish sends a message to the specified topic
-func (c *Client) Publish(topic string, payload interface{}) error {
-	return c.PublishWithQoS(topic, payload, 1, false)
-}
-
-// PublishWithQoS sends a message with specified QoS and retain flag
-func (c *Client) PublishWithQoS(topic string, payload interface{}, qos byte, retained bool) error {
-	if !c.client.IsConnected() {
-		return fmt.Errorf("MQTT client not connected")
+// Subscribe subscribes to a topic with a message handler
+func (c *Client) Subscribe(topic string, handler MessageHandler) error {
+	c.handlersMu.Lock()
+	c.handlers[topic] = func(client mqtt.Client, msg mqtt.Message) {
+		handler(msg.Topic(), msg.Payload())
 	}
+	c.handlersMu.Unlock()
 
-	token := c.client.Publish(topic, qos, retained, payload)
+	token := c.client.Subscribe(topic, 0, c.handlers[topic])
 	if token.Wait() && token.Error() != nil {
-		return fmt.Errorf("failed to publish to topic %s: %w", topic, token.Error())
+		return token.Error()
 	}
+
+	log.Printf("[MQTT] Subscribed to topic: %s", topic)
 	return nil
 }
 
-// Subscribe registers a callback for messages on the specified topic
-func (c *Client) Subscribe(topic string, callback MessageHandler) error {
-	return c.SubscribeWithQoS(topic, callback, 1)
-}
-
-// SubscribeWithQoS subscribes to a topic with specified QoS level
-func (c *Client) SubscribeWithQoS(topic string, callback MessageHandler, qos byte) error {
-	c.mu.Lock()
-	c.subscriptions[topic] = callback
-	c.mu.Unlock()
-
-	handler := func(client pahomqtt.Client, msg pahomqtt.Message) {
-		callback(msg.Topic(), msg.Payload())
-	}
-
-	token := c.client.Subscribe(topic, qos, handler)
-	if token.Wait() && token.Error() != nil {
-		c.mu.Lock()
-		delete(c.subscriptions, topic)
-		c.mu.Unlock()
-		return fmt.Errorf("failed to subscribe to topic %s: %w", topic, token.Error())
-	}
-
-	log.Printf("MQTT subscribed to topic: %s", topic)
-	return nil
-}
-
-// Unsubscribe removes a subscription from the specified topic
+// Unsubscribe unsubscribes from a topic
 func (c *Client) Unsubscribe(topic string) error {
-	c.mu.Lock()
-	delete(c.subscriptions, topic)
-	c.mu.Unlock()
+	c.handlersMu.Lock()
+	delete(c.handlers, topic)
+	c.handlersMu.Unlock()
 
 	token := c.client.Unsubscribe(topic)
 	if token.Wait() && token.Error() != nil {
-		return fmt.Errorf("failed to unsubscribe from topic %s: %w", topic, token.Error())
+		return token.Error()
 	}
 
-	log.Printf("MQTT unsubscribed from topic: %s", topic)
+	log.Printf("[MQTT] Unsubscribed from topic: %s", topic)
 	return nil
 }
 
-// resubscribe restores all subscriptions after a reconnect
-func (c *Client) resubscribe() {
-	c.mu.RLock()
-	subs := make(map[string]MessageHandler)
-	for topic, handler := range c.subscriptions {
-		subs[topic] = handler
+// Publish publishes a message to a topic
+func (c *Client) Publish(topic string, payload string) error {
+	token := c.client.Publish(topic, 0, false, payload)
+	if token.Wait() && token.Error() != nil {
+		return token.Error()
 	}
-	c.mu.RUnlock()
 
-	for topic, callback := range subs {
-		handler := func(client pahomqtt.Client, msg pahomqtt.Message) {
-			callback(msg.Topic(), msg.Payload())
-		}
-		token := c.client.Subscribe(topic, 1, handler)
-		if token.Wait() && token.Error() != nil {
-			log.Printf("Failed to resubscribe to topic %s: %v", topic, token.Error())
-		} else {
-			log.Printf("MQTT resubscribed to topic: %s", topic)
-		}
+	log.Printf("[MQTT] Published to topic %s: %s", topic, payload)
+	return nil
+}
+
+// PublishWithQoS publishes a message to a topic with specified QoS and retain flag
+func (c *Client) PublishWithQoS(topic string, payload string, qos byte, retained bool) error {
+	token := c.client.Publish(topic, qos, retained, payload)
+	if token.Wait() && token.Error() != nil {
+		return token.Error()
 	}
+
+	log.Printf("[MQTT] Published to topic %s (QoS=%d, retained=%t): %s", topic, qos, retained, payload)
+	return nil
+}
+
+// onConnect is called when the client connects to the broker
+func (c *Client) onConnect(client mqtt.Client) {
+	log.Println("[MQTT] Connection established")
+	// Re-subscribe to all topics on reconnect
+	c.handlersMu.RLock()
+	defer c.handlersMu.RUnlock()
+
+	for topic := range c.handlers {
+		client.Subscribe(topic, 0, c.handlers[topic])
+		log.Printf("[MQTT] Re-subscribed to topic: %s", topic)
+	}
+}
+
+// onConnectionLost is called when the connection to the broker is lost
+func (c *Client) onConnectionLost(client mqtt.Client, err error) {
+	log.Printf("[MQTT] Connection lost: %v", err)
 }
