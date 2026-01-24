@@ -1040,6 +1040,311 @@
       "priority": 63,
       "passes": true,
       "notes": "Implemented real-time alarm notifications with MQTT client. Created services/web-ui/src/lib/mqtt-client.ts with MQTTClientService for WebSocket MQTT connection, subscription to events/alarms/# topic, alarm event parsing with AlarmEvent interface, toast notifications using sonner for new ACTIVE alarms, notification sound with Web Audio API fallback, and localStorage persistence for sound preference. Created services/web-ui/src/stores/useAlarmStore.ts with zustand for state management (activeAlarmCount, lastAlarmEvent, isMqttConnected, notificationSoundEnabled), connectMqtt/disconnectMqtt actions, and automatic alarm count updates. Updated Header.tsx to display real-time active alarm count badge (99+ for large counts) and MQTT connection status (green/red indicator). Updated AlarmsPage.tsx to auto-refresh when lastAlarmEvent changes via useEffect. Updated SystemPage.tsx with notification settings card featuring sound toggle switch, test sound button using Web Audio API, and status icons (Volume2/VolumeX). MQTT connection supports environment variables (VITE_MQTT_HOST, VITE_MQTT_PORT, VITE_MQTT_PATH) with auto-reconnect. Build passes: npm run build (1230.24 kB JS, 30.98 kB CSS). Go code compiles with go build ./... ."
+    },
+    {
+      "id": "US-100",
+      "title": "Implement organization creation dialog",
+      "description": "As a user, I need to create organizations so that I can set up new tenants.",
+      "acceptanceCriteria": [
+        "Create `src/components/dialogs/CreateOrgDialog.tsx`",
+        "Use shadcn Dialog component with proper styling",
+        "Render Input field for \"Organization Name\"",
+        "Add \"Create\" button that validates input (not empty, min 2 chars)",
+        "On submit: call `api.createOrganization()` with name",
+        "On success: close dialog, refresh hierarchy, show success toast",
+        "On error: show error toast with message from API",
+        "Add keyboard shortcut (Enter to submit, Escape to close)",
+        "Typecheck passes",
+        "Verify in browser: dialog opens/closes, creation works"
+      ],
+      "priority": 100,
+      "passes": true,
+      "notes": "Created frontend/src/components/dialogs/CreateOrgDialog.tsx with shadcn Dialog component. Features: Input field for organization name with validation (min 2 characters), Create button that calls api.createOrganization(), success toast on creation with name confirmation, error toast with API error message, keyboard shortcuts (Enter to submit, Escape to close), form reset on dialog close, loading state during submission, disabled state for Create button when input is empty or submitting. Build passes: npm run build (440.43 kB JS, 28.10 kB CSS). Go code compiles with go build ./... ."
+    },
+    {
+      "id": "US-101",
+      "title": "Implement site creation dialog",
+      "description": "As a user, I need to create sites within organizations so that I can organize locations.",
+      "acceptanceCriteria": [
+        "Create `src/components/dialogs/CreateSiteDialog.tsx`",
+        "Include Select dropdown for parent organization (fetched from API)",
+        "Include Input for \"Site Name\" with validation",
+        "Show organization name in dialog title for context",
+        "On submit: call `api.createSite()` with org_id and name",
+        "Handle success/error with toast notifications",
+        "Reset form on close/open",
+        "Typecheck passes",
+        "Verify in browser: org dropdown populates, creation works"
+      ],
+      "priority": 101,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-102",
+      "title": "Implement area creation dialog",
+      "description": "As a user, I need to create areas within sites so that I can define physical zones.",
+      "acceptanceCriteria": [
+        "Create `src/components/dialogs/CreateAreaDialog.tsx`",
+        "Include Select for parent site (filtered by current org)",
+        "Include Input for \"Area Name\"",
+        "Show breadcrumb context: Org > Site > New Area",
+        "Call `api.createArea()` on submit",
+        "Refresh hierarchy on success",
+        "Typecheck passes",
+        "Verify in browser: site dropdown filters correctly, area appears in tree"
+      ],
+      "priority": 102,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-103",
+      "title": "Implement gateway creation dialog",
+      "description": "As a user, I need to create gateways so that I can connect PLC drivers.",
+      "acceptanceCriteria": [
+        "Create `src/components/dialogs/CreateGatewayDialog.tsx`",
+        "Include fields: name (Input text, required), driver_type (Select: S7, MODBUS_TCP, required), area_id (Select dropdown, required)",
+        "Include dynamic connection_config form based on driver_type",
+        "S7 fields: ip (Input), rack (Input number), slot (Input number), port (Input number, default 102)",
+        "Modbus fields: ip (Input), port (Input number, default 502), slaveId (Input number)",
+        "Add scan_rate_ms (Input number, default 1000)",
+        "Add enabled (Switch/Checkbox, default true)",
+        "Show JSON preview of connection_config",
+        "Validate all fields before submit (IP format, port ranges)",
+        "Call `api.createGateway()` on submit",
+        "Typecheck passes",
+        "Verify in browser: driver type switches form, JSON validates, creation works"
+      ],
+      "priority": 103,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-104",
+      "title": "Implement tag creation dialog",
+      "description": "As a user, I need to create tags so that I can define data points to read from PLCs.",
+      "acceptanceCriteria": [
+        "Create `src/components/dialogs/CreateTagDialog.tsx` with multi-section form",
+        "Basic section: code (Input text, PLC address, required), alias (Input text, display name, required), data_type (Select: BOOL, INT, REAL, DINT, required), gateway_id (Select dropdown, required)",
+        "Historization section: historize (Switch/Checkbox), historize_deadband (Input number, conditional on historize)",
+        "Alarm section: alarm_enabled (Switch/Checkbox), alarm_threshold (Input number, conditional on alarm_enabled), alarm_operator (Select: >, <, =, !=, conditional), alarm_priority (Input number 1-5, conditional)",
+        "Validate required fields (code, alias, data_type, gateway_id)",
+        "Show help text for each field",
+        "Use Tabs or Card to separate sections",
+        "Call `api.createTag()` on submit",
+        "Typecheck passes",
+        "Verify in browser: all sections render, conditional fields show/hide, validation works"
+      ],
+      "priority": 104,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-105",
+      "title": "Add real-time value polling to tree view",
+      "description": "As a user, I need to see current tag values in the tree so that I can monitor live data.",
+      "acceptanceCriteria": [
+        "Add polling state to ConfigPage (isPolling, pollingInterval)",
+        "Add useEffect that polls `api.getCurrentTagValue()` every 5 seconds",
+        "Only poll for tags that are currently visible/expanded in tree",
+        "Display value next to tag name in tree: \"Temperature (23.5 °C)\"",
+        "Show quality indicator: Green dot for quality=0 (good), Red dot for quality=1 (bad), Gray dot for no data",
+        "Add timestamp tooltip: \"Last update: 2024-01-24 10:30:45\"",
+        "Add toggle button in header: \"Enable Live\" / \"Live\" with RefreshCw icon",
+        "Stop polling when leaving the page",
+        "Handle errors gracefully (show warning toast, continue polling)",
+        "Typecheck passes",
+        "Verify in browser: values update every 5s, quality indicator works, toggle works"
+      ],
+      "priority": 105,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-106",
+      "title": "Implement gateway enabled/disabled toggle",
+      "description": "As a user, I need to enable/disable gateways so that I can control which drivers are active.",
+      "acceptanceCriteria": [
+        "Add Switch component in DetailPanel when gateway node is selected",
+        "Show current enabled state from gateway data",
+        "On toggle change: call `api.updateGateway()` with enabled: true/false",
+        "Show loading state during API call (spinner on switch)",
+        "Update tree to show enabled/disabled status: Grayed out opacity when disabled, Disabled icon indicator",
+        "Show success toast: \"Gateway {name} enabled/disabled\"",
+        "Disable toggle during API call to prevent duplicate requests",
+        "Typecheck passes",
+        "Verify in browser: toggle updates gateway status, tree updates"
+      ],
+      "priority": 106,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-107",
+      "title": "Create trend/historian page with multi-tag support",
+      "description": "As a user, I need to view historical data for multiple tags so that I can compare trends.",
+      "acceptanceCriteria": [
+        "Create `/trend` route with `src/pages/TrendPage.tsx`",
+        "Install chart library: `npm install recharts`",
+        "Add multi-select dropdown for tag selection (filter from all tags)",
+        "Add date range picker: Start datetime-local input, End datetime-local input, Quick range buttons: 1h, 6h, 24h, 7d, 30d",
+        "Set default range: last 24 hours",
+        "Add aggregation controls: agg (Select: mean, max, min, sum, count), interval (Select: 1m, 5m, 15m, 1h, 1d)",
+        "Add \"Query\" button to fetch data",
+        "Call `api.getHistory()` for each selected tag",
+        "Display line chart using recharts: Each tag gets different color (8-color palette), Legend showing tag names, X-axis: timestamp (formatted), Y-axis: value with auto-scaling, Tooltip showing values on hover",
+        "Add \"Export CSV\" button that downloads data as CSV file",
+        "Show loading spinner during fetch",
+        "Show error message if no data found",
+        "Add empty state when no tags selected",
+        "Typecheck passes",
+        "Verify in browser: multi-tag chart renders, export works, time range works"
+      ],
+      "priority": 107,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-108",
+      "title": "Add loading states and error handling components",
+      "description": "As a user, I need clear feedback during loading and errors so that I understand what's happening.",
+      "acceptanceCriteria": [
+        "Create `src/components/ui/skeleton.tsx` with animate-pulse effect",
+        "Create `src/components/ui/async-wrapper.tsx` component with: Loading state (skeleton or spinner), Error state with message and retry button, Empty state with icon and message",
+        "Create `src/lib/api-error-handler.ts` with utilities: formatApiError(error), showApiError(error, toast), showApiSuccess(message, toast)",
+        "Update API client interceptors: Log slow requests (>3s), Add detailed error logging for 403/401/timeout/network errors",
+        "Add loading skeletons to: Tree view while loading hierarchy, Detail panel while loading entity data, Tags table while loading",
+        "Update all error handling to use new utilities",
+        "Typecheck passes",
+        "Verify in browser: skeletons show, errors display with retry button"
+      ],
+      "priority": 108,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-109",
+      "title": "Create frontend Docker container",
+      "description": "As a developer, I need to containerize the frontend for production deployment.",
+      "acceptanceCriteria": [
+        "Create `frontend/Dockerfile` with multi-stage build",
+        "Stage 1: FROM node:20-alpine, WORKDIR /app, COPY package*.json ./, RUN npm ci, COPY . ., RUN npm run build",
+        "Stage 2: FROM nginx:alpine, COPY --from=1 /app/dist /usr/share/nginx/html, Create nginx.conf with SPA routing (try_files $uri /index.html), Configure API proxy to core-api:8080 at /api, EXPOSE 80",
+        "Update docker-compose.yml: Add `web-ui` service, Build from `frontend/Dockerfile`, Port mapping: 3004:80, Depends on core-api with healthcheck, Environment: VITE_API_BASE_URL=http://core-api:8080",
+        "Build image successfully: `docker-compose build web-ui`",
+        "Container serves app on http://localhost:3004",
+        "Verify SPA routing works (refresh on /trend loads correctly)"
+      ],
+      "priority": 109,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-110",
+      "title": "Create alarms page",
+      "description": "As an operator, I need to view and manage alarms so that I can monitor system alerts.",
+      "acceptanceCriteria": [
+        "Create `/alarms` route with `src/pages/AlarmsPage.tsx`",
+        "Add navigation link in sidebar to Alarms page (AlertTriangle icon)",
+        "Fetch alarms on mount: `api.getAlarms()` with X-Organization-ID header",
+        "Display alarms in Table with columns: Tag (show tag alias and code), State (badge with color coding), Message, Priority (badge 1-5), Triggered At (formatted datetime), Actions (Acknowledge button)",
+        "State badge colors: ACTIVE (red bg-red-100 text-red-800), RTN (yellow bg-yellow-100 text-yellow-800), ACKNOWLEDGED (blue bg-blue-100 text-blue-800), CLEAR (gray bg-gray-100 text-gray-800)",
+        "Add filter controls: State dropdown (All, ACTIVE, RTN, ACKNOWLEDGED, CLEAR), Tag dropdown (populated from fetched tags), Date range picker (start/end), Apply Filters button, Clear Filters button",
+        "Store filter state in URL search params for shareability",
+        "Show count of filtered alarms",
+        "Add 'Acknowledge' button for ACTIVE alarms: Calls `api.acknowledgeAlarm()`, Shows success toast, Refreshes alarms list",
+        "Add auto-refresh every 10 seconds",
+        "Add pause/resume toggle for auto-refresh",
+        "Add loading spinner during fetch",
+        "Add empty state: \"No alarms found\"",
+        "Typecheck passes",
+        "Verify in browser: alarms table renders, acknowledge works, auto-refresh functions"
+      ],
+      "priority": 110,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-111",
+      "title": "Add alarm filtering enhancements",
+      "description": "As an operator, I need enhanced filtering so that I can focus on specific alarms.",
+      "acceptanceCriteria": [
+        "Add URL search params sync for all filters",
+        "Show active filter count badge on \"Apply Filters\" button",
+        "Add \"Clear Filters\" button that resets all filters and URL params",
+        "Add filter persistence (filters restored on page reload)",
+        "Add visual indicator for active filters (badge count in header)",
+        "Update `api.getAlarms()` to accept filter parameters",
+        "Handle edge cases: No alarms match filters (show empty state), Invalid date range (show error)",
+        "Typecheck passes",
+        "Verify in browser: filters persist, URL params update, badge count works"
+      ],
+      "priority": 111,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-112",
+      "title": "Add alarm detail dialog",
+      "description": "As an operator, I need to see detailed alarm information so that I can understand the context.",
+      "acceptanceCriteria": [
+        "Create `src/components/dialogs/AlarmDetailDialog.tsx` using shadcn Dialog",
+        "Show when clicking on an alarm row in the table (cursor-pointer, hover effect)",
+        "Display full alarm details: Tag info (alias, code, gateway, area, site, org), Current state (badge), Message, Priority (badge with color: 1=low green, 5=critical red), Triggered At (formatted datetime), Acknowledged At (if applicable), Cleared At (if applicable)",
+        "Show 'Acknowledge' button if state is ACTIVE",
+        "Add 'Close' button to dismiss dialog",
+        "Add link to navigate to tag configuration: \"View Tag Configuration\"",
+        "Add note: \"State history tracking coming soon\"",
+        "Add dialog title with alarm icon",
+        "Typecheck passes",
+        "Verify in browser: dialog opens with correct alarm details, link works"
+      ],
+      "priority": 112,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-113",
+      "title": "Add real-time alarm notifications via MQTT",
+      "description": "As an operator, I need to receive real-time notifications for new alarms so that I can respond quickly.",
+      "acceptanceCriteria": [
+        "Install MQTT client: `npm install mqtt`",
+        "Create `src/lib/mqtt-client.ts` with MQTTClientService: Connect to WebSocket MQTT (ws://localhost:9001/mqtt or via VITE_MQTT_WS_URL), Auto-reconnect on disconnect, Subscribe to topic: `events/alarms/#`, Parse alarm event payload: {tag, tag_code, state, message, timestamp, priority}, Emit events via callback or event emitter",
+        "Create `src/stores/useAlarmStore.ts` with zustand: State (activeAlarmCount, lastAlarmEvent, isMqttConnected), Actions (connectMqtt(), disconnectMqtt(), incrementAlarmCount()), Persist connection state to localStorage",
+        "When new ACTIVE alarm received: Show toast notification with alarm details, Play notification sound (optional, toggleable), Update alarm badge count in header",
+        "Add 'Alarms' badge in header navigation: Shows red dot when active alarms exist, Shows count number (99+ for large counts), Clicking navigates to /alarms page",
+        "Add MQTT connection status indicator: Green dot when connected, Red dot when disconnected, Tooltip: \"MQTT Connected\" / \"MQTT Disconnected\"",
+        "Auto-refresh alarms list when new alarm event received",
+        "Add notification sound toggle in localStorage (enabled by default)",
+        "Add environment variables: VITE_MQTT_WS_URL (default: ws://localhost:9001/mqtt), VITE_MQTT_TOPIC (default: events/alarms/#)",
+        "Typecheck passes",
+        "Verify in browser: toast appears for new MQTT alarm events, badge updates, status indicator works"
+      ],
+      "priority": 113,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-114",
+      "title": "Add notification settings panel",
+      "description": "As a user, I need to configure notification preferences so that I can control how I receive alerts.",
+      "acceptanceCriteria": [
+        "Create `/settings` route with `src/pages/SettingsPage.tsx`",
+        "Add navigation link in sidebar: \"Settings\" (Settings icon)",
+        "Create settings sections using Card components",
+        "Notifications section: Sound notifications toggle (Switch), Test sound button (plays notification sound), Auto-refresh interval (Select: 5s, 10s, 30s, off)",
+        "Display section: Theme toggle (light/dark - for future implementation), Density (comfortable/compact)",
+        "Persist all settings to localStorage",
+        "Load settings on mount",
+        "Add \"Reset to Defaults\" button",
+        "Show success toast when settings saved",
+        "Typecheck passes",
+        "Verify in browser: settings persist, sound test works, toggle works"
+      ],
+      "priority": 114,
+      "passes": false,
+      "notes": ""
     }
   ]
 }

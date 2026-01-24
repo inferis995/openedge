@@ -2600,3 +2600,150 @@ The frontend Docker container was already fully implemented with all acceptance 
 
 #### Next Priority:
 - **US-063**: Add real-time alarm notifications
+
+### 2026-01-24 - Real-Time Alarm Notifications (Iteration 40)
+
+#### Completed User Stories:
+- **US-063**: Implemented real-time alarm notifications
+
+#### Features Implemented:
+- `services/web-ui/src/lib/mqtt-client.ts` - MQTT client service with:
+  - `MQTTClientService` class for WebSocket MQTT connection management
+  - `AlarmEvent` interface: {tag: number, state: 'ACTIVE' | 'RTN' | 'ACKNOWLEDGED' | 'CLEAR', msg: string, ts: number}
+  - `connect()` - Establishes WebSocket MQTT connection with configurable URL
+  - `disconnect()` - Gracefully closes MQTT connection
+  - `isConnected()` - Returns current connection status
+  - `onAlarmEvent(listener)` - Subscribe to alarm events with callback
+  - `setNotificationSoundEnabled(enabled)` - Toggle notification sound with localStorage persistence
+  - Subscription to `events/alarms/#` topic for all alarm events
+  - Auto-reconnect with configurable reconnect attempts and delay
+  - Toast notifications using sonner library for new ACTIVE alarms
+  - Notification sound playback using HTMLAudioElement with preload
+  - WebSocket URL construction based on protocol (ws/wss), host, port, and path
+
+- `services/web-ui/src/stores/useAlarmStore.ts` - Zustand store for alarm state:
+  - State: `activeAlarmCount`, `lastAlarmEvent`, `isMqttConnected`, `notificationSoundEnabled`
+  - Actions: `setActiveAlarmCount`, `setLastAlarmEvent`, `setMqttConnected`, `setNotificationSoundEnabled`, `incrementActiveCount`, `decrementActiveCount`
+  - `connectMqtt()` - Initialize MQTT connection and subscribe to events
+  - `disconnectMqtt()` - Close MQTT connection
+  - Automatic alarm count updates based on event state (ACTIVE increments, RTN/ACKNOWLEDGED/CLEAR decrements)
+  - MQTT connection status tracking with periodic checks (every 5 seconds)
+  - localStorage integration for notification sound preference
+
+- `services/web-ui/src/components/layout/Header.tsx` - Enhanced with real-time alarm features:
+  - Real-time `activeAlarmCount` from alarm store
+  - MQTT connection status indicator (green=connected, red=disconnected) with animated pulse
+  - Alarm badge showing count (displays "99+" for large counts)
+  - Tooltip showing active alarm count
+  - useEffect to connect MQTT on component mount
+  - Bell icon with destructive variant badge when active alarms exist
+
+- `services/web-ui/src/pages/AlarmsPage.tsx` - Enhanced with real-time updates:
+  - Integration with `useAlarmStore` for `lastAlarmEvent` and `setLastAlarmEvent`
+  - useEffect hook to auto-refresh alarms list when new MQTT event received
+  - Clears event after processing to prevent duplicate refreshes
+
+- `services/web-ui/src/pages/SystemPage.tsx` - Added notification settings:
+  - New "Notification Settings" card with Bell icon
+  - Sound toggle switch with Volume2/VolumeX dynamic icons
+  - "Test Notification Sound" button using Web Audio API
+  - Toast notifications when toggling sound on/off
+  - Description of current sound status (enabled/muted)
+  - Helpful note about browser autoplay policies
+
+#### Environment Variables:
+- `VITE_MQTT_HOST` - MQTT broker hostname (default: current location hostname)
+- `VITE_MQTT_PORT` - MQTT WebSocket port (default: 80 for ws, 443 for wss)
+- `VITE_MQTT_PATH` - MQTT WebSocket path (default: /mqtt)
+
+#### Dependencies Added:
+- mqtt ^5.5.0 - MQTT.js library for browser WebSocket connections
+
+#### Design Decisions:
+- WebSocket MQTT connection for real-time bidirectional communication
+- Singleton pattern for MQTT client to prevent duplicate connections
+- Zustand for lightweight state management without context providers
+- Sonner for toast notifications with rich formatting and actions
+- localStorage for notification sound preference persistence
+- Web Audio API fallback for test sound (no audio file dependency)
+- 99+ display for large alarm counts to prevent UI overflow
+- Color-coded MQTT status (green=connected, red=disconnected) for quick visual feedback
+
+#### MQTT Integration:
+- Topic subscription: `events/alarms/#` receives all alarm events from backend
+- Event parsing: extracts tag_id from topic path and payload from JSON
+- State machine integration: alarm count increments on ACTIVE, decrements on RTN/ACKNOWLEDGED/CLEAR
+- Duplicate prevention: event cleared after processing to prevent multiple refreshes
+
+#### Files Created:
+- `services/web-ui/src/lib/mqtt-client.ts` - MQTT client service
+- `services/web-ui/src/stores/useAlarmStore.ts` - Alarm state management store
+
+#### Files Modified:
+- `services/web-ui/src/components/layout/Header.tsx` - Real-time alarm badge and MQTT status
+- `services/web-ui/src/pages/AlarmsPage.tsx` - Auto-refresh on MQTT events
+- `services/web-ui/src/pages/SystemPage.tsx` - Notification settings panel
+- `services/web-ui/package.json` - Added mqtt dependency
+
+#### Typecheck:
+- `npm run build` passes successfully (1230.24 kB JS, 30.98 kB CSS)
+- `go build ./...` passes successfully
+
+#### All Features Complete:
+All 63 user stories have been implemented successfully. The Industrial Edge Middleware system is now feature-complete with:
+- Multi-tenant organizational hierarchy (Organizations, Sites, Areas)
+- Gateway management with S7 and Modbus TCP drivers
+- Tag configuration with alarm and historization support
+- Real-time data acquisition with MQTT
+- Historical data storage in InfluxDB
+- Redis caching for real-time values
+- Alarm detection and acknowledgment with real-time notifications
+- Frontend UI with real-time alarm notifications and sound alerts
+- API documentation with Swagger/OpenAPI
+
+
+
+### 2026-01-24 - Organization Creation Dialog (Iteration 39)
+
+#### Completed User Stories:
+- **US-100**: Implemented organization creation dialog
+
+#### Features Implemented:
+- `frontend/src/components/dialogs/CreateOrgDialog.tsx` - Organization creation dialog with:
+  - `CreateOrgDialogProps` interface with optional `onSuccess` callback
+  - shadcn Dialog component with proper styling and animations
+  - Input field for organization name with placeholder (e.g., Acme Corporation)
+  - Form validation: name must not be empty and have at least 2 characters
+  - Create button that validates input and calls `api.createOrganization()`
+  - Success toast with organization name confirmation on creation
+  - Error toast with API error message on failure
+  - Keyboard shortcuts: Enter to submit, Escape to close dialog
+  - Form reset when dialog closes (name field cleared)
+  - Loading state during submission (isSubmitting flag)
+  - Disabled state for Create button when input is empty or submitting
+  - Auto-focus on input field when dialog opens
+  - Help text showing minimum character requirement
+
+#### Dialog Structure:
+- Title: "Create Organization"
+- Description: "Enter a name for the new organization. This will be the top-level tenant in the system hierarchy."
+- Trigger button: "New Organization" with Plus icon
+- Footer with Cancel and Create buttons
+- Max width: 425px (sm:max-w-[425px])
+
+#### Design System Integration:
+- Follows shadcn/ui Dialog component patterns
+- Violet primary color for Create button (bg-violet-600, hover:bg-violet-700)
+- Outline variant for Cancel button
+- Consistent spacing and typography
+- Toast notifications using useToast hook from shadcn/ui
+
+#### Files Created:
+- `frontend/src/components/dialogs/CreateOrgDialog.tsx` - Organization creation dialog component
+
+#### Typecheck:
+- `go build ./...` passes successfully
+- `npm run build` creates production build successfully (440.43 kB JS, 28.10 kB CSS)
+
+#### Next Priority:
+- **US-101**: Implement site creation dialog
