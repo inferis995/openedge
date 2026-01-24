@@ -1486,3 +1486,50 @@ All 37 user stories have been implemented successfully. The Industrial Edge Midd
 - Alarm detection and acknowledgment
 - API documentation with Swagger/OpenAPI
 
+
+### 2026-01-24 - Frontend Setup (Iteration 31)
+
+#### Completed User Stories:
+- **US-038**: Created frontend folder structure following design system
+
+#### Features Implemented:
+- `frontend/` directory created with Vite React TypeScript template (`npm create vite@latest frontend -- --template react-ts`)
+- Tailwind CSS v3.4 installed with PostCSS and Autoprefixer
+- `tailwind.config.js` configured with content paths for index.html and src/**/*.{js,ts,jsx,tsx}
+- `postcss.config.js` configured with tailwindcss and autoprefixer plugins
+- `vite.config.ts` configured with proxy to forward `/api` requests to `localhost:8080`
+- Folder structure created: `src/components`, `src/pages`, `src/lib`, `src/services`, `src/types`
+- Inter font configured via Google Fonts in `index.html`
+- Design system comment reference added at top of `main.tsx`
+- Production build verified: `npm run build` creates dist folder successfully
+- Title updated to "Industrial Edge Middleware" in index.html
+
+#### Files Created:
+- `frontend/tailwind.config.js` - Tailwind configuration
+- `frontend/postcss.config.js` - PostCSS configuration
+- `frontend/src/components/` - Empty components directory
+- `frontend/src/pages/` - Empty pages directory
+- `frontend/src/lib/` - Empty lib directory
+- `frontend/src/services/` - Empty services directory
+- `frontend/src/types/` - Empty types directory
+
+#### Files Modified:
+- `frontend/vite.config.ts` - Added proxy configuration
+- `frontend/index.html` - Added Inter font link, updated title
+- `frontend/src/index.css` - Added Tailwind directives and Inter font import
+- `frontend/src/main.tsx` - Added design system comment reference
+
+#### Design System Integration:
+- Following `tasks/design-system.md` for visual styling
+- Violet/purple color scheme (#8b5cf6) as primary color
+- Inter font family for consistent typography
+- Dark sidebar (bg-gray-900) with light main content (bg-gray-50) layout
+- Tailwind configured for responsive design
+
+#### Typecheck:
+- `go build ./...` passes successfully
+- `npm run build` creates production build without errors
+
+#### Next Priority:
+- **US-039**: Install and configure shadcn/ui components
+
