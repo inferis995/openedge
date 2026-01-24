@@ -94,3 +94,28 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-012**: Create driver-s7 service Docker container structure
 
+### 2026-01-24 - S7 Driver Service Structure (Iteration 5)
+
+#### Completed User Stories:
+- **US-012**: Created driver-s7 service Docker container structure
+
+#### Features Implemented:
+- `services/driver-s7/Dockerfile` - Multi-stage build (golang:1.21-alpine -> alpine:3.19)
+- `services/driver-s7/main.go` - S7 driver service with:
+  - Gateway configuration loading from PostgreSQL by gateway ID
+  - Full hierarchy info loading (org/site/area names) for MQTT topic construction
+  - MQTT client with Last Will Testament (LWT) for health monitoring (`sys/health/{gateway_id}`)
+  - Subscription to `sys/command/reload/{gateway_id}` for dynamic config reload
+  - Non-blocking reload channel to prevent duplicate reload requests
+  - Polling loop with configurable scan rate from gateway settings
+  - `slugify()` function for URL-friendly topic names (spaces -> hyphens)
+  - Graceful shutdown handling with SIGINT/SIGTERM signals
+  - Environment variable configuration for DB and MQTT connections
+
+#### Files Created:
+- `services/driver-s7/Dockerfile` - Docker container definition
+- `services/driver-s7/main.go` - S7 driver service main entry point
+
+#### Next Priority:
+- **US-013**: Implement S7 protocol connection and polling
+
