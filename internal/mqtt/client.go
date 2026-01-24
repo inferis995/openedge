@@ -1,6 +1,8 @@
 package mqtt
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"sync"
@@ -36,6 +38,16 @@ type Config struct {
 	LWTRetained   bool
 }
 
+// generateUniqueID generates a short random hex string for unique identification
+func generateUniqueID() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback to timestamp if random fails
+		return fmt.Sprintf("%d", time.Now().UnixNano()%100000)
+	}
+	return hex.EncodeToString(b)
+}
+
 // DefaultConfig returns a Config with sensible defaults
 func DefaultConfig() Config {
 	return Config{
@@ -49,17 +61,34 @@ func DefaultConfig() Config {
 }
 
 // NewClient creates a new MQTT client with the given configuration
+// Automatically appends a unique suffix to ClientID to prevent "identifier rejected" errors
 func NewClient(cfg Config) *Client {
 	c := &Client{
 		subscriptions: make(map[string]MessageHandler),
 	}
 
+	// Generate unique client ID by appending a random suffix
+	// This prevents "identifier rejected" errors when multiple instances connect
+	uniqueClientID := fmt.Sprintf("%s-%s", cfg.ClientID, generateUniqueID())
+
+	// Apply sensible defaults for critical settings
+	// KeepAlive of 0 can cause connection issues with some brokers
+	keepAlive := cfg.KeepAlive
+	if keepAlive == 0 {
+		keepAlive = 30 * time.Second
+	}
+
 	opts := pahomqtt.NewClientOptions()
 	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", cfg.Host, cfg.Port))
-	opts.SetClientID(cfg.ClientID)
-	opts.SetCleanSession(cfg.CleanSession)
-	opts.SetAutoReconnect(cfg.AutoReconnect)
-	opts.SetKeepAlive(cfg.KeepAlive)
+	opts.SetClientID(uniqueClientID)
+	opts.SetCleanSession(true)  // Always use clean session to avoid session state issues
+	opts.SetAutoReconnect(true) // Always enable auto-reconnect for reliability
+	opts.SetKeepAlive(keepAlive)
+	opts.SetConnectTimeout(10 * time.Second)
+	opts.SetWriteTimeout(5 * time.Second)
+	opts.SetPingTimeout(10 * time.Second)
+
+	log.Printf("MQTT client ID: %s (keepalive: %v)", uniqueClientID, keepAlive)
 
 	if cfg.Username != "" {
 		opts.SetUsername(cfg.Username)

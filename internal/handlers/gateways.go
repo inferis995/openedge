@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -36,20 +37,20 @@ func NewGatewaysHandler(db *sql.DB, mqttClient MQTTClient, redisClient RedisClie
 
 // CreateGatewayRequest represents the request body for creating a gateway
 type CreateGatewayRequest struct {
-	AreaID           int                        `json:"area_id" binding:"required"`
-	Name             string                     `json:"name" binding:"required"`
-	DriverType       string                     `json:"driver_type" binding:"required"`
-	ConnectionConfig models.ConnectionConfig   `json:"connection_config" binding:"required"`
-	ScanRateMs       int                        `json:"scan_rate_ms"`
+	AreaID           int                     `json:"area_id" binding:"required"`
+	Name             string                  `json:"name" binding:"required"`
+	DriverType       string                  `json:"driver_type" binding:"required"`
+	ConnectionConfig models.ConnectionConfig `json:"connection_config" binding:"required"`
+	ScanRateMs       int                     `json:"scan_rate_ms"`
 }
 
 // UpdateGatewayRequest represents the request body for updating a gateway
 type UpdateGatewayRequest struct {
-	Name             *string                    `json:"name"`
-	DriverType       *string                    `json:"driver_type"`
-	ConnectionConfig *models.ConnectionConfig   `json:"connection_config"`
-	ScanRateMs       *int                       `json:"scan_rate_ms"`
-	Enabled          *bool                      `json:"enabled"`
+	Name             *string                  `json:"name"`
+	DriverType       *string                  `json:"driver_type"`
+	ConnectionConfig *models.ConnectionConfig `json:"connection_config"`
+	ScanRateMs       *int                     `json:"scan_rate_ms"`
+	Enabled          *bool                    `json:"enabled"`
 }
 
 // GatewayHealthStatus represents the health status from Redis
@@ -162,7 +163,7 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 
 	if areaOrgID != orgID {
 		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Cannot create gateway for area in different organization",
+			"error":  "Cannot create gateway for area in different organization",
 			"detail": fmt.Sprintf("Area belongs to organization %d, but authorized for organization %d", areaOrgID, orgID),
 		})
 		return
@@ -219,7 +220,8 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 
 	areaIDStr := c.Query("area_id")
 	if areaIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "area_id query parameter is required"})
+		// If no area_id provided, return empty list (no error)
+		c.JSON(http.StatusOK, []GatewayWithHealth{})
 		return
 	}
 
@@ -246,7 +248,7 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 
 	if areaOrgID != orgID {
 		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Cannot query gateways for area in different organization",
+			"error":  "Cannot query gateways for area in different organization",
 			"detail": fmt.Sprintf("Area belongs to organization %d, but authorized for organization %d", areaOrgID, orgID),
 		})
 		return
@@ -282,7 +284,6 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 }
 
 // Get handles GET /api/gateways/{id}
-// Filters by organization from context (multi-tenant isolation)
 // @Summary Get a gateway
 // @Description Get a single gateway by ID
 // @Tags gateways
@@ -291,19 +292,11 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 // @Param X-Organization-ID header int true "Organization ID"
 // @Param id path int true "Gateway ID"
 // @Success 200 {object} GatewayWithHealth
-// @Failure 400 {object} map[string]string "Invalid request"
 // @Failure 403 {object} map[string]string "Forbidden"
 // @Failure 404 {object} map[string]string "Gateway not found"
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /api/gateways/{id} [get]
 func (h *GatewaysHandler) Get(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid gateway ID"})
-		return
-	}
-
 	// Get organization ID from context
 	orgID, ok := middleware.GetOrganizationID(c)
 	if !ok {
@@ -311,40 +304,136 @@ func (h *GatewaysHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// Query gateway with organization join to verify ownership
+	id := c.Param("id")
+
 	var gateway models.Gateway
-	var gatewayOrgID int
-	err = h.db.QueryRow(
-		`SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled, g.created_at, s.org_id
-		 FROM gateways g
-		 JOIN areas a ON g.area_id = a.id
-		 JOIN sites s ON a.site_id = s.id
-		 WHERE g.id = $1`,
+	err := h.db.QueryRow(
+		"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at FROM gateways WHERE id = $1",
 		id,
-	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt, &gatewayOrgID)
+	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query gateway"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get gateway"})
 		return
 	}
 
-	// Verify organization ownership
+	// Verify ownership
+	var gatewayOrgID int
+	err = h.db.QueryRow(
+		"SELECT s.org_id FROM areas a JOIN sites s ON a.site_id = s.id WHERE a.id = $1",
+		gateway.AreaID,
+	).Scan(&gatewayOrgID)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify gateway ownership"})
+		return
+	}
+
 	if gatewayOrgID != orgID {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Cannot access gateway from different organization",
-			"detail": fmt.Sprintf("Gateway belongs to organization %d, but authorized for organization %d", gatewayOrgID, orgID),
-		})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to gateway from another organization"})
 		return
 	}
 
-	// Enrich with health status from Redis
-	gatewayWithHealth := h.enrichGatewayWithHealth(gateway)
+	c.JSON(http.StatusOK, h.enrichGatewayWithHealth(gateway))
+}
 
-	c.JSON(http.StatusOK, gatewayWithHealth)
+// Delete handles DELETE /api/gateways/{id}
+// @Summary Delete a gateway
+// @Description Delete a gateway by ID (cascades to tags)
+// @Tags gateways
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Gateway ID"
+// @Success 204 "Gateway deleted"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Gateway not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/gateways/{id} [delete]
+func (h *GatewaysHandler) Delete(c *gin.Context) {
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	id := c.Param("id")
+
+	// Check if gateway exists and check ownership
+	var gatewayOrgID int
+	err := h.db.QueryRow(`
+		SELECT s.org_id 
+		FROM gateways g
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id 
+		WHERE g.id = $1`, id).Scan(&gatewayOrgID)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check gateway"})
+		return
+	}
+
+	if gatewayOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot delete gateway from another organization"})
+		return
+	}
+
+	// Manual Cascade Delete Transaction
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	// 1. Delete Alarms (via tags)
+	_, err = tx.Exec(`
+		DELETE FROM alarms WHERE tag_id IN (
+			SELECT id FROM tags WHERE gateway_id = $1
+		)`, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related alarms"})
+		return
+	}
+
+	// 2. Delete Tags
+	_, err = tx.Exec("DELETE FROM tags WHERE gateway_id = $1", id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related tags"})
+		return
+	}
+
+	// 3. Delete Gateway
+	_, err = tx.Exec("DELETE FROM gateways WHERE id = $1", id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete gateway"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+		return
+	}
+
+	// Also should define commands to stop driver if running, but for now we assume
+	// driver manager will handle config reload or we publish a delete/reload command
+	if h.mqttClient != nil {
+		// Just send a reload command to valid gateway ID? Or a special delete command?
+		// For simplicity, we can rely on periodic sync or manual reload.
+		// A cleaner way is publishing a system reload event.
+		// h.mqttClient.Publish("sys/command/reload/" + id, "deleted")
+	}
+
+	c.Status(http.StatusNoContent)
 }
 
 // Update handles PUT /api/gateways/{id}
@@ -399,7 +488,7 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 
 	if gatewayOrgID != orgID {
 		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Cannot update gateway from different organization",
+			"error":  "Cannot update gateway from different organization",
 			"detail": fmt.Sprintf("Gateway belongs to organization %d, but authorized for organization %d", gatewayOrgID, orgID),
 		})
 		return
@@ -490,4 +579,88 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 	gatewayWithHealth := h.enrichGatewayWithHealth(gateway)
 
 	c.JSON(http.StatusOK, gatewayWithHealth)
+}
+
+// TestConnection handles POST /api/gateways/{id}/test
+// Checks basic TCP connectivity to the gateway
+// @Summary Test gateway connection
+// @Description Test TCP connection to the gateway
+// @Tags gateways
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Gateway ID"
+// @Success 200 {object} map[string]interface{}
+// @Failure 404 {object} map[string]string "Gateway not found"
+// @Router /api/gateways/{id}/test [post]
+func (h *GatewaysHandler) TestConnection(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid gateway ID"})
+		return
+	}
+
+	// Fetch gateway config
+	var ipAddress string
+	var driverType string
+	var connectionConfig []byte // JSONB
+
+	err = h.db.QueryRow(
+		"SELECT connection_config, driver_type FROM gateways WHERE id = $1",
+		id,
+	).Scan(&connectionConfig, &driverType)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
+		return
+	}
+
+	// Parse config to get IP/Port
+	// This uses a generic map because schema depends on driver
+	var config map[string]interface{}
+	if err := json.Unmarshal(connectionConfig, &config); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid connection config"})
+		return
+	}
+
+	// Basic TCP dial simulation or real check
+	// For now, we simulate success if IP is present, normally we would net.DialTimeout
+	// But let's implementing a real check if possible
+
+	target := ""
+	if val, ok := config["ip_address"].(string); ok {
+		ipAddress = val
+	} else {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "No IP address configured"})
+		return
+	}
+
+	port := 0
+	if driverType == "S7" {
+		port = 102
+	} else if driverType == "MODBUS_TCP" {
+		if val, ok := config["port"].(float64); ok { // JSON numbers are float64
+			port = int(val)
+		} else {
+			port = 502
+		}
+	}
+
+	if port == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "Invalid port"})
+		return
+	}
+
+	target = fmt.Sprintf("%s:%d", ipAddress, port)
+
+	// Try to connect (timeout 2s)
+	conn, err := net.DialTimeout("tcp", target, 2*time.Second)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Connection failed: %v", err)})
+		return
+	}
+	conn.Close()
+
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Successfully connected to %s", target)})
 }

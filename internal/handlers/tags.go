@@ -35,29 +35,29 @@ func NewTagsHandler(db *sql.DB, mqttClient MQTTClient, redisClient RedisClient) 
 
 // CreateTagRequest represents the request body for creating a tag
 type CreateTagRequest struct {
-	GatewayID        int     `json:"gateway_id" binding:"required"`
-	Code             string  `json:"code" binding:"required"`
-	Alias            string  `json:"alias" binding:"required"`
-	DataType         string  `json:"data_type" binding:"required"`
-	Historize        *bool   `json:"historize"`
+	GatewayID         int      `json:"gateway_id" binding:"required"`
+	Code              string   `json:"code" binding:"required"`
+	Alias             string   `json:"alias" binding:"required"`
+	DataType          string   `json:"data_type" binding:"required"`
+	Historize         *bool    `json:"historize"`
 	HistorizeDeadband *float64 `json:"historize_deadband"`
-	AlarmEnabled     *bool   `json:"alarm_enabled"`
-	AlarmThreshold   *float64 `json:"alarm_threshold"`
-	AlarmOperator    string  `json:"alarm_operator"`
-	AlarmPriority    *int    `json:"alarm_priority"`
+	AlarmEnabled      *bool    `json:"alarm_enabled"`
+	AlarmThreshold    *float64 `json:"alarm_threshold"`
+	AlarmOperator     string   `json:"alarm_operator"`
+	AlarmPriority     *int     `json:"alarm_priority"`
 }
 
 // UpdateTagRequest represents the request body for updating a tag
 type UpdateTagRequest struct {
-	Code             *string  `json:"code"`
-	Alias            *string  `json:"alias"`
-	DataType         *string  `json:"data_type"`
-	Historize        *bool    `json:"historize"`
+	Code              *string  `json:"code"`
+	Alias             *string  `json:"alias"`
+	DataType          *string  `json:"data_type"`
+	Historize         *bool    `json:"historize"`
 	HistorizeDeadband *float64 `json:"historize_deadband"`
-	AlarmEnabled     *bool    `json:"alarm_enabled"`
-	AlarmThreshold   *float64 `json:"alarm_threshold"`
-	AlarmOperator    *string  `json:"alarm_operator"`
-	AlarmPriority    *int     `json:"alarm_priority"`
+	AlarmEnabled      *bool    `json:"alarm_enabled"`
+	AlarmThreshold    *float64 `json:"alarm_threshold"`
+	AlarmOperator     *string  `json:"alarm_operator"`
+	AlarmPriority     *int     `json:"alarm_priority"`
 }
 
 // validateDataType checks if the data_type is valid
@@ -135,7 +135,7 @@ func (h *TagsHandler) Create(c *gin.Context) {
 
 	if gatewayOrgID != orgID {
 		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Cannot create tag for gateway in different organization",
+			"error":  "Cannot create tag for gateway in different organization",
 			"detail": fmt.Sprintf("Gateway belongs to organization %d, but authorized for organization %d", gatewayOrgID, orgID),
 		})
 		return
@@ -229,7 +229,8 @@ func (h *TagsHandler) List(c *gin.Context) {
 
 	gatewayIDStr := c.Query("gateway_id")
 	if gatewayIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "gateway_id query parameter is required"})
+		// If no gateway_id provided, return empty list (no error)
+		c.JSON(http.StatusOK, []models.Tag{})
 		return
 	}
 
@@ -260,7 +261,7 @@ func (h *TagsHandler) List(c *gin.Context) {
 
 	if gatewayOrgID != orgID {
 		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Cannot query tags for gateway in different organization",
+			"error":  "Cannot query tags for gateway in different organization",
 			"detail": fmt.Sprintf("Gateway belongs to organization %d, but authorized for organization %d", gatewayOrgID, orgID),
 		})
 		return
@@ -292,6 +293,153 @@ func (h *TagsHandler) List(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, tags)
+}
+
+// Get handles GET /api/tags/{id}
+// @Summary Get a tag
+// @Description Get a single tag by ID
+// @Tags tags
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Tag ID"
+// @Success 200 {object} models.Tag
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Tag not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/tags/{id} [get]
+func (h *TagsHandler) Get(c *gin.Context) {
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	id := c.Param("id")
+
+	var tag models.Tag
+	err := h.db.QueryRow(
+		"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority, created_at FROM tags WHERE id = $1",
+		id,
+	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.AlarmEnabled, &tag.AlarmThreshold, &tag.AlarmOperator, &tag.AlarmPriority, &tag.CreatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Tag not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get tag"})
+		return
+	}
+
+	// Verify ownership
+	var tagOrgID int
+	err = h.db.QueryRow(
+		`SELECT s.org_id
+		 FROM gateways g
+		 JOIN areas a ON g.area_id = a.id
+		 JOIN sites s ON a.site_id = s.id
+		 WHERE g.id = $1`,
+		tag.GatewayID,
+	).Scan(&tagOrgID)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify tag ownership"})
+		return
+	}
+
+	if tagOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to tag from another organization"})
+		return
+	}
+
+	c.JSON(http.StatusOK, tag)
+}
+
+// Delete handles DELETE /api/tags/{id}
+// @Summary Delete a tag
+// @Description Delete a tag by ID
+// @Tags tags
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Tag ID"
+// @Success 204 "Tag deleted"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Tag not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/tags/{id} [delete]
+func (h *TagsHandler) Delete(c *gin.Context) {
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	idStr := c.Param("id")
+	id, _ := strconv.Atoi(idStr)
+
+	// Check if tag exists AND get gateway_id for reload
+	var gatewayID int
+	var tagOrgID int
+	err := h.db.QueryRow(`
+		SELECT t.gateway_id, s.org_id 
+		FROM tags t
+		JOIN gateways g ON t.gateway_id = g.id
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id 
+		WHERE t.id = $1`, id).Scan(&gatewayID, &tagOrgID)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Tag not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check tag"})
+		return
+	}
+
+	if tagOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot delete tag from another organization"})
+		return
+	}
+
+	// Manual Cascade Delete Transaction
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	// 1. Delete Alarms
+	_, err = tx.Exec("DELETE FROM alarms WHERE tag_id = $1", id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related alarms"})
+		return
+	}
+
+	// 2. Delete Tag
+	_, err = tx.Exec("DELETE FROM tags WHERE id = $1", id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete tag"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+		return
+	}
+
+	// Publish reload command to MQTT
+	if h.mqttClient != nil {
+		topic := fmt.Sprintf("sys/command/reload/%d", gatewayID)
+		h.mqttClient.Publish(topic, "reload")
+	}
+
+	c.Status(http.StatusNoContent)
 }
 
 // Update handles PUT /api/tags/{id}
@@ -347,7 +495,7 @@ func (h *TagsHandler) Update(c *gin.Context) {
 
 	if tagOrgID != orgID {
 		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Cannot update tag from different organization",
+			"error":  "Cannot update tag from different organization",
 			"detail": fmt.Sprintf("Tag belongs to organization %d, but authorized for organization %d", tagOrgID, orgID),
 		})
 		return
@@ -472,9 +620,9 @@ func (h *TagsHandler) Update(c *gin.Context) {
 
 // CurrentValueResponse represents the response for current value endpoint
 type CurrentValueResponse struct {
-	V      interface{} `json:"v"`
-	Ts     int64       `json:"ts"`
-	Q      int         `json:"q"`
+	V  interface{} `json:"v"`
+	Ts int64       `json:"ts"`
+	Q  int         `json:"q"`
 }
 
 // GetCurrentValue handles GET /api/tags/{id}/current

@@ -9,16 +9,17 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	swaggerFiles "github.com/swaggo/files"
-	ginSwagger "github.com/swaggo/gin-swagger"
-	"github.com/influxdata/influxdb-client-go/v2"
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	_ "github.com/ralph/industrial-edge-middleware/docs"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/handlers"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 func main() {
@@ -122,6 +123,16 @@ func main() {
 	// Create Gin router
 	router := gin.Default()
 
+	// CORS Configuration
+	router.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"http://localhost:3000", "http://127.0.0.1:3000"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Organization-ID"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
+
 	// Create handlers with MQTT client and Redis client
 	orgsHandler := handlers.NewOrganizationsHandler(database)
 	sitesHandler := handlers.NewSitesHandler(database)
@@ -129,6 +140,7 @@ func main() {
 	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient, redisClient)
 	tagsHandler := handlers.NewTagsHandler(database, mqttClient, redisClient)
 	alarmsHandler := handlers.NewAlarmsHandler(database, mqttClient)
+	systemHandler := handlers.NewSystemHandler(database, mqttClient)
 
 	// Create history handler with InfluxDB client (optional)
 	var historyHandler *handlers.HistoryHandler
@@ -144,6 +156,8 @@ func main() {
 		{
 			orgs.POST("", orgsHandler.Create)
 			orgs.GET("", orgsHandler.List)
+			orgs.GET("/:id", orgsHandler.Get)
+			orgs.DELETE("/:id", orgsHandler.Delete)
 		}
 
 		// Multi-tenant protected endpoints - require organization context
@@ -153,6 +167,8 @@ func main() {
 		{
 			sites.POST("", sitesHandler.Create)
 			sites.GET("", sitesHandler.List)
+			sites.GET("/:id", sitesHandler.Get)
+			sites.DELETE("/:id", sitesHandler.Delete)
 		}
 
 		// Areas endpoints
@@ -161,6 +177,8 @@ func main() {
 		{
 			areas.POST("", areasHandler.Create)
 			areas.GET("", areasHandler.List)
+			areas.GET("/:id", areasHandler.Get)
+			areas.DELETE("/:id", areasHandler.Delete)
 		}
 
 		// Gateways endpoints
@@ -170,7 +188,9 @@ func main() {
 			gateways.POST("", gatewaysHandler.Create)
 			gateways.GET("", gatewaysHandler.List)
 			gateways.GET("/:id", gatewaysHandler.Get)
+			gateways.DELETE("/:id", gatewaysHandler.Delete)
 			gateways.PUT("/:id", gatewaysHandler.Update)
+			gateways.POST("/:id/test", gatewaysHandler.TestConnection)
 		}
 
 		// Tags endpoints
@@ -179,6 +199,8 @@ func main() {
 		{
 			tags.POST("", tagsHandler.Create)
 			tags.GET("", tagsHandler.List)
+			tags.GET("/:id", tagsHandler.Get)
+			tags.DELETE("/:id", tagsHandler.Delete)
 			tags.PUT("/:id", tagsHandler.Update)
 			tags.GET("/:id/current", tagsHandler.GetCurrentValue)
 		}
@@ -187,7 +209,20 @@ func main() {
 		alarms := api.Group("/alarms")
 		alarms.Use(middleware.OrganizationContext())
 		{
+			alarms.GET("", alarmsHandler.List)
 			alarms.POST("/:id/acknowledge", alarmsHandler.Acknowledge)
+		}
+
+		// System endpoints
+		system := api.Group("/system")
+		{
+			system.POST("/reload", systemHandler.Reload)
+		}
+
+		config := api.Group("/config")
+		{
+			config.GET("/export", systemHandler.ExportConfig)
+			config.POST("/import", systemHandler.ImportConfig)
 		}
 
 		// History endpoint (only if InfluxDB is configured)
@@ -201,7 +236,7 @@ func main() {
 	}
 
 	// Swagger documentation endpoints
-	api.GET("/docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	// Start server
 	port := getEnv("PORT", "8080")
@@ -229,8 +264,8 @@ func getEnvInt(key string, defaultValue int) int {
 
 // GatewayHealthStatus represents the health status cached in Redis
 type GatewayHealthStatus struct {
-	Status    string `json:"status"`    // "online" or "offline"
-	LastSeen  int64  `json:"last_seen"` // Unix timestamp in milliseconds
+	Status   string `json:"status"`    // "online" or "offline"
+	LastSeen int64  `json:"last_seen"` // Unix timestamp in milliseconds
 }
 
 // handleGatewayHealthUpdate processes gateway health status updates from MQTT

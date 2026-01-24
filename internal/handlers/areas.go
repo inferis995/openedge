@@ -80,7 +80,7 @@ func (h *AreasHandler) Create(c *gin.Context) {
 
 	if siteOrgID != orgID {
 		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Cannot create area for site in different organization",
+			"error":  "Cannot create area for site in different organization",
 			"detail": fmt.Sprintf("Site belongs to organization %d, but authorized for organization %d", siteOrgID, orgID),
 		})
 		return
@@ -126,7 +126,8 @@ func (h *AreasHandler) List(c *gin.Context) {
 
 	siteIDStr := c.Query("site_id")
 	if siteIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "site_id query parameter is required"})
+		// If no site_id provided, return empty list (no error)
+		c.JSON(http.StatusOK, []models.Area{})
 		return
 	}
 
@@ -150,7 +151,7 @@ func (h *AreasHandler) List(c *gin.Context) {
 
 	if siteOrgID != orgID {
 		c.JSON(http.StatusForbidden, gin.H{
-			"error": "Cannot query areas for site in different organization",
+			"error":  "Cannot query areas for site in different organization",
 			"detail": fmt.Sprintf("Site belongs to organization %d, but authorized for organization %d", siteOrgID, orgID),
 		})
 		return
@@ -182,4 +183,155 @@ func (h *AreasHandler) List(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, areas)
+}
+
+// Get handles GET /api/areas/{id}
+// @Summary Get an area
+// @Description Get a single area by ID
+// @Tags areas
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Area ID"
+// @Success 200 {object} Area
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Area not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/areas/{id} [get]
+func (h *AreasHandler) Get(c *gin.Context) {
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	id := c.Param("id")
+
+	var area models.Area
+	err := h.db.QueryRow(
+		"SELECT id, site_id, name, created_at FROM areas WHERE id = $1",
+		id,
+	).Scan(&area.ID, &area.SiteID, &area.Name, &area.CreatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Area not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get area"})
+		return
+	}
+
+	// Verify the area belongs to the authorized organization (via site)
+	var areaOrgID int
+	err = h.db.QueryRow("SELECT org_id FROM sites WHERE id = $1", area.SiteID).Scan(&areaOrgID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify area ownership"})
+		return
+	}
+
+	if areaOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to area from another organization"})
+		return
+	}
+
+	c.JSON(http.StatusOK, area)
+}
+
+// Delete handles DELETE /api/areas/{id}
+// @Summary Delete an area
+// @Description Delete an area by ID (cascades to gateways, tags)
+// @Tags areas
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Area ID"
+// @Success 204 "Area deleted"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Area not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/areas/{id} [delete]
+func (h *AreasHandler) Delete(c *gin.Context) {
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	id := c.Param("id")
+
+	// Check if area exists and check ownership
+	var areaOrgID int
+	err := h.db.QueryRow(`
+		SELECT s.org_id 
+		FROM areas a 
+		JOIN sites s ON a.site_id = s.id 
+		WHERE a.id = $1`, id).Scan(&areaOrgID)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Area not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check area"})
+		return
+	}
+
+	if areaOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot delete area from another organization"})
+		return
+	}
+
+	// Manual Cascade Delete Transaction
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	// 1. Delete Alarms (via tags -> gateways)
+	_, err = tx.Exec(`
+		DELETE FROM alarms WHERE tag_id IN (
+			SELECT t.id FROM tags t
+			JOIN gateways g ON t.gateway_id = g.id
+			WHERE g.area_id = $1
+		)`, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related alarms"})
+		return
+	}
+
+	// 2. Delete Tags
+	_, err = tx.Exec(`
+		DELETE FROM tags WHERE gateway_id IN (
+			SELECT id FROM gateways WHERE area_id = $1
+		)`, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related tags"})
+		return
+	}
+
+	// 3. Delete Gateways
+	_, err = tx.Exec("DELETE FROM gateways WHERE area_id = $1", id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related gateways"})
+		return
+	}
+
+	// 4. Delete Area
+	_, err = tx.Exec("DELETE FROM areas WHERE id = $1", id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete area"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
 }

@@ -10,9 +10,9 @@ import (
 
 // Organization represents an organization in the system
 type Organization struct {
-	ID        int       `json:"id" example:"1"`
-	Name      string    `json:"name" example:"Acme Corp"`
-	CreatedAt string    `json:"created_at" example:"2024-01-24T10:00:00Z"`
+	ID        int    `json:"id" example:"1"`
+	Name      string `json:"name" example:"Acme Corp"`
+	CreatedAt string `json:"created_at" example:"2024-01-24T10:00:00Z"`
 }
 
 // OrganizationsHandler handles organization-related HTTP requests
@@ -95,4 +95,142 @@ func (h *OrganizationsHandler) List(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, orgs)
+}
+
+// Get handles GET /api/organizations/{id}
+// @Summary Get an organization
+// @Description Get a single organization by ID
+// @Tags organizations
+// @Accept json
+// @Produce json
+// @Param id path int true "Organization ID"
+// @Success 200 {object} Organization
+// @Failure 404 {object} map[string]string "Organization not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/organizations/{id} [get]
+func (h *OrganizationsHandler) Get(c *gin.Context) {
+	id := c.Param("id")
+
+	var org models.Organization
+	err := h.db.QueryRow(
+		"SELECT id, name, created_at FROM organizations WHERE id = $1",
+		id,
+	).Scan(&org.ID, &org.Name, &org.CreatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get organization"})
+		return
+	}
+
+	c.JSON(http.StatusOK, org)
+}
+
+// Delete handles DELETE /api/organizations/{id}
+// @Summary Delete an organization
+// @Description Delete an organization by ID (cascades to sites, areas, gateways, tags)
+// @Tags organizations
+// @Accept json
+// @Produce json
+// @Param id path int true "Organization ID"
+// @Success 204 "Organization deleted"
+// @Failure 404 {object} map[string]string "Organization not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/organizations/{id} [delete]
+func (h *OrganizationsHandler) Delete(c *gin.Context) {
+	id := c.Param("id")
+
+	// Check if organization exists
+	var exists bool
+	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM organizations WHERE id = $1)", id).Scan(&exists)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check organization"})
+		return
+	}
+
+	if !exists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
+		return
+	}
+
+	// Manual Cascade Delete Transaction
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	// 1. Delete Alarms (via tags -> gateways -> areas -> sites)
+	_, err = tx.Exec(`
+		DELETE FROM alarms WHERE tag_id IN (
+			SELECT t.id FROM tags t
+			JOIN gateways g ON t.gateway_id = g.id
+			JOIN areas a ON g.area_id = a.id
+			JOIN sites s ON a.site_id = s.id
+			WHERE s.org_id = $1
+		)`, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related alarms"})
+		return
+	}
+
+	// 2. Delete Tags
+	_, err = tx.Exec(`
+		DELETE FROM tags WHERE gateway_id IN (
+			SELECT g.id FROM gateways g
+			JOIN areas a ON g.area_id = a.id
+			JOIN sites s ON a.site_id = s.id
+			WHERE s.org_id = $1
+		)`, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related tags"})
+		return
+	}
+
+	// 3. Delete Gateways
+	_, err = tx.Exec(`
+		DELETE FROM gateways WHERE area_id IN (
+			SELECT a.id FROM areas a
+			JOIN sites s ON a.site_id = s.id
+			WHERE s.org_id = $1
+		)`, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related gateways"})
+		return
+	}
+
+	// 4. Delete Areas
+	_, err = tx.Exec(`
+		DELETE FROM areas WHERE site_id IN (
+			SELECT id FROM sites WHERE org_id = $1
+		)`, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related areas"})
+		return
+	}
+
+	// 5. Delete Sites
+	_, err = tx.Exec("DELETE FROM sites WHERE org_id = $1", id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related sites"})
+		return
+	}
+
+	// 6. Delete Organization
+	_, err = tx.Exec("DELETE FROM organizations WHERE id = $1", id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete organization"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
 }

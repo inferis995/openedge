@@ -1,6 +1,6 @@
 {
   "project": "Industrial Edge Middleware",
-  "branchName": "ralph/industrial-edge-middleware",
+  "branchName": "ralph/frontend-ui",
   "description": "Industrial Edge Middleware - Multi-Tenant Data Acquisition System with Docker, Go, PostgreSQL, Redis, InfluxDB, and MQTT (Mosquitto). Supports S7 and Modbus TCP drivers with real-time alarm detection and time-series historization.",
   "userStories": [
     {
@@ -574,6 +574,472 @@
       "priority": 37,
       "passes": true,
       "notes": "Created docs/docs.go, docs/swagger.json, docs/swagger.yaml. Added swagger annotations to all handlers (organizations, sites, areas, gateways, tags, alarms, history). Added swagger route to core-api at GET /api/docs/*any. Installed github.com/swaggo/swag, github.com/swaggo/gin-swagger, github.com/swaggo/files dependencies. Typecheck passes."
+    },
+    {
+      "id": "US-038",
+      "title": "Create frontend folder structure following design system",
+      "description": "As a developer, I need to create the frontend folder structure matching the style reference so that the UI has a consistent visual design.",
+      "acceptanceCriteria": [
+        "Create frontend/ directory at project root using npm create vite@latest frontend -- --template react-ts",
+        "Follow design system in tasks/design-system.md for all visual styling",
+        "Use violet/purple color scheme (#8b5cf6) as primary color (bg-violet-600, hover:bg-violet-700)",
+        "Configure Inter font family: add Google Fonts link in index.html",
+        "Set up dark sidebar (bg-gray-900) with light main content (bg-gray-50) layout structure",
+        "Install Tailwind CSS: npm install -D tailwindcss postcss autoprefixer",
+        "Create folder structure: src/components, src/pages, src/lib, src/services, src/types",
+        "Configure Vite proxy to forward /api requests to localhost:8080",
+        "Add design system comment reference at top of main.tsx: // Design System: See tasks/design-system.md",
+        "Verify npm run dev starts dev server on port 5173",
+        "Verify npm run build creates production build without errors"
+      ],
+      "priority": 38,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-039",
+      "title": "Install and configure shadcn/ui components",
+      "description": "As a developer, I need to install shadcn/ui components so that we have pre-built, accessible UI components.",
+      "acceptanceCriteria": [
+        "Install shadcn/ui CLI: `npm install -D @shadcn/vite-plugin`",
+        "Configure `components.json` with proper paths for components and utils",
+        "Install essential components: Button, Input, Card, Table, Dialog, Select, Tabs, Tree, Separator, Badge, Alert, Toast",
+        "Verify components render in test page",
+        "Typecheck passes with `npm run type-check`"
+      ],
+      "priority": 39,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-041",
+      "title": "Implement API client with axios",
+      "description": "As a developer, I need to create an API client service so that all HTTP requests include proper headers and error handling.",
+      "acceptanceCriteria": [
+        "Install axios: `npm install axios`",
+        "Create `src/services/api.ts` with axios instance",
+        "Configure base URL to `/api` (uses Vite proxy in dev)",
+        "Add request interceptor to include `X-Organization-ID` header from localStorage",
+        "Add response interceptor to handle 403/404 (show error) and 500 errors",
+        "Export typed API functions for each endpoint: getOrganizations, createOrganization, getSites, createSite, etc.",
+        "Add TypeScript types matching backend API responses"
+      ],
+      "priority": 40,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-042",
+      "title": "Create organization selection page",
+      "description": "As a user, I need to select my organization so that I can access the application data.",
+      "acceptanceCriteria": [
+        "Create `/login` route with centered card layout",
+        "Render Select dropdown to choose organization (fetched from GET /api/organizations)",
+        "Add \"Enter\" button that stores selected organization ID in localStorage as `ralph_org_id`",
+        "On success: redirect to `/config`",
+        "On error: show error toast message if organizations list is empty",
+        "Add useEffect to check for existing org ID and redirect if already selected",
+        "Typecheck passes",
+        "Verify in browser: org selection works, redirect happens"
+      ],
+      "priority": 41,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-043",
+      "title": "Create main layout with header and navigation",
+      "description": "As a user, I need a consistent layout with navigation so that I can move between pages easily.",
+      "acceptanceCriteria": [
+        "Create `src/components/Layout.tsx` with header and main content area",
+        "Header shows: application title, current organization name (fetched from API), change organization button",
+        "Sidebar shows navigation links: \"Configuration\" (/config), \"Trend/Historian\" (/trend), \"Alarms\" (/alarms)",
+        "Use React Router with BrowserRouter for client-side routing",
+        "Add route guard to redirect to /login if no organization selected",
+        "Apply consistent dark/light theme following tasks/design-system.md (dark sidebar bg-gray-900, light content bg-gray-50)",
+        "Typecheck passes",
+        "Verify in browser: navigation works, layout persists"
+      ],
+      "priority": 43,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-044",
+      "title": "Create API types from OpenAPI specification",
+      "description": "As a developer, I need TypeScript types matching the backend API so that we have type safety across the frontend.",
+      "acceptanceCriteria": [
+        "Create `src/types/api.ts` with interfaces for all entities",
+        "Types: Organization, Site, Area, Gateway (with connection_status), Tag, TagValue, HistoryPoint, Alarm",
+        "Export types for API request/response bodies",
+        "Ensure types match backend OpenAPI spec at /api/swagger.json",
+        "Typecheck passes"
+      ],
+      "priority": 44,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-045",
+      "title": "Create hierarchical data service",
+      "description": "As a developer, I need a service to fetch and transform the hierarchical data so that the UI can display the complete tree structure.",
+      "acceptanceCriteria": [
+        "Create `src/services/hierarchy.ts` with fetchHierarchy(orgId) function",
+        "Fetch sites for organization: GET /api/sites with X-Organization-ID header",
+        "For each site, fetch areas: GET /api/areas?site_id={id} with X-Organization-ID header",
+        "For each area, fetch gateways: GET /api/gateways?area_id={id} with X-Organization-ID header",
+        "For each gateway, fetch tags: GET /api/tags?gateway_id={id} with X-Organization-ID header",
+        "Transform flat API responses into nested tree structure: TreeNode[] with children",
+        "Add caching with 30-second TTL to avoid excessive API calls",
+        "Handle loading and error states",
+        "Return typed TreeNode[] matching Organization > Site > Area > Gateway > Tag hierarchy"
+      ],
+      "priority": 45,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-046",
+      "title": "Create tree view component for navigation",
+      "description": "As a user, I need a hierarchical tree view so that I can navigate the organization structure efficiently.",
+      "acceptanceCriteria": [
+        "Create `src/components/TreeView.tsx` using shadcn Tree component",
+        "Render nested tree nodes with icons for each entity type (org, site, area, gateway, tag)",
+        "Support expand/collapse for nodes with children",
+        "Highlight selected node",
+        "Show online/offline status indicator for gateways (green/gray dot)",
+        "Handle click events to emit node selection",
+        "Typecheck passes",
+        "Verify in browser: tree renders correctly, expand/collapse works"
+      ],
+      "priority": 46,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-047",
+      "title": "Create detail panel for entity display and editing",
+      "description": "As a user, I need a detail panel so that I can view and edit entity properties in a split view.",
+      "acceptanceCriteria": [
+        "Create `src/components/DetailPanel.tsx` with two states: view and edit",
+        "View mode: display all entity fields in a read-only card",
+        "Edit mode: show form with inputs for editable fields",
+        "Add \"Edit\" and \"Cancel\" buttons for mode switching",
+        "Add \"Save\" button that calls appropriate API endpoint (PUT)",
+        "Add \"Delete\" button with confirmation dialog",
+        "Show success/error toast after save/delete operations",
+        "Typecheck passes",
+        "Verify in browser: panel updates, edit mode works"
+      ],
+      "priority": 47,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-048",
+      "title": "Create configuration page with split view",
+      "description": "As a user, I need a configuration page with tree on left and details on right so that I can navigate and edit efficiently.",
+      "acceptanceCriteria": [
+        "Create `/config` page route with `src/pages/ConfigPage.tsx`",
+        "Layout: 30% width tree view on left, 70% detail panel on right",
+        "On mount: fetch hierarchy data and populate tree",
+        "When tree node selected: display entity details in panel",
+        "Show empty state when no node selected",
+        "Add \"Create\" buttons for each entity type in the tree",
+        "Responsive: stack vertically on mobile (< 768px)",
+        "Typecheck passes",
+        "Verify in browser: split view works, selection updates panel"
+      ],
+      "priority": 48,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-049",
+      "title": "Implement organization creation dialog",
+      "description": "As a user, I need to create organizations so that I can set up new tenants.",
+      "acceptanceCriteria": [
+        "Create `src/components/CreateOrgDialog.tsx` using shadcn Dialog",
+        "Render Input field for \"Organization Name\"",
+        "Add \"Create\" button that validates input (not empty)",
+        "On submit: call POST /api/organizations with name",
+        "On success: close dialog, refresh tree, show success toast",
+        "On error: show error toast with message from API",
+        "Typecheck passes",
+        "Verify in browser: dialog opens/closes, creation works"
+      ],
+      "priority": 49,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-050",
+      "title": "Implement site creation dialog",
+      "description": "As a user, I need to create sites within organizations so that I can organize locations.",
+      "acceptanceCriteria": [
+        "Create `src/components/CreateSiteDialog.tsx`",
+        "Include Select dropdown for parent organization (fetched from API)",
+        "Include Input for \"Site Name\"",
+        "On submit: call POST /api/sites with org_id and name",
+        "Handle success/error with toast notifications",
+        "Typecheck passes",
+        "Verify in browser: org dropdown populates, creation works"
+      ],
+      "priority": 50,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-051",
+      "title": "Implement area creation dialog",
+      "description": "As a user, I need to create areas within sites so that I can define physical zones.",
+      "acceptanceCriteria": [
+        "Create `src/components/CreateAreaDialog.tsx`",
+        "Include Select for parent site",
+        "Include Input for \"Area Name\"",
+        "Call POST /api/areas on submit",
+        "Refresh hierarchy on success",
+        "Typecheck passes",
+        "Verify in browser: dialog works, area appears in tree"
+      ],
+      "priority": 51,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-052",
+      "title": "Implement gateway creation dialog",
+      "description": "As a user, I need to create gateways so that I can connect PLC drivers.",
+      "acceptanceCriteria": [
+        "Create `src/components/CreateGatewayDialog.tsx`",
+        "Include fields: name (Input), driver_type (Select: S7, MODBUS_TCP), area_id (Select)",
+        "Include JSON editor for connection_config (textarea with validation)",
+        "Add helper text showing expected JSON structure based on driver_type",
+        "S7 example: `{\"ip\": \"192.168.1.100\", \"rack\": 0, \"slot\": 1, \"port\": 102}`",
+        "Modbus example: `{\"ip\": \"192.168.1.101\", \"port\": 502, \"slaveId\": 1, \"timeout\": 5000}`",
+        "Validate JSON before submit",
+        "Call POST /api/gateways",
+        "Typecheck passes",
+        "Verify in browser: JSON editor validates, creation works"
+      ],
+      "priority": 52,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-053",
+      "title": "Implement tag creation dialog",
+      "description": "As a user, I need to create tags so that I can define data points to read from PLCs.",
+      "acceptanceCriteria": [
+        "Create `src/components/CreateTagDialog.tsx` with multi-section form",
+        "Basic fields: code (Input), alias (Input), data_type (Select: INT, REAL, BOOL, DINT), gateway_id (Select)",
+        "Historization section: historize (Checkbox), historize_deadband (Input number)",
+        "Alarm section: alarm_enabled (Checkbox), alarm_threshold (Input), alarm_operator (Select: >, <, =), alarm_priority (Input 1-5)",
+        "Validate required fields (code, alias, data_type, gateway_id)",
+        "Call POST /api/tags on submit",
+        "Typecheck passes",
+        "Verify in browser: all sections render, validation works"
+      ],
+      "priority": 53,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-054",
+      "title": "Add real-time value polling to tree view",
+      "description": "As a user, I need to see current tag values so that I can monitor live data.",
+      "acceptanceCriteria": [
+        "Add useEffect in ConfigPage that polls GET /api/tags/{id}/current every 5 seconds",
+        "Only poll for visible/expanded tags in the tree",
+        "Display value next to tag name in tree: \"Temperature (23.5°C)\"",
+        "Show quality indicator: green dot for q=0 (good), red for q=1 (bad)",
+        "Add timestamp tooltip: \"Last update: 2024-01-24 10:30:45\"",
+        "Add toggle button to enable/disable polling",
+        "Typecheck passes",
+        "Verify in browser: values update every 5s, quality indicator works"
+      ],
+      "priority": 54,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-055",
+      "title": "Implement gateway enabled/disabled toggle",
+      "description": "As a user, I need to enable/disable gateways so that I can control which drivers are active.",
+      "acceptanceCriteria": [
+        "Add toggle switch in detail panel when gateway is selected",
+        "Show current enabled state from gateway data",
+        "On toggle: call PUT /api/gateways/{id} with enabled: true/false",
+        "Update tree to show enabled/disabled status (grayed out when disabled)",
+        "Show loading state during API call",
+        "Typecheck passes",
+        "Verify in browser: toggle updates gateway status"
+      ],
+      "priority": 55,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-056",
+      "title": "Create trend/historian page with multi-tag support",
+      "description": "As a user, I need to view historical data for multiple tags so that I can compare trends.",
+      "acceptanceCriteria": [
+        "Create `/trend` page route with `src/pages/TrendPage.tsx`",
+        "Add multi-select dropdown for tag selection (populated from all tags)",
+        "Add date range picker with start and end datetime-local inputs",
+        "Set default range: last 24 hours",
+        "Add \"Query\" button to fetch data",
+        "Add aggregation controls: agg (Select: mean, max, min, sum), interval (Input: 1m, 5m, 1h, 1d)",
+        "Call GET /api/history for each selected tag",
+        "Display line chart using recharts library (npm install recharts)",
+        "Each tag gets different color with legend",
+        "X-axis: timestamp, Y-axis: value",
+        "Add \"Export CSV\" button that downloads data as CSV file",
+        "Show error message if no data found",
+        "Typecheck passes",
+        "Verify in browser: multi-tag chart renders, export works"
+      ],
+      "priority": 56,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-057",
+      "title": "Add loading states and error handling",
+      "description": "As a user, I need clear feedback during loading and errors so that I understand what's happening.",
+      "acceptanceCriteria": [
+        "Add loading spinner component using shadcn Spinner",
+        "Show spinner during all async operations (API calls, data fetching)",
+        "Add skeleton loaders for tree view and detail panel using shadcn Skeleton",
+        "Show error messages with retry button for failed API calls",
+        "Add toast notifications for success feedback using shadcn Toast",
+        "Handle 403 by showing \"Access denied - check your organization selection\" error",
+        "Handle 404 with \"Resource not found\" error",
+        "Handle 500 with \"Server error, please try again\" message",
+        "If organization ID is missing from localStorage, redirect to /login",
+        "Typecheck passes",
+        "Verify in browser: loading states show, errors display correctly"
+      ],
+      "priority": 57,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-058",
+      "title": "Create frontend Docker container",
+      "description": "As a developer, I need to containerize the frontend for production deployment.",
+      "acceptanceCriteria": [
+        "Create `frontend/Dockerfile` with multi-stage build",
+        "Stage 1: FROM node:18-alpine, RUN npm ci, RUN npm run build",
+        "Stage 2: FROM nginx:alpine, COPY build to /usr/share/nginx/html",
+        "Configure nginx.conf to handle SPA routing (try_files $uri /index.html)",
+        "Expose port 80",
+        "Add frontend service to docker-compose.yml",
+        "Set API base URL to core-api service name",
+        "Build image successfully: `docker-compose build frontend`",
+        "Container serves app on http://localhost:3000"
+      ],
+      "priority": 58,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-059",
+      "title": "Create alarms list API endpoint",
+      "description": "As a developer, I need to add an API endpoint to fetch all alarms so that the frontend can display them.",
+      "acceptanceCriteria": [
+        "Add List() function to internal/handlers/alarms.go",
+        "Handle GET /api/alarms with optional query parameters: tag_id (int), state (string: ACTIVE, RTN, ACKNOWLEDGED, CLEAR)",
+        "Apply multi-tenant filtering using X-Organization-ID header middleware",
+        "Query returns alarms joined with tags table to include tag alias and code",
+        "Support pagination: limit (default 100) and offset parameters",
+        "Return JSON array with alarm details: id, tag_id, tag_alias, tag_code, state, message, triggered_at, acknowledged_at, cleared_at",
+        "Order by triggered_at DESC (newest first)",
+        "Typecheck passes",
+        "Verify via API call: GET /api/alarms returns alarm list"
+      ],
+      "priority": 59,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-060",
+      "title": "Create alarms page in frontend",
+      "description": "As an operator, I need to view and manage alarms so that I can monitor system alerts.",
+      "acceptanceCriteria": [
+        "Create `/alarms` page route with `src/pages/AlarmsPage.tsx`",
+        "Add navigation link in sidebar to Alarms page",
+        "Fetch alarms on mount: GET /api/alarms with X-Organization-ID header",
+        "Display alarms in table with columns: Tag, State, Message, Time, Actions",
+        "Show state badge with color coding: ACTIVE (red), RTN (yellow), ACKNOWLEDGED (blue), CLEAR (gray)",
+        "Add filter controls: tag dropdown, state dropdown, date range picker",
+        "Add 'Acknowledge' button for ACTIVE alarms that calls POST /api/alarms/{id}/acknowledge",
+        "Add auto-refresh every 10 seconds to show new alarms",
+        "Add pause/resume toggle for auto-refresh",
+        "Typecheck passes",
+        "Verify in browser: alarms table renders, acknowledge works, auto-refresh functions"
+      ],
+      "priority": 60,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-061",
+      "title": "Add alarm filtering to alarms page",
+      "description": "As an operator, I need to filter alarms by tag and state so that I can focus on specific issues.",
+      "acceptanceCriteria": [
+        "Add tag dropdown to filter alarms by specific tag (populated from fetched tags)",
+        "Add state dropdown with options: All, ACTIVE, RTN, ACKNOWLEDGED, CLEAR",
+        "Add date range picker with start and end datetime-local inputs",
+        "Add 'Apply Filters' button that fetches GET /api/alarms with query parameters",
+        "Store filter state in URL search params for shareability",
+        "Show count of filtered alarms",
+        "Add 'Clear Filters' button to reset all filters",
+        "Typecheck passes",
+        "Verify in browser: filters work, URL params update correctly"
+      ],
+      "priority": 61,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-062",
+      "title": "Add alarm detail dialog",
+      "description": "As an operator, I need to see detailed alarm information so that I can understand the context.",
+      "acceptanceCriteria": [
+        "Create `src/components/AlarmDetailDialog.tsx` using shadcn Dialog",
+        "Show when clicking on an alarm row in the table",
+        "Display full alarm details: tag info, state, message, timestamps, priority (from tag config)",
+        "Show 'Acknowledge' button if state is ACTIVE (same as table action)",
+        "Add 'Close' button to dismiss dialog",
+        "Add link to navigate to tag configuration for quick access",
+        "Show history of state changes if available (ACTIVE → RTN → ACKNOWLEDGED, etc.)",
+        "Typecheck passes",
+        "Verify in browser: dialog opens with correct alarm details"
+      ],
+      "priority": 62,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-063",
+      "title": "Add real-time alarm notifications",
+      "description": "As an operator, I need to receive real-time notifications for new alarms so that I can respond quickly.",
+      "acceptanceCriteria": [
+        "Subscribe to MQTT topic events/alarms/# using MQTT client in frontend",
+        "Parse alarm event payload: {tag, state, msg, ts}",
+        "When new ACTIVE alarm received: show toast notification with sound (optional)",
+        "Update alarm badge count in header navigation",
+        "Add 'Alarms' button in header that shows red dot when active alarms exist",
+        "Store received alarms in local state to avoid duplicate notifications",
+        "Auto-refresh alarms list when new alarm event is received",
+        "Add notification sound toggle in settings (enabled/disabled)",
+        "Typecheck passes",
+        "Verify in browser: toast appears for new MQTT alarm events"
+      ],
+      "priority": 63,
+      "passes": false,
+      "notes": ""
     }
   ]
 }

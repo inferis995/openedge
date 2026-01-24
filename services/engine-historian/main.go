@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -14,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/influxdata/influxdb-client-go/v2"
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
 	_ "github.com/lib/pq"
 
@@ -23,8 +24,8 @@ import (
 )
 
 const (
-	mqttTopicData     = "data/#"
-	bufferFlushSize   = 1000
+	mqttTopicData       = "data/#"
+	bufferFlushSize     = 1000
 	bufferFlushInterval = 1 * time.Second
 )
 
@@ -46,27 +47,27 @@ type HistorianService struct {
 // DataPoint represents a single data point received from MQTT
 type DataPoint struct {
 	Measurement string                 `influx:"_measurement"` // Will be set to "tag_data"
-	Tags       map[string]string       `influx:"_,tag"`
-	Fields     map[string]interface{} `influx:"_,field"`
-	Timestamp  int64                  `influx:"_time"`
-	Org        string
-	Site       string
-	Area       string
-	Gateway    string
-	Alias      string
+	Tags        map[string]string      `influx:"_,tag"`
+	Fields      map[string]interface{} `influx:"_,field"`
+	Timestamp   int64                  `influx:"_time"`
+	Org         string
+	Site        string
+	Area        string
+	Gateway     string
+	Alias       string
 }
 
 // MQTTPayload represents the JSON payload from MQTT
 type MQTTPayload struct {
-	V interface{} `json:"v"` // Value (bool, float64, int)
-	Ts int64      `json:"ts"` // Timestamp in milliseconds
-	Q  int        `json:"q"`  // Quality (0 = good, 1 = bad)
+	V  interface{} `json:"v"`  // Value (bool, float64, int)
+	Ts int64       `json:"ts"` // Timestamp in milliseconds
+	Q  int         `json:"q"`  // Quality (0 = good, 1 = bad)
 }
 
 // TagInfo holds tag configuration loaded from PostgreSQL
 type TagInfo struct {
-	ID               int
-	Historize        bool
+	ID                int
+	Historize         bool
 	HistorizeDeadband float64
 }
 
@@ -77,9 +78,9 @@ type PreviousValue struct {
 
 // RealtimeValue represents the current value stored in Redis for real-time queries
 type RealtimeValue struct {
-	V interface{} `json:"v"` // Value
-	Ts int64      `json:"ts"` // Timestamp in milliseconds
-	Q  int        `json:"q"`  // Quality (0 = good, 1 = bad)
+	V  interface{} `json:"v"`  // Value
+	Ts int64       `json:"ts"` // Timestamp in milliseconds
+	Q  int         `json:"q"`  // Quality (0 = good, 1 = bad)
 }
 
 const (
@@ -162,8 +163,9 @@ func main() {
 		influxdb2.DefaultOptions().SetBatchSize(1000).SetFlushInterval(1000))
 	influxWriteAPI := influxClient.WriteAPI(influxOrg, influxBucket)
 
-	// Verify InfluxDB connection
-	_, err = influxClient.Health(nil)
+	// Verify InfluxDB connection using proper context
+	ctx := context.Background()
+	_, err = influxClient.Health(ctx)
 	if err != nil {
 		log.Fatalf("Failed to connect to InfluxDB: %v", err)
 	}

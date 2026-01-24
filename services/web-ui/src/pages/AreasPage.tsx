@@ -1,0 +1,198 @@
+import { useState } from 'react';
+import { useSites } from '@/hooks/useSites';
+import { useAreas } from '@/hooks/useAreas';
+import { useNavigationStore } from '@/stores/useNavigationStore';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from '@/components/ui/table';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+    DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import { MapPin, Plus, Trash2, ChevronRight, Factory } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+
+const AreasPage = () => {
+    const navigate = useNavigate();
+    const { selectedSiteId, setSelectedAreaId } = useNavigationStore();
+    const { areas, isLoading, create, remove } = useAreas(selectedSiteId);
+    const { sites } = useSites(); // Get all sites to map names
+
+    const [isOpen, setIsOpen] = useState(false);
+    const [newAreaName, setNewAreaName] = useState('');
+    const [selectedSiteForCreate, setSelectedSiteForCreate] = useState<string>(
+        selectedSiteId ? selectedSiteId.toString() : ''
+    );
+
+    const handleCreate = async () => {
+        if (!newAreaName || !selectedSiteForCreate) return;
+        try {
+            await create({
+                site_id: parseInt(selectedSiteForCreate),
+                name: newAreaName
+            });
+            setIsOpen(false);
+            setNewAreaName('');
+        } catch (error) {
+            console.error('Failed to create area', error);
+        }
+    };
+
+    const handleDelete = async (e: React.MouseEvent, id: number) => {
+        e.stopPropagation();
+        if (confirm('Are you sure you want to delete this area?')) {
+            try {
+                await remove(id);
+            } catch (error) {
+                console.error('Failed to delete area', error);
+            }
+        }
+    };
+
+    const handleSelect = (id: number) => {
+        setSelectedAreaId(id);
+        navigate('/gateways');
+    };
+
+    if (isLoading) {
+        return <div className="p-8 text-center text-slate-500">Loading areas...</div>;
+    }
+
+    return (
+        <div className="space-y-6">
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-2xl font-bold tracking-tight">Areas</h2>
+                    <p className="text-muted-foreground">
+                        Define logical areas within sites (e.g. Line 1, Warehouse).
+                    </p>
+                </div>
+                <Dialog open={isOpen} onOpenChange={setIsOpen}>
+                    <DialogTrigger asChild>
+                        <Button className="gap-2">
+                            <Plus size={16} /> Add Area
+                        </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Create Area</DialogTitle>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="site">Site</Label>
+                                <Select
+                                    value={selectedSiteForCreate}
+                                    onValueChange={setSelectedSiteForCreate}
+                                >
+                                    <SelectTrigger>
+                                        <SelectValue placeholder="Select Site" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {sites.map((site) => (
+                                            <SelectItem key={site.id} value={site.id.toString()}>
+                                                {site.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="name">Area Name</Label>
+                                <Input
+                                    id="name"
+                                    value={newAreaName}
+                                    onChange={(e) => setNewAreaName(e.target.value)}
+                                    placeholder="e.g. Assembly Line 1"
+                                />
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button onClick={handleCreate}>Create</Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+            </div>
+
+            <div className="rounded-md border bg-white">
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead className="w-[80px]">ID</TableHead>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Site</TableHead>
+                            <TableHead>Created At</TableHead>
+                            <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {areas.length === 0 ? (
+                            <TableRow>
+                                <TableCell colSpan={5} className="h-24 text-center">
+                                    No areas found. {selectedSiteId ? 'Create one for the selected site.' : 'Select a site to filter or create a new area.'}
+                                </TableCell>
+                            </TableRow>
+                        ) : (
+                            areas.map((area) => {
+                                const siteName = sites.find(s => s.id === area.site_id)?.name || area.site_id;
+                                return (
+                                    <TableRow
+                                        key={area.id}
+                                        className="cursor-pointer hover:bg-slate-50"
+                                        onClick={() => handleSelect(area.id)}
+                                    >
+                                        <TableCell className="font-medium">{area.id}</TableCell>
+                                        <TableCell className="flex items-center gap-2">
+                                            <MapPin size={16} className="text-slate-500" />
+                                            <span className="font-semibold">{area.name}</span>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex items-center gap-2 text-muted-foreground text-xs">
+                                                <Factory size={12} />
+                                                {siteName}
+                                            </div>
+                                        </TableCell>
+                                        <TableCell>{new Date(area.created_at).toLocaleDateString()}</TableCell>
+                                        <TableCell className="text-right">
+                                            <div className="flex items-center justify-end gap-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                                    onClick={(e) => handleDelete(e, area.id)}
+                                                >
+                                                    <Trash2 size={16} />
+                                                </Button>
+                                                <ChevronRight size={16} className="text-slate-300" />
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                );
+                            })
+                        )}
+                    </TableBody>
+                </Table>
+            </div>
+        </div>
+    );
+};
+
+export default AreasPage;

@@ -142,3 +142,79 @@ func (h *AlarmsHandler) Acknowledge(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response)
 }
+
+// AlarmListItem represents an alarm with tag info for listing
+type AlarmListItem struct {
+	ID             int        `json:"id"`
+	TagID          int        `json:"tag_id"`
+	TagAlias       string     `json:"tag_alias,omitempty"`
+	State          string     `json:"state"`
+	Message        string     `json:"message"`
+	TriggeredAt    time.Time  `json:"triggered_at"`
+	AcknowledgedAt *time.Time `json:"acknowledged_at,omitempty"`
+	ClearedAt      *time.Time `json:"cleared_at,omitempty"`
+}
+
+// List handles GET /api/alarms
+// @Summary List alarms
+// @Description Get alarms with optional state filter
+// @Tags alarms
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param state query string false "Filter by state (active, acknowledged, cleared, rtn, all)"
+// @Success 200 {array} AlarmListItem
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/alarms [get]
+func (h *AlarmsHandler) List(c *gin.Context) {
+	stateFilter := c.Query("state")
+
+	var query string
+	var args []interface{}
+
+	baseQuery := `
+		SELECT a.id, a.tag_id, COALESCE(t.alias, '') as tag_alias, a.state, 
+		       COALESCE(a.message, '') as message, a.triggered_at, a.acknowledged_at, a.cleared_at
+		FROM alarms a
+		LEFT JOIN tags t ON t.id = a.tag_id
+	`
+
+	switch stateFilter {
+	case "active":
+		query = baseQuery + " WHERE LOWER(a.state) = 'active' ORDER BY a.triggered_at DESC"
+	case "acknowledged":
+		query = baseQuery + " WHERE LOWER(a.state) = 'acknowledged' ORDER BY a.triggered_at DESC"
+	case "cleared":
+		query = baseQuery + " WHERE LOWER(a.state) = 'cleared' ORDER BY a.triggered_at DESC"
+	case "rtn":
+		query = baseQuery + " WHERE LOWER(a.state) = 'rtn' ORDER BY a.triggered_at DESC"
+	case "all", "":
+		query = baseQuery + " ORDER BY a.triggered_at DESC LIMIT 100"
+	default:
+		query = baseQuery + " WHERE LOWER(a.state) = $1 ORDER BY a.triggered_at DESC"
+		args = append(args, stateFilter)
+	}
+
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query alarms"})
+		return
+	}
+	defer rows.Close()
+
+	var alarms []AlarmListItem
+	for rows.Next() {
+		var alarm AlarmListItem
+		if err := rows.Scan(&alarm.ID, &alarm.TagID, &alarm.TagAlias, &alarm.State,
+			&alarm.Message, &alarm.TriggeredAt, &alarm.AcknowledgedAt, &alarm.ClearedAt); err != nil {
+			continue
+		}
+		alarms = append(alarms, alarm)
+	}
+
+	if alarms == nil {
+		alarms = []AlarmListItem{}
+	}
+
+	c.JSON(http.StatusOK, alarms)
+}
