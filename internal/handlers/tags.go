@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
@@ -92,6 +93,41 @@ func (h *TagsHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	// Verify the gateway_id belongs to the authorized organization
+	var gatewayOrgID int
+	err := h.db.QueryRow(
+		`SELECT s.org_id
+		 FROM tags t
+		 JOIN gateways g ON t.gateway_id = g.id
+		 JOIN areas a ON g.area_id = a.id
+		 JOIN sites s ON a.site_id = s.id
+		 WHERE g.id = $1`,
+		req.GatewayID,
+	).Scan(&gatewayOrgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify gateway ownership"})
+		return
+	}
+
+	if gatewayOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Cannot create tag for gateway in different organization",
+			"detail": fmt.Sprintf("Gateway belongs to organization %d, but authorized for organization %d", gatewayOrgID, orgID),
+		})
+		return
+	}
+
 	// Validate data_type
 	if !validateDataType(req.DataType) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "data_type must be 'INT', 'REAL', 'BOOL', or 'DINT'"})
@@ -131,7 +167,7 @@ func (h *TagsHandler) Create(c *gin.Context) {
 	}
 
 	var tag models.Tag
-	err := h.db.QueryRow(
+	err = h.db.QueryRow(
 		`INSERT INTO tags (gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		 RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority, created_at`,
@@ -156,7 +192,15 @@ func (h *TagsHandler) Create(c *gin.Context) {
 }
 
 // List handles GET /api/tags?gateway_id={id}
+// Filters by organization from context (multi-tenant isolation)
 func (h *TagsHandler) List(c *gin.Context) {
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
 	gatewayIDStr := c.Query("gateway_id")
 	if gatewayIDStr == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "gateway_id query parameter is required"})
@@ -166,6 +210,33 @@ func (h *TagsHandler) List(c *gin.Context) {
 	gatewayID, err := strconv.Atoi(gatewayIDStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid gateway_id parameter"})
+		return
+	}
+
+	// Verify the gateway_id belongs to the authorized organization
+	var gatewayOrgID int
+	err = h.db.QueryRow(
+		`SELECT s.org_id
+		 FROM gateways g
+		 JOIN areas a ON g.area_id = a.id
+		 JOIN sites s ON a.site_id = s.id
+		 WHERE g.id = $1`,
+		gatewayID,
+	).Scan(&gatewayOrgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify gateway ownership"})
+		return
+	}
+
+	if gatewayOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Cannot query tags for gateway in different organization",
+			"detail": fmt.Sprintf("Gateway belongs to organization %d, but authorized for organization %d", gatewayOrgID, orgID),
+		})
 		return
 	}
 
@@ -198,11 +269,47 @@ func (h *TagsHandler) List(c *gin.Context) {
 }
 
 // Update handles PUT /api/tags/{id}
+// Filters by organization from context (multi-tenant isolation)
 func (h *TagsHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tag ID"})
+		return
+	}
+
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	// Verify tag ownership first
+	var tagOrgID int
+	err = h.db.QueryRow(
+		`SELECT s.org_id
+		 FROM tags t
+		 JOIN gateways g ON t.gateway_id = g.id
+		 JOIN areas a ON g.area_id = a.id
+		 JOIN sites s ON a.site_id = s.id
+		 WHERE t.id = $1`,
+		id,
+	).Scan(&tagOrgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Tag not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify tag ownership"})
+		return
+	}
+
+	if tagOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Cannot update tag from different organization",
+			"detail": fmt.Sprintf("Tag belongs to organization %d, but authorized for organization %d", tagOrgID, orgID),
+		})
 		return
 	}
 

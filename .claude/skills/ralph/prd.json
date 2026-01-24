@@ -542,8 +542,8 @@
         "Verify via API call"
       ],
       "priority": 35,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created internal/middleware/organization.go with OrganizationContext() middleware that extracts org ID from X-Organization-ID header or organization_id query param. Updated Sites, Areas, Gateways, Tags handlers with organization filtering using middleware.GetOrganizationID(). All CRUD operations verify resource ownership via PostgreSQL JOINs and return 403 Forbidden for cross-organization access. Applied middleware to protected routes in core-api (sites, areas, gateways, tags, alarms, history). Organizations endpoints remain public (no org context required). Typecheck passes."
     },
     {
       "id": "US-036",

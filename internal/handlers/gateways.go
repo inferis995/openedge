@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
@@ -118,9 +119,39 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
 	// Validate driver_type
 	if req.DriverType != "S7" && req.DriverType != "MODBUS_TCP" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7' or 'MODBUS_TCP'"})
+		return
+	}
+
+	// Verify the area_id belongs to the authorized organization (multi-tenant isolation)
+	var areaOrgID int
+	err := h.db.QueryRow(
+		"SELECT s.org_id FROM areas a JOIN sites s ON a.site_id = s.id WHERE a.id = $1",
+		req.AreaID,
+	).Scan(&areaOrgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Area not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify area ownership"})
+		return
+	}
+
+	if areaOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Cannot create gateway for area in different organization",
+			"detail": fmt.Sprintf("Area belongs to organization %d, but authorized for organization %d", areaOrgID, orgID),
+		})
 		return
 	}
 
@@ -131,7 +162,7 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 	}
 
 	var gateway models.Gateway
-	err := h.db.QueryRow(
+	err = h.db.QueryRow(
 		`INSERT INTO gateways (area_id, name, driver_type, connection_config, scan_rate_ms, enabled)
 		 VALUES ($1, $2, $3, $4, $5, TRUE)
 		 RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at`,
@@ -151,7 +182,15 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 }
 
 // List handles GET /api/gateways?area_id={id}
+// Filters by organization from context (multi-tenant isolation)
 func (h *GatewaysHandler) List(c *gin.Context) {
+	// Get organization ID from context (set by middleware)
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
 	areaIDStr := c.Query("area_id")
 	if areaIDStr == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "area_id query parameter is required"})
@@ -161,6 +200,29 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 	areaID, err := strconv.Atoi(areaIDStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid area_id parameter"})
+		return
+	}
+
+	// Verify the area_id belongs to the authorized organization
+	var areaOrgID int
+	err = h.db.QueryRow(
+		"SELECT s.org_id FROM areas a JOIN sites s ON a.site_id = s.id WHERE a.id = $1",
+		areaID,
+	).Scan(&areaOrgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Area not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify area ownership"})
+		return
+	}
+
+	if areaOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Cannot query gateways for area in different organization",
+			"detail": fmt.Sprintf("Area belongs to organization %d, but authorized for organization %d", areaOrgID, orgID),
+		})
 		return
 	}
 
@@ -194,6 +256,7 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 }
 
 // Get handles GET /api/gateways/{id}
+// Filters by organization from context (multi-tenant isolation)
 func (h *GatewaysHandler) Get(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
@@ -202,11 +265,24 @@ func (h *GatewaysHandler) Get(c *gin.Context) {
 		return
 	}
 
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	// Query gateway with organization join to verify ownership
 	var gateway models.Gateway
+	var gatewayOrgID int
 	err = h.db.QueryRow(
-		"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at FROM gateways WHERE id = $1",
+		`SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled, g.created_at, s.org_id
+		 FROM gateways g
+		 JOIN areas a ON g.area_id = a.id
+		 JOIN sites s ON a.site_id = s.id
+		 WHERE g.id = $1`,
 		id,
-	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt)
+	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt, &gatewayOrgID)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -217,6 +293,15 @@ func (h *GatewaysHandler) Get(c *gin.Context) {
 		return
 	}
 
+	// Verify organization ownership
+	if gatewayOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Cannot access gateway from different organization",
+			"detail": fmt.Sprintf("Gateway belongs to organization %d, but authorized for organization %d", gatewayOrgID, orgID),
+		})
+		return
+	}
+
 	// Enrich with health status from Redis
 	gatewayWithHealth := h.enrichGatewayWithHealth(gateway)
 
@@ -224,11 +309,46 @@ func (h *GatewaysHandler) Get(c *gin.Context) {
 }
 
 // Update handles PUT /api/gateways/{id}
+// Filters by organization from context (multi-tenant isolation)
 func (h *GatewaysHandler) Update(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid gateway ID"})
+		return
+	}
+
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	// Verify gateway ownership first
+	var gatewayOrgID int
+	err = h.db.QueryRow(
+		`SELECT s.org_id
+		 FROM gateways g
+		 JOIN areas a ON g.area_id = a.id
+		 JOIN sites s ON a.site_id = s.id
+		 WHERE g.id = $1`,
+		id,
+	).Scan(&gatewayOrgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify gateway ownership"})
+		return
+	}
+
+	if gatewayOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Cannot update gateway from different organization",
+			"detail": fmt.Sprintf("Gateway belongs to organization %d, but authorized for organization %d", gatewayOrgID, orgID),
+		})
 		return
 	}
 

@@ -13,6 +13,7 @@ import (
 	"github.com/influxdata/influxdb-client-go/v2"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/handlers"
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
 )
@@ -135,15 +136,17 @@ func main() {
 	// Register routes
 	api := router.Group("/api")
 	{
-		// Organizations endpoints
+		// Organizations endpoints (public - no organization context required)
 		orgs := api.Group("/organizations")
 		{
 			orgs.POST("", orgsHandler.Create)
 			orgs.GET("", orgsHandler.List)
 		}
 
+		// Multi-tenant protected endpoints - require organization context
 		// Sites endpoints
 		sites := api.Group("/sites")
+		sites.Use(middleware.OrganizationContext())
 		{
 			sites.POST("", sitesHandler.Create)
 			sites.GET("", sitesHandler.List)
@@ -151,6 +154,7 @@ func main() {
 
 		// Areas endpoints
 		areas := api.Group("/areas")
+		areas.Use(middleware.OrganizationContext())
 		{
 			areas.POST("", areasHandler.Create)
 			areas.GET("", areasHandler.List)
@@ -158,6 +162,7 @@ func main() {
 
 		// Gateways endpoints
 		gateways := api.Group("/gateways")
+		gateways.Use(middleware.OrganizationContext())
 		{
 			gateways.POST("", gatewaysHandler.Create)
 			gateways.GET("", gatewaysHandler.List)
@@ -167,6 +172,7 @@ func main() {
 
 		// Tags endpoints
 		tags := api.Group("/tags")
+		tags.Use(middleware.OrganizationContext())
 		{
 			tags.POST("", tagsHandler.Create)
 			tags.GET("", tagsHandler.List)
@@ -176,13 +182,18 @@ func main() {
 
 		// Alarms endpoints
 		alarms := api.Group("/alarms")
+		alarms.Use(middleware.OrganizationContext())
 		{
 			alarms.POST("/:id/acknowledge", alarmsHandler.Acknowledge)
 		}
 
 		// History endpoint (only if InfluxDB is configured)
 		if historyHandler != nil {
-			api.GET("/history", historyHandler.Query)
+			history := api.Group("/history")
+			history.Use(middleware.OrganizationContext())
+			{
+				history.GET("", historyHandler.Query)
+			}
 		}
 	}
 

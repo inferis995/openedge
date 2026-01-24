@@ -1256,3 +1256,85 @@ type GatewayConfig struct {
 #### Next Priority:
 - **US-035**: Implement multi-tenant query filtering in API
 
+
+### 2026-01-24 - Multi-Tenant Query Filtering in API (Iteration 28)
+
+#### Completed User Stories:
+- **US-035**: Implemented multi-tenant query filtering in API
+
+#### Features Implemented:
+- `internal/middleware/organization.go` - Organization context middleware with:
+  - `OrganizationContext()` - Gin middleware that extracts organization ID from `X-Organization-ID` header or `organization_id` query parameter
+  - `GetOrganizationID(c)` - Helper function to retrieve org ID from request context
+  - `RequireOrganizationContext()` - Helper middleware that ensures context exists
+  - Returns 400 Bad Request if no organization ID provided
+  - Returns 400 if organization ID format is invalid (not a positive integer)
+  - Stores organization ID in Gin context for downstream handlers
+
+#### Handler Updates (Multi-Tenant Isolation):
+
+**Sites Handler** (`internal/handlers/sites.go`):
+- `Create()`: Verifies requested `org_id` matches authorized organization from context
+- `List()`: Filters sites by organization from context (removed `org_id` query parameter dependency)
+
+**Areas Handler** (`internal/handlers/areas.go`):
+- `Create()`: Verifies `site_id` belongs to authorized organization via PostgreSQL JOIN
+- `List()`: Verifies `site_id` ownership before returning areas
+
+**Gateways Handler** (`internal/handlers/gateways.go`):
+- `Create()`: Verifies `area_id` belongs to authorized organization
+- `List()`: Verifies `area_id` ownership before returning gateways
+- `Get()`: Queries gateway with organization JOIN to verify ownership
+- `Update()`: Verifies ownership before allowing update
+
+**Tags Handler** (`internal/handlers/tags.go`):
+- `Create()`: Verifies `gateway_id` belongs to authorized organization
+- `List()`: Verifies `gateway_id` ownership before returning tags
+- `Update()`: Verifies tag ownership before allowing update
+
+#### Multi-Tenant Security Model:
+1. **Organization Context**: Required for all protected endpoints (sites, areas, gateways, tags, alarms, history)
+2. **Ownership Verification**: All CRUD operations verify resource ownership via PostgreSQL JOINs across hierarchy
+3. **Cross-Organization Blocking**: Returns `403 Forbidden` with detailed error message when accessing resources from different organizations
+4. **Public Endpoints**: Organizations endpoints remain public (no context required) for tenant provisioning
+
+#### API Usage:
+```bash
+# Using header (recommended)
+curl -H "X-Organization-ID: 1" http://localhost:8080/api/sites
+
+# Using query parameter (fallback)
+curl http://localhost:8080/api/sites?organization_id=1
+```
+
+#### Error Responses:
+- `400 Bad Request` - No organization ID provided or invalid format
+- `403 Forbidden` - Attempting to access resource from different organization with detail message
+
+#### Files Created:
+- `internal/middleware/organization.go` - Organization context middleware
+
+#### Files Modified:
+- `internal/handlers/sites.go` - Added organization filtering to Create and List
+- `internal/handlers/areas.go` - Added organization filtering to Create and List
+- `internal/handlers/gateways.go` - Added organization filtering to Create, List, Get, and Update
+- `internal/handlers/tags.go` - Added organization filtering to Create, List, and Update
+- `services/core-api/main.go` - Applied `OrganizationContext()` middleware to protected route groups
+
+#### Route Groups with Middleware Applied:
+- `/api/sites` - Sites endpoints
+- `/api/areas` - Areas endpoints
+- `/api/gateways` - Gateways endpoints
+- `/api/tags` - Tags endpoints
+- `/api/alarms` - Alarms endpoints
+- `/api/history` - History endpoint (if InfluxDB configured)
+
+#### Public Routes (No Organization Context Required):
+- `/api/organizations` - Organizations endpoints (for tenant provisioning)
+
+#### Typecheck:
+- `go build ./...` passes successfully
+
+#### Next Priority:
+- **US-036**: Create InfluxDB organization tagging
+

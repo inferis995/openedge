@@ -2,10 +2,11 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
@@ -33,6 +34,22 @@ func (h *SitesHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	// Verify the requested org_id matches the context org_id (multi-tenant isolation)
+	if req.OrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error": "Cannot create site for different organization",
+			"detail": fmt.Sprintf("Request org_id (%d) does not match authorized organization (%d)", req.OrgID, orgID),
+		})
+		return
+	}
+
 	var site models.Site
 	err := h.db.QueryRow(
 		"INSERT INTO sites (org_id, name) VALUES ($1, $2) RETURNING id, org_id, name, created_at",
@@ -48,17 +65,13 @@ func (h *SitesHandler) Create(c *gin.Context) {
 	c.JSON(http.StatusCreated, site)
 }
 
-// List handles GET /api/sites?org_id={id}
+// List handles GET /api/sites
+// Filters by organization from context (multi-tenant isolation)
 func (h *SitesHandler) List(c *gin.Context) {
-	orgIDStr := c.Query("org_id")
-	if orgIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "org_id query parameter is required"})
-		return
-	}
-
-	orgID, err := strconv.Atoi(orgIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid org_id parameter"})
+	// Get organization ID from context (set by middleware)
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
 		return
 	}
 
