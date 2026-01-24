@@ -165,3 +165,49 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-014**: Implement S7 driver data publishing to MQTT
 
+### 2026-01-24 - S7 Driver MQTT Publishing (Iteration 7)
+
+#### Completed User Stories:
+- **US-014**: Implemented S7 driver data publishing to MQTT
+
+#### Features Implemented:
+- S7 client integration in `services/driver-s7/main.go`
+- `connectS7()` - Creates S7 client from gateway connection_config and connects with retry
+- `poll()` - Reads all tags using S7 client and publishes to MQTT
+- `publishTagValue()` - Publishes tag value to MQTT with JSON payload
+- `hasValueChanged()` / `updatePreviousValue()` - Report by Exception implementation
+- `valuesEqual()` - Type-safe value comparison for BOOL, INT, DINT, REAL
+
+#### MQTT Topic Structure:
+- Topic format: `data/{org}/{site}/{area}/{gateway}/{alias}`
+- All names are slugified (lowercase, spaces to hyphens)
+
+#### MQTT Payload Format:
+```json
+{
+  "v": <value>,
+  "ts": <timestamp_ms>,
+  "q": <quality>
+}
+```
+- `v`: The tag value (bool, int16, int32, float32)
+- `ts`: Unix timestamp in milliseconds
+- `q`: Quality (0 = good, 1 = bad)
+
+#### Report by Exception (RBE):
+- Stores previous values in thread-safe map `previousValues`
+- Only publishes when value has changed from previous read
+- First read for any tag is always published
+- Type-specific comparison for accurate change detection
+
+#### Error Handling:
+- Auto-reconnect to S7 PLC on connection loss
+- Bad quality (q=1) published when read errors occur
+- Graceful S7 disconnect on service shutdown
+
+#### Files Modified:
+- `services/driver-s7/main.go` - Added S7 integration, MQTT publishing, RBE
+
+#### Next Priority:
+- **US-015**: Create driver-modbus service Docker container structure
+

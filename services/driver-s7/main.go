@@ -16,6 +16,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
+	"github.com/ralph/industrial-edge-middleware/internal/s7"
 )
 
 // GatewayConfig holds the loaded gateway configuration
@@ -27,15 +28,26 @@ type GatewayConfig struct {
 	Area    string
 }
 
+// TagPayload represents the MQTT message payload for tag values
+type TagPayload struct {
+	Value     interface{} `json:"v"`
+	Timestamp int64       `json:"ts"`
+	Quality   int         `json:"q"`
+}
+
 // Driver manages the S7 driver lifecycle
 type Driver struct {
 	gatewayID    int
 	database     *sql.DB
 	mqttClient   *mqtt.Client
+	s7Client     *s7.Client
 	config       *GatewayConfig
 	configMu     sync.RWMutex
 	stopChan     chan struct{}
 	reloadChan   chan struct{}
+	// Report by Exception: store previous values for change detection
+	previousValues map[int]interface{}
+	prevValuesMu   sync.RWMutex
 }
 
 func main() {
@@ -94,11 +106,12 @@ func main() {
 
 	// Create driver instance
 	driver := &Driver{
-		gatewayID:  gatewayID,
-		database:   database,
-		mqttClient: mqttClient,
-		stopChan:   make(chan struct{}),
-		reloadChan: make(chan struct{}, 1),
+		gatewayID:      gatewayID,
+		database:       database,
+		mqttClient:     mqttClient,
+		stopChan:       make(chan struct{}),
+		reloadChan:     make(chan struct{}, 1),
+		previousValues: make(map[int]interface{}),
 	}
 
 	// Load initial configuration
@@ -260,6 +273,11 @@ func (d *Driver) run() {
 	scanRate := time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond
 	d.configMu.RUnlock()
 
+	// Connect to S7 PLC
+	if err := d.connectS7(); err != nil {
+		log.Printf("Initial S7 connection failed: %v (will retry on poll)", err)
+	}
+
 	ticker := time.NewTicker(scanRate)
 	defer ticker.Stop()
 
@@ -269,6 +287,9 @@ func (d *Driver) run() {
 		select {
 		case <-d.stopChan:
 			log.Println("Stopping S7 polling loop")
+			if d.s7Client != nil {
+				d.s7Client.Disconnect()
+			}
 			return
 
 		case <-d.reloadChan:
@@ -276,6 +297,13 @@ func (d *Driver) run() {
 			if err := d.loadConfig(); err != nil {
 				log.Printf("Failed to reload configuration: %v", err)
 			} else {
+				// Reconnect S7 client with potentially new config
+				if d.s7Client != nil {
+					d.s7Client.Disconnect()
+				}
+				if err := d.connectS7(); err != nil {
+					log.Printf("Failed to reconnect S7 after reload: %v", err)
+				}
 				// Update ticker with new scan rate
 				d.configMu.RLock()
 				newScanRate := time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond
@@ -290,7 +318,27 @@ func (d *Driver) run() {
 	}
 }
 
-// poll reads data from the S7 PLC (placeholder - actual S7 implementation in US-013)
+// connectS7 establishes connection to the S7 PLC
+func (d *Driver) connectS7() error {
+	d.configMu.RLock()
+	connConfig := d.config.Gateway.ConnectionConfig
+	d.configMu.RUnlock()
+
+	client, err := s7.NewClientFromConfig(connConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create S7 client: %w", err)
+	}
+
+	if err := client.ConnectWithRetry(); err != nil {
+		return fmt.Errorf("failed to connect to S7 PLC: %w", err)
+	}
+
+	d.s7Client = client
+	log.Println("Connected to S7 PLC")
+	return nil
+}
+
+// poll reads data from the S7 PLC and publishes to MQTT
 func (d *Driver) poll() {
 	d.configMu.RLock()
 	config := d.config
@@ -300,9 +348,131 @@ func (d *Driver) poll() {
 		return
 	}
 
-	// Log polling activity (actual S7 connection will be implemented in US-013)
-	log.Printf("Polling gateway %s (%d tags) - S7 connection not yet implemented",
-		config.Gateway.Name, len(config.Tags))
+	// Ensure S7 connection is established
+	if d.s7Client == nil || !d.s7Client.IsConnected() {
+		log.Printf("S7 not connected, attempting reconnection...")
+		if err := d.connectS7(); err != nil {
+			log.Printf("S7 reconnection failed: %v", err)
+			return
+		}
+	}
+
+	// Build topic prefix: data/{org}/{site}/{area}/{gateway}
+	topicPrefix := fmt.Sprintf("data/%s/%s/%s/%s",
+		config.OrgName,
+		config.Site,
+		config.Area,
+		slugify(config.Gateway.Name),
+	)
+
+	timestamp := time.Now().UnixMilli()
+
+	// Read and publish each tag
+	for _, tag := range config.Tags {
+		// Read value from PLC
+		dataType := s7.DataType(tag.DataType)
+		result := d.s7Client.ReadTag(tag.Code, dataType)
+
+		// Check for read error
+		if result.Error != nil {
+			log.Printf("Error reading tag %s (ID:%d): %v", tag.Alias, tag.ID, result.Error)
+			// Publish with bad quality
+			d.publishTagValue(topicPrefix, tag, nil, timestamp, 1)
+			continue
+		}
+
+		// Report by Exception: check if value has changed
+		if !d.hasValueChanged(tag.ID, result.Value) {
+			continue // Skip publish - value hasn't changed
+		}
+
+		// Update previous value
+		d.updatePreviousValue(tag.ID, result.Value)
+
+		// Publish to MQTT
+		d.publishTagValue(topicPrefix, tag, result.Value, timestamp, result.Quality)
+	}
+}
+
+// publishTagValue publishes a tag value to MQTT
+func (d *Driver) publishTagValue(topicPrefix string, tag models.Tag, value interface{}, timestamp int64, quality int) {
+	// Build topic: data/{org}/{site}/{area}/{gateway}/{alias}
+	topic := fmt.Sprintf("%s/%s", topicPrefix, slugify(tag.Alias))
+
+	// Build payload
+	payload := TagPayload{
+		Value:     value,
+		Timestamp: timestamp,
+		Quality:   quality,
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		log.Printf("Error marshaling payload for tag %s: %v", tag.Alias, err)
+		return
+	}
+
+	// Publish to MQTT (QoS 1 for reliability)
+	if err := d.mqttClient.Publish(topic, string(payloadBytes)); err != nil {
+		log.Printf("Error publishing tag %s to %s: %v", tag.Alias, topic, err)
+	}
+}
+
+// hasValueChanged checks if a value has changed from its previous value (Report by Exception)
+func (d *Driver) hasValueChanged(tagID int, newValue interface{}) bool {
+	d.prevValuesMu.RLock()
+	prevValue, exists := d.previousValues[tagID]
+	d.prevValuesMu.RUnlock()
+
+	// If no previous value exists, it's always considered "changed"
+	if !exists {
+		return true
+	}
+
+	// Compare values based on type
+	return !valuesEqual(prevValue, newValue)
+}
+
+// updatePreviousValue updates the stored previous value for a tag
+func (d *Driver) updatePreviousValue(tagID int, value interface{}) {
+	d.prevValuesMu.Lock()
+	d.previousValues[tagID] = value
+	d.prevValuesMu.Unlock()
+}
+
+// valuesEqual compares two values for equality
+func valuesEqual(a, b interface{}) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	// Handle different types
+	switch av := a.(type) {
+	case bool:
+		bv, ok := b.(bool)
+		return ok && av == bv
+	case int16:
+		bv, ok := b.(int16)
+		return ok && av == bv
+	case int32:
+		bv, ok := b.(int32)
+		return ok && av == bv
+	case float32:
+		bv, ok := b.(float32)
+		return ok && av == bv
+	case float64:
+		bv, ok := b.(float64)
+		return ok && av == bv
+	case int:
+		bv, ok := b.(int)
+		return ok && av == bv
+	default:
+		// Fallback to direct comparison
+		return a == b
+	}
 }
 
 // slugify converts a string to a URL-friendly slug
