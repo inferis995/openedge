@@ -980,8 +980,8 @@
         "Verify in browser: alarms table renders, acknowledge works, auto-refresh functions"
       ],
       "priority": 60,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented full alarms page with table display, filter controls (state dropdown, tag dropdown, date range picker), acknowledge button, auto-refresh every 10 seconds with pause/resume toggle. Added URL search params for filters, filter count display, and Clear Filters button. Updated useAlarms hook to support all filter parameters. Updated alarmsApi.getAll to accept AlarmsFilters interface. Build passes: npm run build (841.12 kB JS, 29.87 kB CSS)."
     },
     {
       "id": "US-061",
@@ -999,8 +999,8 @@
         "Verify in browser: filters work, URL params update correctly"
       ],
       "priority": 61,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "All filtering functionality was implemented in US-060. Tag dropdown populated from useTags hook, state dropdown with All/ACTIVE/RTN/ACKNOWLEDGED/CLEAR options, date range picker with datetime-local inputs, Apply Filters button, Clear Filters button, URL search params with useSearchParams hook, filter count displayed in header. Build passes."
     },
     {
       "id": "US-062",

@@ -22,7 +22,7 @@ export const useDashboardStats = () => {
 
     const alarmsQuery = useQuery({
         queryKey: ['alarms', 'active'],
-        queryFn: () => alarmsApi.getAll('active'),
+        queryFn: () => alarmsApi.getAll({ state: 'active' }),
         refetchInterval: 5000,
     });
 

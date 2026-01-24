@@ -46,6 +46,7 @@ const TagsPage = () => {
     const gatewayIdParam = searchParams.get('gateway_id');
     const [selectedGatewayId, setSelectedGatewayId] = useState<string>(gatewayIdParam || '');
 
+    const { gateways } = useGateways(); // Get all gateways for filter
     const { tags, isLoading, create, remove, update } = useTags(
         selectedGatewayId && selectedGatewayId !== 'all' ? parseInt(selectedGatewayId) : undefined
     );

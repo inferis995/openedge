@@ -65,6 +65,7 @@ const TrendPage = () => {
             const tag = tags.find(t => t.id === tagId);
             const tagKey = tag?.alias || tag?.code || `Tag ${tagId}`;
 
+            if (!query.data) return;
             query.data.forEach((point: HistoryDataPoint) => {
                 const ts = point.timestamp * 1000; // Convert to milliseconds
                 if (!timestampMap.has(ts)) {
@@ -90,6 +91,7 @@ const TrendPage = () => {
         const tagId = parseInt(tagIdStr);
         if (!selectedTagIds.includes(tagId)) {
             setSelectedTagIds([...selectedTagIds, tagId]);
+            setShouldQuery(true); // Auto-enable query to show data immediately
         }
     };
 
@@ -146,11 +148,26 @@ const TrendPage = () => {
     };
 
     // Quick date range selectors
-    const setQuickRange = (hours: number) => {
+    const setQuickRange = (label: string) => {
         const end = new Date();
-        const start = new Date(Date.now() - hours * 60 * 60 * 1000);
+        let start = new Date();
+
+        switch (label) {
+            case '1h': start = new Date(Date.now() - 1 * 60 * 60 * 1000); setInterval('1m'); break;
+            case '6h': start = new Date(Date.now() - 6 * 60 * 60 * 1000); setInterval('5m'); break;
+            case '24h': start = new Date(Date.now() - 24 * 60 * 60 * 1000); setInterval('15m'); break;
+            case '7d': start = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); setInterval('1h'); break;
+            case '30d': start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); setInterval('1d'); break;
+        }
+
         setStartDate(start);
         setEndDate(end);
+    };
+
+    // Helper for input value
+    const formatInputValue = (date: Date) => {
+        const tzOffset = date.getTimezoneOffset() * 60000;
+        return new Date(date.getTime() - tzOffset).toISOString().slice(0, 16);
     };
 
     // Available tags (excluding already selected)
@@ -232,7 +249,7 @@ const TrendPage = () => {
                             <input
                                 id="start-date"
                                 type="datetime-local"
-                                value={startDate.toISOString().slice(0, 16)}
+                                value={formatInputValue(startDate)}
                                 onChange={(e) => setStartDate(new Date(e.target.value))}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
                             />
@@ -245,7 +262,7 @@ const TrendPage = () => {
                             <input
                                 id="end-date"
                                 type="datetime-local"
-                                value={endDate.toISOString().slice(0, 16)}
+                                value={formatInputValue(endDate)}
                                 onChange={(e) => setEndDate(new Date(e.target.value))}
                                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
                             />
@@ -253,35 +270,13 @@ const TrendPage = () => {
                     </div>
 
                     {/* Quick Range Selectors */}
-                    <div className="flex flex-wrap gap-2">
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setQuickRange(1)}
-                        >
-                            Last 1 Hour
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setQuickRange(6)}
-                        >
-                            Last 6 Hours
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setQuickRange(24)}
-                        >
-                            Last 24 Hours
-                        </Button>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setQuickRange(168)}
-                        >
-                            Last 7 Days
-                        </Button>
+                    <div className="flex flex-wrap gap-2 items-center">
+                        <Label className="mr-2 text-sm text-muted-foreground">Quick Presets:</Label>
+                        <Button variant="outline" size="sm" onClick={() => setQuickRange('1h')}>1 Hour</Button>
+                        <Button variant="outline" size="sm" onClick={() => setQuickRange('6h')}>6 Hours</Button>
+                        <Button variant="outline" size="sm" onClick={() => setQuickRange('24h')}>24 Hours</Button>
+                        <Button variant="outline" size="sm" onClick={() => setQuickRange('7d')}>7 Days</Button>
+                        <Button variant="outline" size="sm" onClick={() => setQuickRange('30d')}>30 Days</Button>
                     </div>
 
                     {/* Aggregation Controls */}

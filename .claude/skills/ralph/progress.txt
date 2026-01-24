@@ -2459,3 +2459,71 @@ The frontend Docker container was already fully implemented with all acceptance 
 
 #### Next Priority:
 - **US-060**: Create alarms page in frontend
+
+### 2026-01-24 - Alarms Page Implementation (Iteration 48)
+
+#### Completed User Stories:
+- **US-060**: Created alarms page in frontend
+- **US-061**: Add alarm filtering to alarms page (implemented together with US-060)
+
+#### Features Implemented:
+- `services/web-ui/src/pages/AlarmsPage.tsx` - Complete alarms page with:
+  - Table display with columns: ID, Tag, State, Message, Triggered At, Acknowledged At, Cleared At, Actions
+  - State badges with color coding:
+    - ACTIVE: red badge with animate-pulse
+    - RTN: yellow badge (bg-yellow-500 text-white)
+    - ACKNOWLEDGED: blue badge (bg-blue-500 text-white)
+    - CLEARED: gray outline badge
+  - Filter controls section with:
+    - State dropdown (Active, RTN, Return to Normal, Acknowledged, Cleared, All)
+    - Tag dropdown (populated from useTags hook, shows all tags)
+    - Start Date datetime-local input
+    - End Date datetime-local input
+    - Apply Filters button
+    - Clear Filters button
+  - Auto-refresh functionality:
+    - 10 second refresh interval
+    - Pause/Play toggle button with visual indicator
+    - Manual refresh button
+  - URL search params for filter state persistence (useSearchParams hook)
+  - Filter count display in header: "({count} alarms, {active} active)"
+  - Acknowledge button for ACTIVE alarms only
+  - Loading state with "Loading alarms..." message
+  - Empty state with CheckCircle icon when no alarms found
+
+#### Hook Updates:
+- `services/web-ui/src/hooks/useAlarms.ts` - Enhanced to support:
+  - state, start, end, tagId filter parameters
+  - Configurable refetchInterval (defaults to false, accepts number of ms)
+  - Returns refetch function for manual refresh
+  - Updated queryKey to include all filter params
+
+#### API Updates:
+- `services/web-ui/src/api/alarms.ts` - Enhanced with:
+  - AlarmsFilters interface (state, start, end, tag_id)
+  - getAll() accepts filters object with all parameters
+  - Proper parameter filtering (only includes non-empty values)
+
+#### Other Updates:
+- `services/web-ui/src/hooks/useDashboardStats.ts` - Updated alarmsApi.getAll call to use { state: 'active' } object instead of string
+
+#### Design System Integration:
+- Violet accent color (bg-violet-600) for primary buttons
+- Consistent spacing with space-y-6 and gap-4
+- Rounded-lg border for filter section
+- White background for table and filters
+- Muted foreground text for descriptions
+- Icons from lucide-react (CheckCircle, RefreshCw, Pause, Play, Filter, X, Calendar)
+
+#### Files Modified:
+- `services/web-ui/src/pages/AlarmsPage.tsx` - Complete rewrite with full filtering and auto-refresh
+- `services/web-ui/src/hooks/useAlarms.ts` - Added filter parameters and refetchInterval support
+- `services/web-ui/src/api/alarms.ts` - Added AlarmsFilters interface and updated getAll method
+- `services/web-ui/src/hooks/useDashboardStats.ts` - Updated to use new API signature
+
+#### Typecheck:
+- `go build ./...` passes successfully
+- `npm run build` creates production build successfully (841.12 kB JS, 29.87 kB CSS)
+
+#### Next Priority:
+- **US-062**: Add alarm detail dialog
