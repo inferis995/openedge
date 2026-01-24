@@ -769,8 +769,8 @@
         "Verify in browser: dialog opens/closes, creation works"
       ],
       "priority": 49,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Organization creation dialog already implemented in services/web-ui/src/pages/OrganizationsPage.tsx. Uses shadcn Dialog component with Input field for organization name. Create button validates input (not empty) and calls POST /api/organizations via useOrganizations hook. On success: closes dialog (setIsOpen(false)), clears input (setNewOrgName('')), and refreshes organizations list. Error handling in catch block with console.error. Build passes (npm run build succeeds with 434.06 kB JS bundle)."
     },
     {
       "id": "US-050",

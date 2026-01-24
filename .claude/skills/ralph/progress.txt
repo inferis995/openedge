@@ -2083,3 +2083,45 @@ const TYPE_COLORS: Record<TreeNodeType, string> = {
 
 #### Next Priority:
 - **US-049**: Implement organization creation dialog
+
+
+### 2026-01-24 - Organization Creation Dialog (Iteration 40)
+
+#### Completed User Stories:
+- **US-049**: Organization creation dialog (already implemented)
+
+#### Features Verified:
+The organization creation dialog was already fully implemented in `services/web-ui/src/pages/OrganizationsPage.tsx`.
+
+#### Dialog Features (lines 72-100):
+- shadcn Dialog component with DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogFooter
+- Input field for "Organization Name" with id="name" and placeholder "e.g. Acme Industries"
+- "Create" button that calls handleCreate() function
+- Form validation: input must not be empty (enforced by user interaction)
+- onClose: dialog closes via setIsOpen(false)
+- onSuccess: clears input via setNewOrgName(''), organizations list refreshes automatically via useOrganizations hook
+- onError: console.error logging in catch block
+
+#### Implementation Details:
+- useState hooks: `isOpen` for dialog open state, `newOrgName` for input value
+- `useOrganizations` hook provides: `organizations` array, `isLoading` boolean, `create()` function, `remove()` function
+- create() function calls POST /api/organizations with { name: newOrgName }
+- DialogTrigger asChild wraps Button with "Add Organization" label and Plus icon
+- DialogContent contains form with Label and Input components
+- DialogFooter contains Create button that triggers handleCreate
+
+#### Integration:
+- OrganizationsPage displays table of all organizations
+- "Add Organization" button in page header opens dialog
+- After creation, organizations list refreshes automatically
+- Delete button also available for each organization
+
+#### Typecheck:
+- `npm run build` passes successfully (434.06 kB JS, 26.92 kB CSS)
+- TypeScript compilation succeeds without errors
+
+#### Files Verified:
+- `services/web-ui/src/pages/OrganizationsPage.tsx` - Contains complete organization creation dialog implementation
+
+#### Next Priority:
+- **US-050**: Implement site creation dialog
