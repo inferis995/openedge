@@ -330,3 +330,59 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-018**: Create driver-manager service for container orchestration
 
+### 2026-01-24 - Driver Manager Service (Iteration 11)
+
+#### Completed User Stories:
+- **US-018**: Created driver-manager service for container orchestration
+
+#### Features Implemented:
+- `services/driver-manager/Dockerfile` - Multi-stage build (golang:1.21-alpine -> alpine:3.19) with Docker CLI installed
+- `services/driver-manager/main.go` - Driver manager service with:
+  - Docker API client using github.com/docker/docker
+  - PostgreSQL polling every 10 seconds for gateway enabled/disabled status
+  - Container lifecycle management (start/stop/remove) based on gateway.enabled field
+  - Docker network setup (industrial-network) for container-to-container communication
+  - Thread-safe gateway state tracking with mutex-protected map
+  - Container naming: `driver-s7-{id}` or `driver-modbus-{id}`
+  - Image selection based on driver_type (S7 -> industrial-driver-s7:latest, MODBUS_TCP -> industrial-driver-modbus:latest)
+  - Environment variable passthrough (DB_*, MQTT_*) to driver containers
+  - Proper logging of all container operations (start/stop/create/remove)
+  - Graceful shutdown with SIGINT/SIGTERM handling and container cleanup
+  - Detection of deleted gateways (no longer in database) with automatic container stop
+
+#### Docker Integration:
+- Uses Docker socket bind mount (`/var/run/docker.sock:/var/run/docker.sock:ro`)
+- Creates containers on `industrial-network` for service discovery
+- Restart policy: `unless-stopped` for driver containers
+- Health check dependency on postgres and mosquitto services
+
+#### Gateway Orchestration Logic:
+1. Poll PostgreSQL for all gateways (id, name, driver_type, enabled)
+2. For each enabled gateway not currently running: start container
+3. For each disabled gateway currently running: stop container
+4. For gateways removed from database: stop container
+5. Thread-safe state tracking prevents duplicate container creation
+
+#### Files Created:
+- `services/driver-manager/Dockerfile` - Docker container definition
+- `services/driver-manager/main.go` - Driver manager service main entry point
+
+#### Files Modified:
+- `go.mod` - Added github.com/docker/docker v20.10.7+incompatible and github.com/docker/go-connections v0.4.0 dependencies
+- `docker-compose.yml` - Added driver-manager service with Docker socket volume mount
+
+#### Dependencies Added:
+- github.com/docker/docker v20.10.7+incompatible
+- github.com/docker/go-connections v0.4.0
+- github.com/opencontainers/image-spec v1.1.1
+- github.com/opencontainers/go-digest v1.0.0
+- github.com/gogo/protobuf v1.3.2
+- github.com/sirupsen/logrus v1.9.4
+- google.golang.org/grpc v1.78.0
+- github.com/gorilla/mux v1.8.1
+- github.com/containerd/containerd v1.7.30
+- And related transitive dependencies
+
+#### Next Priority:
+- **US-019**: Implement MQTT reload command for dynamic configuration
+

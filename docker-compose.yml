@@ -111,6 +111,30 @@ services:
     networks:
       - industrial-network
 
+  driver-manager:
+    build:
+      context: .
+      dockerfile: services/driver-manager/Dockerfile
+    container_name: industrial-driver-manager
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: industrial_user
+      DB_PASSWORD: industrial_pass
+      DB_NAME: industrial_edge
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - industrial-network
+
 volumes:
   postgres_data:
     driver: local
