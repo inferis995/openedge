@@ -1632,3 +1632,54 @@ All components created in `frontend/src/components/ui/`:
 #### Next Priority:
 - **US-041**: Implement API client with axios
 
+
+### 2026-01-24 - API Client Implementation (Iteration 33)
+
+#### Completed User Stories:
+- **US-041**: Implemented API client with axios
+
+#### Features Implemented:
+- `frontend/src/types/api.ts` - TypeScript types matching backend OpenAPI specification
+  - Entity types: Organization, Site, Area, Gateway, GatewayWithHealth, Tag, TagValue, HistoryPoint, Alarm
+  - Request types: CreateOrganizationRequest, CreateSiteRequest, CreateAreaRequest, CreateGatewayRequest, UpdateGatewayRequest, CreateTagRequest, UpdateTagRequest
+  - Response types: AcknowledgeResponse
+  - Query types: HistoryQueryParams
+
+- `frontend/src/services/api.ts` - API client service with axios
+  - Axios instance with base URL `/api` (uses Vite proxy in dev)
+  - 10 second timeout configuration
+  - Request interceptor: Automatically adds `X-Organization-ID` header from localStorage (`ralph_org_id`)
+  - Response interceptor: Handles 403/404/500 errors with console logging
+  - Error handling: Specific messages for 403 (organization access), 404 (not found), 500 (server error), network errors
+
+#### Exported API Functions:
+- **Organizations**: `getOrganizations()`, `createOrganization(data)`
+- **Sites**: `getSites(orgId?)`, `createSite(data)`
+- **Areas**: `getAreas(siteId)`, `createArea(data)`
+- **Gateways**: `getGateways(areaId)`, `getGateway(id)`, `createGateway(data)`, `updateGateway(id, data)`
+- **Tags**: `getTags(gatewayId)`, `createTag(data)`, `updateTag(id, data)`, `getCurrentTagValue(id)`
+- **History**: `getHistory(params)`
+- **Alarms**: `getAlarms(filters?)`, `acknowledgeAlarm(id)`
+
+#### Type Safety:
+- All API functions are fully typed with TypeScript
+- Request/response types match backend OpenAPI specification
+- Generic axios types used for proper type inference
+- AxiosError handling with proper type guards
+
+#### Dependencies Added:
+- axios ^1.8.4
+
+#### Files Created:
+- `frontend/src/types/api.ts` - TypeScript API types
+- `frontend/src/services/api.ts` - API client service
+
+#### Files Modified:
+- `frontend/package.json` - Added axios dependency
+
+#### Typecheck:
+- `npm run type-check` passes successfully
+
+#### Next Priority:
+- **US-042**: Create organization selection page
+

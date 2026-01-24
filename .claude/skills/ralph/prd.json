@@ -625,8 +625,8 @@
         "Add TypeScript types matching backend API responses"
       ],
       "priority": 40,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created src/types/api.ts with TypeScript interfaces for all entities (Organization, Site, Area, Gateway, GatewayWithHealth, Tag, TagValue, HistoryPoint, Alarm) and request/response types. Created src/services/api.ts with axios instance configured for /api base URL, request interceptor adding X-Organization-ID header from localStorage, response interceptor handling 403/404/500 errors with console logging. Exported typed API functions for all endpoints: getOrganizations, createOrganization, getSites, createSite, getAreas, createArea, getGateways, getGateway, createGateway, updateGateway, getTags, createTag, updateTag, getCurrentTagValue, getHistory, getAlarms, acknowledgeAlarm. Typecheck passes with npm run type-check."
     },
     {
       "id": "US-042",
