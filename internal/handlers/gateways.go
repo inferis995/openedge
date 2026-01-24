@@ -1,0 +1,203 @@
+package handlers
+
+import (
+	"database/sql"
+	"net/http"
+	"strconv"
+
+	"github.com/gin-gonic/gin"
+	"github.com/ralph/industrial-edge-middleware/internal/models"
+)
+
+// GatewaysHandler handles gateway-related HTTP requests
+type GatewaysHandler struct {
+	db *sql.DB
+}
+
+// NewGatewaysHandler creates a new gateways handler
+func NewGatewaysHandler(db *sql.DB) *GatewaysHandler {
+	return &GatewaysHandler{db: db}
+}
+
+// CreateGatewayRequest represents the request body for creating a gateway
+type CreateGatewayRequest struct {
+	AreaID           int                        `json:"area_id" binding:"required"`
+	Name             string                     `json:"name" binding:"required"`
+	DriverType       string                     `json:"driver_type" binding:"required"`
+	ConnectionConfig models.ConnectionConfig   `json:"connection_config" binding:"required"`
+	ScanRateMs       int                        `json:"scan_rate_ms"`
+}
+
+// UpdateGatewayRequest represents the request body for updating a gateway
+type UpdateGatewayRequest struct {
+	Name             *string                    `json:"name"`
+	DriverType       *string                    `json:"driver_type"`
+	ConnectionConfig *models.ConnectionConfig   `json:"connection_config"`
+	ScanRateMs       *int                       `json:"scan_rate_ms"`
+	Enabled          *bool                      `json:"enabled"`
+}
+
+// Create handles POST /api/gateways
+func (h *GatewaysHandler) Create(c *gin.Context) {
+	var req CreateGatewayRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate driver_type
+	if req.DriverType != "S7" && req.DriverType != "MODBUS_TCP" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7' or 'MODBUS_TCP'"})
+		return
+	}
+
+	// Set default scan_rate_ms if not provided
+	scanRateMs := req.ScanRateMs
+	if scanRateMs == 0 {
+		scanRateMs = 1000
+	}
+
+	var gateway models.Gateway
+	err := h.db.QueryRow(
+		`INSERT INTO gateways (area_id, name, driver_type, connection_config, scan_rate_ms, enabled)
+		 VALUES ($1, $2, $3, $4, $5, TRUE)
+		 RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at`,
+		req.AreaID,
+		req.Name,
+		req.DriverType,
+		req.ConnectionConfig,
+		scanRateMs,
+	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create gateway"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, gateway)
+}
+
+// List handles GET /api/gateways?area_id={id}
+func (h *GatewaysHandler) List(c *gin.Context) {
+	areaIDStr := c.Query("area_id")
+	if areaIDStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "area_id query parameter is required"})
+		return
+	}
+
+	areaID, err := strconv.Atoi(areaIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid area_id parameter"})
+		return
+	}
+
+	rows, err := h.db.Query(
+		"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at FROM gateways WHERE area_id = $1 ORDER BY id",
+		areaID,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query gateways"})
+		return
+	}
+	defer rows.Close()
+
+	var gateways []models.Gateway
+	for rows.Next() {
+		var gateway models.Gateway
+		if err := rows.Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan gateway"})
+			return
+		}
+		gateways = append(gateways, gateway)
+	}
+
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error iterating gateways"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gateways)
+}
+
+// Update handles PUT /api/gateways/{id}
+func (h *GatewaysHandler) Update(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid gateway ID"})
+		return
+	}
+
+	var req UpdateGatewayRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Validate driver_type if provided
+	if req.DriverType != nil && *req.DriverType != "S7" && *req.DriverType != "MODBUS_TCP" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7' or 'MODBUS_TCP'"})
+		return
+	}
+
+	// Build dynamic update query
+	updates := []string{}
+	args := []interface{}{}
+	argPos := 1
+
+	if req.Name != nil {
+		updates = append(updates, "name = $"+strconv.Itoa(argPos))
+		args = append(args, *req.Name)
+		argPos++
+	}
+	if req.DriverType != nil {
+		updates = append(updates, "driver_type = $"+strconv.Itoa(argPos))
+		args = append(args, *req.DriverType)
+		argPos++
+	}
+	if req.ConnectionConfig != nil {
+		updates = append(updates, "connection_config = $"+strconv.Itoa(argPos))
+		args = append(args, *req.ConnectionConfig)
+		argPos++
+	}
+	if req.ScanRateMs != nil {
+		updates = append(updates, "scan_rate_ms = $"+strconv.Itoa(argPos))
+		args = append(args, *req.ScanRateMs)
+		argPos++
+	}
+	if req.Enabled != nil {
+		updates = append(updates, "enabled = $"+strconv.Itoa(argPos))
+		args = append(args, *req.Enabled)
+		argPos++
+	}
+
+	if len(updates) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
+		return
+	}
+
+	// Add WHERE parameter
+	args = append(args, id)
+	query := "UPDATE gateways SET " + updates[0]
+	for i := 1; i < len(updates); i++ {
+		query += ", " + updates[i]
+	}
+	query += " WHERE id = $" + strconv.Itoa(argPos) + " RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at"
+
+	var gateway models.Gateway
+	err = h.db.QueryRow(query, args...).Scan(
+		&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType,
+		&gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update gateway"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gateway)
+}

@@ -1,0 +1,96 @@
+# Ralph Progress - Industrial Edge Middleware
+Branch: ralph/industrial-edge-middleware
+Project: Industrial Edge Middleware - Multi-Tenant Data Acquisition System
+
+## Progress Log
+
+### 2025-01-24 - Initial Setup (Iterations 1-2)
+
+#### Completed User Stories:
+- **US-001**: Created migrations/001_init_schema.sql with organizations, sites, areas tables and proper indexes
+- **US-002**: Created gateways, tags, alarms tables in migrations/001_init_schema.sql with all constraints
+- **US-003**: Created internal/models/*.go with all structs (Organization, Site, Area, Gateway, Tag, Alarm) and internal/db/db.go with Connect() function
+- **US-004**: Created internal/handlers/organizations.go with Create() and List() handlers, integrated into services/core-api/main.go
+- **US-005**: Created internal/handlers/sites.go with Create() and List() handlers, integrated into services/core-api/main.go
+- **US-006**: Created internal/handlers/areas.go with Create() and List() handlers, integrated into services/core-api/main.go
+- **US-007**: Created internal/handlers/gateways.go with Create(), List(), Update() handlers, integrated into services/core-api/main.go
+
+#### Files Created:
+```
+industrial-edge-middleware/
+├── go.mod                          # Go module with all dependencies
+├── migrations/
+│   └── 001_init_schema.sql         # Complete database schema
+├── internal/
+│   ├── db/
+│   │   └── db.go                   # Database connection layer
+│   ├── models/
+│   │   ├── organization.go         # Organization, Site, Area structs
+│   │   ├── gateway.go              # Gateway struct
+│   │   └── tag.go                  # Tag, Alarm structs
+│   └── handlers/
+│       ├── organizations.go        # Organizations API handler
+│       ├── sites.go                # Sites API handler
+│       ├── areas.go                # Areas API handler
+│       └── gateways.go             # Gateways API handler (with Update)
+└── services/
+    └── core-api/
+        └── main.go                 # Gin server on port 8080
+```
+
+#### Dependencies Added:
+- github.com/gin-gonic/gin v1.10.0
+- github.com/lib/pq v1.10.9
+- github.com/redis/go-redis/v9 v9.7.0
+- github.com/eclipse/paho.mqtt.golang v1.5.0
+- github.com/influxdata/influxdb-client-go/v2 v2.13.0
+- github.com/robinson/gos7 v0.0.0-20231202003052-2c9b4e7e7f23
+- github.com/goburrow/modbus v0.0.0-20231103181958-23f9ac3b4482
+
+#### Next Priority:
+- **US-008**: Create tags REST API endpoints
+
+#### Notes:
+- Database schema is complete with proper indexes and constraints
+- Go models are properly mapped to database tables
+- REST API foundation is in place with Gin framework
+- All code compiles successfully with `go build ./...`
+
+### 2026-01-24 - Docker Infrastructure (Iteration 3)
+
+#### Completed User Stories:
+- **US-009**: Docker Compose configuration already existed with PostgreSQL, Redis, Mosquitto, InfluxDB - marked as complete
+- **US-010**: Created services/core-api/Dockerfile with multi-stage build (golang:1.21-alpine -> alpine:3.19), added core-api service to docker-compose.yml with proper environment variables, health checks, and service dependencies
+
+#### Files Created/Modified:
+- `services/core-api/Dockerfile` - Multi-stage build for core-api
+- `docker-compose.yml` - Added core-api service with depends_on and healthcheck
+
+#### Next Priority:
+- **US-011**: Create MQTT client library for Go
+
+### 2026-01-24 - MQTT Client Library (Iteration 4)
+
+#### Completed User Stories:
+- **US-011**: Created internal/mqtt/client.go with reusable MQTT client library
+
+#### Features Implemented:
+- `NewClient(cfg Config)` - Creates MQTT client with configurable host, port, clientID, credentials
+- `Connect()` - Establishes connection to Mosquitto broker
+- `Disconnect(quiesce)` - Gracefully disconnects from broker
+- `Publish(topic, payload)` - Publishes messages to MQTT topics (QoS 1)
+- `PublishWithQoS(topic, payload, qos, retained)` - Publishes with custom QoS and retain flag
+- `Subscribe(topic, callback)` - Subscribes to topics with message callback handler
+- `SubscribeWithQoS(topic, callback, qos)` - Subscribes with custom QoS level
+- `Unsubscribe(topic)` - Removes topic subscription
+- Auto-reconnect with automatic resubscription to all previously subscribed topics
+- Connection error handling with logging
+- Last Will Testament (LWT) support for health monitoring
+- Thread-safe subscription management with mutex
+
+#### Files Created:
+- `internal/mqtt/client.go` - MQTT client library using paho.mqtt.golang
+
+#### Next Priority:
+- **US-012**: Create driver-s7 service Docker container structure
+

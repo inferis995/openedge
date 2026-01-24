@@ -1,0 +1,579 @@
+{
+  "project": "Industrial Edge Middleware",
+  "branchName": "ralph/industrial-edge-middleware",
+  "description": "Industrial Edge Middleware - Multi-Tenant Data Acquisition System with Docker, Go, PostgreSQL, Redis, InfluxDB, and MQTT (Mosquitto). Supports S7 and Modbus TCP drivers with real-time alarm detection and time-series historization.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Create PostgreSQL database schema for organizational hierarchy",
+      "description": "As a developer, I need to create the database tables for the multi-tenant organizational structure.",
+      "acceptanceCriteria": [
+        "Create organizations table with id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, created_at TIMESTAMPTZ",
+        "Create sites table with id SERIAL PRIMARY KEY, org_id INT REFERENCES organizations(id), name TEXT NOT NULL, created_at TIMESTAMPTZ",
+        "Create areas table with id SERIAL PRIMARY KEY, site_id INT REFERENCES sites(id), name TEXT NOT NULL, created_at TIMESTAMPTZ",
+        "All Foreign Key constraints are properly defined",
+        "Typecheck passes (Go code compiles)"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Created migrations/001_init_schema.sql with organizations, sites, areas tables with proper indexes"
+    },
+    {
+      "id": "US-002",
+      "title": "Create PostgreSQL database schema for gateways and tags",
+      "description": "As a developer, I need to create the database tables for gateways and tags with all constraints.",
+      "acceptanceCriteria": [
+        "Create gateways table with id SERIAL PRIMARY KEY, area_id INT REFERENCES areas(id), name TEXT NOT NULL, driver_type VARCHAR(20) CHECK (driver_type IN ('S7', 'MODBUS_TCP')), connection_config JSONB NOT NULL, scan_rate_ms INT DEFAULT 1000, enabled BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ",
+        "Create tags table with id SERIAL PRIMARY KEY, gateway_id INT REFERENCES gateways(id), code VARCHAR(50) NOT NULL, alias VARCHAR(100) NOT NULL, data_type VARCHAR(20) CHECK (data_type IN ('INT', 'REAL', 'BOOL', 'DINT')), historize BOOLEAN DEFAULT FALSE, historize_deadband FLOAT DEFAULT 0.0, alarm_enabled BOOLEAN DEFAULT FALSE, alarm_threshold FLOAT, alarm_operator VARCHAR(2) CHECK (alarm_operator IN ('>', '<', '=')), alarm_priority INT DEFAULT 1 CHECK (alarm_priority BETWEEN 1 AND 5), created_at TIMESTAMPTZ",
+        "Create alarms table with id SERIAL PRIMARY KEY, tag_id INT REFERENCES tags(id), state VARCHAR(20) CHECK (state IN ('ACTIVE', 'RTN', 'ACKNOWLEDGED', 'CLEAR')), message TEXT, triggered_at TIMESTAMPTZ NOT NULL, acknowledged_at TIMESTAMPTZ, cleared_at TIMESTAMPTZ",
+        "All Foreign Key constraints are properly defined",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Created gateways, tags, alarms tables in migrations/001_init_schema.sql with proper indexes"
+    },
+    {
+      "id": "US-003",
+      "title": "Create Go database models and connection layer",
+      "description": "As a developer, I need to create Go structs that map to the database tables.",
+      "acceptanceCriteria": [
+        "Create Organization struct with fields: ID int, Name string, CreatedAt time.Time",
+        "Create Site struct with fields: ID int, OrgID int, Name string, CreatedAt time.Time",
+        "Create Area struct with fields: ID int, SiteID int, Name string, CreatedAt time.Time",
+        "Create Gateway struct with all fields matching schema including JSONB for ConnectionConfig",
+        "Create Tag struct with all fields matching schema",
+        "Create Alarm struct with all fields matching schema",
+        "Create db package with Connect() function that returns *sql.DB",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Created internal/models/*.go with all structs (Organization, Site, Area, Gateway, Tag, Alarm) and internal/db/db.go with Connect() function"
+    },
+    {
+      "id": "US-004",
+      "title": "Create organizations REST API endpoints",
+      "description": "As an integrator, I want to create and list organizations via REST API.",
+      "acceptanceCriteria": [
+        "POST /api/organizations creates a new organization with name in request body",
+        "GET /api/organizations returns list of all organizations",
+        "Both endpoints return JSON with id, name, created_at fields",
+        "Typecheck passes",
+        "Verify via API call"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Created internal/handlers/organizations.go with Create() and List() handlers, integrated into services/core-api/main.go"
+    },
+    {
+      "id": "US-005",
+      "title": "Create sites REST API endpoints",
+      "description": "As an integrator, I want to create and list sites for an organization.",
+      "acceptanceCriteria": [
+        "POST /api/sites creates a new site with org_id and name in request body",
+        "GET /api/sites?org_id={id} returns sites filtered by organization",
+        "Endpoints return JSON with all site fields",
+        "Typecheck passes",
+        "Verify via API call"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Created internal/handlers/sites.go with Create() and List() handlers, integrated into services/core-api/main.go"
+    },
+    {
+      "id": "US-006",
+      "title": "Create areas REST API endpoints",
+      "description": "As an integrator, I want to create and list areas for a site.",
+      "acceptanceCriteria": [
+        "POST /api/areas creates a new area with site_id and name in request body",
+        "GET /api/areas?site_id={id} returns areas filtered by site",
+        "Endpoints return JSON with all area fields",
+        "Typecheck passes",
+        "Verify via API call"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "Created internal/handlers/areas.go with Create() and List() handlers, integrated into services/core-api/main.go"
+    },
+    {
+      "id": "US-007",
+      "title": "Create gateways REST API endpoints",
+      "description": "As an integrator, I want to create, update, and list gateways.",
+      "acceptanceCriteria": [
+        "POST /api/gateways creates a new gateway with area_id, name, driver_type, connection_config, scan_rate_ms",
+        "GET /api/gateways?area_id={id} returns gateways filtered by area",
+        "PUT /api/gateways/{id} updates gateway fields",
+        "connection_config is stored as JSONB",
+        "Typecheck passes",
+        "Verify via API call"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Created internal/handlers/gateways.go with Create(), List(), Update() handlers, integrated into services/core-api/main.go"
+    },
+    {
+      "id": "US-008",
+      "title": "Create tags REST API endpoints",
+      "description": "As an integrator, I want to create, update, and list tags.",
+      "acceptanceCriteria": [
+        "POST /api/tags creates a new tag with gateway_id, code, alias, data_type, and optional alarm/historize fields",
+        "GET /api/tags?gateway_id={id} returns tags filtered by gateway",
+        "PUT /api/tags/{id} updates tag fields",
+        "All validation constraints are enforced (data_type, alarm_operator, alarm_priority)",
+        "Typecheck passes",
+        "Verify via API call"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Created internal/handlers/tags.go with Create(), List(), Update() handlers, integrated into services/core-api/main.go"
+    },
+    {
+      "id": "US-009",
+      "title": "Create Docker Compose configuration for infrastructure services",
+      "description": "As a developer, I need to create Docker Compose file for PostgreSQL, Redis, Mosquitto, and InfluxDB.",
+      "acceptanceCriteria": [
+        "postgres service uses postgres:16 image with exposed port 5432",
+        "redis service uses redis/redis-stack image with exposed port 6379",
+        "mosquitto service uses eclipse-mosquitto:2 image with exposed port 1883",
+        "influxdb service uses influxdb:2 image with exposed port 8086",
+        "All services have proper volume mounts for data persistence",
+        "All services have proper environment variables",
+        "docker-compose up -d starts all services successfully"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "Created docker-compose.yml with postgres:16, redis/redis-stack, eclipse-mosquitto:2, influxdb:2. All services have proper volumes, healthchecks, and network configuration."
+    },
+    {
+      "id": "US-010",
+      "title": "Create core-api service Docker container",
+      "description": "As a developer, I need to create the core-api service container with REST API.",
+      "acceptanceCriteria": [
+        "Create Dockerfile for core-api using Go base image",
+        "Create main.go that starts Gin/Echo server on port 8080",
+        "All organization/site/area/gateway/tag endpoints are registered",
+        "Container connects to PostgreSQL from docker-compose",
+        "docker-compose up starts core-api successfully",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "Created services/core-api/Dockerfile with multi-stage build. Added core-api service to docker-compose.yml with proper environment variables and health checks."
+    },
+    {
+      "id": "US-011",
+      "title": "Create MQTT client library for Go",
+      "description": "As a developer, I need to create a reusable MQTT client library for publishing and subscribing.",
+      "acceptanceCriteria": [
+        "Create mqtt package with NewClient() function",
+        "Client supports connecting to Mosquitto with host/port config",
+        "Client has Publish(topic, payload) method",
+        "Client has Subscribe(topic, callback) method",
+        "Client handles connection errors and auto-reconnect",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "Created internal/mqtt/client.go with NewClient(), Connect(), Publish(), Subscribe() methods. Supports auto-reconnect, connection error handling, LWT (Last Will Testament), and automatic resubscription on reconnect."
+    },
+    {
+      "id": "US-012",
+      "title": "Create driver-s7 service Docker container structure",
+      "description": "As a developer, I need to create the driver-s7 service container structure.",
+      "acceptanceCriteria": [
+        "Create Dockerfile for driver-s7 using Go base image",
+        "Create main.go that loads gateway config from PostgreSQL by gateway ID",
+        "Service subscribes to sys/command/reload for dynamic config reload",
+        "Container can connect to Mosquitto and PostgreSQL",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Implement S7 protocol connection and polling",
+      "description": "As a developer, I need to implement the S7 driver connection and data reading.",
+      "acceptanceCriteria": [
+        "Create s7 package with NewClient() function using IP, rack, slot from config",
+        "Client has ReadTag(address, dataType) method that reads from PLC",
+        "Client supports INT, REAL, BOOL, DINT data types",
+        "Connection errors are logged and trigger reconnection attempt",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Implement S7 driver data publishing to MQTT",
+      "description": "As a developer, I need the S7 driver to publish read data to MQTT with proper format.",
+      "acceptanceCriteria": [
+        "Driver reads all tags for configured gateway from PostgreSQL",
+        "Driver executes polling loop at scan_rate_ms interval",
+        "Each value is published to topic: data/{org}/{site}/{area}/{gateway}/{alias}",
+        "Payload format: {\"v\": value, \"ts\": timestamp_ms, \"q\": quality}",
+        "Report by Exception: publish only if value changed from previous read",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Create driver-modbus service Docker container structure",
+      "description": "As a developer, I need to create the driver-modbus service container structure.",
+      "acceptanceCriteria": [
+        "Create Dockerfile for driver-modbus using Go base image",
+        "Create main.go that loads gateway config from PostgreSQL by gateway ID",
+        "Service subscribes to sys/command/reload for dynamic config reload",
+        "Container can connect to Mosquitto and PostgreSQL",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Implement Modbus TCP protocol connection and polling",
+      "description": "As a developer, I need to implement the Modbus TCP driver connection and data reading.",
+      "acceptanceCriteria": [
+        "Create modbus package with NewClient() function using IP, slave_id, port from config",
+        "Client has ReadHoldingRegister(address) and ReadInputRegister(address) methods",
+        "Client supports INT, REAL (2 registers), BOOL data types",
+        "Connection errors are logged and trigger reconnection attempt",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Implement Modbus driver data publishing to MQTT",
+      "description": "As a developer, I need the Modbus driver to publish read data to MQTT with proper format.",
+      "acceptanceCriteria": [
+        "Driver reads all tags for configured gateway from PostgreSQL",
+        "Driver executes polling loop at scan_rate_ms interval",
+        "Each value is published to topic: data/{org}/{site}/{area}/{gateway}/{alias}",
+        "Payload format: {\"v\": value, \"ts\": timestamp_ms, \"q\": quality}",
+        "Report by Exception: publish only if value changed",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Create driver-manager service for container orchestration",
+      "description": "As a developer, I need to create driver-manager that starts/stops driver containers.",
+      "acceptanceCriteria": [
+        "Create Dockerfile for driver-manager service",
+        "Service polls PostgreSQL every 10 seconds for gateways with enabled=true",
+        "For each enabled gateway, start corresponding driver container (driver-s7 or driver-modbus)",
+        "For disabled gateways, stop corresponding driver container",
+        "Service logs all container lifecycle operations",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Implement MQTT reload command for dynamic configuration",
+      "description": "As a developer, I need to implement the config reload mechanism when tags or gateways change.",
+      "acceptanceCriteria": [
+        "When PUT /api/gateways or PUT /api/tags is called, core-api publishes to sys/command/reload/{gateway_id}",
+        "Driver services subscribe to sys/command/reload/+",
+        "On receiving reload command, driver reloads config from PostgreSQL",
+        "Driver updates internal tag map without stopping polling loop",
+        "New tags are added, removed tags are deleted from polling",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "Create Redis cache package for Go",
+      "description": "As a developer, I need to create a Redis client library for caching real-time values.",
+      "acceptanceCriteria": [
+        "Create redis package with NewClient() function",
+        "Client has Set(key, value, ttl) method",
+        "Client has Get(key) method returning value or error",
+        "Client has Delete(key) method",
+        "Client handles connection errors and auto-reconnect",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "Create engine-historian service structure",
+      "description": "As a developer, I need to create the engine-historian service container structure.",
+      "acceptanceCriteria": [
+        "Create Dockerfile for engine-historian using Go base image",
+        "Create main.go that subscribes to MQTT topic data/#",
+        "Service connects to InfluxDB and Redis",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022",
+      "title": "Implement historian data buffering and batch write",
+      "description": "As a developer, I need to implement buffering and batch writing to InfluxDB.",
+      "acceptanceCriteria": [
+        "Historian accumulates data points in buffer (slice)",
+        "Buffer is flushed when 1000 points accumulated OR 1 second elapsed",
+        "Batch write uses InfluxDB WriteAPI with points batch",
+        "Buffer is thread-safe using mutex or channel",
+        "Typecheck passes"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "Implement historian deadband filtering",
+      "description": "As a developer, I need to implement deadband filtering to reduce storage.",
+      "acceptanceCriteria": [
+        "Historian checks tag historize_deadband from PostgreSQL",
+        "For each new value, compare with previous value stored in Redis",
+        "If |new_value - previous_value| < deadband, skip write to buffer",
+        "First value for a tag is always written (no previous to compare)",
+        "Typecheck passes"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "Implement historian Redis cache for real-time values",
+      "description": "As a developer, I need to cache the latest values in Redis for quick access.",
+      "acceptanceCriteria": [
+        "After processing each value, store in Redis key realtime:{tag_id}",
+        "Value stored includes: v (value), ts (timestamp), q (quality)",
+        "TTL is set to 60 days (5184000 seconds)",
+        "If key already exists, overwrite with new value",
+        "Typecheck passes"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "Create historical data query API endpoint",
+      "description": "As an integrator, I want to query historical data for a tag.",
+      "acceptanceCriteria": [
+        "GET /api/history?tag_id={id}&start={iso}&end={iso} returns historical data",
+        "Query uses InfluxDB Flux or InfluxQL to fetch data points",
+        "Response includes array of {timestamp, value, quality}",
+        "Supports optional aggregation: ?agg=mean&interval=1m",
+        "Typecheck passes",
+        "Verify via API call"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-026",
+      "title": "Create current value API endpoint from Redis",
+      "description": "As an integrator, I want to get the current value of a tag from Redis cache.",
+      "acceptanceCriteria": [
+        "GET /api/tags/{id}/current returns current value from Redis key realtime:{tag_id}",
+        "Response includes {v: value, ts: timestamp, q: quality}",
+        "Returns 404 if tag has no current value",
+        "Typecheck passes",
+        "Verify via API call"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "Create engine-alarm service structure",
+      "description": "As a developer, I need to create the engine-alarm service container structure.",
+      "acceptanceCriteria": [
+        "Create Dockerfile for engine-alarm using Go base image",
+        "Create main.go that subscribes to MQTT topic data/#",
+        "Service connects to PostgreSQL and Redis",
+        "Typecheck passes"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-028",
+      "title": "Implement alarm detection logic",
+      "description": "As a developer, I need to implement real-time alarm threshold checking.",
+      "acceptanceCriteria": [
+        "For each data value received, check if tag has alarm_enabled=true",
+        "Load alarm_threshold and alarm_operator from PostgreSQL",
+        "Evaluate: if operator is '>' and value > threshold, trigger alarm",
+        "Evaluate: if operator is '<' and value < threshold, trigger alarm",
+        "Evaluate: if operator is '=' and value == threshold, trigger alarm",
+        "Typecheck passes"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-029",
+      "title": "Implement alarm state machine with Redis",
+      "description": "As a developer, I need to track active alarm states in Redis.",
+      "acceptanceCriteria": [
+        "When alarm triggers, set Redis key alarm:{tag_id} with state=ACTIVE",
+        "Track previous state to detect state transitions",
+        "If value returns to normal (no longer exceeds threshold), set state=RTN",
+        "Publish alarm event to events/alarms topic with payload {tag, state, msg, ts}",
+        "State persists in Redis for reliability",
+        "Typecheck passes"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-030",
+      "title": "Implement alarm database persistence",
+      "description": "As a developer, I need to persist alarm events to PostgreSQL database.",
+      "acceptanceCriteria": [
+        "When alarm state changes to ACTIVE, insert row in alarms table with state=ACTIVE, triggered_at=now",
+        "When alarm transitions to RTN, update existing row with state=CLEAR, cleared_at=now",
+        "Create new row for RTN event with state=RTN",
+        "All alarm events are queryable via database",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-031",
+      "title": "Create alarm acknowledge API endpoint",
+      "description": "As an operator, I want to acknowledge an active alarm.",
+      "acceptanceCriteria": [
+        "POST /api/alarms/{id}/acknowledge sets alarm state to ACKNOWLEDGED",
+        "Update alarms row with acknowledged_at timestamp",
+        "Return 404 if alarm ID not found",
+        "Return 400 if alarm is not in ACTIVE state",
+        "Typecheck passes",
+        "Verify via API call"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-032",
+      "title": "Implement gateway health monitoring with MQTT LWT",
+      "description": "As a developer, I need to track gateway online/offline status using MQTT Last Will Testament.",
+      "acceptanceCriteria": [
+        "Each driver container sets LWT on connection to sys/health/{gateway_id}",
+        "LWT payload is 'offline' (sent on unexpected disconnect)",
+        "Driver publishes 'online' to sys/health/{gateway_id} on successful connection",
+        "core-api subscribes to sys/health/# to track status",
+        "Gateway connection_status field is updated in real-time",
+        "Typecheck passes"
+      ],
+      "priority": 32,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-033",
+      "title": "Add gateway health status to API responses",
+      "description": "As an integrator, I want to see gateway health status in API responses.",
+      "acceptanceCriteria": [
+        "GET /api/gateways returns connection_status field ('online' or 'offline')",
+        "GET /api/gateways/{id} returns connection_status and last_seen timestamp",
+        "Status is derived from MQTT health topic, cached in Redis",
+        "Typecheck passes",
+        "Verify via API call"
+      ],
+      "priority": 33,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-034",
+      "title": "Implement multi-tenant data isolation in topic structure",
+      "description": "As a developer, I need to ensure all MQTT topics include organization name for isolation.",
+      "acceptanceCriteria": [
+        "All data topics follow pattern: data/{org_name}/{site_name}/{area_name}/{gateway_name}/{tag_alias}",
+        "org_name, site_name, area_name, gateway_name are fetched from PostgreSQL joins",
+        "Topics are deterministic and slug-friendly (spaces replaced with hyphens)",
+        "Typecheck passes"
+      ],
+      "priority": 34,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-035",
+      "title": "Implement multi-tenant query filtering in API",
+      "description": "As a developer, I need to ensure API queries are filtered by organization.",
+      "acceptanceCriteria": [
+        "Add organization context to API requests (via header or query param for now)",
+        "All queries (sites, areas, gateways, tags) filter by organization",
+        "Cannot access data from different organizations",
+        "Cross-organization queries return 403 Forbidden",
+        "Typecheck passes",
+        "Verify via API call"
+      ],
+      "priority": 35,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-036",
+      "title": "Create InfluxDB organization tagging",
+      "description": "As a developer, I need to ensure historical data is isolated by organization in InfluxDB.",
+      "acceptanceCriteria": [
+        "All points written to InfluxDB include 'organization' as a tag",
+        "Organization tag value matches org_name from topic structure",
+        "Flux queries for /api/history filter by organization tag",
+        "Users from different organizations cannot query each other's data",
+        "Typecheck passes"
+      ],
+      "priority": 36,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-037",
+      "title": "Create OpenAPI/Swagger documentation",
+      "description": "As an integrator, I want to have API documentation available.",
+      "acceptanceCriteria": [
+        "Add swagger annotations to all API endpoints",
+        "GET /api/docs serves Swagger UI",
+        "GET /api/swagger.json serves OpenAPI spec",
+        "All endpoints, parameters, and response schemas are documented",
+        "Typecheck passes"
+      ],
+      "priority": 37,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
