@@ -519,3 +519,58 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-022**: Implement historian data buffering and batch write
 
+
+### 2026-01-24 - Historian Data Buffering and Batch Write (Iteration 15)
+
+#### Completed User Stories:
+- **US-022**: Implemented historian data buffering and batch write
+
+#### Features Implemented:
+- `services/engine-historian/main.go` - Enhanced with buffering and batch write functionality
+- `DataPoint` struct - Stores buffered data with:
+  - Measurement: "tag_data"
+  - Tags: organization, site, area, gateway, alias
+  - Fields: value, quality
+  - Timestamp in milliseconds
+- `MQTTPayload` struct - Parses JSON from MQTT:
+  - V (value): interface{} for bool, float64, int
+  - Ts (timestamp): int64 in milliseconds
+  - Q (quality): int (0=good, 1=bad)
+
+#### Buffer Management:
+- Thread-safe buffer using `sync.Mutex` to protect `[]*DataPoint` slice
+- Pre-allocated buffer with capacity of 1000 points for efficiency
+- Constants:
+  - `bufferFlushSize = 1000` - Flush when buffer reaches this size
+  - `bufferFlushInterval = 1 * time.Second` - Flush at regular intervals
+
+#### Flush Mechanisms:
+1. **Size-based flush**: `addToBuffer()` triggers flush when 1000 points accumulated
+2. **Time-based flush**: `periodicFlush()` goroutine flushes every 1 second via ticker
+3. **Shutdown flush**: Graceful shutdown flushes remaining buffer before exit
+
+#### Functions Added:
+- `addToBuffer(dp *DataPoint)` - Thread-safe buffer append with size-triggered flush
+- `periodicFlush()` - Goroutine that flushes on ticker interval and shutdown
+- `flushBuffer()` - Logs and triggers flush (assumes mutex held)
+- `flushBufferUnsafe()` - Actual flush implementation without locking
+
+#### MQTT Data Processing:
+- `handleDataMessage()` now parses JSON payload from MQTT messages
+- Extracts v, ts, q from JSON: `{"v": value, "ts": timestamp_ms, "q": quality}`
+- Converts timestamp from milliseconds to nanoseconds for InfluxDB
+- Creates InfluxDB points using `influxdb2.NewPoint()`
+- Writes points to InfluxDB via `WriteAPI.WritePoint()`
+- Forces write with `WriteAPI.Flush()`
+
+#### Thread Safety:
+- All buffer access protected by `bufferMutex`
+- Separate unsafe function for flush operations when mutex is already held
+- Safe concurrent access from MQTT callback and periodic flush goroutine
+
+#### Files Modified:
+- `services/engine-historian/main.go` - Added DataPoint, MQTTPayload structs; buffer management; periodic flush; JSON parsing
+
+#### Next Priority:
+- **US-023**: Implement historian deadband filtering
+

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"os"
 	"os/signal"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
@@ -17,7 +19,9 @@ import (
 )
 
 const (
-	mqttTopicData = "data/#"
+	mqttTopicData     = "data/#"
+	bufferFlushSize   = 1000
+	bufferFlushInterval = 1 * time.Second
 )
 
 type HistorianService struct {
@@ -29,6 +33,29 @@ type HistorianService struct {
 	influxBucket   string
 	wg             sync.WaitGroup
 	shutdown       chan struct{}
+	buffer         []*DataPoint
+	bufferMutex    sync.Mutex
+	flushTicker    *time.Ticker
+}
+
+// DataPoint represents a single data point received from MQTT
+type DataPoint struct {
+	Measurement string                 `influx:"_measurement"` // Will be set to "tag_data"
+	Tags       map[string]string       `influx:"_,tag"`
+	Fields     map[string]interface{} `influx:"_,field"`
+	Timestamp  int64                  `influx:"_time"`
+	Org        string
+	Site       string
+	Area       string
+	Gateway    string
+	Alias      string
+}
+
+// MQTTPayload represents the JSON payload from MQTT
+type MQTTPayload struct {
+	V interface{} `json:"v"` // Value (bool, float64, int)
+	Ts int64      `json:"ts"` // Timestamp in milliseconds
+	Q  int        `json:"q"`  // Quality (0 = good, 1 = bad)
 }
 
 func main() {
@@ -103,6 +130,8 @@ func main() {
 		influxOrg:      influxOrg,
 		influxBucket:   influxBucket,
 		shutdown:       make(chan struct{}),
+		buffer:         make([]*DataPoint, 0, bufferFlushSize),
+		flushTicker:    time.NewTicker(bufferFlushInterval),
 	}
 
 	// Subscribe to data topics
@@ -116,6 +145,10 @@ func main() {
 	service.wg.Add(1)
 	go service.handleInfluxErrors()
 
+	// Start periodic buffer flush
+	service.wg.Add(1)
+	go service.periodicFlush()
+
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -126,6 +159,7 @@ func main() {
 
 	// Graceful shutdown
 	close(service.shutdown)
+	service.flushTicker.Stop()
 	mqttClient.Disconnect(1000)
 	redisClient.Disconnect()
 	influxClient.Close()
@@ -141,8 +175,6 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	default:
 	}
 
-	log.Printf("Received data on topic %s: %s", topic, string(payload))
-
 	// Parse topic structure: data/{org}/{site}/{area}/{gateway}/{alias}
 	parts := strings.Split(topic, "/")
 	if len(parts) < 6 || parts[0] != "data" {
@@ -156,17 +188,37 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	gateway := parts[4]
 	alias := parts[5]
 
-	// Parse payload - expecting JSON: {"v": value, "ts": timestamp_ms, "q": quality}
-	// For now, we'll store the raw payload. Full parsing will be done in US-022.
+	// Parse JSON payload: {"v": value, "ts": timestamp_ms, "q": quality}
+	var mqttPayload MQTTPayload
+	if err := json.Unmarshal(payload, &mqttPayload); err != nil {
+		log.Printf("Failed to parse MQTT payload from %s: %v", topic, err)
+		return
+	}
 
-	log.Printf("Parsed data - Org: %s, Site: %s, Area: %s, Gateway: %s, Alias: %s",
-		org, site, area, gateway, alias)
+	// Create data point
+	dp := &DataPoint{
+		Measurement: "tag_data",
+		Tags: map[string]string{
+			"organization": org,
+			"site":         site,
+			"area":         area,
+			"gateway":      gateway,
+			"alias":        alias,
+		},
+		Fields: map[string]interface{}{
+			"value":   mqttPayload.V,
+			"quality": mqttPayload.Q,
+		},
+		Timestamp: mqttPayload.Ts,
+		Org:       org,
+		Site:      site,
+		Area:      area,
+		Gateway:   gateway,
+		Alias:     alias,
+	}
 
-	// TODO: In US-022, this will:
-	// 1. Parse the JSON payload to extract v (value), ts (timestamp), q (quality)
-	// 2. Apply deadband filtering using Redis cache
-	// 3. Add to buffer for batch writing
-	// 4. Store latest value in Redis cache
+	// Add to buffer
+	s.addToBuffer(dp)
 }
 
 func (s *HistorianService) handleInfluxErrors() {
@@ -184,6 +236,71 @@ func (s *HistorianService) handleInfluxErrors() {
 			log.Printf("InfluxDB write error: %v", err)
 		}
 	}
+}
+
+// addToBuffer adds a data point to the buffer and triggers flush if needed
+func (s *HistorianService) addToBuffer(dp *DataPoint) {
+	s.bufferMutex.Lock()
+	defer s.bufferMutex.Unlock()
+
+	s.buffer = append(s.buffer, dp)
+
+	// Flush buffer if it has reached the configured size
+	if len(s.buffer) >= bufferFlushSize {
+		s.flushBuffer()
+	}
+}
+
+// periodicFlush flushes the buffer at regular intervals
+func (s *HistorianService) periodicFlush() {
+	defer s.wg.Done()
+
+	for {
+		select {
+		case <-s.shutdown:
+			// Flush remaining buffer before shutdown
+			s.bufferMutex.Lock()
+			if len(s.buffer) > 0 {
+				s.flushBufferUnsafe()
+			}
+			s.bufferMutex.Unlock()
+			return
+		case <-s.flushTicker.C:
+			s.bufferMutex.Lock()
+			if len(s.buffer) > 0 {
+				s.flushBufferUnsafe()
+			}
+			s.bufferMutex.Unlock()
+		}
+	}
+}
+
+// flushBuffer flushes the buffer (assumes mutex is held)
+func (s *HistorianService) flushBuffer() {
+	if len(s.buffer) == 0 {
+		return
+	}
+
+	log.Printf("Flushing %d data points to InfluxDB", len(s.buffer))
+	s.flushBufferUnsafe()
+}
+
+// flushBufferUnsafe performs the actual flush without locking
+func (s *HistorianService) flushBufferUnsafe() {
+	for _, dp := range s.buffer {
+		// Convert timestamp from milliseconds to nanoseconds for InfluxDB
+		timestamp := time.Unix(0, dp.Timestamp*1000000)
+
+		// Create InfluxDB point
+		point := influxdb2.NewPoint(dp.Measurement, dp.Tags, dp.Fields, timestamp)
+		s.influxWriteAPI.WritePoint(point)
+	}
+
+	// Force flush to InfluxDB
+	s.influxWriteAPI.Flush()
+
+	// Clear buffer
+	s.buffer = s.buffer[:0]
 }
 
 func getEnv(key, defaultValue string) string {

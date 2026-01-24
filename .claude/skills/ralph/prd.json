@@ -343,8 +343,8 @@
         "Typecheck passes"
       ],
       "priority": 22,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented data buffering and batch write in services/engine-historian/main.go. Added DataPoint struct to store buffered data with Measurement, Tags (organization, site, area, gateway, alias), Fields (value, quality), and Timestamp. Added MQTTPayload struct to parse JSON from MQTT. Created thread-safe buffer with mutex-protected []*DataPoint slice. Added buffer constants: bufferFlushSize=1000, bufferFlushInterval=1s. Implemented addToBuffer() which adds points and triggers flush at 1000 points. Implemented periodicFlush() goroutine that flushes every 1 second via ticker. Implemented flushBufferUnsafe() that writes all buffered points to InfluxDB using WriteAPI and Flush(). Graceful shutdown flushes remaining buffer. Timestamp conversion from milliseconds to nanoseconds for InfluxDB. JSON payload parsing extracts v, ts, q fields."
     },
     {
       "id": "US-023",
