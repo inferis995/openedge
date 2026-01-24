@@ -211,3 +211,30 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-015**: Create driver-modbus service Docker container structure
 
+### 2026-01-24 - Modbus Driver Service Structure (Iteration 8)
+
+#### Completed User Stories:
+- **US-015**: Created driver-modbus service Docker container structure
+
+#### Features Implemented:
+- `services/driver-modbus/Dockerfile` - Multi-stage build (golang:1.21-alpine -> alpine:3.19)
+- `services/driver-modbus/main.go` - Modbus driver service with:
+  - Gateway configuration loading from PostgreSQL by gateway ID
+  - Full hierarchy info loading (org/site/area names) for MQTT topic construction
+  - MQTT client with Last Will Testament (LWT) for health monitoring (`sys/health/{gateway_id}`)
+  - Subscription to `sys/command/reload/{gateway_id}` for dynamic config reload
+  - Non-blocking reload channel to prevent duplicate reload requests
+  - Polling loop with configurable scan rate from gateway settings
+  - `slugify()` function for URL-friendly topic names (spaces -> hyphens)
+  - Graceful shutdown handling with SIGINT/SIGTERM signals
+  - Environment variable configuration for DB and MQTT connections
+  - Report by Exception support (hasValueChanged, updatePreviousValue, valuesEqual)
+  - publishTagValue function ready for use when Modbus client is implemented
+
+#### Files Created:
+- `services/driver-modbus/Dockerfile` - Docker container definition
+- `services/driver-modbus/main.go` - Modbus driver service main entry point
+
+#### Next Priority:
+- **US-016**: Implement Modbus TCP protocol connection and polling
+
