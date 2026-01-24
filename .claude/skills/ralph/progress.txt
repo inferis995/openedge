@@ -868,5 +868,56 @@ industrial-edge-middleware/
 - `docker-compose.yml` - Added engine-alarm service with proper environment variables and dependencies
 
 #### Next Priority:
-- **US-028**: Implement alarm detection logic
+- **US-029**: Implement alarm state machine with Redis
+
+
+### 2026-01-24 - Alarm Detection Logic (Iteration 21)
+
+#### Completed User Stories:
+- **US-028**: Implemented alarm detection logic
+
+#### Features Implemented:
+- `services/engine-alarm/main.go` - Alarm detection logic was already fully implemented
+- `checkAlarmCondition()` function handles all alarm threshold checking
+
+#### Alarm Detection Logic:
+1. **Alarm Enabled Check** (line 204-207):
+   - Retrieves tag alarm configuration from PostgreSQL
+   - Skips processing if `alarm_enabled` is false
+
+2. **Threshold and Operator Loading** (line 214-243):
+   - `getTagAlarmConfig()` queries PostgreSQL via JOIN across org/site/area/gateway/tags
+   - Returns `TagAlarmConfig` with: `TagID`, `AlarmEnabled`, `AlarmThreshold`, `AlarmOperator`, `AlarmPriority`
+
+3. **Operator Evaluation** (line 281-294):
+   - `>` operator: Triggers alarm when `value > threshold`
+   - `<` operator: Triggers alarm when `value < threshold`
+   - `=` operator: Triggers alarm when `value == threshold`
+
+4. **Boolean Value Handling** (line 260-268):
+   - Boolean values trigger alarm on `true`
+   - Boolean values return to normal on `false`
+   - No threshold comparison for boolean type
+
+5. **Value Type Conversion** (line 248-272):
+   - Supports float64, float32, int, int32, int64, bool
+   - Converts all numeric types to float64 for comparison
+   - Unsupported types are logged and skipped
+
+6. **State Transitions** (line 296-305):
+   - Triggers ACTIVE if alarm condition met and not already ACTIVE/ACKNOWLEDGED
+   - Transitions to RTN if condition normalizes and currently ACTIVE/ACKNOWLEDGED
+   - Prevents duplicate ACTIVE triggers for sustained alarm conditions
+
+#### Alarm Message Generation:
+- Greater than: "Value {v} exceeds threshold {t}"
+- Less than: "Value {v} below threshold {t}"
+- Equal to: "Value equals threshold {t}"
+- Boolean: "Value is true"
+
+#### No New Files Required:
+The alarm detection logic was already fully implemented in US-027. This iteration verified the implementation meets all acceptance criteria.
+
+#### Next Priority:
+- **US-029**: Implement alarm state machine with Redis
 
