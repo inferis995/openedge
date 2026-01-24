@@ -438,3 +438,44 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-020**: Create Redis cache package for Go
 
+### 2026-01-24 - Redis Cache Package (Iteration 13)
+
+#### Completed User Stories:
+- **US-020**: Created Redis cache package for Go
+
+#### Features Implemented:
+- `internal/redis/client.go` - Redis client library wrapper around github.com/redis/go-redis/v9
+- `NewClient(cfg Config)` - Creates Redis client with Host, Port, Password, DB configuration
+- `Connect()` - Establishes connection with Ping verification
+- `Disconnect()` - Gracefully closes Redis connection
+- `Set(key, value, ttl)` - Stores key-value pair with expiration
+- `Get(key)` - Retrieves value as string, returns error if key doesn't exist
+- `GetInt(key)` - Type-safe helper for integer values
+- `GetFloat(key)` - Type-safe helper for float values
+- `Delete(key)` - Removes key from Redis
+- `Exists(key)` - Checks if key exists (returns bool)
+- `SetJSON(key, jsonStr, ttl)` - Helper for storing JSON strings
+- `GetJSON(key)` - Helper for retrieving JSON strings
+- `Keys(pattern)` - Returns all keys matching pattern
+- `FlushDB()` - Clears all keys in current database (use with caution)
+- `Ping()` - Health check connection
+- `IsConnected()` - Returns true if connected
+
+#### Auto-Reconnect Configuration:
+- MaxRetries: 3
+- MaxRetryBackoff: 2 seconds
+- MinRetryBackoff: 100ms
+- Connection pool size: 10
+- Min idle connections: 5
+- ConnMaxLifetime: 30 minutes
+- ConnMaxIdleTime: 5 minutes
+
+#### Files Created:
+- `internal/redis/client.go` - Redis client wrapper with application-specific API
+
+#### Files Modified:
+- `go.mod` - Added github.com/redis/go-redis/v9 v9.17.2 and related dependencies
+
+#### Next Priority:
+- **US-021**: Create engine-historian service structure
+
