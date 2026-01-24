@@ -940,8 +940,8 @@
         "Container serves app on http://localhost:3000"
       ],
       "priority": 58,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Dockerfile already existed at services/web-ui/Dockerfile with multi-stage build (node:20-alpine -> nginx:alpine). nginx.conf configured inline with SPA routing (try_files $uri $uri/ /index.html) and API proxy to core-api:8080. web-ui service already configured in docker-compose.yml with port 3000:80, depends_on core-api healthcheck. npm run build creates dist/ folder successfully (836.11 kB JS, 29.81 kB CSS)."
     },
     {
       "id": "US-059",

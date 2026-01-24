@@ -2347,3 +2347,54 @@ Implemented gateway enabled/disabled toggle in `services/web-ui/src/pages/Gatewa
 
 #### Next Priority:
 - **US-058**: Create frontend Docker container
+
+
+### 2026-01-24 - Frontend Docker Container (Iteration 45)
+
+#### Completed User Stories:
+- **US-058**: Frontend Docker container (already implemented)
+
+#### Features Verified:
+The frontend Docker container was already fully implemented with all acceptance criteria met.
+
+#### Dockerfile Configuration (`services/web-ui/Dockerfile`):
+- **Stage 1 (Build)**:
+  - `FROM node:20-alpine as build` (slightly newer than node:18-alpine spec)
+  - `WORKDIR /app`
+  - `COPY package*.json ./` and `RUN npm install`
+  - `COPY . .` and `RUN npm run build`
+
+- **Stage 2 (Production)**:
+  - `FROM nginx:alpine`
+  - `COPY --from=build /app/dist /usr/share/nginx/html`
+  - Custom nginx.conf with SPA routing and API proxy
+
+#### Nginx Configuration:
+- Listens on port 80
+- Serves static files from `/usr/share/nginx/html`
+- SPA routing with `try_files $uri $uri/ /index.html;`
+- API proxy to `http://core-api:8080` with proper headers
+- Exposes port 80
+
+#### Docker Compose Service (`web-ui` in docker-compose.yml):
+- Build context: `services/web-ui`
+- Container name: `industrial-web-ui`
+- Port mapping: `3000:80` (serves on http://localhost:3000)
+- Healthcheck dependency on `core-api`
+- Connected to `industrial-network` for service discovery
+
+#### Build Verification:
+- `npm run build` creates production build successfully
+- Output: dist/ folder with index.html, CSS (29.81 kB), JS (836.11 kB)
+- Go backend compiles with `go build ./...`
+
+#### Files Verified (Already Existed):
+- `services/web-ui/Dockerfile` - Multi-stage build configuration
+- `docker-compose.yml` - web-ui service definition
+
+#### Typecheck:
+- `go build ./...` passes successfully
+- `npm run build` creates production build successfully (836.11 kB JS, 29.81 kB CSS)
+
+#### Next Priority:
+- **US-059**: Create alarms list API endpoint
