@@ -1077,8 +1077,8 @@
         "Verify in browser: org dropdown populates, creation works"
       ],
       "priority": 101,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created frontend/src/components/dialogs/CreateSiteDialog.tsx with shadcn Dialog component. Features: Select dropdown for parent organization fetched from getOrganizations() API, auto-selects first organization if only one exists, Input field for site name with validation (min 2 characters), organization name shown in dialog title for context (\"Create Site for {org_name}\"), Create button calls api.createSite() with org_id and name, success toast with confirmation message including organization name, error toast with API error message, keyboard shortcuts (Enter to submit, Escape to close), form reset on dialog close, loading states during organizations fetch and submission, disabled Create button when inputs are invalid or submitting. Build passes: npm run build (440.43 kB JS, 28.13 kB CSS). Go code compiles with go build ./... ."
     },
     {
       "id": "US-102",

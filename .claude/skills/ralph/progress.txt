@@ -2747,3 +2747,69 @@ All 63 user stories have been implemented successfully. The Industrial Edge Midd
 
 #### Next Priority:
 - **US-101**: Implement site creation dialog
+
+### 2026-01-24 - Site Creation Dialog (Iteration 40)
+
+#### Completed User Stories:
+- **US-101**: Implemented site creation dialog
+
+#### Features Implemented:
+- `frontend/src/components/dialogs/CreateSiteDialog.tsx` - Site creation dialog with:
+  - `CreateSiteDialogProps` interface with optional `onSuccess` callback
+  - shadcn Dialog component with proper styling and animations
+  - Select dropdown for parent organization fetched from `getOrganizations()` API
+  - useEffect hook to fetch organizations when dialog opens
+  - Loading state during organizations fetch (isLoadingOrgs flag)
+  - Auto-selects first organization if only one exists
+  - Input field for site name with placeholder (e.g., Factory A, Warehouse 1)
+  - Form validation: name must not be empty and have at least 2 characters
+  - Form validation: organization must be selected
+  - Create button that calls `api.createSite()` with org_id and name
+  - Organization name shown in dialog title for context ("Create Site for {org_name}")
+  - Building2 icon in dialog title with violet color
+  - Success toast with site name and organization name confirmation
+  - Error toast with API error message on failure
+  - Keyboard shortcuts: Enter to submit, Escape to close dialog
+  - Form reset when dialog closes (name and orgId cleared)
+  - Loading states during organizations fetch and submission
+  - Disabled Create button when inputs are invalid or submitting
+  - Auto-focus on site name input field
+  - Help text for both fields
+  - Empty state message when no organizations available
+
+#### Dialog Structure:
+- Title: "Create Site for {org_name}" (dynamic) or "Create Site"
+- Description: "Create a new site within an organization to organize your locations. Sites represent physical facilities or campuses in your hierarchy."
+- Trigger button: "New Site" with Plus icon
+- Organization Select dropdown with loading state
+- Site Name Input with placeholder and validation
+- Footer with Cancel and Create buttons
+- Max width: 425px (sm:max-w-[425px])
+
+#### API Integration:
+- `getOrganizations()` - Fetches all organizations for dropdown
+- `createSite({ org_id, name })` - Creates new site under selected organization
+- X-Organization-ID header automatically added by axios interceptor
+
+#### Design System Integration:
+- Follows shadcn/ui Dialog and Select component patterns
+- Violet primary color for Create button (bg-violet-600, hover:bg-violet-700)
+- Building2 icon with text-violet-600 for visual hierarchy
+- Outline variant for Cancel button
+- Consistent spacing and typography
+- Toast notifications using useToast hook from shadcn/ui
+- Responsive design matching other dialogs
+
+#### Files Created:
+- `frontend/src/components/dialogs/CreateSiteDialog.tsx` - Site creation dialog component
+
+#### Files Modified:
+- `.claude/skills/ralph/prd.json` - Marked US-101 as passes: true with notes
+
+#### Typecheck:
+- `go build ./...` passes successfully
+- `npm run type-check` passes successfully
+- `npm run build` creates production build successfully (440.43 kB JS, 28.13 kB CSS)
+
+#### Next Priority:
+- **US-102**: Implement area creation dialog
