@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -16,8 +16,8 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import { useToast } from './ui/use-toast';
-import { TreeNode, TreeNodeType } from '@/services/hierarchy';
-import { api } from '@/services/api';
+import type { TreeNode } from '@/services/hierarchy';
+import { updateGateway, updateTag } from '@/services/api';
 import { Loader2, Pencil, X, Save, Trash2 } from 'lucide-react';
 
 interface DetailPanelProps {
@@ -62,10 +62,10 @@ export function DetailPanel({ node, onUpdate, className }: DetailPanelProps) {
     try {
       switch (node.type) {
         case 'gateway':
-          await api.updateGateway(node.id, formData);
+          await updateGateway(node.id, formData);
           break;
         case 'tag':
-          await api.updateTag(node.id, formData);
+          await updateTag(node.id, formData);
           break;
         default:
           throw new Error(`Cannot update ${node.type}`);
@@ -96,7 +96,7 @@ export function DetailPanel({ node, onUpdate, className }: DetailPanelProps) {
         description: 'Delete functionality will be implemented in the backend',
         variant: 'destructive',
       });
-      setShowDeleteDialog);
+      setShowDeleteDialog(false);
     } catch (error) {
       toast({
         title: 'Error',
@@ -405,7 +405,7 @@ function getEditableFields(node: TreeNode): [string, string, string, { label: st
       fields.push(['Alarm Enabled', 'alarm_enabled', 'checkbox', undefined]);
       fields.push(['Alarm Threshold', 'alarm_threshold', 'number', undefined]);
       fields.push(['Alarm Operator', 'alarm_operator', 'select', [
-        { label: 'Greater Than (>);', value: '>' },
+        { label: 'Greater Than (>)', value: '>' },
         { label: 'Less Than (<)', value: '<' },
         { label: 'Equal (=)', value: '=' },
       ]]);

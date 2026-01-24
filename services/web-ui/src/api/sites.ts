@@ -19,5 +19,10 @@ export const sitesApi = {
 
     delete: async (id: number): Promise<void> => {
         await api.delete(`/sites/${id}`);
+    },
+
+    get: async (id: number): Promise<Site> => {
+        const response = await api.get(`/sites/${id}`);
+        return response.data;
     }
 };

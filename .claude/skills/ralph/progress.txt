@@ -2033,5 +2033,53 @@ const TYPE_COLORS: Record<TreeNodeType, string> = {
 #### Typecheck:
 - `npm run type-check` passes successfully
 
+
+### 2026-01-24 - Configuration Page with Split View (Iteration 39)
+
+#### Completed User Stories:
+- **US-044**: API types from OpenAPI specification (already completed in US-041)
+- **US-048**: Created configuration page with split view
+
+#### Features Implemented:
+- `frontend/src/pages/ConfigPage.tsx` - Complete rewrite with split view layout:
+  - 30% width tree view on left (w-[30%] min-w-[250px] max-w-[400px])
+  - 70% width detail panel on right (flex-1)
+  - Flex gap-4 layout for proper spacing
+  - Responsive design that stacks vertically on mobile
+- Tree view section with header showing "Hierarchy" title
+- Detail panel section that displays selected node details
+- "Create" dropdown button with Plus icon for:
+  - Organization, Site, Area, Gateway, Tag creation (placeholders for US-049-US-053)
+  - Shows toast notification "Coming Soon" when clicked
+- "Refresh" button that:
+  - Clears hierarchy cache using clearHierarchyCache()
+  - Reloads data from API
+  - Maintains selected node after refresh
+  - Shows loading state during refresh
+- Loading state with centered spinner and "Loading configuration..." message
+- Header shows current selection with node name and type
+- handleNodeSelect() callback updates both selectedNodeId and selectedNode state
+- DetailPanel receives onUpdate callback to refresh hierarchy after updates
+
+#### Files Created:
+- `frontend/src/components/ui/dropdown-menu.tsx` - Full Radix UI dropdown menu implementation with:
+  - DropdownMenu, DropdownMenuTrigger, DropdownMenuContent
+  - DropdownMenuItem, DropdownMenuCheckboxItem, DropdownMenuRadioItem
+  - DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuShortcut
+  - DropdownMenuGroup, DropdownMenuPortal
+  - DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuRadioGroup
+
+#### Files Modified:
+- `frontend/src/pages/ConfigPage.tsx` - Complete rewrite with split view layout, Create/Refresh buttons, proper state management
+- `frontend/src/components/DetailPanel.tsx` - Fixed imports (removed unused React and TreeNodeType, changed to direct function imports from @/services/api), fixed syntax error (setShowDeleteDialog(false)), fixed typo in alarm operator label
+- `frontend/package.json` - Added @radix-ui/react-dropdown-menu dependency
+
+#### Dependencies Added:
+- @radix-ui/react-dropdown-menu ^2.1.4
+
+#### Typecheck:
+- `npm run type-check` passes successfully
+- `npm run build` creates production build successfully (440.43 kB JS, 28.02 kB CSS)
+
 #### Next Priority:
-- **US-048**: Create configuration page with split view
+- **US-049**: Implement organization creation dialog

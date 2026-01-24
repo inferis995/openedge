@@ -14,7 +14,7 @@ const api = axios.create({
 api.interceptors.request.use(
     (config) => {
         const { selectedOrgId } = useNavigationStore.getState();
-        if (selectedOrgId) {
+        if (selectedOrgId && !config.headers['X-Organization-ID']) {
             config.headers['X-Organization-ID'] = selectedOrgId.toString();
         }
         return config;
