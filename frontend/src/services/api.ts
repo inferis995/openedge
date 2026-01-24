@@ -97,10 +97,9 @@ export async function createSite(data: CreateSiteRequest): Promise<Site> {
 
 // ==================== Areas ====================
 
-export async function getAreas(siteId: number): Promise<Area[]> {
-  const response = await apiClient.get<Area[]>('/areas', {
-    params: { site_id: siteId },
-  });
+export async function getAreas(siteId?: number): Promise<Area[]> {
+  const params = siteId !== undefined ? { site_id: siteId } : {};
+  const response = await apiClient.get<Area[]>('/areas', { params });
   return response.data;
 }
 

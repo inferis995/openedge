@@ -1117,8 +1117,8 @@
         "Verify in browser: driver type switches form, JSON validates, creation works"
       ],
       "priority": 103,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created frontend/src/components/dialogs/CreateGatewayDialog.tsx with shadcn Dialog component. Features: name Input (required, min 2 chars), driver_type Select (S7, MODBUS_TCP), area_id dropdown fetched from getAreas() API, dynamic connection_config form based on driver type, S7 fields (ip, rack 0-7, slot 0-31, port default 102), Modbus fields (ip, port default 502, slaveId 1-247), scan_rate_ms Input (100-60000ms, default 1000), enabled Switch (default true), JSON preview of connection_config, comprehensive validation (IP regex, port ranges, rack/slot/slaveId limits), api.createGateway() call on submit, success toast with confirmation message including driver type, error toast with API error message, keyboard shortcuts (Enter to submit, Escape to close), form reset on dialog close, loading states during areas fetch and submission, disabled Create button when inputs are invalid or submitting, onSuccess callback. Created frontend/src/components/ui/switch.tsx with Radix UI Switch component. Added @radix-ui/react-switch dependency. Build passes: npm run build (440.46 kB JS, 29.82 kB CSS). Typecheck passes with npm run type-check."
     },
     {
       "id": "US-104",

@@ -2872,3 +2872,118 @@ All 63 user stories have been implemented successfully. The Industrial Edge Midd
 
 #### Next Priority:
 - **US-103**: Implement gateway creation dialog
+
+
+### 2026-01-24 - Gateway Creation Dialog (Iteration 57)
+
+#### Completed User Stories:
+- **US-103**: Implemented gateway creation dialog
+
+#### Features Implemented:
+- `frontend/src/components/ui/switch.tsx` - Switch component with:
+  - Radix UI Switch primitives (@radix-ui/react-switch)
+  - Thumbr animation on state change
+  - Focus-visible ring for accessibility
+  - Disabled state support
+  - Data-state attributes (checked/unchecked)
+  - Styled with h-5 w-9 dimensions and violet-600 when checked
+
+- `frontend/src/components/dialogs/CreateGatewayDialog.tsx` - Gateway creation dialog with:
+  - `CreateGatewayDialogProps` interface with onSuccess callback
+  - State management for all form fields and loading states
+  - Area dropdown (Select) populated from getAreas() API
+  - Auto-selects first area if only one exists
+  - Gateway Name input with validation (min 2 characters)
+  - Driver Type Select (S7, MODBUS_TCP) with form switching
+  - Dynamic connection_config form based on driver type:
+    - **S7 fields**: IP (Input with regex validation), Rack (number 0-7), Slot (number 0-31), Port (number default 102)
+    - **Modbus fields**: IP (Input with regex validation), Port (number default 502), Slave ID (number 1-247)
+  - Scan Rate (ms) input with range 100-60000, default 1000
+  - Enabled Switch with default true
+  - JSON preview of connection_config (updates in real-time)
+  - Comprehensive validation before submit:
+    - IP format validation with regex
+    - Port range validation (1-65535)
+    - Rack range validation (0-7)
+    - Slot range validation (0-31)
+    - Slave ID validation (1-247)
+    - Scan rate validation (100-60000)
+  - Create button calls api.createGateway() with complete gateway config
+  - Success toast with gateway name and driver type confirmation
+  - Error toast with specific validation messages
+  - Keyboard shortcuts: Enter to submit, Escape to close
+  - Form reset on dialog close (all fields reset to defaults)
+  - Loading states during areas fetch and submission
+  - Disabled Create button when inputs are invalid or submitting
+  - onSuccess callback for hierarchy refresh
+  - Scrollable content for long form (max-h-[90vh] overflow-y-auto)
+
+#### Dialog Structure:
+- Header with Server icon (text-violet-600) and "Create Gateway" title
+- Description with breadcrumb: "Organization > ... > {area_name} > New Gateway"
+- Section 1: Area dropdown with "Parent Site *" label
+- Section 2: Gateway Name input with "e.g., PLC-01, Modbus-Gateway-A" placeholder
+- Section 3: Driver Type Select with S7/Modbus TCP options
+- Section 4: Connection Configuration with:
+  - Network icon header
+  - IP Address input (common for both drivers)
+  - Driver-specific fields (S7: rack/slot/port, Modbus: port/slaveId)
+  - Range validation helper text for each field
+- Section 5: JSON Preview with code formatting
+- Section 6: Additional Settings with:
+  - Scan Rate input (100-60000ms)
+  - Enabled Switch with description
+- Footer with Cancel (outline) and Create buttons
+- Max width: 500px (sm:max-w-[500px])
+
+#### API Integration:
+- `getAreas()` - Fetches all areas for current organization
+- `createGateway({ area_id, name, driver_type, connection_config, scan_rate_ms, enabled })` - Creates new gateway
+- X-Organization-ID header automatically added by axios interceptor
+- connection_config built as JSON object based on driver type
+
+#### Design System Integration:
+- Follows shadcn/ui Dialog, Select, Input, Switch patterns
+- Violet primary color for Create button (bg-violet-600, hover:bg-violet-700)
+- Server icon with text-violet-600 for visual hierarchy
+- Network icon for Connection Configuration section
+- Outline variant for Cancel button
+- Consistent spacing with space-y-4 and gap-2/3
+- Bordered sections (border-t pt-4) for visual grouping
+- Pre-formatted JSON preview with bg-muted background
+- Responsive design matching other creation dialogs
+- Toast notifications using useToast hook
+
+#### Validation Messages:
+- Invalid IP: "Please enter a valid IPv4 address (e.g., 192.168.1.100)"
+- Invalid Port (S7): "S7 port must be between 1 and 65535 (default: 102)"
+- Invalid Port (Modbus): "Modbus port must be between 1 and 65535 (default: 502)"
+- Invalid Rack: "Rack must be between 0 and 7"
+- Invalid Slot: "Slot must be between 0 and 31"
+- Invalid Slave ID: "Slave ID must be between 1 and 247"
+- Invalid Scan Rate: "Scan rate must be between 100 and 60000 ms"
+- Missing Name: "Gateway name must be at least 2 characters long."
+- Missing Area: "Please select a parent area."
+
+#### Driver Type Handling:
+- S7 selected: Shows rack, slot, port fields; sets port default to 102
+- Modbus TCP selected: Shows port, slaveId fields; sets port default to 502
+- handleDriverTypeChange resets driver-specific defaults when switching
+
+#### Dependencies Added:
+- @radix-ui/react-switch ^1.2.6
+
+#### Files Created:
+- `frontend/src/components/ui/switch.tsx` - Switch component
+- `frontend/src/components/dialogs/CreateGatewayDialog.tsx` - Gateway creation dialog component
+
+#### Files Modified:
+- `frontend/package.json` - Added @radix-ui/react-switch dependency
+- `.claude/skills/ralph/prd.json` - Marked US-103 as passes: true with notes
+
+#### Typecheck:
+- `npm run type-check` passes successfully
+- `npm run build` creates production build successfully (440.46 kB JS, 29.82 kB CSS)
+
+#### Next Priority:
+- **US-104**: Implement tag creation dialog
