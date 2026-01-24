@@ -250,8 +250,8 @@
         "Typecheck passes"
       ],
       "priority": 16,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created internal/modbus/client.go with pure Go Modbus TCP implementation. Features: NewClient(cfg Config) and NewClientFromConfig(map) constructors, Connect() with timeout, ConnectWithRetry() with configurable retry logic, ReadHoldingRegister() and ReadInputRegister() using function codes 0x03/0x04, ReadTag(address, dataType) supporting INT/REAL/BOOL types, proper MBAP header handling, big-endian byte order, exception response handling, BOOL support with bit offset (HR100.0 = bit 0 of register 100), REAL reads 2 consecutive registers (4 bytes IEEE 754)."
     },
     {
       "id": "US-017",

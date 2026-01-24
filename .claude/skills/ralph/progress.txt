@@ -238,3 +238,47 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-016**: Implement Modbus TCP protocol connection and polling
 
+### 2026-01-24 - Modbus TCP Protocol Implementation (Iteration 9)
+
+#### Completed User Stories:
+- **US-016**: Implemented Modbus TCP protocol connection and polling
+
+#### Features Implemented:
+- `internal/modbus/client.go` - Pure Go Modbus TCP implementation (no external dependencies)
+- `NewClient(cfg Config)` - Creates Modbus client with IP, port, slave ID, timeout configuration
+- `NewClientFromConfig(map[string]interface{})` - Creates client from connection_config JSONB
+- `Connect()` - Establishes TCP connection with configurable timeout
+- `ConnectWithRetry()` - Connection with configurable retry count and interval
+- `Disconnect()` - Clean connection teardown
+- `IsConnected()` - Thread-safe connection status check
+- `ReadHoldingRegister(address)` - Reads holding register (function code 0x03)
+- `ReadInputRegister(address)` - Reads input register (function code 0x04)
+- `ReadTag(address, dataType)` - Unified tag reading interface
+
+#### Modbus TCP Protocol Features:
+- Proper MBAP header handling (Transaction ID, Protocol ID, Length, Unit ID)
+- Transaction ID management with auto-increment
+- Big-endian byte order for all register values
+- Exception response detection and error handling
+
+#### Address Format Support:
+- Holding Registers: `HR100` for INT/REAL, `HR100.0` for BOOL (bit 0)
+- Input Registers: `IR100` for INT/REAL, `IR100.0` for BOOL (bit 0)
+
+#### Data Type Support:
+- `INT` - 16-bit signed integer from single register
+- `REAL` - 32-bit IEEE 754 float from 2 consecutive registers
+- `BOOL` - Single bit from register (bit offset 0-15)
+
+#### Error Handling:
+- Connection errors set disconnected state
+- Modbus exception responses properly detected
+- Timeout configuration for connect and read operations
+- Thread-safe connection state management with mutex
+
+#### Files Created:
+- `internal/modbus/client.go` - Modbus TCP protocol client library
+
+#### Next Priority:
+- **US-017**: Implement Modbus driver data publishing to MQTT
+
