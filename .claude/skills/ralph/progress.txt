@@ -1193,3 +1193,66 @@ Driver services (driver-s7 and driver-modbus) already had:
 #### Next Priority:
 - **US-034**: Implement multi-tenant data isolation in topic structure
 
+
+### 2026-01-24 - Multi-Tenant Data Isolation in Topic Structure (Iteration 27)
+
+#### Completed User Stories:
+- **US-034**: Multi-tenant data isolation in topic structure (already implemented)
+
+#### Features Verified:
+The multi-tenant topic structure was already fully implemented in both driver services during previous iterations (US-014 and US-017).
+
+#### Topic Structure Implementation:
+
+**PostgreSQL Query (both drivers):**
+- JOIN across `organizations → sites → areas → gateways` tables
+- Fetches `org_name`, `site_name`, `area_name` along with gateway config
+- Query: `SELECT g.*, o.name as org_name, s.name as site_name, a.name as area_name FROM gateways g JOIN areas a ON g.area_id = a.id JOIN sites s ON a.site_id = s.id JOIN organizations o ON s.org_id = o.id WHERE g.id = $1`
+
+**Topic Format (driver-s7/main.go lines 360-400, driver-modbus/main.go lines 331-397):**
+- Pattern: `data/{org_name}/{site_name}/{area_name}/{gateway_name}/{tag_alias}`
+- Example: `data/acme-corp/factory-1/production-line/plc-01/temperature`
+
+**Slugify Function (both drivers):**
+- Converts to lowercase
+- Replaces spaces with hyphens
+- Ensures deterministic, URL-friendly topic names
+```go
+func slugify(s string) string {
+    s = strings.ToLower(s)
+    s = strings.ReplaceAll(s, " ", "-")
+    return s
+}
+```
+
+**GatewayConfig Storage (both drivers):**
+```go
+type GatewayConfig struct {
+    Gateway models.Gateway
+    Tags    []models.Tag
+    OrgName string
+    Site    string
+    Area    string
+}
+```
+
+**Topic Publishing:**
+- `topicPrefix = fmt.Sprintf("data/%s/%s/%s/%s", config.OrgName, config.Site, config.Area, slugify(config.Gateway.Name))`
+- `topic = fmt.Sprintf("%s/%s", topicPrefix, slugify(tag.Alias))`
+
+#### Files Verified:
+- `services/driver-s7/main.go` - Multi-tenant topic structure with PostgreSQL joins and slugify
+- `services/driver-modbus/main.go` - Multi-tenant topic structure with PostgreSQL joins and slugify
+
+#### Typecheck:
+- `go build ./...` passes successfully
+
+#### Design Decisions:
+- Organization name included as first topic level for tenant isolation
+- Hierarchical topic structure enables ACL-based access control at organization level
+- Slugify function ensures consistent, predictable topic names
+- All hierarchy names loaded once at config load time for performance
+
+#### Next Priority:
+- **US-035**: Implement multi-tenant query filtering in API
+
