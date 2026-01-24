@@ -762,3 +762,55 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-026**: Create current value API endpoint from Redis
 
+
+### 2026-01-24 - Current Value API Endpoint from Redis (Iteration 19)
+
+#### Completed User Stories:
+- **US-026**: Created current value API endpoint from Redis
+
+#### Features Implemented:
+- `internal/handlers/tags.go` - Enhanced with current value endpoint
+- `RedisClient` interface - Defines Get(key string) (string, error) for dependency injection
+- `TagsHandler` - Now accepts `redisClient` parameter
+- `CurrentValueResponse` struct - Response format with:
+  - V (value): interface{} for bool, float64, int
+  - Ts (timestamp): int64 in milliseconds
+  - Q (quality): int (0=good, 1=bad)
+
+#### API Endpoint:
+- `GET /api/tags/{id}/current` - Returns current value from Redis cache
+
+#### Response Format:
+```json
+{
+  "v": <value>,
+  "ts": <timestamp_ms>,
+  "q": <quality>
+}
+```
+
+#### Error Handling:
+- `400 Bad Request` - Invalid tag ID
+- `404 Not Found` - Tag not found in database OR no current value in Redis
+- `500 Internal Server Error` - Database query failed OR failed to parse JSON from Redis
+- `503 Service Unavailable` - Redis client not configured
+
+#### Implementation Details:
+1. **Tag Existence Check**: Verifies tag exists in PostgreSQL before querying Redis
+2. **Redis Lookup**: Retrieves value from `realtime:{tag_id}` key (stored by engine-historian in US-024)
+3. **JSON Parsing**: Parses stored JSON response with v, ts, q fields
+4. **Graceful Degradation**: Returns 503 if Redis is not available, doesn't crash the service
+
+#### Environment Variables Added:
+- `REDIS_HOST` (default: localhost)
+- `REDIS_PORT` (default: 6379)
+- `REDIS_PASSWORD` (default: empty)
+- `REDIS_DB` (default: 0)
+
+#### Files Modified:
+- `internal/handlers/tags.go` - Added RedisClient interface, GetCurrentValue handler, CurrentValueResponse struct
+- `services/core-api/main.go` - Added Redis client configuration, integrated into TagsHandler
+
+#### Next Priority:
+- **US-027**: Create engine-alarm service structure
+

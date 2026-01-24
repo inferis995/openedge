@@ -404,8 +404,8 @@
         "Verify via API call"
       ],
       "priority": 26,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created GetCurrentValue handler in internal/handlers/tags.go. Reads from Redis key realtime:{tag_id} which stores JSON {v, ts, q}. Returns 404 if tag not found or no current value in Redis. Returns 503 if Redis not available. Added Redis client configuration to core-api with REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB environment variables. Integrated route GET /api/tags/{id}/current. Typecheck passes."
     },
     {
       "id": "US-027",

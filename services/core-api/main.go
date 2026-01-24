@@ -11,6 +11,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/handlers"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
+	"github.com/ralph/industrial-edge-middleware/internal/redis"
 )
 
 func main() {
@@ -73,6 +74,33 @@ func main() {
 		log.Println("InfluxDB client configured")
 	}
 
+	// Load Redis configuration
+	redisHost := getEnv("REDIS_HOST", "localhost")
+	redisPort := getEnvInt("REDIS_PORT", 6379)
+	redisPassword := getEnv("REDIS_PASSWORD", "")
+	redisDB := getEnvInt("REDIS_DB", 0)
+
+	redisCfg := redis.Config{
+		Host:     redisHost,
+		Port:     redisPort,
+		Password: redisPassword,
+		DB:       redisDB,
+	}
+
+	redisClient := redis.NewClient(redisCfg)
+	if err := redisClient.Connect(); err != nil {
+		log.Printf("Warning: Failed to connect to Redis: %v", err)
+		log.Println("Current value queries will not be available")
+		redisClient = nil
+	} else {
+		log.Println("Redis client connected successfully")
+		defer func() {
+			if redisClient != nil {
+				redisClient.Disconnect()
+			}
+		}()
+	}
+
 	log.Println("Industrial Edge Middleware - core-api starting...")
 
 	// Create Gin router
@@ -83,7 +111,7 @@ func main() {
 	sitesHandler := handlers.NewSitesHandler(database)
 	areasHandler := handlers.NewAreasHandler(database)
 	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient)
-	tagsHandler := handlers.NewTagsHandler(database, mqttClient)
+	tagsHandler := handlers.NewTagsHandler(database, mqttClient, redisClient)
 
 	// Create history handler with InfluxDB client (optional)
 	var historyHandler *handlers.HistoryHandler
@@ -129,6 +157,7 @@ func main() {
 			tags.POST("", tagsHandler.Create)
 			tags.GET("", tagsHandler.List)
 			tags.PUT("/:id", tagsHandler.Update)
+			tags.GET("/:id/current", tagsHandler.GetCurrentValue)
 		}
 
 		// History endpoint (only if InfluxDB is configured)

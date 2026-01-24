@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -10,17 +11,24 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
+// RedisClient defines the interface for Redis operations
+type RedisClient interface {
+	Get(key string) (string, error)
+}
+
 // TagsHandler handles tag-related HTTP requests
 type TagsHandler struct {
 	db          *sql.DB
 	mqttClient  MQTTClient
+	redisClient RedisClient
 }
 
 // NewTagsHandler creates a new tags handler
-func NewTagsHandler(db *sql.DB, mqttClient MQTTClient) *TagsHandler {
+func NewTagsHandler(db *sql.DB, mqttClient MQTTClient, redisClient RedisClient) *TagsHandler {
 	return &TagsHandler{
-		db:         db,
-		mqttClient: mqttClient,
+		db:          db,
+		mqttClient:  mqttClient,
+		redisClient: redisClient,
 	}
 }
 
@@ -313,4 +321,56 @@ func (h *TagsHandler) Update(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, tag)
+}
+
+// CurrentValueResponse represents the response for current value endpoint
+type CurrentValueResponse struct {
+	V      interface{} `json:"v"`
+	Ts     int64       `json:"ts"`
+	Q      int         `json:"q"`
+}
+
+// GetCurrentValue handles GET /api/tags/{id}/current
+func (h *TagsHandler) GetCurrentValue(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tag ID"})
+		return
+	}
+
+	// Verify tag exists in database
+	var tagExists bool
+	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM tags WHERE id = $1)", id).Scan(&tagExists)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify tag"})
+		return
+	}
+	if !tagExists {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Tag not found"})
+		return
+	}
+
+	// Check if Redis client is available
+	if h.redisClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Redis not available"})
+		return
+	}
+
+	// Get current value from Redis
+	redisKey := fmt.Sprintf("realtime:%d", id)
+	valueJSON, err := h.redisClient.Get(redisKey)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "No current value available for this tag"})
+		return
+	}
+
+	// Parse JSON response
+	var response CurrentValueResponse
+	if err := json.Unmarshal([]byte(valueJSON), &response); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse current value"})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
 }
