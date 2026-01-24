@@ -389,8 +389,8 @@
         "Verify via API call"
       ],
       "priority": 25,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created internal/handlers/history.go with HistoryHandler supporting GET /api/history. Query parameters: tag_id (required), start (ISO 8601, required), end (ISO 8601, required), agg (optional: mean, max, min, sum, first, last, count, median, stddev), interval (optional: e.g., 1m, 5m, 1h, 1d). Response format: [{timestamp, value, quality}]. Uses Flux query language with filter by tag_id, measurement, and field. Added tag_id tag to InfluxDB data points in engine-historian. Integrated history handler into core-api with INFLUX_URL, INFLUX_TOKEN, INFLUX_ORG, INFLUX_BUCKET environment variables. Typecheck passes."
     },
     {
       "id": "US-026",

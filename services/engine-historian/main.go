@@ -272,6 +272,7 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	dp := &DataPoint{
 		Measurement: "tag_data",
 		Tags: map[string]string{
+			"tag_id":       strconv.Itoa(tagInfo.ID),
 			"organization": org,
 			"site":         site,
 			"area":         area,

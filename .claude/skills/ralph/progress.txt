@@ -682,3 +682,83 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-025**: Create historical data query API endpoint
 
+
+### 2026-01-24 - Historical Data Query API Endpoint (Iteration 18)
+
+#### Completed User Stories:
+- **US-025**: Created historical data query API endpoint
+
+#### Features Implemented:
+- `internal/handlers/history.go` - History handler for querying historical data
+- `HistoryHandler` struct - Handles historical data query requests
+  - `NewHistoryHandler(influxClient, influxOrg, influxBucket)` - Creates new handler
+  - `Query()` - Handles GET /api/history endpoint
+- `HistoryDataPoint` struct - Response format with:
+  - Timestamp (int64): Unix timestamp in seconds
+  - Value (interface{}): The tag value (bool, float64, int)
+  - Quality (int): Quality code (0 = good, 1 = bad)
+
+#### API Endpoint:
+- `GET /api/history?tag_id={id}&start={iso}&end={iso}&agg={agg}&interval={interval}`
+
+#### Query Parameters:
+- `tag_id` (required): Tag ID to query
+- `start` (required): Start time in ISO 8601 format (e.g., 2024-01-01T00:00:00Z)
+- `end` (required): End time in ISO 8601 format (e.g., 2024-01-01T23:59:59Z)
+- `agg` (optional): Aggregation function (mean, max, min, sum, first, last, count, median, stddev)
+- `interval` (optional): Aggregation interval (e.g., 1m, 5m, 1h, 1d)
+
+#### Response Format:
+```json
+[
+  {
+    "timestamp": 1704067200,
+    "value": 42.5,
+    "quality": 0
+  },
+  {
+    "timestamp": 1704067260,
+    "value": 43.1,
+    "quality": 0
+  }
+]
+```
+
+#### Flux Query Features:
+- Filters by measurement (`tag_data`), tag (`tag_id`), and field (`value`)
+- Supports optional aggregation with `aggregateWindow()`
+- Returns raw data when no aggregation specified
+- Proper time range filtering with ISO 8601 timestamps
+
+#### InfluxDB Integration:
+- Added `tag_id` tag to InfluxDB data points in `services/engine-historian/main.go`
+- Uses InfluxDB v2 client with QueryAPI
+- Environment variables for core-api:
+  - `INFLUX_URL` (default: http://localhost:8086)
+  - `INFLUX_TOKEN` (required for history endpoint to be available)
+  - `INFLUX_ORG` (default: industrial)
+  - `INFLUX_BUCKET` (default: historian)
+
+#### Error Handling:
+- Returns 400 for missing/invalid parameters
+- Returns 400 for invalid time range (end before start)
+- Returns 500 for InfluxDB query errors
+- Returns empty array when no data found (not 404)
+
+#### Design Decisions:
+- History endpoint only registered if InfluxDB token is configured
+- Uses Flux query language (not InfluxQL) as it's the standard for InfluxDB v2
+- tag_id stored as string tag in InfluxDB for efficient querying
+- Quality field extracted from record if available, defaults to 0
+- Aggregation is optional - raw data returned when agg/interval not specified
+
+#### Files Created:
+- `internal/handlers/history.go` - History handler with Flux query support
+
+#### Files Modified:
+- `services/engine-historian/main.go` - Added tag_id tag to InfluxDB data points
+- `services/core-api/main.go` - Added InfluxDB client configuration and history route registration
+
+#### Next Priority:
+- **US-026**: Create current value API endpoint from Redis
+

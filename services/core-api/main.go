@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/influxdata/influxdb-client-go/v2"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/handlers"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
@@ -57,6 +58,21 @@ func main() {
 		defer mqttClient.Disconnect(250)
 	}
 
+	// Load InfluxDB configuration
+	influxURL := getEnv("INFLUX_URL", "http://localhost:8086")
+	influxToken := getEnv("INFLUX_TOKEN", "")
+	influxOrg := getEnv("INFLUX_ORG", "industrial")
+	influxBucket := getEnv("INFLUX_BUCKET", "historian")
+
+	var influxClient influxdb2.Client
+	if influxToken == "" {
+		log.Printf("Warning: INFLUX_TOKEN not set, historical data queries will not be available")
+	} else {
+		influxClient = influxdb2.NewClientWithOptions(influxURL, influxToken,
+			influxdb2.DefaultOptions().SetBatchSize(1000).SetFlushInterval(1000))
+		log.Println("InfluxDB client configured")
+	}
+
 	log.Println("Industrial Edge Middleware - core-api starting...")
 
 	// Create Gin router
@@ -68,6 +84,12 @@ func main() {
 	areasHandler := handlers.NewAreasHandler(database)
 	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient)
 	tagsHandler := handlers.NewTagsHandler(database, mqttClient)
+
+	// Create history handler with InfluxDB client (optional)
+	var historyHandler *handlers.HistoryHandler
+	if influxClient != nil {
+		historyHandler = handlers.NewHistoryHandler(influxClient, influxOrg, influxBucket)
+	}
 
 	// Register routes
 	api := router.Group("/api")
@@ -107,6 +129,11 @@ func main() {
 			tags.POST("", tagsHandler.Create)
 			tags.GET("", tagsHandler.List)
 			tags.PUT("/:id", tagsHandler.Update)
+		}
+
+		// History endpoint (only if InfluxDB is configured)
+		if historyHandler != nil {
+			api.GET("/history", historyHandler.Query)
 		}
 	}
 
