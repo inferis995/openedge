@@ -713,8 +713,8 @@
         "Verify in browser: tree renders correctly, expand/collapse works"
       ],
       "priority": 46,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created src/components/TreeView.tsx with full tree navigation functionality. Features: entity type icons (Building2 for site, Map for area, Server for gateway, Cpu for tag) with color coding (blue, emerald, purple, orange), expand/collapse with ChevronRight/ChevronDown icons, click selection with bg-violet-100 highlight, online/offline gateway status with Circle icon (green/gray), child count badges, keyboard navigation (Enter/Space to select, Arrow keys for expand/collapse), ARIA attributes for accessibility. Fixed TypeScript issues in hierarchy.ts (count function naming conflict). Updated ConfigPage.tsx to use TreeView component with fetchHierarchy integration. Typecheck passes with npm run type-check. Build succeeds (392.57 kB JS, 27.20 kB CSS)."
     },
     {
       "id": "US-047",

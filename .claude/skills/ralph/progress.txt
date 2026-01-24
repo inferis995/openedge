@@ -1866,3 +1866,102 @@ All components created in `frontend/src/components/ui/`:
 
 #### Next Priority:
 - **US-046**: Create tree view component for navigation
+
+
+### 2026-01-24 - Tree View Component (Iteration 37)
+
+#### Completed User Stories:
+- **US-046**: Created tree view component for navigation
+
+#### Features Implemented:
+- `frontend/src/components/TreeView.tsx` - Tree view component with:
+  - `TreeViewProps` interface with tree data, selectedNodeId, onNodeSelect callback, className
+  - `TreeView` component that renders hierarchical tree structure
+  - `TreeNodeComponent` internal component for recursive rendering
+  - Entity type icons from lucide-react:
+    - Building2 (blue-500) for sites
+    - Map (emerald-500) for areas
+    - Server (purple-500) for gateways
+    - Cpu (orange-500) for tags
+  - Expand/collapse functionality with ChevronRight/ChevronDown icons
+  - Click selection with bg-violet-100 background highlight
+  - Hover states with hover:bg-gray-100
+  - Focus ring with focus:ring-2 focus:ring-violet-500
+  - Gateway health status indicator:
+    - Green Circle (fill-green-500 text-green-500) for online
+    - Gray Circle (fill-gray-400 text-gray-400) for offline
+  - Child count badge in parentheses
+  - Keyboard navigation:
+    - Enter/Space to select node
+    - Arrow Right to expand collapsed node
+    - Arrow Left to collapse expanded node
+  - ARIA attributes for accessibility (role, aria-expanded, aria-selected, aria-label)
+  - Level-based indentation (16px per level + 8px base)
+  - Empty state message when tree has no data
+  - Overflow-auto for scrollable content
+
+#### Files Created:
+- `frontend/src/components/TreeView.tsx` - Tree view component with navigation
+
+#### Files Modified:
+- `frontend/src/pages/ConfigPage.tsx` - Integrated TreeView component with:
+  - fetchHierarchy to load tree data
+  - selectedNodeId and selectedNode state management
+  - Loading spinner during data fetch
+  - Toast notifications for errors
+  - Selected node display in header
+  - Bordered container with rounded corners
+- `frontend/src/services/hierarchy.ts` - Fixed TypeScript naming conflict:
+  - Renamed inner function from `count` to `traverse` in `countNodes()`
+  - Renamed variable from `count` to `total` to avoid function/variable collision
+
+#### TypeScript Interfaces:
+```typescript
+export interface TreeViewProps {
+  tree: TreeNode[];
+  selectedNodeId?: number | null;
+  onNodeSelect?: (node: TreeNode) => void;
+  className?: string;
+}
+
+interface TreeNodeComponentProps {
+  node: TreeNode;
+  level: number;
+  isSelected: boolean;
+  selectedNodeId: number | null;
+  onSelect: (node: TreeNode) => void;
+}
+```
+
+#### Icon Mapping:
+```typescript
+const TYPE_ICONS: Record<TreeNodeType, React.ElementType> = {
+  site: Building2,
+  area: Map,
+  gateway: Server,
+  tag: Cpu,
+};
+
+const TYPE_COLORS: Record<TreeNodeType, string> = {
+  site: 'text-blue-500',
+  area: 'text-emerald-500',
+  gateway: 'text-purple-500',
+  tag: 'text-orange-500',
+};
+```
+
+#### Design System Integration:
+- Violet accent color (bg-violet-100, bg-violet-200) for selection
+- Gray hover states (hover:bg-gray-100, hover:bg-gray-200)
+- Rounded-md corners for consistent UI
+- Focus ring with violet-500 for keyboard navigation
+- Icons from lucide-react for consistent visual language
+- cn() utility from @/lib/utils for class merging
+
+#### Typecheck:
+- `go build ./...` passes successfully
+- `npm run type-check` passes successfully
+- `npm run build` creates production build successfully (392.57 kB JS, 27.20 kB CSS)
+
+#### Next Priority:
+- **US-047**: Create detail panel for entity display and editing

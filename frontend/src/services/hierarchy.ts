@@ -257,19 +257,19 @@ export function filterTree(tree: TreeNode[], query: string): TreeNode[] {
  * @returns number - Total node count
  */
 export function countNodes(tree: TreeNode[]): number {
-  let count = 0;
+  let total = 0;
 
-  function count(nodes: TreeNode[]) {
+  function traverse(nodes: TreeNode[]) {
     for (const node of nodes) {
-      count++;
+      total++;
       if (node.children && node.children.length > 0) {
-        count(node.children);
+        traverse(node.children);
       }
     }
   }
 
-  count(tree);
-  return count;
+  traverse(tree);
+  return total;
 }
 
 /**
