@@ -152,7 +152,7 @@ const SitesPage = () => {
                             </TableRow>
                         ) : (
                             sites.map((site) => {
-                                const orgName = organizations.find(o => o.id === site.organization_id)?.name || site.organization_id;
+                                const orgName = organizations.find(o => o.id === site.org_id)?.name || site.org_id;
                                 return (
                                     <TableRow
                                         key={site.id}

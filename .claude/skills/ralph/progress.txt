@@ -1816,3 +1816,53 @@ All components created in `frontend/src/components/ui/`:
 
 #### Next Priority:
 - **US-044**: Create API types from OpenAPI specification (Note: US-044 types already exist in src/types/api.ts from US-041, may need verification)
+
+
+### 2026-01-24 - Hierarchical Data Service (Iteration 36)
+
+#### Completed User Stories:
+- **US-045**: Created hierarchical data service
+
+#### Features Implemented:
+- `frontend/src/services/hierarchy.ts` - Hierarchical data service with:
+  - `TreeNodeType` - Union type for node types: 'site' | 'area' | 'gateway' | 'tag'
+  - `TreeNode` interface with fields:
+    - id, name, type (TreeNodeType)
+    - data (Site | Area | GatewayWithHealth | Tag)
+    - children (TreeNode[] | undefined)
+    - isExpanded, isSelected (boolean flags for UI state)
+    - connectionStatus, lastSeen (gateway-specific health status)
+  - `fetchHierarchy(orgId, useCache)` - Main function that:
+    - Fetches sites for organization via GET /api/sites
+    - For each site, fetches areas via GET /api/areas?site_id={id}
+    - For each area, fetches gateways via GET /api/gateways?area_id={id}
+    - For each gateway, fetches tags via GET /api/tags?gateway_id={id}
+    - Transforms flat API responses into nested TreeNode[] structure
+    - X-Organization-ID header automatically added by axios interceptor
+    - Returns complete Organization > Site > Area > Gateway > Tag hierarchy
+  - 30-second TTL caching with `hierarchyCache` variable:
+    - Stores data (TreeNode[]), timestamp, and orgId
+    - Cache is used if useCache=true and cache is not expired
+    - `clearHierarchyCache()` function for manual cache invalidation
+  - Error handling:
+    - Fetch failures are logged but don't break entire tree build
+    - Partial results are returned (e.g., tags fetch failure won't lose site/area/gateway data)
+
+#### Utility Functions:
+- `findNodeById(tree, nodeId)` - Find a node in the tree by ID
+- `findNodesByType(tree, type)` - Find all nodes of a specific type
+- `getPathToNode(tree, nodeId)` - Get path array from root to target node
+- `filterTree(tree, query)` - Filter tree by search query (matches name)
+- `countNodes(tree)` - Count total nodes including all descendants
+- `getHierarchyStats(tree)` - Get statistics:
+  - counts by type (sites, areas, gateways, tags)
+  - online/offline gateway counts
+
+#### Files Created:
+- `frontend/src/services/hierarchy.ts` - Hierarchical data service with tree transformation
+
+#### Typecheck:
+- `npm run type-check` passes successfully
+
+#### Next Priority:
+- **US-046**: Create tree view component for navigation
