@@ -2268,3 +2268,82 @@ Implemented gateway enabled/disabled toggle in `services/web-ui/src/pages/Gatewa
 
 #### Next Priority:
 - **US-057**: Add loading states and error handling
+
+
+### 2026-01-24 - Loading States and Error Handling (Iteration 44)
+
+#### Completed User Stories:
+- **US-057**: Add loading states and error handling
+
+#### Features Implemented:
+- `services/web-ui/src/components/ui/skeleton.tsx` - Skeleton component with animate-pulse effect for loading states
+- `services/web-ui/src/components/ui/alert.tsx` - Alert component with variants (default/destructive), AlertTitle, and AlertDescription for error display
+- `services/web-ui/src/components/ui/async-wrapper.tsx` - Comprehensive async wrapper component with:
+  - `AsyncWrapper` - Main component with loading spinner/skeleton/error/empty states
+  - `TableSkeleton` - Skeleton loader for table views (rows/columns configurable)
+  - `CardSkeleton` - Skeleton loader for card grids
+  - `ButtonLoader` - Inline loading spinner for buttons (sm/md/lg sizes)
+  - Error display with retry button support
+  - Empty state with customizable icon and message
+
+- `services/web-ui/src/lib/api-error-handler.ts` - Error handling utilities with:
+  - `formatApiError(error)` - Format API errors with status-specific messages
+  - `getDefaultErrorMessage(status)` - Default messages for HTTP status codes (400, 403, 404, 500, etc.)
+  - `showApiError(error, context)` - Toast notification with context-aware styling
+  - `showApiSuccess(message, description)` - Success toast notification
+  - `showApiInfo(message, description)` - Info toast notification
+  - `handleApiCall(apiCall, options)` - Wrapper for API calls with error handling and callbacks
+  - Special handling for 403 (Access Denied), 404 (Not Found), 500 (Server Error), and network errors
+
+- Enhanced `services/web-ui/src/api/client.ts` with:
+  - `CustomAxiosRequestConfig` interface extending InternalAxiosRequestConfig with metadata
+  - Request timing via metadata.startTime for performance monitoring
+  - Slow request logging (>3 seconds) with warning
+  - Enhanced error logging with URL, method, status, statusText, message, and code
+  - Specific error messages for 403 (organization access denied), 401 (auth required), ECONNABORTED (timeout), ERR_NETWORK (connection error)
+
+- Updated `services/web-ui/src/hooks/useOrganizations.ts` with:
+  - Toast notifications for create/delete operations via showApiSuccess/showApiError
+  - Error formatting with formatApiError() for display
+  - Retry configuration (retry: 1, retryDelay: 1000ms)
+  - Export of formatted error message and refetch function
+
+#### HTTP Error Handling:
+- **400 Bad Request**: "Invalid request - please check your input"
+- **401 Unauthorized**: "Authentication required"
+- **403 Forbidden**: "Access denied - check your organization selection"
+- **404 Not Found**: "Resource not found"
+- **500/502/503 Server Error**: "Server error - please try again later"
+- **Network Error**: "Network error - check your internet connection"
+- **Timeout Error**: "Request timeout - server took too long to respond"
+
+#### Toast Notification Features:
+- Success toasts with title and description
+- Error toasts with context-aware styling (destructive for errors)
+- Context prefix for operation identification (e.g., "Failed to create organization")
+- Configurable duration (3000-6000ms based on severity)
+- Rich colors enabled via sonner
+
+#### Loading State Options:
+- **Spinner mode**: Centered Loader2 spinner with "Loading..." text
+- **Skeleton mode**: Configurable number of skeleton rows for table/list views
+- **Inline loading**: ButtonLoader for form submissions
+- **Error state**: Alert with retry button support
+- **Empty state**: Icon + message when no data available
+
+#### Files Created:
+- `services/web-ui/src/components/ui/skeleton.tsx` - Skeleton component
+- `services/web-ui/src/components/ui/alert.tsx` - Alert, AlertTitle, AlertDescription components
+- `services/web-ui/src/components/ui/async-wrapper.tsx` - Async wrapper component with TableSkeleton, CardSkeleton, ButtonLoader
+- `services/web-ui/src/lib/api-error-handler.ts` - Error handling utilities
+
+#### Files Modified:
+- `services/web-ui/src/api/client.ts` - Enhanced with CustomAxiosRequestConfig, timing, and detailed error logging
+- `services/web-ui/src/hooks/useOrganizations.ts` - Added toast notifications, error formatting, and retry logic
+
+#### Typecheck:
+- `go build ./...` passes successfully
+- `npm run build` creates production build successfully (835.79 kB JS, 29.81 kB CSS)
+
+#### Next Priority:
+- **US-058**: Create frontend Docker container
