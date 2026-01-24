@@ -135,6 +135,38 @@ services:
     networks:
       - industrial-network
 
+  engine-historian:
+    build:
+      context: .
+      dockerfile: services/engine-historian/Dockerfile
+    container_name: industrial-engine-historian
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: industrial_user
+      DB_PASSWORD: industrial_pass
+      DB_NAME: industrial_edge
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: my-super-secret-auth-token
+      INFLUX_ORG: industrial_edge
+      INFLUX_BUCKET: historical_data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - industrial-network
+
 volumes:
   postgres_data:
     driver: local

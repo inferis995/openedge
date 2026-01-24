@@ -358,8 +358,8 @@
         "Typecheck passes"
       ],
       "priority": 23,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented deadband filtering in services/engine-historian/main.go. Added PostgreSQL connection for loading tag historize and historize_deadband configuration. Created TagInfo struct with ID, Historize, and HistorizeDeadband fields. Added getTagInfo() function that queries PostgreSQL via JOIN across org/site/area/gateway/tags tables, with Redis caching (1 hour TTL) using key format 'tag_info:{org}:{site}:{area}:{gateway}:{alias}'. Added shouldStoreValue() function that retrieves previous value from Redis (key: 'prev_value:{tag_id}') and compares with new value. Added exceedsDeadband() function supporting float64, int, and bool value types with proper numeric comparison using math.Abs(). Added storePreviousValue() function to update Redis after storing value. Boolean values always stored on change (no deadband). Zero or negative deadband disables filtering. Added DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME environment variables. Added engine-historian service to docker-compose.yml with PostgreSQL connection and proper dependencies."
     },
     {
       "id": "US-024",

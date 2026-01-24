@@ -574,3 +574,61 @@ industrial-edge-middleware/
 #### Next Priority:
 - **US-023**: Implement historian deadband filtering
 
+
+### 2026-01-24 - Historian Deadband Filtering (Iteration 16)
+
+#### Completed User Stories:
+- **US-023**: Implemented historian deadband filtering
+
+#### Features Implemented:
+- `services/engine-historian/main.go` - Enhanced with deadband filtering functionality
+- PostgreSQL connection for querying tag configuration (historize, historize_deadband)
+- New structs:
+  - `TagInfo` - Holds tag ID, Historize flag, and HistorizeDeadband value
+  - `PreviousValue` - Stores previous value in Redis for comparison
+
+#### Deadband Filtering Logic:
+1. **Tag Info Lookup** (`getTagInfo`):
+   - Queries PostgreSQL via JOIN across organizations → sites → areas → gateways → tags
+   - Matches by hierarchy names (org, site, area, gateway, alias) using case-insensitive comparison
+   - Caches results in Redis for 1 hour (key: `tag_info:{org}:{site}:{area}:{gateway}:{alias}`)
+   - Returns tag ID, historize flag, and historize_deadband value
+
+2. **Historize Check**:
+   - If `tag.historize` is false, data is skipped entirely (not stored in InfluxDB)
+
+3. **Deadband Comparison** (`shouldStoreValue`):
+   - If deadband ≤ 0, always store (filtering disabled)
+   - Retrieves previous value from Redis (key: `prev_value:{tag_id}`)
+   - First value always stored (no previous to compare)
+   - Compares with new value using deadband threshold
+
+4. **Value Comparison** (`exceedsDeadband`):
+   - Supports float64, int, and bool value types
+   - For numeric types: `|new_value - previous_value| >= deadband`
+   - For boolean: any change stores the value
+   - Uses `math.Abs()` for proper absolute difference calculation
+
+5. **Previous Value Storage** (`storePreviousValue`):
+   - After storing in InfluxDB buffer, updates Redis with new value
+   - Uses same key for next comparison (`prev_value:{tag_id}`)
+   - No expiration (overwritten on each new value)
+
+#### Redis Keys Used:
+- `tag_info:{org}:{site}:{area}:{gateway}:{alias}` - Cached tag config (TTL: 3600s)
+- `prev_value:{tag_id}` - Previous value for deadband comparison (no TTL)
+
+#### Environment Variables Added:
+- `DB_HOST` (default: localhost)
+- `DB_PORT` (default: 5432)
+- `DB_USER` (default: postgres)
+- `DB_PASSWORD` (default: postgres)
+- `DB_NAME` (default: industrial_edge)
+
+#### Files Modified:
+- `services/engine-historian/main.go` - Added deadband filtering; PostgreSQL connection; tag info caching
+- `docker-compose.yml` - Added engine-historian service with PostgreSQL environment variables and dependencies
+
+#### Next Priority:
+- **US-024**: Implement historian Redis cache for real-time values
+
