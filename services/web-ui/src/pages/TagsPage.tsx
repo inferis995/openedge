@@ -19,6 +19,7 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
+    DialogDescription,
     DialogFooter,
     DialogTrigger,
 } from '@/components/ui/dialog';
@@ -45,10 +46,12 @@ const TagsPage = () => {
     const gatewayIdParam = searchParams.get('gateway_id');
     const [selectedGatewayId, setSelectedGatewayId] = useState<string>(gatewayIdParam || '');
 
-    const { gateways } = useGateways(); // Get all gateways for filter
-    const { tags, isLoading, create, remove } = useTags(selectedGatewayId ? parseInt(selectedGatewayId) : undefined);
+    const { tags, isLoading, create, remove, update } = useTags(
+        selectedGatewayId && selectedGatewayId !== 'all' ? parseInt(selectedGatewayId) : undefined
+    );
 
     const [isOpen, setIsOpen] = useState(false);
+    const [updatingTagId, setUpdatingTagId] = useState<number | null>(null);
     const [formData, setFormData] = useState<Partial<CreateTagDto>>({
         code: '',
         alias: '',
@@ -70,15 +73,32 @@ const TagsPage = () => {
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
-    const handleCreate = async () => {
-        if (!formData.code || !selectedGatewayId) return;
+    const handleSave = async () => {
+        if (!selectedGatewayId) return;
+
         try {
-            await create({
-                ...formData,
-                gateway_id: parseInt(selectedGatewayId),
-            } as CreateTagDto);
+            if (updatingTagId) {
+                // Update mode
+                await update({
+                    id: updatingTagId,
+                    data: {
+                        ...formData,
+                        gateway_id: parseInt(selectedGatewayId),
+                        // Pass org context if needed or handled by hooks
+                    } as Partial<CreateTagDto>
+                });
+            } else {
+                // Create mode
+                if (!formData.code) return;
+                await create({
+                    ...formData,
+                    gateway_id: parseInt(selectedGatewayId),
+                } as CreateTagDto);
+            }
+
             setIsOpen(false);
-            // Reset form (keep gateway selection)
+            setUpdatingTagId(null);
+            // Reset form
             setFormData({
                 code: '',
                 alias: '',
@@ -91,8 +111,40 @@ const TagsPage = () => {
                 alarm_priority: 3,
             });
         } catch (error) {
-            console.error('Failed to create tag', error);
+            console.error('Failed to save tag', error);
         }
+    };
+
+    const handleEdit = (tag: any) => {
+        setUpdatingTagId(tag.id);
+        setFormData({
+            code: tag.code,
+            alias: tag.alias,
+            data_type: tag.data_type,
+            historize: tag.historize,
+            deadband_value: tag.historize_deadband || 0.1,
+            alarm_enabled: tag.alarm_enabled,
+            alarm_threshold: tag.alarm_threshold || 0,
+            alarm_operator: tag.alarm_operator || '>',
+            alarm_priority: tag.alarm_priority || 3,
+        });
+        setIsOpen(true);
+    };
+
+    const handleCreateOpen = () => {
+        setUpdatingTagId(null);
+        setFormData({
+            code: '',
+            alias: '',
+            data_type: 'REAL',
+            historize: false,
+            deadband_value: 0.1,
+            alarm_enabled: false,
+            alarm_threshold: 0,
+            alarm_operator: '>',
+            alarm_priority: 3,
+        });
+        setIsOpen(true);
     };
 
     const handleDelete = async (e: React.MouseEvent, id: number) => {
@@ -212,13 +264,16 @@ const TagsPage = () => {
 
                     <Dialog open={isOpen} onOpenChange={setIsOpen}>
                         <DialogTrigger asChild disabled={!selectedGatewayId || selectedGatewayId === 'all'}>
-                            <Button className="gap-2">
+                            <Button className="gap-2" onClick={handleCreateOpen}>
                                 <Plus size={16} /> Add Tag
                             </Button>
                         </DialogTrigger>
                         <DialogContent className="max-w-2xl">
                             <DialogHeader>
-                                <DialogTitle>Create Tag</DialogTitle>
+                                <DialogTitle>{updatingTagId ? 'Edit Tag' : 'Create Tag'}</DialogTitle>
+                                <DialogDescription>
+                                    {updatingTagId ? 'Modify existing tag configuration.' : 'Add a new tag to the gateway.'}
+                                </DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-6 py-4">
                                 <div className="grid grid-cols-2 gap-4">
@@ -349,7 +404,7 @@ const TagsPage = () => {
                                 </div>
                             </div>
                             <DialogFooter>
-                                <Button onClick={handleCreate}>Create Tag</Button>
+                                <Button onClick={handleSave}>{updatingTagId ? 'Update Tag' : 'Create Tag'}</Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
@@ -447,7 +502,7 @@ const TagsPage = () => {
                                                     variant="ghost"
                                                     size="icon"
                                                     className="h-8 w-8 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
-                                                // Edit logic to be implemented
+                                                    onClick={() => handleEdit(tag)}
                                                 >
                                                     <Edit2 size={16} />
                                                 </Button>

@@ -219,45 +219,58 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 	}
 
 	areaIDStr := c.Query("area_id")
-	if areaIDStr == "" {
-		// If no area_id provided, return empty list (no error)
-		c.JSON(http.StatusOK, []GatewayWithHealth{})
-		return
-	}
 
-	areaID, err := strconv.Atoi(areaIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid area_id parameter"})
-		return
-	}
+	var rows *sql.Rows
+	var err error
 
-	// Verify the area_id belongs to the authorized organization
-	var areaOrgID int
-	err = h.db.QueryRow(
-		"SELECT s.org_id FROM areas a JOIN sites s ON a.site_id = s.id WHERE a.id = $1",
-		areaID,
-	).Scan(&areaOrgID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Area not found"})
+	if areaIDStr != "" {
+		// Case 1: Filter by Specific Area
+		areaID, err := strconv.Atoi(areaIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid area_id parameter"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify area ownership"})
-		return
+
+		// Verify the area_id belongs to the authorized organization
+		var areaOrgID int
+		err = h.db.QueryRow(
+			"SELECT s.org_id FROM areas a JOIN sites s ON a.site_id = s.id WHERE a.id = $1",
+			areaID,
+		).Scan(&areaOrgID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Area not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify area ownership"})
+			return
+		}
+
+		if areaOrgID != orgID {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":  "Cannot query gateways for area in different organization",
+				"detail": fmt.Sprintf("Area belongs to organization %d, but authorized for organization %d", areaOrgID, orgID),
+			})
+			return
+		}
+
+		rows, err = h.db.Query(
+			"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at FROM gateways WHERE area_id = $1 ORDER BY id",
+			areaID,
+		)
+	} else {
+		// Case 2: List All Gateways for Organization
+		rows, err = h.db.Query(
+			`SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled, g.created_at 
+			 FROM gateways g
+			 JOIN areas a ON g.area_id = a.id
+			 JOIN sites s ON a.site_id = s.id
+			 WHERE s.org_id = $1
+			 ORDER BY g.id`,
+			orgID,
+		)
 	}
 
-	if areaOrgID != orgID {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error":  "Cannot query gateways for area in different organization",
-			"detail": fmt.Sprintf("Area belongs to organization %d, but authorized for organization %d", areaOrgID, orgID),
-		})
-		return
-	}
-
-	rows, err := h.db.Query(
-		"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at FROM gateways WHERE area_id = $1 ORDER BY id",
-		areaID,
-	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query gateways"})
 		return

@@ -107,8 +107,7 @@ const GatewaysPage = () => {
         }
     };
 
-    const handleToggleEnabled = async (e: React.MouseEvent, id: number, currentEnabled: boolean) => {
-        e.stopPropagation();
+    const handleToggleEnabled = async (id: number, currentEnabled: boolean) => {
         setUpdatingGatewayId(id);
         try {
             await update({ id, data: { enabled: !currentEnabled } });
@@ -330,10 +329,10 @@ const GatewaysPage = () => {
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                                             <Switch
                                                 checked={gw.enabled}
-                                                onCheckedChange={() => handleToggleEnabled({ currentTarget: gw.id } as any, gw.id, gw.enabled)}
+                                                onCheckedChange={() => handleToggleEnabled(gw.id, gw.enabled)}
                                                 disabled={updatingGatewayId === gw.id || isUpdating}
                                             />
                                             {updatingGatewayId === gw.id && (

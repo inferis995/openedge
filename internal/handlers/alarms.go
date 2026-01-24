@@ -3,8 +3,10 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -148,6 +150,7 @@ type AlarmListItem struct {
 	ID             int        `json:"id"`
 	TagID          int        `json:"tag_id"`
 	TagAlias       string     `json:"tag_alias,omitempty"`
+	TagCode        string     `json:"tag_code,omitempty"`
 	State          string     `json:"state"`
 	Message        string     `json:"message"`
 	TriggeredAt    time.Time  `json:"triggered_at"`
@@ -157,43 +160,101 @@ type AlarmListItem struct {
 
 // List handles GET /api/alarms
 // @Summary List alarms
-// @Description Get alarms with optional state filter
+// @Description Get alarms with optional filters and pagination
 // @Tags alarms
 // @Accept json
 // @Produce json
 // @Param X-Organization-ID header int true "Organization ID"
-// @Param state query string false "Filter by state (active, acknowledged, cleared, rtn, all)"
+// @Param tag_id query int false "Filter by tag ID"
+// @Param state query string false "Filter by state (ACTIVE, RTN, ACKNOWLEDGED, CLEAR)"
+// @Param limit query int false "Limit number of results (default 100)"
+// @Param offset query int false "Offset for pagination (default 0)"
 // @Success 200 {array} AlarmListItem
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Access denied"
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /api/alarms [get]
 func (h *AlarmsHandler) List(c *gin.Context) {
-	stateFilter := c.Query("state")
+	// Get organization ID from middleware context
+	orgIDStr, exists := c.Get("organization_id")
+	if !exists {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Organization ID not provided"})
+		return
+	}
+	orgID := orgIDStr.(int)
 
-	var query string
+	// Parse query parameters
+	tagIDParam := c.Query("tag_id")
+	stateFilter := c.Query("state")
+	limitParam := c.DefaultQuery("limit", "100")
+	offsetParam := c.DefaultQuery("offset", "0")
+
+	// Parse pagination parameters
+	limit, err := strconv.Atoi(limitParam)
+	if err != nil || limit <= 0 {
+		limit = 100
+	}
+	offset, err := strconv.Atoi(offsetParam)
+	if err != nil || offset < 0 {
+		offset = 0
+	}
+
+	// Build query with multi-tenant filtering
 	var args []interface{}
+	argIdx := 1
 
 	baseQuery := `
-		SELECT a.id, a.tag_id, COALESCE(t.alias, '') as tag_alias, a.state, 
-		       COALESCE(a.message, '') as message, a.triggered_at, a.acknowledged_at, a.cleared_at
+		SELECT DISTINCT a.id, a.tag_id, COALESCE(t.alias, '') as tag_alias,
+		       COALESCE(t.code, '') as tag_code, a.state,
+		       COALESCE(a.message, '') as message, a.triggered_at,
+		       a.acknowledged_at, a.cleared_at
 		FROM alarms a
 		LEFT JOIN tags t ON t.id = a.tag_id
+		LEFT JOIN gateways g ON t.gateway_id = g.id
+		LEFT JOIN areas ar ON g.area_id = ar.id
+		LEFT JOIN sites s ON ar.site_id = s.id
+		WHERE s.org_id = $%d
 	`
+	argIdx++
 
-	switch stateFilter {
-	case "active":
-		query = baseQuery + " WHERE LOWER(a.state) = 'active' ORDER BY a.triggered_at DESC"
-	case "acknowledged":
-		query = baseQuery + " WHERE LOWER(a.state) = 'acknowledged' ORDER BY a.triggered_at DESC"
-	case "cleared":
-		query = baseQuery + " WHERE LOWER(a.state) = 'cleared' ORDER BY a.triggered_at DESC"
-	case "rtn":
-		query = baseQuery + " WHERE LOWER(a.state) = 'rtn' ORDER BY a.triggered_at DESC"
-	case "all", "":
-		query = baseQuery + " ORDER BY a.triggered_at DESC LIMIT 100"
-	default:
-		query = baseQuery + " WHERE LOWER(a.state) = $1 ORDER BY a.triggered_at DESC"
-		args = append(args, stateFilter)
+	// Add tag_id filter if provided
+	if tagIDParam != "" {
+		tagID, err := strconv.Atoi(tagIDParam)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tag_id parameter"})
+			return
+		}
+		baseQuery += fmt.Sprintf(" AND a.tag_id = $%d", argIdx)
+		args = append(args, tagID)
+		argIdx++
 	}
+
+	// Add state filter if provided
+	if stateFilter != "" {
+		// Validate state values
+		validStates := map[string]bool{
+			"ACTIVE":        true,
+			"RTN":           true,
+			"ACKNOWLEDGED":  true,
+			"CLEAR":         true,
+			"active":        true,
+			"rtn":           true,
+			"acknowledged":  true,
+			"clear":         true,
+		}
+		if !validStates[stateFilter] {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid state parameter. Must be one of: ACTIVE, RTN, ACKNOWLEDGED, CLEAR"})
+			return
+		}
+		baseQuery += fmt.Sprintf(" AND UPPER(a.state) = $%d", argIdx)
+		args = append(args, strings.ToUpper(stateFilter))
+		argIdx++
+	}
+
+	// Add ordering and pagination
+	query := fmt.Sprintf(baseQuery+" ORDER BY a.triggered_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+	args = append([]interface{}{orgID}, args...)
+	args = append(args, limit, offset)
 
 	rows, err := h.db.Query(query, args...)
 	if err != nil {
@@ -205,7 +266,7 @@ func (h *AlarmsHandler) List(c *gin.Context) {
 	var alarms []AlarmListItem
 	for rows.Next() {
 		var alarm AlarmListItem
-		if err := rows.Scan(&alarm.ID, &alarm.TagID, &alarm.TagAlias, &alarm.State,
+		if err := rows.Scan(&alarm.ID, &alarm.TagID, &alarm.TagAlias, &alarm.TagCode, &alarm.State,
 			&alarm.Message, &alarm.TriggeredAt, &alarm.AcknowledgedAt, &alarm.ClearedAt); err != nil {
 			continue
 		}

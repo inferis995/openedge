@@ -2398,3 +2398,64 @@ The frontend Docker container was already fully implemented with all acceptance 
 
 #### Next Priority:
 - **US-059**: Create alarms list API endpoint
+
+### 2026-01-24 - Alarms List API Endpoint (Iteration 64)
+
+#### Completed User Stories:
+- **US-059**: Created alarms list API endpoint
+
+#### Features Implemented:
+- `internal/handlers/alarms.go` - Enhanced List() handler with full functionality
+
+#### API Endpoint:
+- `GET /api/alarms?tag_id={id}&state={state}&limit={limit}&offset={offset}`
+
+#### Query Parameters:
+- `tag_id` (optional): Filter by specific tag ID
+- `state` (optional): Filter by alarm state (ACTIVE, RTN, ACKNOWLEDGED, CLEAR) - case-insensitive
+- `limit` (optional): Limit number of results (default: 100)
+- `offset` (optional): Offset for pagination (default: 0)
+
+#### Multi-Tenant Filtering:
+- Uses organization ID from `X-Organization-ID` header via middleware context
+- PostgreSQL JOIN across alarms → tags → gateways → areas → sites → organizations
+- Returns 400 if organization ID not provided
+- Users can only view alarms from their own organization
+
+#### Response Format:
+```json
+[
+  {
+    "id": 1,
+    "tag_id": 5,
+    "tag_alias": "Temperature",
+    "tag_code": "DB1.DBW0",
+    "state": "ACTIVE",
+    "message": "Value 42.50 exceeds threshold 40.00",
+    "triggered_at": "2024-01-24T10:30:00Z",
+    "acknowledged_at": null,
+    "cleared_at": null
+  }
+]
+```
+
+#### Query Features:
+- Joins with tags table to include tag_alias and tag_code
+- Multi-tenant organization filtering via site relationship
+- State validation (ACTIVE, RTN, ACKNOWLEDGED, CLEAR)
+- Pagination support with configurable limit and offset
+- Ordered by triggered_at DESC (newest first)
+- DISTINCT query to eliminate duplicates
+
+#### Error Handling:
+- `400 Bad Request` - Invalid tag_id, state, or missing organization ID
+- `500 Internal Server Error` - Database query failure
+
+#### Files Modified:
+- `internal/handlers/alarms.go` - Enhanced List() handler with full filtering, pagination, multi-tenant support
+
+#### Typecheck:
+- `go build ./...` passes successfully
+
+#### Next Priority:
+- **US-060**: Create alarms page in frontend

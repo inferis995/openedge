@@ -959,8 +959,8 @@
         "Verify via API call: GET /api/alarms returns alarm list"
       ],
       "priority": 59,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Updated List() handler in internal/handlers/alarms.go with: query parameters support (tag_id, state, limit, offset), multi-tenant filtering via organization context from middleware, joined query with tags table including tag_alias and tag_code, pagination with default limit=100, ordering by triggered_at DESC. Added state validation (ACTIVE, RTN, ACKNOWLEDGED, CLEAR). Typecheck passes with go build ./... ."
     },
     {
       "id": "US-060",

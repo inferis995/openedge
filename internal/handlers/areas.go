@@ -66,7 +66,7 @@ func (h *AreasHandler) Create(c *gin.Context) {
 	// Verify the site_id belongs to the authorized organization (multi-tenant isolation)
 	var siteOrgID int
 	err := h.db.QueryRow(
-		"SELECT org_id FROM sites s JOIN areas a ON s.id = a.site_id WHERE s.id = $1",
+		"SELECT org_id FROM sites WHERE id = $1",
 		req.SiteID,
 	).Scan(&siteOrgID)
 	if err != nil {

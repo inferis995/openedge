@@ -117,8 +117,7 @@ func (h *TagsHandler) Create(c *gin.Context) {
 	var gatewayOrgID int
 	err := h.db.QueryRow(
 		`SELECT s.org_id
-		 FROM tags t
-		 JOIN gateways g ON t.gateway_id = g.id
+		 FROM gateways g
 		 JOIN areas a ON g.area_id = a.id
 		 JOIN sites s ON a.site_id = s.id
 		 WHERE g.id = $1`,
@@ -228,49 +227,63 @@ func (h *TagsHandler) List(c *gin.Context) {
 	}
 
 	gatewayIDStr := c.Query("gateway_id")
-	if gatewayIDStr == "" {
-		// If no gateway_id provided, return empty list (no error)
-		c.JSON(http.StatusOK, []models.Tag{})
-		return
-	}
 
-	gatewayID, err := strconv.Atoi(gatewayIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid gateway_id parameter"})
-		return
-	}
+	var rows *sql.Rows
+	var err error
 
-	// Verify the gateway_id belongs to the authorized organization
-	var gatewayOrgID int
-	err = h.db.QueryRow(
-		`SELECT s.org_id
-		 FROM gateways g
-		 JOIN areas a ON g.area_id = a.id
-		 JOIN sites s ON a.site_id = s.id
-		 WHERE g.id = $1`,
-		gatewayID,
-	).Scan(&gatewayOrgID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
+	if gatewayIDStr != "" {
+		// Case 1: Filter by Specific Gateway
+		gatewayID, err := strconv.Atoi(gatewayIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid gateway_id parameter"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify gateway ownership"})
-		return
+
+		// Verify the gateway_id belongs to the authorized organization
+		var gatewayOrgID int
+		err = h.db.QueryRow(
+			`SELECT s.org_id
+			 FROM gateways g
+			 JOIN areas a ON g.area_id = a.id
+			 JOIN sites s ON a.site_id = s.id
+			 WHERE g.id = $1`,
+			gatewayID,
+		).Scan(&gatewayOrgID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to verify gateway ownership"})
+			return
+		}
+
+		if gatewayOrgID != orgID {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":  "Cannot query tags for gateway in different organization",
+				"detail": fmt.Sprintf("Gateway belongs to organization %d, but authorized for organization %d", gatewayOrgID, orgID),
+			})
+			return
+		}
+
+		rows, err = h.db.Query(
+			"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority, created_at FROM tags WHERE gateway_id = $1 ORDER BY id",
+			gatewayID,
+		)
+	} else {
+		// Case 2: List All Tags for Organization
+		rows, err = h.db.Query(
+			`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.alarm_enabled, t.alarm_threshold, t.alarm_operator, t.alarm_priority, t.created_at
+			 FROM tags t
+			 JOIN gateways g ON t.gateway_id = g.id
+			 JOIN areas a ON g.area_id = a.id
+			 JOIN sites s ON a.site_id = s.id
+			 WHERE s.org_id = $1
+			 ORDER BY t.id`,
+			orgID,
+		)
 	}
 
-	if gatewayOrgID != orgID {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error":  "Cannot query tags for gateway in different organization",
-			"detail": fmt.Sprintf("Gateway belongs to organization %d, but authorized for organization %d", gatewayOrgID, orgID),
-		})
-		return
-	}
-
-	rows, err := h.db.Query(
-		"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority, created_at FROM tags WHERE gateway_id = $1 ORDER BY id",
-		gatewayID,
-	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query tags"})
 		return
@@ -669,7 +682,13 @@ func (h *TagsHandler) GetCurrentValue(c *gin.Context) {
 	redisKey := fmt.Sprintf("realtime:%d", id)
 	valueJSON, err := h.redisClient.Get(redisKey)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No current value available for this tag"})
+		// Instead of returning 404, return a valid response with null value
+		// This prevents frontend errors when polling new tags
+		c.JSON(http.StatusOK, CurrentValueResponse{
+			V:  nil,
+			Ts: 0,
+			Q:  0, // Good/Bad quality can be defined, 0 usually means Bad/Unknown here? Let's say 0 is unknown/init.
+		})
 		return
 	}
 
