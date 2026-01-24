@@ -1533,3 +1533,102 @@ All 37 user stories have been implemented successfully. The Industrial Edge Midd
 #### Next Priority:
 - **US-039**: Install and configure shadcn/ui components
 
+
+### 2026-01-24 - shadcn/ui Components Installation (Iteration 32)
+
+#### Completed User Stories:
+- **US-039**: Installed and configured shadcn/ui components
+
+#### Features Implemented:
+- `frontend/components.json` - shadcn/ui configuration with proper paths
+- `frontend/src/lib/utils.ts` - Utility function `cn()` for class merging using clsx and tailwind-merge
+- `frontend/src/index.css` - Updated with shadcn CSS variables:
+  - HSL color system with violet primary color (262 83% 58%)
+  - Light and dark mode CSS variables
+  - Border, input, ring, background, foreground, card, popover colors
+  - Muted, accent, destructive color schemes
+  - Chart colors for data visualization
+- `frontend/tailwind.config.js` - Updated with shadcn theme configuration:
+  - Dark mode support with class strategy
+  - Border radius variables using CSS custom properties
+  - Extended color palette matching CSS variables
+
+#### Components Created:
+All components created in `frontend/src/components/ui/`:
+
+1. **Button** (`button.tsx`) - Variants: default, destructive, outline, secondary, ghost, link; Sizes: sm, default, lg, icon
+2. **Input** (`input.tsx`) - Text input with focus ring
+3. **Card** (`card.tsx`) - Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter
+4. **Table** (`table.tsx`) - Table, TableHeader, TableBody, TableFooter, TableRow, TableHead, TableCell, TableCaption
+5. **Dialog** (`dialog.tsx`) - Modal dialog with Radix UI primitives
+6. **Select** (`select.tsx`) - Dropdown select with Radix UI primitives
+7. **Tabs** (`tabs.tsx`) - Tabbed content with Radix UI primitives
+8. **Separator** (`separator.tsx`) - Visual divider (horizontal/vertical)
+9. **Badge** (`badge.tsx`) - Status badges with variants: default, secondary, destructive, outline
+10. **Alert** (`alert.tsx`) - Information alerts with title and description
+11. **Toast** (`toast.tsx`) - Toast notification component with Radix UI primitives
+12. **AlertDialog** (`alert-dialog.tsx`) - Alert dialog for confirmations
+13. **useToast** (`use-toast.ts`) - Toast state management hook
+14. **Toaster** (`toaster.tsx`) - Toast provider and viewport component
+
+#### Path Aliases Configuration:
+- `tsconfig.app.json` - Added baseUrl and paths for `@/*` -> `./src/*`
+- `vite.config.ts` - Added resolve.alias for `@` path support
+
+#### Dependencies Installed:
+- @radix-ui/react-dialog ^1.1.15
+- @radix-ui/react-select ^2.2.6
+- @radix-ui/react-tabs ^1.1.13
+- @radix-ui/react-separator ^1.1.8
+- @radix-ui/react-alert-dialog ^1.1.15
+- @radix-ui/react-toast ^1.2.15
+- @radix-ui/react-slot ^1.2.4
+- class-variance-authority ^0.7.1
+- clsx ^2.1.1
+- tailwind-merge ^3.4.0
+- lucide-react ^0.563.0
+
+#### Test Page:
+- `frontend/src/App.tsx` - Created comprehensive test page rendering all components with their variants
+
+#### Scripts Added:
+- `npm run type-check` - TypeScript type checking without emit
+
+#### Verification:
+- Typecheck passes: `npm run type-check` completes successfully
+- Build succeeds: `npm run build` creates dist folder with all assets
+- Production bundle size: 344 kB JS (108 kB gzipped), 22 kB CSS (5 kB gzipped)
+
+#### Files Created:
+- `frontend/components.json` - shadcn/ui configuration
+- `frontend/src/lib/utils.ts` - cn utility function
+- `frontend/src/components/ui/button.tsx`
+- `frontend/src/components/ui/input.tsx`
+- `frontend/src/components/ui/card.tsx`
+- `frontend/src/components/ui/table.tsx`
+- `frontend/src/components/ui/dialog.tsx`
+- `frontend/src/components/ui/select.tsx`
+- `frontend/src/components/ui/tabs.tsx`
+- `frontend/src/components/ui/separator.tsx`
+- `frontend/src/components/ui/badge.tsx`
+- `frontend/src/components/ui/alert.tsx`
+- `frontend/src/components/ui/alert-dialog.tsx`
+- `frontend/src/components/ui/toast.tsx`
+- `frontend/src/components/ui/use-toast.ts`
+- `frontend/src/components/ui/toaster.tsx`
+
+#### Files Modified:
+- `frontend/src/index.css` - Added shadcn CSS variables
+- `frontend/tailwind.config.js` - Added shadcn theme configuration
+- `frontend/tsconfig.app.json` - Added path aliases
+- `frontend/vite.config.ts` - Added resolve alias for @ path
+- `frontend/package.json` - Added type-check script and all dependencies
+
+#### Typecheck:
+- `go build ./...` passes successfully
+- `npm run type-check` passes successfully
+- `npm run build` creates production build successfully
+
+#### Next Priority:
+- **US-041**: Implement API client with axios
+
