@@ -497,8 +497,8 @@
         "Typecheck passes"
       ],
       "priority": 32,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Driver services (S7 and Modbus) already had LWT configured. Added core-api subscription to sys/health/# topic for tracking gateway health status. Implemented handleGatewayHealthUpdate() function that parses gateway_id from topic, stores status in Redis with key 'gateway_health:{gateway_id}', includes status ('online'/'offline') and last_seen timestamp. Reordered core-api initialization to connect Redis before MQTT so subscription callback can use redisClient. Typecheck passes."
     },
     {
       "id": "US-033",

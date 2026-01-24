@@ -1087,3 +1087,53 @@ CREATE TABLE alarms (
 #### Next Priority:
 - **US-032**: Implement gateway health monitoring with MQTT LWT
 
+
+### 2026-01-24 - Gateway Health Monitoring with MQTT LWT (Iteration 25)
+
+#### Completed User Stories:
+- **US-032**: Implemented gateway health monitoring with MQTT LWT
+
+#### Features Implemented:
+- `services/core-api/main.go` - Enhanced with gateway health tracking:
+  - Reordered initialization to connect Redis before MQTT (so subscription callback can use redisClient)
+  - Added subscription to `sys/health/#` MQTT topic for gateway health updates
+  - `GatewayHealthStatus` struct - Stores status with:
+    - Status: "online" or "offline"
+    - LastSeen: Unix timestamp in milliseconds
+  - `handleGatewayHealthUpdate()` function - Processes health updates:
+    - Parses gateway ID from topic (`sys/health/{gateway_id}`)
+    - Validates status payload ("online" or "offline")
+    - Stores health status in Redis with key `gateway_health:{gateway_id}`
+    - No expiration - status persists until updated
+
+#### Existing LWT Implementation (Already Complete):
+Driver services (driver-s7 and driver-modbus) already had:
+- LWT configuration on MQTT connection with `sys/health/{gateway_id}` topic
+- LWT payload set to "offline" (sent on unexpected disconnect)
+- "online" message published on successful MQTT connection
+- Retained flag enabled for persistent status
+
+#### Redis Key Format:
+- `gateway_health:{gateway_id}` - Health status (no expiration, updated on change)
+
+#### Health Status Storage Format (JSON):
+```json
+{
+  "status": "online",
+  "last_seen": 1706112345678
+}
+```
+
+#### Design Decisions:
+- Health status cached in Redis for fast access (not in database)
+- No expiration on health status keys - persists until updated by driver
+- LWT uses retained messages so new subscribers get current state immediately
+- core-api subscription allows real-time tracking of all gateway health changes
+- This enables US-033 to add connection_status to API responses
+
+#### Files Modified:
+- `services/core-api/main.go` - Reordered initialization (Redis before MQTT), added health topic subscription, added handleGatewayHealthUpdate() function
+
+#### Next Priority:
+- **US-033**: Add gateway health status to API responses
+

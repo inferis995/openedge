@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -36,45 +39,7 @@ func main() {
 	}
 	defer database.Close()
 
-	// Load MQTT configuration
-	mqttHost := getEnv("MQTT_HOST", "localhost")
-	mqttPort := getEnvInt("MQTT_PORT", 1883)
-	mqttClientID := getEnv("MQTT_CLIENT_ID", "core-api")
-
-	mqttCfg := mqtt.Config{
-		Host:          mqttHost,
-		Port:          mqttPort,
-		ClientID:      mqttClientID,
-		CleanSession:  true,
-		AutoReconnect: true,
-		KeepAlive:     30 * time.Second,
-	}
-
-	mqttClient := mqtt.NewClient(mqttCfg)
-	if err := mqttClient.Connect(); err != nil {
-		log.Printf("Warning: Failed to connect to MQTT broker: %v", err)
-		log.Println("MQTT reload commands will not be available")
-	} else {
-		log.Println("MQTT client connected successfully")
-		defer mqttClient.Disconnect(250)
-	}
-
-	// Load InfluxDB configuration
-	influxURL := getEnv("INFLUX_URL", "http://localhost:8086")
-	influxToken := getEnv("INFLUX_TOKEN", "")
-	influxOrg := getEnv("INFLUX_ORG", "industrial")
-	influxBucket := getEnv("INFLUX_BUCKET", "historian")
-
-	var influxClient influxdb2.Client
-	if influxToken == "" {
-		log.Printf("Warning: INFLUX_TOKEN not set, historical data queries will not be available")
-	} else {
-		influxClient = influxdb2.NewClientWithOptions(influxURL, influxToken,
-			influxdb2.DefaultOptions().SetBatchSize(1000).SetFlushInterval(1000))
-		log.Println("InfluxDB client configured")
-	}
-
-	// Load Redis configuration
+	// Load Redis configuration (needed before MQTT for health tracking)
 	redisHost := getEnv("REDIS_HOST", "localhost")
 	redisPort := getEnvInt("REDIS_PORT", 6379)
 	redisPassword := getEnv("REDIS_PASSWORD", "")
@@ -99,6 +64,53 @@ func main() {
 				redisClient.Disconnect()
 			}
 		}()
+	}
+
+	// Load InfluxDB configuration
+	influxURL := getEnv("INFLUX_URL", "http://localhost:8086")
+	influxToken := getEnv("INFLUX_TOKEN", "")
+	influxOrg := getEnv("INFLUX_ORG", "industrial")
+	influxBucket := getEnv("INFLUX_BUCKET", "historian")
+
+	var influxClient influxdb2.Client
+	if influxToken == "" {
+		log.Printf("Warning: INFLUX_TOKEN not set, historical data queries will not be available")
+	} else {
+		influxClient = influxdb2.NewClientWithOptions(influxURL, influxToken,
+			influxdb2.DefaultOptions().SetBatchSize(1000).SetFlushInterval(1000))
+		log.Println("InfluxDB client configured")
+	}
+
+	// Load MQTT configuration
+	mqttHost := getEnv("MQTT_HOST", "localhost")
+	mqttPort := getEnvInt("MQTT_PORT", 1883)
+	mqttClientID := getEnv("MQTT_CLIENT_ID", "core-api")
+
+	mqttCfg := mqtt.Config{
+		Host:          mqttHost,
+		Port:          mqttPort,
+		ClientID:      mqttClientID,
+		CleanSession:  true,
+		AutoReconnect: true,
+		KeepAlive:     30 * time.Second,
+	}
+
+	mqttClient := mqtt.NewClient(mqttCfg)
+	if err := mqttClient.Connect(); err != nil {
+		log.Printf("Warning: Failed to connect to MQTT broker: %v", err)
+		log.Println("MQTT reload commands will not be available")
+	} else {
+		log.Println("MQTT client connected successfully")
+		defer mqttClient.Disconnect(250)
+
+		// Subscribe to gateway health status updates
+		if err := mqttClient.Subscribe("sys/health/#", func(topic string, payload []byte) {
+			handleGatewayHealthUpdate(topic, payload, redisClient)
+		}); err != nil {
+			log.Printf("Warning: Failed to subscribe to gateway health topic: %v", err)
+		} else {
+			log.Println("Subscribed to gateway health status updates")
+		}
 	}
 
 	log.Println("Industrial Edge Middleware - core-api starting...")
@@ -195,4 +207,62 @@ func getEnvInt(key string, defaultValue int) int {
 		}
 	}
 	return defaultValue
+}
+
+// GatewayHealthStatus represents the health status cached in Redis
+type GatewayHealthStatus struct {
+	Status    string `json:"status"`    // "online" or "offline"
+	LastSeen  int64  `json:"last_seen"` // Unix timestamp in milliseconds
+}
+
+// handleGatewayHealthUpdate processes gateway health status updates from MQTT
+// Topics: sys/health/{gateway_id}
+// Payload: "online" or "offline"
+func handleGatewayHealthUpdate(topic string, payload []byte, redisClient *redis.Client) {
+	if redisClient == nil {
+		return
+	}
+
+	// Parse topic: sys/health/{gateway_id}
+	parts := strings.Split(topic, "/")
+	if len(parts) < 3 {
+		log.Printf("Invalid health topic format: %s", topic)
+		return
+	}
+
+	gatewayIDStr := parts[2]
+	gatewayID, err := strconv.Atoi(gatewayIDStr)
+	if err != nil {
+		log.Printf("Invalid gateway ID in health topic: %s", gatewayIDStr)
+		return
+	}
+
+	// Parse status from payload
+	status := strings.ToLower(strings.TrimSpace(string(payload)))
+	if status != "online" && status != "offline" {
+		log.Printf("Invalid health status payload: %s", status)
+		return
+	}
+
+	// Create health status structure
+	healthStatus := GatewayHealthStatus{
+		Status:   status,
+		LastSeen: time.Now().UnixMilli(),
+	}
+
+	// Store in Redis with key: gateway_health:{gateway_id}
+	// No expiration - status persists until updated
+	statusJSON, err := json.Marshal(healthStatus)
+	if err != nil {
+		log.Printf("Error marshaling health status for gateway %d: %v", gatewayID, err)
+		return
+	}
+
+	key := fmt.Sprintf("gateway_health:%d", gatewayID)
+	if err := redisClient.Set(key, string(statusJSON), 0); err != nil {
+		log.Printf("Error storing health status for gateway %d: %v", gatewayID, err)
+		return
+	}
+
+	log.Printf("Gateway %d health status updated: %s", gatewayID, status)
 }
