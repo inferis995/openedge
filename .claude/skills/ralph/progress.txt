@@ -921,3 +921,105 @@ The alarm detection logic was already fully implemented in US-027. This iteratio
 #### Next Priority:
 - **US-029**: Implement alarm state machine with Redis
 
+
+### 2026-01-24 - Alarm State Machine with Redis (Iteration 22)
+
+#### Completed User Stories:
+- **US-029**: Implemented alarm state machine with Redis (already completed in US-027)
+
+#### Features Implemented:
+The alarm state machine with Redis was already fully implemented in US-027. This iteration verified all acceptance criteria are met.
+
+#### Alarm State Persistence:
+- `transitionToAlarm()` (line 308-344):
+  - Sets Redis key `alarm:{tag_id}` with state=ACTIVE, message, timestamp
+  - Stores JSON payload: `{"state": "ACTIVE", "message": "...", "timestamp": ...}`
+  - No expiration (persists until updated)
+
+- `transitionToRTN()` (line 346-387):
+  - Updates Redis key `alarm:{tag_id}` with state=RTN
+  - Stores JSON payload: `{"state": "RTN", "message": "Return to normal", "timestamp": ...}`
+
+- `loadAlarmStates()` (line 410-433):
+  - Restores alarm states from Redis on service startup
+  - Queries all keys matching `alarm:*` pattern
+  - Parses JSON and restores in-memory state map
+
+#### State Tracking:
+- Thread-safe alarm state tracking with `sync.RWMutex` protected map
+- `getAlarmState()` retrieves current state (read lock)
+- `setAlarmState()` updates state (write lock)
+- Previous state is tracked to detect transitions
+
+#### MQTT Event Publishing:
+- Events published to `events/alarms/{tag_id}` topic
+- Payload format: `{"tag": tagID, "state": state, "msg": message, "ts": timestamp}`
+- Published on both ACTIVE and RTN transitions
+
+#### No New Files Required:
+The alarm state machine with Redis was already fully implemented in US-027. This iteration verified the implementation meets all acceptance criteria.
+
+#### Next Priority:
+- **US-030**: Implement alarm database persistence
+
+
+### 2026-01-24 - Alarm Database Persistence (Iteration 23)
+
+#### Completed User Stories:
+- **US-030**: Implemented alarm database persistence
+
+#### Features Implemented:
+- `services/engine-alarm/main.go` - Enhanced with PostgreSQL database persistence
+- Added `time` package import for timestamp handling
+
+#### Database Functions:
+
+1. **insertAlarmRecord()** (line 435-443):
+   - Inserts new alarm events into `alarms` table
+   - Parameters: tag_id, state, message, triggered_at
+   - Query: `INSERT INTO alarms (tag_id, state, message, triggered_at) VALUES (...)`
+
+2. **updateAlarmToClear()** (line 445-464):
+   - Updates most recent ACTIVE alarm to CLEAR state
+   - Sets `cleared_at` timestamp
+   - Uses `ORDER BY triggered_at DESC LIMIT 1` to find the ACTIVE alarm
+   - Logs warning if no ACTIVE alarm found (idempotent)
+
+#### Alarm Event Persistence:
+
+1. **ACTIVE Event** (`transitionToAlarm`):
+   - Converts timestamp from milliseconds to `time.Time`
+   - Calls `insertAlarmRecord(tagID, AlarmStateActive, message, triggeredAt)`
+   - Creates new row with state=ACTIVE, triggered_at=now
+
+2. **RTN Event** (`transitionToRTN`):
+   - Converts timestamp from milliseconds to `time.Time`
+   - Calls `updateAlarmToClear(tagID, clearedAt)` to update existing ACTIVE row
+   - Updates previous ACTIVE row to state=CLEAR with cleared_at timestamp
+   - Calls `insertAlarmRecord(tagID, AlarmStateRTN, "Return to normal", clearedAt)`
+   - Creates new row with state=RTN for the return to normal event
+
+#### Database Schema:
+```sql
+CREATE TABLE alarms (
+    id SERIAL PRIMARY KEY,
+    tag_id INT NOT NULL REFERENCES tags(id),
+    state VARCHAR(20) CHECK (state IN ('ACTIVE', 'RTN', 'ACKNOWLEDGED', 'CLEAR')),
+    message TEXT,
+    triggered_at TIMESTAMPTZ NOT NULL,
+    acknowledged_at TIMESTAMPTZ,
+    cleared_at TIMESTAMPTZ
+);
+```
+
+#### Alarm Event Flow:
+1. Alarm triggers → INSERT row with state=ACTIVE
+2. Value returns to normal → UPDATE ACTIVE row to state=CLEAR + INSERT new row with state=RTN
+3. All alarm events are queryable via database for historical analysis
+
+#### Files Modified:
+- `services/engine-alarm/main.go` - Added time import, insertAlarmRecord(), updateAlarmToClear(), database persistence in transitionToAlarm() and transitionToRTN()
+
+#### Next Priority:
+- **US-031**: Create alarm acknowledge API endpoint
+

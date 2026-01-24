@@ -450,8 +450,8 @@
         "Typecheck passes"
       ],
       "priority": 29,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Alarm state machine with Redis was already fully implemented in US-027. transitionToAlarm() sets Redis key alarm:{tag_id} with state=ACTIVE, message, timestamp. transitionToRTN() sets state=RTN. MQTT events published to events/alarms/{tag_id} with payload {tag, state, msg, ts}. loadAlarmStates() restores states from Redis on startup. Thread-safe state tracking with RWMutex."
     },
     {
       "id": "US-030",
@@ -465,8 +465,8 @@
         "Typecheck passes"
       ],
       "priority": 30,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented alarm database persistence in services/engine-alarm/main.go. Added insertAlarmRecord() function to insert new alarm events into alarms table with tag_id, state, message, triggered_at. Added updateAlarmToClear() function to update most recent ACTIVE alarm to CLEAR state with cleared_at timestamp. transitionToAlarm() now calls insertAlarmRecord() to persist ACTIVE events. transitionToRTN() calls updateAlarmToClear() then insertAlarmRecord() to persist RTN events. All alarm events are now queryable via PostgreSQL. Added time package import. Typecheck passes."
     },
     {
       "id": "US-031",

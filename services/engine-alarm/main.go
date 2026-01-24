@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
@@ -321,6 +322,12 @@ func (s *AlarmService) transitionToAlarm(tagID int, timestamp int64, message str
 		log.Printf("Failed to store alarm state in Redis: %v", err)
 	}
 
+	// Persist to PostgreSQL alarms table
+	triggeredAt := time.Unix(timestamp/1000, 0)
+	if err := s.insertAlarmRecord(tagID, AlarmStateActive, message, triggeredAt); err != nil {
+		log.Printf("Failed to insert alarm record for tag %d: %v", tagID, err)
+	}
+
 	// Publish alarm event to MQTT
 	event := AlarmEvent{
 		TagID:     tagID,
@@ -334,7 +341,6 @@ func (s *AlarmService) transitionToAlarm(tagID int, timestamp int64, message str
 		log.Printf("Failed to publish alarm event: %v", err)
 	}
 
-	// TODO in US-030: Persist to PostgreSQL alarms table
 	log.Printf("Alarm ACTIVE for tag %d: %s", tagID, message)
 }
 
@@ -354,6 +360,17 @@ func (s *AlarmService) transitionToRTN(tagID int, timestamp int64) {
 		log.Printf("Failed to store alarm state in Redis: %v", err)
 	}
 
+	// Update existing ACTIVE alarm to CLEAR in PostgreSQL
+	clearedAt := time.Unix(timestamp/1000, 0)
+	if err := s.updateAlarmToClear(tagID, clearedAt); err != nil {
+		log.Printf("Failed to update alarm to CLEAR for tag %d: %v", tagID, err)
+	}
+
+	// Insert new RTN alarm record
+	if err := s.insertAlarmRecord(tagID, AlarmStateRTN, "Return to normal", clearedAt); err != nil {
+		log.Printf("Failed to insert RTN alarm record for tag %d: %v", tagID, err)
+	}
+
 	// Publish alarm event to MQTT
 	event := AlarmEvent{
 		TagID:     tagID,
@@ -367,7 +384,6 @@ func (s *AlarmService) transitionToRTN(tagID int, timestamp int64) {
 		log.Printf("Failed to publish alarm event: %v", err)
 	}
 
-	// TODO in US-030: Persist to PostgreSQL alarms table
 	log.Printf("Alarm RTN for tag %d", tagID)
 }
 
@@ -413,6 +429,37 @@ func (s *AlarmService) loadAlarmStates() error {
 		}
 	}
 
+	return nil
+}
+
+// insertAlarmRecord inserts a new alarm record into the database
+func (s *AlarmService) insertAlarmRecord(tagID int, state AlarmState, message string, triggeredAt time.Time) error {
+	query := `
+		INSERT INTO alarms (tag_id, state, message, triggered_at)
+		VALUES ($1, $2, $3, $4)
+	`
+	_, err := s.db.Exec(query, tagID, state, message, triggeredAt)
+	return err
+}
+
+// updateAlarmToClear updates the most recent ACTIVE alarm for a tag to CLEAR state
+func (s *AlarmService) updateAlarmToClear(tagID int, clearedAt time.Time) error {
+	query := `
+		UPDATE alarms
+		SET state = $1, cleared_at = $2
+		WHERE tag_id = $3 AND state = $4
+		ORDER BY triggered_at DESC
+		LIMIT 1
+	`
+	result, err := s.db.Exec(query, AlarmStateClear, clearedAt, tagID, AlarmStateActive)
+	if err != nil {
+		return err
+	}
+	// Check if any row was actually updated
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		log.Printf("No ACTIVE alarm found to update to CLEAR for tag %d", tagID)
+	}
 	return nil
 }
 
