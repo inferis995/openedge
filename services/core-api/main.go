@@ -118,11 +118,11 @@ func main() {
 	// Create Gin router
 	router := gin.Default()
 
-	// Create handlers with MQTT client
+	// Create handlers with MQTT client and Redis client
 	orgsHandler := handlers.NewOrganizationsHandler(database)
 	sitesHandler := handlers.NewSitesHandler(database)
 	areasHandler := handlers.NewAreasHandler(database)
-	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient)
+	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient, redisClient)
 	tagsHandler := handlers.NewTagsHandler(database, mqttClient, redisClient)
 	alarmsHandler := handlers.NewAlarmsHandler(database, mqttClient)
 
@@ -161,6 +161,7 @@ func main() {
 		{
 			gateways.POST("", gatewaysHandler.Create)
 			gateways.GET("", gatewaysHandler.List)
+			gateways.GET("/:id", gatewaysHandler.Get)
 			gateways.PUT("/:id", gatewaysHandler.Update)
 		}
 

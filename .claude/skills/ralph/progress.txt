@@ -1137,3 +1137,59 @@ Driver services (driver-s7 and driver-modbus) already had:
 #### Next Priority:
 - **US-033**: Add gateway health status to API responses
 
+
+### 2026-01-24 - Gateway Health Status to API Responses (Iteration 26)
+
+#### Completed User Stories:
+- **US-033**: Added gateway health status to API responses
+
+#### Features Implemented:
+- `internal/handlers/gateways.go` - Enhanced with health status integration:
+  - Added `redisClient RedisClient` field to `GatewaysHandler`
+  - Updated `NewGatewaysHandler()` to accept `redisClient` parameter
+  - Created `GatewayHealthStatus` struct for parsing Redis data
+  - Created `GatewayWithHealth` response struct with:
+    - `ConnectionStatus` - "online" or "offline"
+    - `LastSeen` - Unix timestamp in milliseconds (pointer, omitted if nil)
+  - Added `getGatewayHealth(gatewayID int)` helper to fetch status from Redis
+    - Returns "offline" if Redis unavailable or key not found
+  - Added `enrichGatewayWithHealth(gateway)` to convert Gateway to GatewayWithHealth
+  - Updated `List()` handler to return `[]GatewayWithHealth` with health status
+  - Added new `Get()` handler for `GET /api/gateways/{id}` with health status
+  - Updated `Update()` handler to return `GatewayWithHealth`
+
+#### API Endpoints:
+- `GET /api/gateways?area_id={id}` - Returns list with connection_status and last_seen
+- `GET /api/gateways/{id}` - Returns single gateway with connection_status and last_seen
+- `PUT /api/gateways/{id}` - Returns gateway with connection_status and last_seen
+
+#### Response Format:
+```json
+{
+  "id": 1,
+  "area_id": 1,
+  "name": "PLC-01",
+  "driver_type": "S7",
+  "connection_config": {...},
+  "scan_rate_ms": 1000,
+  "enabled": true,
+  "created_at": "2024-01-24T10:00:00Z",
+  "connection_status": "online",
+  "last_seen": 1706112345678
+}
+```
+
+#### Design Decisions:
+- Health status retrieved from Redis key `gateway_health:{gateway_id}`
+- `last_seen` is optional pointer - omitted if no health data available
+- `connection_status` always returned - defaults to "offline" if no data in Redis
+- Uses existing `RedisClient` interface defined in tags.go
+- All gateway endpoints (List, Get, Update) now return consistent health data
+
+#### Files Modified:
+- `internal/handlers/gateways.go` - Added health status integration, Get handler, updated List and Update handlers
+- `services/core-api/main.go` - Passed redisClient to GatewaysHandler, added GET /:id route
+
+#### Next Priority:
+- **US-034**: Implement multi-tenant data isolation in topic structure
+

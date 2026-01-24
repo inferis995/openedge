@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
@@ -19,13 +21,15 @@ type MQTTClient interface {
 type GatewaysHandler struct {
 	db          *sql.DB
 	mqttClient  MQTTClient
+	redisClient RedisClient
 }
 
 // NewGatewaysHandler creates a new gateways handler
-func NewGatewaysHandler(db *sql.DB, mqttClient MQTTClient) *GatewaysHandler {
+func NewGatewaysHandler(db *sql.DB, mqttClient MQTTClient, redisClient RedisClient) *GatewaysHandler {
 	return &GatewaysHandler{
-		db:         db,
-		mqttClient: mqttClient,
+		db:          db,
+		mqttClient:  mqttClient,
+		redisClient: redisClient,
 	}
 }
 
@@ -45,6 +49,65 @@ type UpdateGatewayRequest struct {
 	ConnectionConfig *models.ConnectionConfig   `json:"connection_config"`
 	ScanRateMs       *int                       `json:"scan_rate_ms"`
 	Enabled          *bool                      `json:"enabled"`
+}
+
+// GatewayHealthStatus represents the health status from Redis
+type GatewayHealthStatus struct {
+	Status   string `json:"status"`    // "online" or "offline"
+	LastSeen int64  `json:"last_seen"` // Unix timestamp in milliseconds
+}
+
+// GatewayWithHealth represents a gateway with health status
+type GatewayWithHealth struct {
+	ID               int                     `json:"id"`
+	AreaID           int                     `json:"area_id"`
+	Name             string                  `json:"name"`
+	DriverType       string                  `json:"driver_type"`
+	ConnectionConfig models.ConnectionConfig `json:"connection_config"`
+	ScanRateMs       int                     `json:"scan_rate_ms"`
+	Enabled          bool                    `json:"enabled"`
+	CreatedAt        time.Time               `json:"created_at"`
+	ConnectionStatus string                  `json:"connection_status,omitempty"` // "online" or "offline"
+	LastSeen         *int64                  `json:"last_seen,omitempty"`         // Unix timestamp in milliseconds
+}
+
+// getGatewayHealth retrieves the health status for a gateway from Redis
+func (h *GatewaysHandler) getGatewayHealth(gatewayID int) (string, *int64) {
+	if h.redisClient == nil {
+		return "", nil
+	}
+
+	key := fmt.Sprintf("gateway_health:%d", gatewayID)
+	healthJSON, err := h.redisClient.Get(key)
+	if err != nil {
+		// No health status found - assume offline
+		return "offline", nil
+	}
+
+	var health GatewayHealthStatus
+	if err := json.Unmarshal([]byte(healthJSON), &health); err != nil {
+		return "offline", nil
+	}
+
+	return health.Status, &health.LastSeen
+}
+
+// enrichGatewayWithHealth adds health status to a gateway
+func (h *GatewaysHandler) enrichGatewayWithHealth(gateway models.Gateway) GatewayWithHealth {
+	status, lastSeen := h.getGatewayHealth(gateway.ID)
+
+	return GatewayWithHealth{
+		ID:               gateway.ID,
+		AreaID:           gateway.AreaID,
+		Name:             gateway.Name,
+		DriverType:       gateway.DriverType,
+		ConnectionConfig: gateway.ConnectionConfig,
+		ScanRateMs:       gateway.ScanRateMs,
+		Enabled:          gateway.Enabled,
+		CreatedAt:        gateway.CreatedAt,
+		ConnectionStatus: status,
+		LastSeen:         lastSeen,
+	}
 }
 
 // Create handles POST /api/gateways
@@ -111,14 +174,15 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var gateways []models.Gateway
+	var gatewaysWithHealth []GatewayWithHealth
 	for rows.Next() {
 		var gateway models.Gateway
 		if err := rows.Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan gateway"})
 			return
 		}
-		gateways = append(gateways, gateway)
+		// Enrich with health status from Redis
+		gatewaysWithHealth = append(gatewaysWithHealth, h.enrichGatewayWithHealth(gateway))
 	}
 
 	if err := rows.Err(); err != nil {
@@ -126,7 +190,37 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gateways)
+	c.JSON(http.StatusOK, gatewaysWithHealth)
+}
+
+// Get handles GET /api/gateways/{id}
+func (h *GatewaysHandler) Get(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid gateway ID"})
+		return
+	}
+
+	var gateway models.Gateway
+	err = h.db.QueryRow(
+		"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at FROM gateways WHERE id = $1",
+		id,
+	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query gateway"})
+		return
+	}
+
+	// Enrich with health status from Redis
+	gatewayWithHealth := h.enrichGatewayWithHealth(gateway)
+
+	c.JSON(http.StatusOK, gatewayWithHealth)
 }
 
 // Update handles PUT /api/gateways/{id}
@@ -219,5 +313,8 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gateway)
+	// Enrich with health status from Redis
+	gatewayWithHealth := h.enrichGatewayWithHealth(gateway)
+
+	c.JSON(http.StatusOK, gatewayWithHealth)
 }

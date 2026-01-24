@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(if not exist \"tasks\" mkdir \"tasks\")",
+      "Bash(./ralph.sh:*)",
+      "Bash(chmod:*)",
+      "Bash(bash:*)"
+    ]
+  }
+}

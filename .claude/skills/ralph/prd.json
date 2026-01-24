@@ -512,8 +512,8 @@
         "Verify via API call"
       ],
       "priority": 33,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added RedisClient to GatewaysHandler, created GatewayWithHealth response struct with connection_status and last_seen fields, added getGatewayHealth() helper to fetch from Redis, enriched List handler to return connection_status for all gateways, added new Get handler for GET /api/gateways/{id} with health status, updated Update handler to return enriched response. Health status retrieved from Redis key gateway_health:{gateway_id} with format {status, last_seen}."
     },
     {
       "id": "US-034",
