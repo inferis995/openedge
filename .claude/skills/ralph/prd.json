@@ -732,8 +732,8 @@
         "Verify in browser: panel updates, edit mode works"
       ],
       "priority": 47,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created src/components/DetailPanel.tsx with view/edit mode toggle. View mode displays all entity fields in read-only card layout with proper formatting. Edit mode provides form inputs for editable gateway/tag fields (name, scan_rate_ms, enabled, connection_config for gateways; code, alias, data_type, historize, alarm settings for tags). Edit button toggles edit state, Save calls api.updateGateway/updateTag, Delete shows confirmation dialog (note: backend delete endpoints not implemented yet). Success/error toast notifications shown for all operations. Typecheck passes with npm run type-check."
     },
     {
       "id": "US-048",

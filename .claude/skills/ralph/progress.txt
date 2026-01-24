@@ -1965,3 +1965,73 @@ const TYPE_COLORS: Record<TreeNodeType, string> = {
 
 #### Next Priority:
 - **US-047**: Create detail panel for entity display and editing
+
+
+### 2026-01-24 - Detail Panel Component (Iteration 38)
+
+#### Completed User Stories:
+- **US-047**: Created detail panel for entity display and editing
+
+#### Features Implemented:
+- `frontend/src/components/DetailPanel.tsx` - Detail panel component with:
+  - `DetailPanelProps` interface with node, onUpdate callback, className
+  - Two display modes: View (read-only) and Edit (form inputs)
+  - View mode displays all entity fields with proper formatting
+  - Edit mode provides form inputs for editable fields
+  - Edit/Cancel/Save buttons for mode switching and persistence
+  - Delete button with AlertDialog confirmation
+  - Toast notifications for success/error feedback
+  - Loading states during save/delete operations
+  - Empty state when no node is selected
+
+#### View Mode Features:
+- Card-based layout with entity type badge
+- Display fields extracted based on entity type (site, area, gateway, tag)
+- Special formatting for different data types:
+  - Booleans: "Yes"/"No"
+  - Objects: JSON.stringify with 2-space indentation
+  - Dates:.toLocaleString() formatting
+  - Connection status and last seen for gateways
+- Shows created_at timestamp
+- Edit button (pencil icon) for editable entities (gateway, tag)
+- Delete button (trash icon) - disabled as backend endpoints not implemented
+
+#### Edit Mode Features:
+- Form fields based on entity type:
+  - **Gateway**: name (text), scan_rate_ms (number), enabled (checkbox), connection_config (JSON textarea)
+  - **Tag**: code (text), alias (text), data_type (select: INT, REAL, BOOL, DINT), historize (checkbox), historize_deadband (number), alarm_enabled (checkbox), alarm_threshold (number), alarm_operator (select: >, <, =), alarm_priority (number)
+- Save button with loading spinner during API calls
+- Cancel button to discard changes
+- JSON editor with validation for connection_config
+- Select dropdowns for enumerated values
+
+#### API Integration:
+- `api.updateGateway(id, data)` for gateway updates
+- `api.updateTag(id, data)` for tag updates
+- Edit mode only available for gateway and tag entities
+- Delete functionality shows "not implemented" message (backend endpoints needed)
+
+#### Utility Functions:
+- `extractFormData(node)` - Extracts editable fields from node data
+- `getDisplayFields(node)` - Returns array of [label, value] tuples for view mode
+- `getEditableFields(node)` - Returns array of [label, key, type, options] for edit mode
+- `formatValue(value)` - Formats values for display (handles null, boolean, object, primitive types)
+
+#### Icons Used:
+- Pencil - Edit button
+- X - Cancel button
+- Save - Save button
+- Trash2 - Delete button
+- Loader2 - Loading spinner
+
+#### Files Created:
+- `frontend/src/components/DetailPanel.tsx` - Detail panel component with view/edit modes
+
+#### Files Modified:
+- `.claude/skills/ralph/prd.json` - Marked US-047 as passes: true with notes
+
+#### Typecheck:
+- `npm run type-check` passes successfully
+
+#### Next Priority:
+- **US-048**: Create configuration page with split view
