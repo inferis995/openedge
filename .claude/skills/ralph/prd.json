@@ -1018,8 +1018,8 @@
         "Verify in browser: dialog opens with correct alarm details"
       ],
       "priority": 62,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created AlarmDetailDialog.tsx component with: full alarm details display (tag info, state, message, timestamps), priority badge from tag config, acknowledge button for active alarms, close button, link to navigate to tag configuration page, note about state history. Updated AlarmsPage.tsx to make table rows clickable (cursor-pointer, hover effect) and show dialog on click. Added tag_code field to Alarm type in types/index.ts. Typecheck passes with npm run build (847.03 kB JS, 30.45 kB CSS). Go code compiles with go build ./... ."
     },
     {
       "id": "US-063",

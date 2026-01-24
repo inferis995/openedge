@@ -21,7 +21,9 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import AlarmDetailDialog from '@/components/AlarmDetailDialog';
 import { CheckCircle, RefreshCw, Pause, Play, Filter, X, Calendar } from 'lucide-react';
+import { Alarm } from '@/types';
 
 const AlarmsPage = () => {
     const [searchParams, setSearchParams] = useSearchParams();
@@ -57,6 +59,8 @@ const AlarmsPage = () => {
     const [tagIdFilter, setTagIdFilter] = useState<number | null>(getTagIdParam());
     const [autoRefresh, setAutoRefresh] = useState(true);
     const [applyFilters, setApplyFilters] = useState(false);
+    const [selectedAlarm, setSelectedAlarm] = useState<Alarm | null>(null);
+    const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false);
 
     const { tags } = useTags(null);
     const { alarms, isLoading, acknowledge, refetch } = useAlarms(
@@ -116,6 +120,12 @@ const AlarmsPage = () => {
     // Manual refresh
     const handleRefresh = () => {
         refetch();
+    };
+
+    // Handle row click to show alarm details
+    const handleRowClick = (alarm: Alarm) => {
+        setSelectedAlarm(alarm);
+        setIsDetailDialogOpen(true);
     };
 
     const getStatusBadge = (state: string) => {
@@ -298,7 +308,11 @@ const AlarmsPage = () => {
                             </TableRow>
                         ) : (
                             alarms.map((alarm) => (
-                                <TableRow key={alarm.id}>
+                                <TableRow
+                                    key={alarm.id}
+                                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                                    onClick={() => handleRowClick(alarm)}
+                                >
                                     <TableCell>{alarm.id}</TableCell>
                                     <TableCell>
                                         <span className="font-medium">
@@ -322,7 +336,7 @@ const AlarmsPage = () => {
                                             ? new Date(alarm.cleared_at).toLocaleString()
                                             : '-'}
                                     </TableCell>
-                                    <TableCell className="text-right">
+                                    <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                                         {alarm.state === 'active' && (
                                             <Button
                                                 size="sm"
@@ -339,6 +353,14 @@ const AlarmsPage = () => {
                     </TableBody>
                 </Table>
             </div>
+
+            {/* Alarm Detail Dialog */}
+            <AlarmDetailDialog
+                alarm={selectedAlarm}
+                open={isDetailDialogOpen}
+                onOpenChange={setIsDetailDialogOpen}
+                onAcknowledge={handleAcknowledge}
+            />
         </div>
     );
 };

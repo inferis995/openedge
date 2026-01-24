@@ -2527,3 +2527,76 @@ The frontend Docker container was already fully implemented with all acceptance 
 
 #### Next Priority:
 - **US-062**: Add alarm detail dialog
+
+
+### 2026-01-24 - Alarm Detail Dialog (Iteration 49)
+
+#### Completed User Stories:
+- **US-062**: Add alarm detail dialog
+
+#### Features Implemented:
+- `services/web-ui/src/components/AlarmDetailDialog.tsx` - Alarm detail dialog component with:
+  - `AlarmDetailDialogProps` interface with alarm, open, onOpenChange, onAcknowledge props
+  - Full alarm details display in organized sections:
+    - **Tag Information Section**: Tag name, tag code (PLC Address), alarm priority badge, alarm threshold
+    - **Alarm Details Section**: Alarm ID, state badge, message, value at trigger
+    - **Timestamps Section**: Triggered at, acknowledged at, cleared at with formatted dates
+  - "View Tag Configuration" button that navigates to /tags page with highlightTagId state
+  - Acknowledge button shown only for active alarms with loading state
+  - Close button to dismiss dialog
+  - Note about state history with link to tag configuration for full history
+
+#### Dialog Features:
+- Uses shadcn Dialog component (DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter)
+- Max width of 2xl (max-w-2xl) for expanded content display
+- Max height with overflow-y-auto for scrollable content
+- Fetches all tags via useTags hook to get priority info for associated tag
+- getStatusBadge() helper with color-coded state badges (active=red/pulse, rtn=yellow, acknowledged=blue, cleared=outline)
+- getPriorityBadge() helper with 5 priority levels (1=gray, 2=blue, 3=yellow, 4=orange, 5=red)
+- formatDateTime() helper for consistent date formatting
+- Loading state during acknowledge operation (isAcknowledging)
+- Stops click propagation on acknowledge button to prevent dialog close
+
+#### AlarmsPage.tsx Updates:
+- Added `selectedAlarm` state (Alarm | null)
+- Added `isDetailDialogOpen` state (boolean)
+- Added `handleRowClick(alarm: Alarm)` function to open dialog with selected alarm
+- Made table rows clickable:
+  - Added cursor-pointer class
+  - Added hover:bg-muted/50 transition effect
+  - onClick handler opens detail dialog
+- Added stopPropagation on Acknowledge button click to prevent row click
+- Integrated AlarmDetailDialog component at bottom of page with props:
+  - alarm={selectedAlarm}
+  - open={isDetailDialogOpen}
+  - onOpenChange={setIsDetailDialogOpen}
+  - onAcknowledge={handleAcknowledge}
+- Added Alarm import from '@/types'
+
+#### Types Updates:
+- `services/web-ui/src/types/index.ts` - Added `tag_code?: string` field to Alarm interface
+
+#### Design System Integration:
+- Violet accent color for primary buttons
+- Muted backgrounds with bg-muted/30 for info sections
+- Bordered sections with rounded-lg corners
+- Icons from lucide-react (Settings, ExternalLink)
+- Label component for field labels with text-xs text-muted-foreground
+- Consistent spacing with space-y-3 and space-y-1
+- Grid layout for tag information (2 columns)
+- Note box with blue border (border-blue-200, bg-blue-50)
+
+#### Files Created:
+- `services/web-ui/src/components/AlarmDetailDialog.tsx` - Alarm detail dialog component
+
+#### Files Modified:
+- `services/web-ui/src/pages/AlarmsPage.tsx` - Added row click handling, integrated dialog
+- `services/web-ui/src/types/index.ts` - Added tag_code field to Alarm interface
+- `.claude/skills/ralph/prd.json` - Marked US-062 as passes: true with notes
+
+#### Typecheck:
+- `go build ./...` passes successfully
+- `npm run build` creates production build successfully (847.03 kB JS, 30.45 kB CSS)
+
+#### Next Priority:
+- **US-063**: Add real-time alarm notifications

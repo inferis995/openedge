@@ -63,6 +63,7 @@ export interface Alarm {
     acknowledged_at?: string;
     cleared_at?: string;
     tag_alias?: string;
+    tag_code?: string;
     gateway_name?: string;
 }
 
