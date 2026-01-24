@@ -1,1348 +1,517 @@
 {
   "project": "Industrial Edge Middleware",
-  "branchName": "ralph/frontend-ui",
-  "description": "Industrial Edge Middleware - Multi-Tenant Data Acquisition System with Docker, Go, PostgreSQL, Redis, InfluxDB, and MQTT (Mosquitto). Supports S7 and Modbus TCP drivers with real-time alarm detection and time-series historization.",
+  "branchName": "ralph/web-ui-configurazione",
+  "description": "Web UI di configurazione per Industrial Edge Middleware con CRUD completo per Organizzazioni, Siti, Aree, Gateway, Tag; Dashboard monitoring; Allarmi real-time; Gestione utenti. Include fix degli import rotti nei servizi Go.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Create PostgreSQL database schema for organizational hierarchy",
-      "description": "As a developer, I need to create the database tables for the multi-tenant organizational structure.",
+      "title": "Create internal/db package for PostgreSQL",
+      "description": "Come sviluppatore, devo creare il pacchetto internal/db con client PostgreSQL per far funzionare i servizi Go.",
       "acceptanceCriteria": [
-        "Create organizations table with id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, created_at TIMESTAMPTZ",
-        "Create sites table with id SERIAL PRIMARY KEY, org_id INT REFERENCES organizations(id), name TEXT NOT NULL, created_at TIMESTAMPTZ",
-        "Create areas table with id SERIAL PRIMARY KEY, site_id INT REFERENCES sites(id), name TEXT NOT NULL, created_at TIMESTAMPTZ",
-        "All Foreign Key constraints are properly defined",
-        "Typecheck passes (Go code compiles)"
+        "Create internal/db/db.go with Connect() and Close() functions",
+        "Create internal/db/config.go with Config struct",
+        "All Go services can import internal/db without errors",
+        "Typecheck passes"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Created migrations/001_init_schema.sql with organizations, sites, areas tables with proper indexes"
+      "notes": "Created internal/db/db.go with Connect() and Close() functions. Created internal/db/config.go with Config struct. Package compiles successfully with go build ./internal/db. Note: Services still fail to compile because other internal packages (mqtt, redis, models, handlers, middleware, modbus, s7) are missing - these will be addressed in US-002 through US-007."
     },
     {
       "id": "US-002",
-      "title": "Create PostgreSQL database schema for gateways and tags",
-      "description": "As a developer, I need to create the database tables for gateways and tags with all constraints.",
+      "title": "Create internal/mqtt package with base client",
+      "description": "Come sviluppatore, devo creare il pacchetto internal/mqtt con client MQTT base.",
       "acceptanceCriteria": [
-        "Create gateways table with id SERIAL PRIMARY KEY, area_id INT REFERENCES areas(id), name TEXT NOT NULL, driver_type VARCHAR(20) CHECK (driver_type IN ('S7', 'MODBUS_TCP')), connection_config JSONB NOT NULL, scan_rate_ms INT DEFAULT 1000, enabled BOOLEAN DEFAULT TRUE, created_at TIMESTAMPTZ",
-        "Create tags table with id SERIAL PRIMARY KEY, gateway_id INT REFERENCES gateways(id), code VARCHAR(50) NOT NULL, alias VARCHAR(100) NOT NULL, data_type VARCHAR(20) CHECK (data_type IN ('INT', 'REAL', 'BOOL', 'DINT')), historize BOOLEAN DEFAULT FALSE, historize_deadband FLOAT DEFAULT 0.0, alarm_enabled BOOLEAN DEFAULT FALSE, alarm_threshold FLOAT, alarm_operator VARCHAR(2) CHECK (alarm_operator IN ('>', '<', '=')), alarm_priority INT DEFAULT 1 CHECK (alarm_priority BETWEEN 1 AND 5), created_at TIMESTAMPTZ",
-        "Create alarms table with id SERIAL PRIMARY KEY, tag_id INT REFERENCES tags(id), state VARCHAR(20) CHECK (state IN ('ACTIVE', 'RTN', 'ACKNOWLEDGED', 'CLEAR')), message TEXT, triggered_at TIMESTAMPTZ NOT NULL, acknowledged_at TIMESTAMPTZ, cleared_at TIMESTAMPTZ",
-        "All Foreign Key constraints are properly defined",
+        "Create internal/mqtt/client.go with Config struct",
+        "Implement Connect(), Disconnect(), Subscribe(), Publish() methods",
+        "All Go services can import internal/mqtt without errors",
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": true,
-      "notes": "Created gateways, tags, alarms tables in migrations/001_init_schema.sql with proper indexes"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-003",
-      "title": "Create Go database models and connection layer",
-      "description": "As a developer, I need to create Go structs that map to the database tables.",
+      "title": "Create internal/redis package with base client",
+      "description": "Come sviluppatore, devo creare il pacchetto internal/redis con client Redis base.",
       "acceptanceCriteria": [
-        "Create Organization struct with fields: ID int, Name string, CreatedAt time.Time",
-        "Create Site struct with fields: ID int, OrgID int, Name string, CreatedAt time.Time",
-        "Create Area struct with fields: ID int, SiteID int, Name string, CreatedAt time.Time",
-        "Create Gateway struct with all fields matching schema including JSONB for ConnectionConfig",
-        "Create Tag struct with all fields matching schema",
-        "Create Alarm struct with all fields matching schema",
-        "Create db package with Connect() function that returns *sql.DB",
+        "Create internal/redis/client.go with Config struct",
+        "Implement Connect(), Disconnect(), Get(), Set() methods",
+        "All Go services can import internal/redis without errors",
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Created internal/models/*.go with all structs (Organization, Site, Area, Gateway, Tag, Alarm) and internal/db/db.go with Connect() function"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-004",
-      "title": "Create organizations REST API endpoints",
-      "description": "As an integrator, I want to create and list organizations via REST API.",
+      "title": "Create internal/models package with entity structs",
+      "description": "Come sviluppatore, devo creare il pacchetto internal/models con struct per tutte le entità.",
       "acceptanceCriteria": [
-        "POST /api/organizations creates a new organization with name in request body",
-        "GET /api/organizations returns list of all organizations",
-        "Both endpoints return JSON with id, name, created_at fields",
-        "Typecheck passes",
-        "Verify via API call"
+        "Create internal/models/organization.go with Organization struct",
+        "Create internal/models/site.go with Site struct",
+        "Create internal/models/area.go with Area struct",
+        "Create internal/models/gateway.go with Gateway struct",
+        "Create internal/models/tag.go with Tag struct",
+        "All structs have JSON tags and proper types",
+        "Typecheck passes"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Created internal/handlers/organizations.go with Create() and List() handlers, integrated into services/core-api/main.go"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-005",
-      "title": "Create sites REST API endpoints",
-      "description": "As an integrator, I want to create and list sites for an organization.",
+      "title": "Create internal/handlers package with base handlers",
+      "description": "Come sviluppatore, devo creare il pacchetto internal/handlers con handler base per ogni entità.",
       "acceptanceCriteria": [
-        "POST /api/sites creates a new site with org_id and name in request body",
-        "GET /api/sites?org_id={id} returns sites filtered by organization",
-        "Endpoints return JSON with all site fields",
-        "Typecheck passes",
-        "Verify via API call"
+        "Create internal/handlers/organizations.go with OrganizationsHandler",
+        "Create internal/handlers/sites.go with SitesHandler",
+        "Create internal/handlers/areas.go with AreasHandler",
+        "Create internal/handlers/gateways.go with GatewaysHandler",
+        "Create internal/handlers/tags.go with TagsHandler",
+        "Create internal/handlers/alarms.go with AlarmsHandler",
+        "Create internal/handlers/system.go with SystemHandler",
+        "Each handler has Create, List, Get, Delete methods",
+        "Typecheck passes"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Created internal/handlers/sites.go with Create() and List() handlers, integrated into services/core-api/main.go"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-006",
-      "title": "Create areas REST API endpoints",
-      "description": "As an integrator, I want to create and list areas for a site.",
+      "title": "Create internal/middleware package for multi-tenancy",
+      "description": "Come sviluppatore, devo creare il pacchetto internal/middleware con middleware per multi-tenancy.",
       "acceptanceCriteria": [
-        "POST /api/areas creates a new area with site_id and name in request body",
-        "GET /api/areas?site_id={id} returns areas filtered by site",
-        "Endpoints return JSON with all area fields",
-        "Typecheck passes",
-        "Verify via API call"
+        "Create internal/middleware/organization.go",
+        "Implement OrganizationContext() middleware",
+        "Middleware extracts X-Organization-ID header",
+        "Middleware sets organization context in Gin",
+        "Typecheck passes"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "Created internal/handlers/areas.go with Create() and List() handlers, integrated into services/core-api/main.go"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-007",
-      "title": "Create gateways REST API endpoints",
-      "description": "As an integrator, I want to create, update, and list gateways.",
+      "title": "Create internal/modbus and internal/s7 stub packages",
+      "description": "Come sviluppatore, devo creare i pacchetti stub per modbus e s7 clients.",
       "acceptanceCriteria": [
-        "POST /api/gateways creates a new gateway with area_id, name, driver_type, connection_config, scan_rate_ms",
-        "GET /api/gateways?area_id={id} returns gateways filtered by area",
-        "PUT /api/gateways/{id} updates gateway fields",
-        "connection_config is stored as JSONB",
-        "Typecheck passes",
-        "Verify via API call"
+        "Create internal/modbus/client.go with Config struct and Connect() method",
+        "Create internal/s7/client.go with Config struct and Connect() method",
+        "All Go services can import both packages without errors",
+        "Typecheck passes"
       ],
       "priority": 7,
-      "passes": true,
-      "notes": "Created internal/handlers/gateways.go with Create(), List(), Update() handlers, integrated into services/core-api/main.go"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-008",
-      "title": "Create tags REST API endpoints",
-      "description": "As an integrator, I want to create, update, and list tags.",
+      "title": "Fix go.mod and compile all Go services",
+      "description": "Come sviluppatore, devo fixare il go.mod e compilare tutti i servizi Go.",
       "acceptanceCriteria": [
-        "POST /api/tags creates a new tag with gateway_id, code, alias, data_type, and optional alarm/historize fields",
-        "GET /api/tags?gateway_id={id} returns tags filtered by gateway",
-        "PUT /api/tags/{id} updates tag fields",
-        "All validation constraints are enforced (data_type, alarm_operator, alarm_priority)",
-        "Typecheck passes",
-        "Verify via API call"
+        "Verify/create go.mod at project root with correct module path",
+        "Run go mod tidy for all services",
+        "All services in services/ compile with go build",
+        "No import errors in any service",
+        "Typecheck passes"
       ],
       "priority": 8,
-      "passes": true,
-      "notes": "Created internal/handlers/tags.go with Create(), List(), Update() handlers, integrated into services/core-api/main.go"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-009",
-      "title": "Create Docker Compose configuration for infrastructure services",
-      "description": "As a developer, I need to create Docker Compose file for PostgreSQL, Redis, Mosquitto, and InfluxDB.",
+      "title": "Create web-ui React project with Vite and TypeScript",
+      "description": "Come sviluppatore, devo creare un nuovo progetto frontend React con Vite e TypeScript.",
       "acceptanceCriteria": [
-        "postgres service uses postgres:16 image with exposed port 5432",
-        "redis service uses redis/redis-stack image with exposed port 6379",
-        "mosquitto service uses eclipse-mosquitto:2 image with exposed port 1883",
-        "influxdb service uses influxdb:2 image with exposed port 8086",
-        "All services have proper volume mounts for data persistence",
-        "All services have proper environment variables",
-        "docker-compose up -d starts all services successfully"
+        "Create web-ui/ directory at project root",
+        "Initialize Vite project with React + TypeScript template",
+        "Install Tailwind CSS and configure it",
+        "Install dependencies: react-router-dom, axios, lucide-react",
+        "Configure vite.config.ts with proxy for backend API",
+        "Project starts without errors with npm run dev",
+        "Typecheck passes with npm run type-check"
       ],
       "priority": 9,
-      "passes": true,
-      "notes": "Created docker-compose.yml with postgres:16, redis/redis-stack, eclipse-mosquitto:2, influxdb:2. All services have proper volumes, healthchecks, and network configuration."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-010",
-      "title": "Create core-api service Docker container",
-      "description": "As a developer, I need to create the core-api service container with REST API.",
+      "title": "Create Layout components with sidebar dark mode",
+      "description": "Come sviluppatore, devo creare i componenti Layout seguendo lo stile in style/STILE1.PNG.",
       "acceptanceCriteria": [
-        "Create Dockerfile for core-api using Go base image",
-        "Create main.go that starts Gin/Echo server on port 8080",
-        "All organization/site/area/gateway/tag endpoints are registered",
-        "Container connects to PostgreSQL from docker-compose",
-        "docker-compose up starts core-api successfully",
-        "Typecheck passes"
+        "Create components/Layout.tsx with sidebar (w-80, bg-gray-900)",
+        "Create components/Header.tsx (h-16, bg-white, border-b)",
+        "Create components/Card.tsx (bg-white, border-gray-200, rounded-lg)",
+        "Import Inter font from Google Fonts",
+        "Sidebar has logo area and navigation menu placeholder",
+        "Layout matches STILE1.PNG style exactly",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 10,
-      "passes": true,
-      "notes": "Created services/core-api/Dockerfile with multi-stage build. Added core-api service to docker-compose.yml with proper environment variables and health checks."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-011",
-      "title": "Create MQTT client library for Go",
-      "description": "As a developer, I need to create a reusable MQTT client library for publishing and subscribing.",
+      "title": "Create routing structure with React Router",
+      "description": "Come sviluppatore, devo creare il routing per tutte le pagine dell'applicazione.",
       "acceptanceCriteria": [
-        "Create mqtt package with NewClient() function",
-        "Client supports connecting to Mosquitto with host/port config",
-        "Client has Publish(topic, payload) method",
-        "Client has Subscribe(topic, callback) method",
-        "Client handles connection errors and auto-reconnect",
-        "Typecheck passes"
+        "Configure React Router with main Layout wrapper",
+        "Create route for /login (LoginPage component)",
+        "Create route for /dashboard (DashboardPage component)",
+        "Create route for /organizations (OrganizationsPage component)",
+        "Create route for /sites (SitesPage component)",
+        "Create route for /areas (AreasPage component)",
+        "Create route for /gateways (GatewaysPage component)",
+        "Create route for /tags (TagsPage component)",
+        "Create route for /alarms (AlarmsPage component)",
+        "Create route for /users (UsersPage component)",
+        "Protected routes require authentication",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 11,
-      "passes": true,
-      "notes": "Created internal/mqtt/client.go with NewClient(), Connect(), Publish(), Subscribe() methods. Supports auto-reconnect, connection error handling, LWT (Last Will Testament), and automatic resubscription on reconnect."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-012",
-      "title": "Create driver-s7 service Docker container structure",
-      "description": "As a developer, I need to create the driver-s7 service container structure.",
+      "title": "Create API service layer with axios",
+      "description": "Come sviluppatore, devo creare un layer centralizzato per le chiamate API.",
       "acceptanceCriteria": [
-        "Create Dockerfile for driver-s7 using Go base image",
-        "Create main.go that loads gateway config from PostgreSQL by gateway ID",
-        "Service subscribes to sys/command/reload for dynamic config reload",
-        "Container can connect to Mosquitto and PostgreSQL",
+        "Create services/api.ts with axios instance",
+        "Configure base URL from env variable",
+        "Add interceptor for X-Organization-ID header",
+        "Add interceptor for Authorization (JWT) header",
+        "Add interceptor for centralized error handling",
+        "Create functions: getOrganizations, createOrganization, updateOrganization, deleteOrganization",
+        "Create functions: getSites, createSite, updateSite, deleteSite",
+        "Create functions: getAreas, createArea, updateArea, deleteArea",
+        "Create functions: getGateways, createGateway, updateGateway, deleteGateway, testGateway",
+        "Create functions: getTags, createTag, updateTag, deleteTag, getTagValue",
+        "Create functions: getAlarms, acknowledgeAlarm",
+        "Create functions: getUsers, inviteUser, deleteUser",
+        "Add TypeScript types for all request/response",
         "Typecheck passes"
       ],
       "priority": 12,
-      "passes": true,
-      "notes": "Created services/driver-s7/Dockerfile with multi-stage build (golang:1.21-alpine -> alpine:3.19). Created services/driver-s7/main.go with: gateway config loading from PostgreSQL with hierarchy info (org/site/area), MQTT client with LWT for health monitoring, subscription to sys/command/reload/{gateway_id} for dynamic config reload, polling loop with configurable scan rate, slugify function for topic naming."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-013",
-      "title": "Implement S7 protocol connection and polling",
-      "description": "As a developer, I need to implement the S7 driver connection and data reading.",
+      "title": "Create Zustand store for state management",
+      "description": "Come sviluppatore, devo creare lo store Zustand per gestire lo stato globale.",
       "acceptanceCriteria": [
-        "Create s7 package with NewClient() function using IP, rack, slot from config",
-        "Client has ReadTag(address, dataType) method that reads from PLC",
-        "Client supports INT, REAL, BOOL, DINT data types",
-        "Connection errors are logged and trigger reconnection attempt",
+        "Install Zustand dependency",
+        "Create store/authStore.ts with user, token, organization state",
+        "Create store/notificationStore.ts for toast messages",
+        "Create store/alarmStore.ts for real-time alarms",
+        "Implement actions: login, logout, switchOrganization",
+        "Persist auth state to localStorage",
         "Typecheck passes"
       ],
       "priority": 13,
-      "passes": true,
-      "notes": "Created internal/s7/client.go with pure Go S7 protocol implementation. Features: NewClient(cfg Config) and NewClientFromConfig(map) constructors, Connect() with COTP/S7 handshake, ConnectWithRetry() with configurable retry logic, ReadTag(address, dataType) supporting DB/M/I/Q areas, INT/REAL/BOOL/DINT data types with big-endian byte conversion, connection error handling with automatic disconnect detection."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-014",
-      "title": "Implement S7 driver data publishing to MQTT",
-      "description": "As a developer, I need the S7 driver to publish read data to MQTT with proper format.",
+      "title": "Create Sidebar navigation component",
+      "description": "Come sviluppatore, devo creare il componente Sidebar per navigare l'applicazione.",
       "acceptanceCriteria": [
-        "Driver reads all tags for configured gateway from PostgreSQL",
-        "Driver executes polling loop at scan_rate_ms interval",
-        "Each value is published to topic: data/{org}/{site}/{area}/{gateway}/{alias}",
-        "Payload format: {\"v\": value, \"ts\": timestamp_ms, \"q\": quality}",
-        "Report by Exception: publish only if value changed from previous read",
-        "Typecheck passes"
+        "Create components/Sidebar.tsx fixed left (w-80, bg-gray-900)",
+        "Add 'Industrial Edge' logo at top",
+        "Add menu items with icons: Dashboard, Organizations, Sites, Areas, Gateways, Tags, Alarms, Users",
+        "Active state has bg-gray-800 and violet border",
+        "Hover state has bg-violet-700",
+        "Footer with user info and logout button",
+        "Use Lucide React icons",
+        "Styling matches STILE1.PNG exactly",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 14,
-      "passes": true,
-      "notes": "Updated services/driver-s7/main.go to integrate S7 client with MQTT publishing. Features: S7 connection management with auto-reconnect, polling loop reads all tags via s7.ReadTag(), publishes to data/{org}/{site}/{area}/{gateway}/{alias} with JSON payload {v, ts, q}, Report by Exception using previousValues map for change detection, thread-safe value comparison for BOOL/INT/DINT/REAL types."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-015",
-      "title": "Create driver-modbus service Docker container structure",
-      "description": "As a developer, I need to create the driver-modbus service container structure.",
+      "title": "Create Toast notifications component",
+      "description": "Come sviluppatore, devo creare il componente Toast per le notifiche.",
       "acceptanceCriteria": [
-        "Create Dockerfile for driver-modbus using Go base image",
-        "Create main.go that loads gateway config from PostgreSQL by gateway ID",
-        "Service subscribes to sys/command/reload for dynamic config reload",
-        "Container can connect to Mosquitto and PostgreSQL",
-        "Typecheck passes"
+        "Install sonner or shadcn/toast",
+        "Create components/Toaster.tsx",
+        "Success toasts are green with auto-dismiss after 5 seconds",
+        "Error toasts are red with auto-dismiss after 5 seconds",
+        "Warning toasts are yellow with auto-dismiss after 5 seconds",
+        "Position is bottom-right",
+        "Integrate with notificationStore",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 15,
-      "passes": true,
-      "notes": "Created services/driver-modbus/Dockerfile with multi-stage build (golang:1.21-alpine -> alpine:3.19). Created services/driver-modbus/main.go with: gateway config loading from PostgreSQL with hierarchy info (org/site/area), MQTT client with LWT for health monitoring, subscription to sys/command/reload/{gateway_id} for dynamic config reload, polling loop with configurable scan rate, slugify function for topic naming, Report by Exception support ready for US-016/US-017."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-016",
-      "title": "Implement Modbus TCP protocol connection and polling",
-      "description": "As a developer, I need to implement the Modbus TCP driver connection and data reading.",
+      "title": "Create LoginPage with authentication",
+      "description": "Come utente, devo poter accedere al sistema con email e password.",
       "acceptanceCriteria": [
-        "Create modbus package with NewClient() function using IP, slave_id, port from config",
-        "Client has ReadHoldingRegister(address) and ReadInputRegister(address) methods",
-        "Client supports INT, REAL (2 registers), BOOL data types",
-        "Connection errors are logged and trigger reconnection attempt",
-        "Typecheck passes"
+        "Create pages/LoginPage.tsx with centered form",
+        "Background is gray-200",
+        "Email input with placeholder and validation",
+        "Password input with visibility toggle",
+        "Login button shows loading state during request",
+        "Show errors clearly on failed login",
+        "Save JWT token to localStorage on success",
+        "Redirect to /dashboard after successful login",
+        "Styling uses white card with violet accents",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 16,
-      "passes": true,
-      "notes": "Created internal/modbus/client.go with pure Go Modbus TCP implementation. Features: NewClient(cfg Config) and NewClientFromConfig(map) constructors, Connect() with timeout, ConnectWithRetry() with configurable retry logic, ReadHoldingRegister() and ReadInputRegister() using function codes 0x03/0x04, ReadTag(address, dataType) supporting INT/REAL/BOOL types, proper MBAP header handling, big-endian byte order, exception response handling, BOOL support with bit offset (HR100.0 = bit 0 of register 100), REAL reads 2 consecutive registers (4 bytes IEEE 754)."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-017",
-      "title": "Implement Modbus driver data publishing to MQTT",
-      "description": "As a developer, I need the Modbus driver to publish read data to MQTT with proper format.",
+      "title": "Create DashboardPage with statistics cards",
+      "description": "Come utente, devo vedere una dashboard con statistiche generali del sistema.",
       "acceptanceCriteria": [
-        "Driver reads all tags for configured gateway from PostgreSQL",
-        "Driver executes polling loop at scan_rate_ms interval",
-        "Each value is published to topic: data/{org}/{site}/{area}/{gateway}/{alias}",
-        "Payload format: {\"v\": value, \"ts\": timestamp_ms, \"q\": quality}",
-        "Report by Exception: publish only if value changed",
-        "Typecheck passes"
+        "Create pages/DashboardPage.tsx with sidebar + header + content layout",
+        "Add 4 stat cards: Total Organizations, Total Sites, Total Gateways, Total Tags",
+        "Add Gateway Online card with count and status",
+        "Add Active Alarms card with count and list",
+        "Add activity bar chart for last week",
+        "Add completion donut chart",
+        "Add recent activity items list",
+        "All data fetched from backend API",
+        "Styling matches STILE1.PNG",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 17,
-      "passes": true,
-      "notes": "Updated services/driver-modbus/main.go to integrate Modbus client with MQTT publishing. Features: Modbus connection management with auto-reconnect via connectModbus(), polling loop reads all tags via modbus.ReadTag(), publishes to data/{org}/{site}/{area}/{gateway}/{alias} with JSON payload {v, ts, q}, Report by Exception using previousValues map for change detection, readTag() helper returns value with quality (0=good, 1=bad), graceful disconnect on shutdown."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-018",
-      "title": "Create driver-manager service for container orchestration",
-      "description": "As a developer, I need to create driver-manager that starts/stops driver containers.",
+      "title": "Create OrganizationsPage with CRUD",
+      "description": "Come utente, devo poter gestire le organizzazioni (creare, leggere, modificare, eliminare).",
       "acceptanceCriteria": [
-        "Create Dockerfile for driver-manager service",
-        "Service polls PostgreSQL every 10 seconds for gateways with enabled=true",
-        "For each enabled gateway, start corresponding driver container (driver-s7 or driver-modbus)",
-        "For disabled gateways, stop corresponding driver container",
-        "Service logs all container lifecycle operations",
-        "Typecheck passes"
+        "Create pages/OrganizationsPage.tsx",
+        "Table shows: ID, Name, Description, Actions columns",
+        "Create Organization button opens modal dialog",
+        "Create form has Name (required) and Description (textarea) fields",
+        "Save button validates before submitting",
+        "Edit icon opens dialog pre-filled with existing data",
+        "Delete icon shows confirmation alert-dialog",
+        "API calls to GET/POST/PUT/DELETE /api/organizations",
+        "Show toast notifications for success/error",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 18,
-      "passes": true,
-      "notes": "Created services/driver-manager/Dockerfile with multi-stage build (golang:1.21-alpine -> alpine:3.19, includes docker CLI). Created services/driver-manager/main.go with: Docker API client for container lifecycle management, PostgreSQL polling every 10 seconds for enabled/disabled gateways, container start/stop based on gateway.enabled field, Docker network management (industrial-network), thread-safe gateway state tracking with mutex, proper logging of all container operations, graceful shutdown handling. Added github.com/docker/docker v20.10.7+incompatible dependency. Added driver-manager service to docker-compose.yml with Docker socket mount."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-019",
-      "title": "Implement MQTT reload command for dynamic configuration",
-      "description": "As a developer, I need to implement the config reload mechanism when tags or gateways change.",
+      "title": "Create SitesPage with CRUD and multi-tenant",
+      "description": "Come utente, devo poter gestire i siti all'interno della mia organizzazione.",
       "acceptanceCriteria": [
-        "When PUT /api/gateways or PUT /api/tags is called, core-api publishes to sys/command/reload/{gateway_id}",
-        "Driver services subscribe to sys/command/reload/+",
-        "On receiving reload command, driver reloads config from PostgreSQL",
-        "Driver updates internal tag map without stopping polling loop",
-        "New tags are added, removed tags are deleted from polling",
-        "Typecheck passes"
+        "Create pages/SitesPage.tsx",
+        "Breadcrumb shows current organization",
+        "Table shows: ID, Name, Address, City, ZIP, Actions columns",
+        "Create Site form has: Name, Address, City, ZIP fields",
+        "X-Organization-ID header sent with all requests",
+        "CRUD operations use GET/POST/PUT/DELETE /api/sites",
+        "Show toast notifications",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 19,
-      "passes": true,
-      "notes": "Implemented MQTT reload command publishing in core-api. Added MQTT client integration to services/core-api/main.go with MQTT_HOST, MQTT_PORT, MQTT_CLIENT_ID environment variables. Updated GatewaysHandler and TagsHandler to accept MQTTClient interface and publish to sys/command/reload/{gateway_id} on successful PUT updates. Driver services (S7 and Modbus) already have subscription to sys/command/reload/{gateway_id} implemented in US-012 and US-015, with non-blocking reload channel and tag map reloading logic. MQTT publish errors are logged but don't fail the HTTP request to ensure API resilience."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-020",
-      "title": "Create Redis cache package for Go",
-      "description": "As a developer, I need to create a Redis client library for caching real-time values.",
+      "title": "Create AreasPage with CRUD",
+      "description": "Come utente, devo poter gestire le aree all'interno di un sito.",
       "acceptanceCriteria": [
-        "Create redis package with NewClient() function",
-        "Client has Set(key, value, ttl) method",
-        "Client has Get(key) method returning value or error",
-        "Client has Delete(key) method",
-        "Client handles connection errors and auto-reconnect",
-        "Typecheck passes"
+        "Create pages/AreasPage.tsx",
+        "Breadcrumb shows: Organization > Site > Areas",
+        "Table shows: ID, Name, Description, Actions columns",
+        "Create Area form has: Name, Description fields",
+        "CRUD operations use GET/POST/PUT/DELETE /api/areas",
+        "Show toast notifications",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 20,
-      "passes": true,
-      "notes": "Created internal/redis/client.go with NewClient() function using github.com/redis/go-redis/v9. Features: Config struct for connection settings, Connect() with Ping verification, Disconnect() for clean shutdown, Set(key, value, ttl) for storing values, Get(key) returning string or error, GetInt(key) and GetFloat(key) type-safe helpers, Delete(key) for removal, Exists(key) for checking key presence, SetJSON/GetJSON helpers for structured data, Keys(pattern) for pattern matching, FlushDB for clearing database, Ping() for health checks, IsConnected() for connection status. Auto-reconnect with MaxRetries=3, retry backoff configuration, connection pool with PoolSize=10, MinIdleConns=5, ConnMaxLifetime=30min, ConnMaxIdleTime=5min. Typecheck passes."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-021",
-      "title": "Create engine-historian service structure",
-      "description": "As a developer, I need to create the engine-historian service container structure.",
+      "title": "Create GatewaysPage with CRUD and test connection",
+      "description": "Come utente, devo poter gestire i gateway e testare la loro connessione.",
       "acceptanceCriteria": [
-        "Create Dockerfile for engine-historian using Go base image",
-        "Create main.go that subscribes to MQTT topic data/#",
-        "Service connects to InfluxDB and Redis",
-        "Typecheck passes"
+        "Create pages/GatewaysPage.tsx",
+        "Breadcrumb shows: Organization > Site > Area > Gateways",
+        "Table shows: ID, Name, IP, Port, Protocol, Status, Actions columns",
+        "Status badges: Online (green), Offline (red), Unknown (gray)",
+        "Create Gateway form has: Name, IP, Port, Protocol select, Slave ID/Rack, Polling interval",
+        "Protocol select shows Modbus TCP or Siemens S7 options",
+        "Test Connection button shows loading state",
+        "Delete button shows confirmation",
+        "API calls to GET/POST/PUT/DELETE /api/gateways, POST /api/gateways/:id/test",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 21,
-      "passes": true,
-      "notes": "Created services/engine-historian/Dockerfile with multi-stage build (golang:1.21-alpine -> alpine:3.19). Created services/engine-historian/main.go with: MQTT subscription to data/# topic, InfluxDB client connection with health check, Redis client connection, environment variable configuration (MQTT_HOST, MQTT_PORT, REDIS_HOST, REDIS_PORT, INFLUX_URL, INFLUX_TOKEN, INFLUX_ORG, INFLUX_BUCKET), handleDataMessage callback for incoming data with topic parsing (org/site/area/gateway/alias), handleInfluxErrors goroutine for WriteAPI error handling, graceful shutdown with SIGINT/SIGTERM handling. Added github.com/influxdata/influxdb-client-go/v2 v2.13.0 dependency. Typecheck passes."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-022",
-      "title": "Implement historian data buffering and batch write",
-      "description": "As a developer, I need to implement buffering and batch writing to InfluxDB.",
+      "title": "Create TagsPage with CRUD and current value",
+      "description": "Come utente, devo poter gestire i tag (variabili) dei gateway.",
       "acceptanceCriteria": [
-        "Historian accumulates data points in buffer (slice)",
-        "Buffer is flushed when 1000 points accumulated OR 1 second elapsed",
-        "Batch write uses InfluxDB WriteAPI with points batch",
-        "Buffer is thread-safe using mutex or channel",
-        "Typecheck passes"
+        "Create pages/TagsPage.tsx",
+        "Breadcrumb shows: Organization > Site > Area > Gateway > Tags",
+        "Table shows: ID, Name, Address, Type, Unit, Current Value, Actions columns",
+        "Create Tag form has: Name, Address/Offset, Data Type select, Unit, Writable switch",
+        "Data Type select shows: Bool, Int16, Int32, Float, String options",
+        "Current Value column shows real-time value from API",
+        "API calls to GET/POST/PUT/DELETE /api/tags, GET /api/tags/:id/current",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 22,
-      "passes": true,
-      "notes": "Implemented data buffering and batch write in services/engine-historian/main.go. Added DataPoint struct to store buffered data with Measurement, Tags (organization, site, area, gateway, alias), Fields (value, quality), and Timestamp. Added MQTTPayload struct to parse JSON from MQTT. Created thread-safe buffer with mutex-protected []*DataPoint slice. Added buffer constants: bufferFlushSize=1000, bufferFlushInterval=1s. Implemented addToBuffer() which adds points and triggers flush at 1000 points. Implemented periodicFlush() goroutine that flushes every 1 second via ticker. Implemented flushBufferUnsafe() that writes all buffered points to InfluxDB using WriteAPI and Flush(). Graceful shutdown flushes remaining buffer. Timestamp conversion from milliseconds to nanoseconds for InfluxDB. JSON payload parsing extracts v, ts, q fields."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-023",
-      "title": "Implement historian deadband filtering",
-      "description": "As a developer, I need to implement deadband filtering to reduce storage.",
+      "title": "Create AlarmsPage with real-time updates",
+      "description": "Come utente, devo poter vedere e gestire gli allarmi in tempo reale.",
       "acceptanceCriteria": [
-        "Historian checks tag historize_deadband from PostgreSQL",
-        "For each new value, compare with previous value stored in Redis",
-        "If |new_value - previous_value| < deadband, skip write to buffer",
-        "First value for a tag is always written (no previous to compare)",
-        "Typecheck passes"
+        "Create pages/AlarmsPage.tsx",
+        "Table shows: Timestamp, Tag, Message, Severity, Ack, Actions columns",
+        "Severity badges: Critical (red), Warning (yellow), Info (blue)",
+        "Bell icon shows counter for unread notifications",
+        "Acknowledge button confirms alarm",
+        "Filter by severity and status (ack/unack)",
+        "WebSocket or polling for real-time updates",
+        "API calls to GET /api/alarms, POST /api/alarms/:id/acknowledge",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 23,
-      "passes": true,
-      "notes": "Implemented deadband filtering in services/engine-historian/main.go. Added PostgreSQL connection for loading tag historize and historize_deadband configuration. Created TagInfo struct with ID, Historize, and HistorizeDeadband fields. Added getTagInfo() function that queries PostgreSQL via JOIN across org/site/area/gateway/tags tables, with Redis caching (1 hour TTL) using key format 'tag_info:{org}:{site}:{area}:{gateway}:{alias}'. Added shouldStoreValue() function that retrieves previous value from Redis (key: 'prev_value:{tag_id}') and compares with new value. Added exceedsDeadband() function supporting float64, int, and bool value types with proper numeric comparison using math.Abs(). Added storePreviousValue() function to update Redis after storing value. Boolean values always stored on change (no deadband). Zero or negative deadband disables filtering. Added DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME environment variables. Added engine-historian service to docker-compose.yml with PostgreSQL connection and proper dependencies."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-024",
-      "title": "Implement historian Redis cache for real-time values",
-      "description": "As a developer, I need to cache the latest values in Redis for quick access.",
+      "title": "Create UsersPage for user management",
+      "description": "Come admin, devo poter gestire gli utenti e i loro permessi.",
       "acceptanceCriteria": [
-        "After processing each value, store in Redis key realtime:{tag_id}",
-        "Value stored includes: v (value), ts (timestamp), q (quality)",
-        "TTL is set to 60 days (5184000 seconds)",
-        "If key already exists, overwrite with new value",
-        "Typecheck passes"
+        "Create pages/UsersPage.tsx",
+        "Table shows: ID, Email, Name, Role, Organization, Actions columns",
+        "Roles: Admin, User, Viewer",
+        "Invite User button opens form with: Email, Name, Role select, Organization select",
+        "Delete button shows confirmation",
+        "Avatar shows initials like STILE1.PNG",
+        "API calls to GET/POST/DELETE /api/users",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 24,
-      "passes": true,
-      "notes": "Added RealtimeValue struct with V (value), Ts (timestamp), Q (quality) fields. Added realtimeCacheTTL constant set to 5184000 seconds (60 days). Added storeRealtimeValue() function that stores current value in Redis with key format realtime:{tag_id}. Function is called in handleDataMessage() after tag info lookup and before historize check, ensuring all tag values are cached regardless of historize flag. JSON payload format matches MQTT payload structure. Typecheck passes."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-025",
-      "title": "Create historical data query API endpoint",
-      "description": "As an integrator, I want to query historical data for a tag.",
+      "title": "Create WebSocket hook for real-time updates",
+      "description": "Come utente, devo vedere aggiornamenti real-time per gateway status e allarmi.",
       "acceptanceCriteria": [
-        "GET /api/history?tag_id={id}&start={iso}&end={iso} returns historical data",
-        "Query uses InfluxDB Flux or InfluxQL to fetch data points",
-        "Response includes array of {timestamp, value, quality}",
-        "Supports optional aggregation: ?agg=mean&interval=1m",
+        "Create hooks/useWebSocket.ts",
+        "Connect to ws://localhost:8080/ws",
+        "Subscribe to sys/health/# topic for gateway status",
+        "Subscribe to alarms/# topic for new alarms",
+        "Auto-update gateway status badges in tables",
+        "Show toast notification for new critical alarms",
+        "Auto-reconnect on disconnect",
+        "Connection status indicator visible in UI",
         "Typecheck passes",
-        "Verify via API call"
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 25,
-      "passes": true,
-      "notes": "Created internal/handlers/history.go with HistoryHandler supporting GET /api/history. Query parameters: tag_id (required), start (ISO 8601, required), end (ISO 8601, required), agg (optional: mean, max, min, sum, first, last, count, median, stddev), interval (optional: e.g., 1m, 5m, 1h, 1d). Response format: [{timestamp, value, quality}]. Uses Flux query language with filter by tag_id, measurement, and field. Added tag_id tag to InfluxDB data points in engine-historian. Integrated history handler into core-api with INFLUX_URL, INFLUX_TOKEN, INFLUX_ORG, INFLUX_BUCKET environment variables. Typecheck passes."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-026",
-      "title": "Create current value API endpoint from Redis",
-      "description": "As an integrator, I want to get the current value of a tag from Redis cache.",
+      "title": "Create hierarchical navigation with breadcrumbs",
+      "description": "Come utente, devo poter navigare la gerarchia (Org → Site → Area → Gateway → Tags).",
       "acceptanceCriteria": [
-        "GET /api/tags/{id}/current returns current value from Redis key realtime:{tag_id}",
-        "Response includes {v: value, ts: timestamp, q: quality}",
-        "Returns 404 if tag has no current value",
+        "Click on organization in table navigates to its sites page",
+        "Click on site navigates to its areas page",
+        "Click on area navigates to its gateways page",
+        "Click on gateway navigates to its tags page",
+        "Breadcrumb always visible to navigate back",
+        "URL params reflect hierarchy (e.g., /sites?orgId=1)",
         "Typecheck passes",
-        "Verify via API call"
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 26,
-      "passes": true,
-      "notes": "Created GetCurrentValue handler in internal/handlers/tags.go. Reads from Redis key realtime:{tag_id} which stores JSON {v, ts, q}. Returns 404 if tag not found or no current value in Redis. Returns 503 if Redis not available. Added Redis client configuration to core-api with REDIS_HOST, REDIS_PORT, REDIS_PASSWORD, REDIS_DB environment variables. Integrated route GET /api/tags/{id}/current. Typecheck passes."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-027",
-      "title": "Create engine-alarm service structure",
-      "description": "As a developer, I need to create the engine-alarm service container structure.",
+      "title": "Add responsive design for tablet and mobile",
+      "description": "Come utente, devo poter usare l'app anche su tablet e mobile.",
       "acceptanceCriteria": [
-        "Create Dockerfile for engine-alarm using Go base image",
-        "Create main.go that subscribes to MQTT topic data/#",
-        "Service connects to PostgreSQL and Redis",
-        "Typecheck passes"
+        "Sidebar collapses to icon-only mode on tablet (< 1024px)",
+        "Sidebar hidden with hamburger menu on mobile (< 768px)",
+        "Tables have horizontal scroll on mobile",
+        "Cards stack vertically on mobile instead of grid",
+        "Dialogs are fullscreen on mobile",
+        "Breakpoints: sm (640px), md (768px), lg (1024px), xl (1280px)",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill at different resolutions"
       ],
       "priority": 27,
-      "passes": true,
-      "notes": "Created services/engine-alarm/Dockerfile with multi-stage build (golang:1.21-alpine -> alpine:3.19). Created services/engine-alarm/main.go with: MQTT subscription to data/# topic, PostgreSQL connection for loading tag alarm configuration (alarm_enabled, alarm_threshold, alarm_operator, alarm_priority), Redis client for alarm state persistence, AlarmService struct with thread-safe alarm state tracking (map[int]AlarmState with RWMutex), alarm state machine with ACTIVE/RTN/ACKNOWLEDGED/CLEAR states, alarm detection logic supporting >, <, = operators for float/int/bool values, MQTT event publishing to events/alarms/{tag_id}, loadAlarmStates() to restore states from Redis on startup, graceful shutdown handling, environment variable configuration (MQTT_HOST/PORT/CLIENT_ID, REDIS_HOST/PORT, DB_HOST/PORT/USER/PASSWORD/NAME). Added engine-alarm service to docker-compose.yml with proper dependencies. Typecheck passes."
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-028",
-      "title": "Implement alarm detection logic",
-      "description": "As a developer, I need to implement real-time alarm threshold checking.",
+      "title": "Add loading states and skeleton loaders",
+      "description": "Come utente, devo vedere feedback visivo durante il caricamento dei dati.",
       "acceptanceCriteria": [
-        "For each data value received, check if tag has alarm_enabled=true",
-        "Load alarm_threshold and alarm_operator from PostgreSQL",
-        "Evaluate: if operator is '>' and value > threshold, trigger alarm",
-        "Evaluate: if operator is '<' and value < threshold, trigger alarm",
-        "Evaluate: if operator is '=' and value == threshold, trigger alarm",
-        "Typecheck passes"
+        "Skeleton loader component for tables during data fetch",
+        "Spinner on buttons during operations",
+        "Progress bar for long-running operations",
+        "Empty states with illustrations and messages",
+        "Loading states consistent across all pages",
+        "Typecheck passes",
+        "Verify in browser using dev-browser skill"
       ],
       "priority": 28,
-      "passes": true,
-      "notes": "Alarm detection logic is fully implemented in services/engine-alarm/main.go. checkAlarmCondition() function: checks alarm_enabled flag, loads alarm_threshold and alarm_operator from PostgreSQL via getTagAlarmConfig(), evaluates all operators (>, <, =) with float64 value comparison, handles boolean values (triggers on true, clears on false), state transitions between ACTIVE and RTN based on threshold conditions, proper state checking before transitions to avoid duplicate ACTIVE triggers."
-    },
-    {
-      "id": "US-029",
-      "title": "Implement alarm state machine with Redis",
-      "description": "As a developer, I need to track active alarm states in Redis.",
-      "acceptanceCriteria": [
-        "When alarm triggers, set Redis key alarm:{tag_id} with state=ACTIVE",
-        "Track previous state to detect state transitions",
-        "If value returns to normal (no longer exceeds threshold), set state=RTN",
-        "Publish alarm event to events/alarms topic with payload {tag, state, msg, ts}",
-        "State persists in Redis for reliability",
-        "Typecheck passes"
-      ],
-      "priority": 29,
-      "passes": true,
-      "notes": "Alarm state machine with Redis was already fully implemented in US-027. transitionToAlarm() sets Redis key alarm:{tag_id} with state=ACTIVE, message, timestamp. transitionToRTN() sets state=RTN. MQTT events published to events/alarms/{tag_id} with payload {tag, state, msg, ts}. loadAlarmStates() restores states from Redis on startup. Thread-safe state tracking with RWMutex."
-    },
-    {
-      "id": "US-030",
-      "title": "Implement alarm database persistence",
-      "description": "As a developer, I need to persist alarm events to PostgreSQL database.",
-      "acceptanceCriteria": [
-        "When alarm state changes to ACTIVE, insert row in alarms table with state=ACTIVE, triggered_at=now",
-        "When alarm transitions to RTN, update existing row with state=CLEAR, cleared_at=now",
-        "Create new row for RTN event with state=RTN",
-        "All alarm events are queryable via database",
-        "Typecheck passes"
-      ],
-      "priority": 30,
-      "passes": true,
-      "notes": "Implemented alarm database persistence in services/engine-alarm/main.go. Added insertAlarmRecord() function to insert new alarm events into alarms table with tag_id, state, message, triggered_at. Added updateAlarmToClear() function to update most recent ACTIVE alarm to CLEAR state with cleared_at timestamp. transitionToAlarm() now calls insertAlarmRecord() to persist ACTIVE events. transitionToRTN() calls updateAlarmToClear() then insertAlarmRecord() to persist RTN events. All alarm events are now queryable via PostgreSQL. Added time package import. Typecheck passes."
-    },
-    {
-      "id": "US-031",
-      "title": "Create alarm acknowledge API endpoint",
-      "description": "As an operator, I want to acknowledge an active alarm.",
-      "acceptanceCriteria": [
-        "POST /api/alarms/{id}/acknowledge sets alarm state to ACKNOWLEDGED",
-        "Update alarms row with acknowledged_at timestamp",
-        "Return 404 if alarm ID not found",
-        "Return 400 if alarm is not in ACTIVE state",
-        "Typecheck passes",
-        "Verify via API call"
-      ],
-      "priority": 31,
-      "passes": true,
-      "notes": "Created internal/handlers/alarms.go with Acknowledge() handler that validates alarm state, updates database with acknowledged_at timestamp, and publishes MQTT command to sys/command/acknowledge for engine-alarm service sync. Integrated into core-api with route POST /api/alarms/:id/acknowledge. Engine-alarm service subscribes to acknowledge command and updates in-memory state and Redis. Typecheck passes."
-    },
-    {
-      "id": "US-032",
-      "title": "Implement gateway health monitoring with MQTT LWT",
-      "description": "As a developer, I need to track gateway online/offline status using MQTT Last Will Testament.",
-      "acceptanceCriteria": [
-        "Each driver container sets LWT on connection to sys/health/{gateway_id}",
-        "LWT payload is 'offline' (sent on unexpected disconnect)",
-        "Driver publishes 'online' to sys/health/{gateway_id} on successful connection",
-        "core-api subscribes to sys/health/# to track status",
-        "Gateway connection_status field is updated in real-time",
-        "Typecheck passes"
-      ],
-      "priority": 32,
-      "passes": true,
-      "notes": "Driver services (S7 and Modbus) already had LWT configured. Added core-api subscription to sys/health/# topic for tracking gateway health status. Implemented handleGatewayHealthUpdate() function that parses gateway_id from topic, stores status in Redis with key 'gateway_health:{gateway_id}', includes status ('online'/'offline') and last_seen timestamp. Reordered core-api initialization to connect Redis before MQTT so subscription callback can use redisClient. Typecheck passes."
-    },
-    {
-      "id": "US-033",
-      "title": "Add gateway health status to API responses",
-      "description": "As an integrator, I want to see gateway health status in API responses.",
-      "acceptanceCriteria": [
-        "GET /api/gateways returns connection_status field ('online' or 'offline')",
-        "GET /api/gateways/{id} returns connection_status and last_seen timestamp",
-        "Status is derived from MQTT health topic, cached in Redis",
-        "Typecheck passes",
-        "Verify via API call"
-      ],
-      "priority": 33,
-      "passes": true,
-      "notes": "Added RedisClient to GatewaysHandler, created GatewayWithHealth response struct with connection_status and last_seen fields, added getGatewayHealth() helper to fetch from Redis, enriched List handler to return connection_status for all gateways, added new Get handler for GET /api/gateways/{id} with health status, updated Update handler to return enriched response. Health status retrieved from Redis key gateway_health:{gateway_id} with format {status, last_seen}."
-    },
-    {
-      "id": "US-034",
-      "title": "Implement multi-tenant data isolation in topic structure",
-      "description": "As a developer, I need to ensure all MQTT topics include organization name for isolation.",
-      "acceptanceCriteria": [
-        "All data topics follow pattern: data/{org_name}/{site_name}/{area_name}/{gateway_name}/{tag_alias}",
-        "org_name, site_name, area_name, gateway_name are fetched from PostgreSQL joins",
-        "Topics are deterministic and slug-friendly (spaces replaced with hyphens)",
-        "Typecheck passes"
-      ],
-      "priority": 34,
-      "passes": true,
-      "notes": "Multi-tenant topic structure was already implemented in both driver services (US-014 and US-017). Both driver-s7 and driver-modbus load hierarchy names (org_name, site_name, area_name) via PostgreSQL JOIN across organizations → sites → areas → gateways tables. Topic pattern is data/{org}/{site}/{area}/{gateway}/{alias} with slugify() function converting names to lowercase and replacing spaces with hyphens. Verified in services/driver-s7/main.go (lines 360-400) and services/driver-modbus/main.go (lines 331-397)."
-    },
-    {
-      "id": "US-035",
-      "title": "Implement multi-tenant query filtering in API",
-      "description": "As a developer, I need to ensure API queries are filtered by organization.",
-      "acceptanceCriteria": [
-        "Add organization context to API requests (via header or query param for now)",
-        "All queries (sites, areas, gateways, tags) filter by organization",
-        "Cannot access data from different organizations",
-        "Cross-organization queries return 403 Forbidden",
-        "Typecheck passes",
-        "Verify via API call"
-      ],
-      "priority": 35,
-      "passes": true,
-      "notes": "Created internal/middleware/organization.go with OrganizationContext() middleware that extracts org ID from X-Organization-ID header or organization_id query param. Updated Sites, Areas, Gateways, Tags handlers with organization filtering using middleware.GetOrganizationID(). All CRUD operations verify resource ownership via PostgreSQL JOINs and return 403 Forbidden for cross-organization access. Applied middleware to protected routes in core-api (sites, areas, gateways, tags, alarms, history). Organizations endpoints remain public (no org context required). Typecheck passes."
-    },
-    {
-      "id": "US-036",
-      "title": "Create InfluxDB organization tagging",
-      "description": "As a developer, I need to ensure historical data is isolated by organization in InfluxDB.",
-      "acceptanceCriteria": [
-        "All points written to InfluxDB include 'organization' as a tag",
-        "Organization tag value matches org_name from topic structure",
-        "Flux queries for /api/history filter by organization tag",
-        "Users from different organizations cannot query each other's data",
-        "Typecheck passes"
-      ],
-      "priority": 36,
-      "passes": true,
-      "notes": "Organization tag already included in InfluxDB data points (engine-historian/main.go:276). Updated internal/handlers/history.go to: 1) Get organization ID from middleware context, 2) Verify tag ownership via PostgreSQL JOIN across tags→gateways→areas→sites→organizations, 3) Add organization filter to Flux query (|> filter(fn: (r) => r.organization == orgName)), 4) Return 403 Forbidden if tag not found or access denied. Added db field to HistoryHandler struct and getTagOrganization() function. Updated core-api to pass database to NewHistoryHandler(). Typecheck passes."
-    },
-    {
-      "id": "US-037",
-      "title": "Create OpenAPI/Swagger documentation",
-      "description": "As an integrator, I want to have API documentation available.",
-      "acceptanceCriteria": [
-        "Add swagger annotations to all API endpoints",
-        "GET /api/docs serves Swagger UI",
-        "GET /api/swagger.json serves OpenAPI spec",
-        "All endpoints, parameters, and response schemas are documented",
-        "Typecheck passes"
-      ],
-      "priority": 37,
-      "passes": true,
-      "notes": "Created docs/docs.go, docs/swagger.json, docs/swagger.yaml. Added swagger annotations to all handlers (organizations, sites, areas, gateways, tags, alarms, history). Added swagger route to core-api at GET /api/docs/*any. Installed github.com/swaggo/swag, github.com/swaggo/gin-swagger, github.com/swaggo/files dependencies. Typecheck passes."
-    },
-    {
-      "id": "US-038",
-      "title": "Create frontend folder structure following design system",
-      "description": "As a developer, I need to create the frontend folder structure matching the style reference so that the UI has a consistent visual design.",
-      "acceptanceCriteria": [
-        "Create frontend/ directory at project root using npm create vite@latest frontend -- --template react-ts",
-        "Follow design system in tasks/design-system.md for all visual styling",
-        "Use violet/purple color scheme (#8b5cf6) as primary color (bg-violet-600, hover:bg-violet-700)",
-        "Configure Inter font family: add Google Fonts link in index.html",
-        "Set up dark sidebar (bg-gray-900) with light main content (bg-gray-50) layout structure",
-        "Install Tailwind CSS: npm install -D tailwindcss postcss autoprefixer",
-        "Create folder structure: src/components, src/pages, src/lib, src/services, src/types",
-        "Configure Vite proxy to forward /api requests to localhost:8080",
-        "Add design system comment reference at top of main.tsx: // Design System: See tasks/design-system.md",
-        "Verify npm run dev starts dev server on port 5173",
-        "Verify npm run build creates production build without errors"
-      ],
-      "priority": 38,
-      "passes": true,
-      "notes": "Created frontend/ directory with Vite React TypeScript template. Installed Tailwind CSS v3.4 with PostCSS and Autoprefixer. Configured vite.config.ts with proxy to forward /api to localhost:8080. Created folder structure: src/components, src/pages, src/lib, src/services, src/types. Added Inter font via Google Fonts in index.html. Added design system comment reference in main.tsx. npm run build creates production build successfully."
-    },
-    {
-      "id": "US-039",
-      "title": "Install and configure shadcn/ui components",
-      "description": "As a developer, I need to install shadcn/ui components so that we have pre-built, accessible UI components.",
-      "acceptanceCriteria": [
-        "Install shadcn/ui CLI: `npm install -D @shadcn/vite-plugin`",
-        "Configure `components.json` with proper paths for components and utils",
-        "Install essential components: Button, Input, Card, Table, Dialog, Select, Tabs, Tree, Separator, Badge, Alert, Toast",
-        "Verify components render in test page",
-        "Typecheck passes with `npm run type-check`"
-      ],
-      "priority": 39,
-      "passes": true,
-      "notes": "Created components.json configuration with proper paths for components (src/components) and utils (src/lib). Installed all required dependencies: @radix-ui/react-dialog, @radix-ui/react-select, @radix-ui/react-tabs, @radix-ui/react-separator, @radix-ui/react-alert-dialog, @radix-ui/react-toast, @radix-ui/react-slot, class-variance-authority, clsx, tailwind-merge, lucide-react. Created essential UI components: Button, Input, Card, Table, Dialog, Select, Tabs, Separator, Badge, Alert, Toast with useToast hook and Toaster component. Updated index.css with shadcn CSS variables (hsl color system with violet primary color). Updated tailwind.config.js with shadcn theme configuration. Added path aliases (@/* -> ./src/*) in tsconfig.app.json and vite.config.ts. Added type-check script to package.json. Created test page (App.tsx) rendering all components with variants. Typecheck passes with `npm run type-check`. Build succeeds with `npm run build`."
-    },
-    {
-      "id": "US-041",
-      "title": "Implement API client with axios",
-      "description": "As a developer, I need to create an API client service so that all HTTP requests include proper headers and error handling.",
-      "acceptanceCriteria": [
-        "Install axios: `npm install axios`",
-        "Create `src/services/api.ts` with axios instance",
-        "Configure base URL to `/api` (uses Vite proxy in dev)",
-        "Add request interceptor to include `X-Organization-ID` header from localStorage",
-        "Add response interceptor to handle 403/404 (show error) and 500 errors",
-        "Export typed API functions for each endpoint: getOrganizations, createOrganization, getSites, createSite, etc.",
-        "Add TypeScript types matching backend API responses"
-      ],
-      "priority": 40,
-      "passes": true,
-      "notes": "Created src/types/api.ts with TypeScript interfaces for all entities (Organization, Site, Area, Gateway, GatewayWithHealth, Tag, TagValue, HistoryPoint, Alarm) and request/response types. Created src/services/api.ts with axios instance configured for /api base URL, request interceptor adding X-Organization-ID header from localStorage, response interceptor handling 403/404/500 errors with console logging. Exported typed API functions for all endpoints: getOrganizations, createOrganization, getSites, createSite, getAreas, createArea, getGateways, getGateway, createGateway, updateGateway, getTags, createTag, updateTag, getCurrentTagValue, getHistory, getAlarms, acknowledgeAlarm. Typecheck passes with npm run type-check."
-    },
-    {
-      "id": "US-042",
-      "title": "Create organization selection page",
-      "description": "As a user, I need to select my organization so that I can access the application data.",
-      "acceptanceCriteria": [
-        "Create `/login` route with centered card layout",
-        "Render Select dropdown to choose organization (fetched from GET /api/organizations)",
-        "Add \"Enter\" button that stores selected organization ID in localStorage as `ralph_org_id`",
-        "On success: redirect to `/config`",
-        "On error: show error toast message if organizations list is empty",
-        "Add useEffect to check for existing org ID and redirect if already selected",
-        "Typecheck passes",
-        "Verify in browser: org selection works, redirect happens"
-      ],
-      "priority": 41,
-      "passes": true,
-      "notes": "Created /login route with LoginPage.tsx featuring centered card layout with shadcn components. Implemented organization selection with Select dropdown populated from GET /api/organizations. Added 'Enter' button that stores selected organization ID in localStorage as 'ralph_org_id' and redirects to /config. On success: shows welcome toast and redirects to /config. On error: shows error toast if organizations list is empty. Added useEffect to check for existing org ID and redirect if already selected. Installed react-router-dom@^6.22.0 for client-side routing with BrowserRouter. Created placeholder ConfigPage.tsx for routing destination. Typecheck passes with npm run type-check. Build succeeds with npm run build (378.70 kB JS, 22.88 kB CSS)."
-    },
-    {
-      "id": "US-043",
-      "title": "Create main layout with header and navigation",
-      "description": "As a user, I need a consistent layout with navigation so that I can move between pages easily.",
-      "acceptanceCriteria": [
-        "Create `src/components/Layout.tsx` with header and main content area",
-        "Header shows: application title, current organization name (fetched from API), change organization button",
-        "Sidebar shows navigation links: \"Configuration\" (/config), \"Trend/Historian\" (/trend), \"Alarms\" (/alarms)",
-        "Use React Router with BrowserRouter for client-side routing",
-        "Add route guard to redirect to /login if no organization selected",
-        "Apply consistent dark/light theme following tasks/design-system.md (dark sidebar bg-gray-900, light content bg-gray-50)",
-        "Typecheck passes",
-        "Verify in browser: navigation works, layout persists"
-      ],
-      "priority": 43,
-      "passes": true,
-      "notes": "Created src/components/Layout.tsx with: header showing app title 'Industrial Edge Middleware', current organization name (fetched from API), and change organization button. Sidebar with navigation links: Configuration (/config), Trend/Historian (/trend), Alarms (/alarms) using lucide-react icons (Settings, TrendingUp, AlertTriangle). Route guard (ProtectedRoute) redirects to /login if no organization selected. Dark sidebar (bg-gray-900) with light content (bg-gray-50) theme following design system. Mobile-responsive sidebar with hamburger menu. Active link highlighting with violet-600 color. Updated App.tsx to use Layout component for protected routes. Typecheck passes with npm run type-check. Build succeeds (386.47 kB JS, 25.97 kB CSS)."
-    },
-    {
-      "id": "US-044",
-      "title": "Create API types from OpenAPI specification",
-      "description": "As a developer, I need TypeScript types matching the backend API so that we have type safety across the frontend.",
-      "acceptanceCriteria": [
-        "Create `src/types/api.ts` with interfaces for all entities",
-        "Types: Organization, Site, Area, Gateway (with connection_status), Tag, TagValue, HistoryPoint, Alarm",
-        "Export types for API request/response bodies",
-        "Ensure types match backend OpenAPI spec at /api/swagger.json",
-        "Typecheck passes"
-      ],
-      "priority": 44,
-      "passes": true,
-      "notes": "API types were already created in src/types/api.ts as part of US-041. All required interfaces exist (Organization, Site, Area, Gateway, GatewayWithHealth, Tag, TagValue, HistoryPoint, Alarm) along with request/response types (Create*Request, Update*Request, HistoryQueryParams, AcknowledgeResponse). Types match backend OpenAPI specification. Typecheck passes with npm run type-check."
-    },
-    {
-      "id": "US-045",
-      "title": "Create hierarchical data service",
-      "description": "As a developer, I need a service to fetch and transform the hierarchical data so that the UI can display the complete tree structure.",
-      "acceptanceCriteria": [
-        "Create `src/services/hierarchy.ts` with fetchHierarchy(orgId) function",
-        "Fetch sites for organization: GET /api/sites with X-Organization-ID header",
-        "For each site, fetch areas: GET /api/areas?site_id={id} with X-Organization-ID header",
-        "For each area, fetch gateways: GET /api/gateways?area_id={id} with X-Organization-ID header",
-        "For each gateway, fetch tags: GET /api/tags?gateway_id={id} with X-Organization-ID header",
-        "Transform flat API responses into nested tree structure: TreeNode[] with children",
-        "Add caching with 30-second TTL to avoid excessive API calls",
-        "Handle loading and error states",
-        "Return typed TreeNode[] matching Organization > Site > Area > Gateway > Tag hierarchy"
-      ],
-      "priority": 45,
-      "passes": true,
-      "notes": "Created src/services/hierarchy.ts with fetchHierarchy(orgId, useCache) function that builds complete tree structure. Fetches sites, then areas, then gateways, then tags in nested loops. Transforms flat API responses into TreeNode[] with children for Organization > Site > Area > Gateway > Tag hierarchy. Implemented 30-second TTL caching with hierarchyCache variable storing data, timestamp, and orgId. Added clearHierarchyCache() for manual cache invalidation. Added utility functions: findNodeById(), findNodesByType(), getPathToNode(), filterTree(), countNodes(), getHierarchyStats(). Error handling logs failures but continues building tree (partial results). X-Organization-ID header automatically added by axios interceptor in api.ts. Typecheck passes with npm run type-check."
-    },
-    {
-      "id": "US-046",
-      "title": "Create tree view component for navigation",
-      "description": "As a user, I need a hierarchical tree view so that I can navigate the organization structure efficiently.",
-      "acceptanceCriteria": [
-        "Create `src/components/TreeView.tsx` using shadcn Tree component",
-        "Render nested tree nodes with icons for each entity type (org, site, area, gateway, tag)",
-        "Support expand/collapse for nodes with children",
-        "Highlight selected node",
-        "Show online/offline status indicator for gateways (green/gray dot)",
-        "Handle click events to emit node selection",
-        "Typecheck passes",
-        "Verify in browser: tree renders correctly, expand/collapse works"
-      ],
-      "priority": 46,
-      "passes": true,
-      "notes": "Created src/components/TreeView.tsx with full tree navigation functionality. Features: entity type icons (Building2 for site, Map for area, Server for gateway, Cpu for tag) with color coding (blue, emerald, purple, orange), expand/collapse with ChevronRight/ChevronDown icons, click selection with bg-violet-100 highlight, online/offline gateway status with Circle icon (green/gray), child count badges, keyboard navigation (Enter/Space to select, Arrow keys for expand/collapse), ARIA attributes for accessibility. Fixed TypeScript issues in hierarchy.ts (count function naming conflict). Updated ConfigPage.tsx to use TreeView component with fetchHierarchy integration. Typecheck passes with npm run type-check. Build succeeds (392.57 kB JS, 27.20 kB CSS)."
-    },
-    {
-      "id": "US-047",
-      "title": "Create detail panel for entity display and editing",
-      "description": "As a user, I need a detail panel so that I can view and edit entity properties in a split view.",
-      "acceptanceCriteria": [
-        "Create `src/components/DetailPanel.tsx` with two states: view and edit",
-        "View mode: display all entity fields in a read-only card",
-        "Edit mode: show form with inputs for editable fields",
-        "Add \"Edit\" and \"Cancel\" buttons for mode switching",
-        "Add \"Save\" button that calls appropriate API endpoint (PUT)",
-        "Add \"Delete\" button with confirmation dialog",
-        "Show success/error toast after save/delete operations",
-        "Typecheck passes",
-        "Verify in browser: panel updates, edit mode works"
-      ],
-      "priority": 47,
-      "passes": true,
-      "notes": "Created src/components/DetailPanel.tsx with view/edit mode toggle. View mode displays all entity fields in read-only card layout with proper formatting. Edit mode provides form inputs for editable gateway/tag fields (name, scan_rate_ms, enabled, connection_config for gateways; code, alias, data_type, historize, alarm settings for tags). Edit button toggles edit state, Save calls api.updateGateway/updateTag, Delete shows confirmation dialog (note: backend delete endpoints not implemented yet). Success/error toast notifications shown for all operations. Typecheck passes with npm run type-check."
-    },
-    {
-      "id": "US-048",
-      "title": "Create configuration page with split view",
-      "description": "As a user, I need a configuration page with tree on left and details on right so that I can navigate and edit efficiently.",
-      "acceptanceCriteria": [
-        "Create `/config` page route with `src/pages/ConfigPage.tsx`",
-        "Layout: 30% width tree view on left, 70% detail panel on right",
-        "On mount: fetch hierarchy data and populate tree",
-        "When tree node selected: display entity details in panel",
-        "Show empty state when no node selected",
-        "Add \"Create\" buttons for each entity type in the tree",
-        "Responsive: stack vertically on mobile (< 768px)",
-        "Typecheck passes",
-        "Verify in browser: split view works, selection updates panel"
-      ],
-      "priority": 48,
-      "passes": true,
-      "notes": "Implemented configuration page with split view in src/pages/ConfigPage.tsx. Layout: 30% width tree view on left (w-[30%] min-w-[250px] max-w-[400px]), 70% detail panel on right (flex-1). Tree view loads hierarchy data on mount via fetchHierarchy(). Node selection triggers handleNodeSelect() to update DetailPanel. Empty state handled by DetailPanel when no node selected. Created DropdownMenu with Plus icon for Create buttons (Organization, Site, Area, Gateway, Tag) with toast placeholders for US-049-US-053. Added Refresh button that clears hierarchy cache and reloads data, maintaining selected node. Responsive design with flex gap-4 layout. Created src/components/ui/dropdown-menu.tsx with full Radix UI implementation. Added @radix-ui/react-dropdown-menu dependency. Fixed DetailPanel imports (removed unused React and TreeNodeType, changed to direct function imports). Fixed syntax error (setShowDeleteDialog(false)). Fixed typo in alarm operator label. Typecheck passes with npm run type-check. Build succeeds (440.43 kB JS, 28.02 kB CSS)."
-    },
-    {
-      "id": "US-049",
-      "title": "Implement organization creation dialog",
-      "description": "As a user, I need to create organizations so that I can set up new tenants.",
-      "acceptanceCriteria": [
-        "Create `src/components/CreateOrgDialog.tsx` using shadcn Dialog",
-        "Render Input field for \"Organization Name\"",
-        "Add \"Create\" button that validates input (not empty)",
-        "On submit: call POST /api/organizations with name",
-        "On success: close dialog, refresh tree, show success toast",
-        "On error: show error toast with message from API",
-        "Typecheck passes",
-        "Verify in browser: dialog opens/closes, creation works"
-      ],
-      "priority": 49,
-      "passes": true,
-      "notes": "Organization creation dialog already implemented in services/web-ui/src/pages/OrganizationsPage.tsx. Uses shadcn Dialog component with Input field for organization name. Create button validates input (not empty) and calls POST /api/organizations via useOrganizations hook. On success: closes dialog (setIsOpen(false)), clears input (setNewOrgName('')), and refreshes organizations list. Error handling in catch block with console.error. Build passes (npm run build succeeds with 434.06 kB JS bundle)."
-    },
-    {
-      "id": "US-050",
-      "title": "Implement site creation dialog",
-      "description": "As a user, I need to create sites within organizations so that I can organize locations.",
-      "acceptanceCriteria": [
-        "Create `src/components/CreateSiteDialog.tsx`",
-        "Include Select dropdown for parent organization (fetched from API)",
-        "Include Input for \"Site Name\"",
-        "On submit: call POST /api/sites with org_id and name",
-        "Handle success/error with toast notifications",
-        "Typecheck passes",
-        "Verify in browser: org dropdown populates, creation works"
-      ],
-      "priority": 50,
-      "passes": true,
-      "notes": "Site creation dialog already implemented in services/web-ui/src/pages/SitesPage.tsx. Uses shadcn Dialog component with organization Select dropdown populated from useOrganizations hook. Input field for Site Name. Create button calls POST /api/sites with org_id and name. Dialog closes and clears input on success. Error handling with console.error. Build passes (434.06 kB JS, 26.92 kB CSS)."
-    },
-    {
-      "id": "US-051",
-      "title": "Implement area creation dialog",
-      "description": "As a user, I need to create areas within sites so that I can define physical zones.",
-      "acceptanceCriteria": [
-        "Create `src/components/CreateAreaDialog.tsx`",
-        "Include Select for parent site",
-        "Include Input for \"Area Name\"",
-        "Call POST /api/areas on submit",
-        "Refresh hierarchy on success",
-        "Typecheck passes",
-        "Verify in browser: dialog works, area appears in tree"
-      ],
-      "priority": 51,
-      "passes": true,
-      "notes": "Area creation dialog already implemented in services/web-ui/src/pages/AreasPage.tsx. Uses shadcn Dialog component with site Select dropdown populated from useSites hook. Input field for Area Name. Create button calls POST /api/areas with site_id and name. Fetches site details to get authoritative org_id. Dialog closes and clears input on success. Error handling with console.error. Build passes."
-    },
-    {
-      "id": "US-052",
-      "title": "Implement gateway creation dialog",
-      "description": "As a user, I need to create gateways so that I can connect PLC drivers.",
-      "acceptanceCriteria": [
-        "Create `src/components/CreateGatewayDialog.tsx`",
-        "Include fields: name (Input), driver_type (Select: S7, MODBUS_TCP), area_id (Select)",
-        "Include JSON editor for connection_config (textarea with validation)",
-        "Add helper text showing expected JSON structure based on driver_type",
-        "S7 example: `{\"ip\": \"192.168.1.100\", \"rack\": 0, \"slot\": 1, \"port\": 102}`",
-        "Modbus example: `{\"ip\": \"192.168.1.101\", \"port\": 502, \"slaveId\": 1, \"timeout\": 5000}`",
-        "Validate JSON before submit",
-        "Call POST /api/gateways",
-        "Typecheck passes",
-        "Verify in browser: JSON editor validates, creation works"
-      ],
-      "priority": 52,
-      "passes": true,
-      "notes": "Gateway creation dialog already implemented in services/web-ui/src/pages/GatewaysPage.tsx. Uses shadcn Dialog component with comprehensive form. Fields: name (Input), driver_type (Select: S7, MODBUS_TCP), area_id (Select), ip_address (Input), scan_rate_ms (Input number). Driver-specific fields: S7 (rack, slot inputs), Modbus TCP (port, slave_id inputs). Enabled toggle switch. Form validation before submit. Calls POST /api/gateways. Dialog closes and resets form on success. Test connection button for existing gateways. Error handling with console.error. Build passes."
-    },
-    {
-      "id": "US-053",
-      "title": "Implement tag creation dialog",
-      "description": "As a user, I need to create tags so that I can define data points to read from PLCs.",
-      "acceptanceCriteria": [
-        "Create `src/components/CreateTagDialog.tsx` with multi-section form",
-        "Basic fields: code (Input), alias (Input), data_type (Select: INT, REAL, BOOL, DINT), gateway_id (Select)",
-        "Historization section: historize (Checkbox), historize_deadband (Input number)",
-        "Alarm section: alarm_enabled (Checkbox), alarm_threshold (Input), alarm_operator (Select: >, <, =), alarm_priority (Input 1-5)",
-        "Validate required fields (code, alias, data_type, gateway_id)",
-        "Call POST /api/tags on submit",
-        "Typecheck passes",
-        "Verify in browser: all sections render, validation works"
-      ],
-      "priority": 53,
-      "passes": true,
-      "notes": "Tag creation dialog already implemented in services/web-ui/src/pages/TagsPage.tsx. Uses shadcn Dialog component (max-w-2xl) with multi-section form. Basic fields: code (PLC Address), alias (Name), data_type (Select: BOOL, INT, REAL, DINT, STRING), gateway_id (filter dropdown). Historization section: historize (Switch with Database icon), historize_deadband (Input number, conditional). Alarm section: alarm_enabled (Switch with Bell icon), alarm_threshold (Input), alarm_operator (Select: >, <, =, !=), alarm_priority (Input 1-5, conditional). Form validation (code and gateway_id required). Calls POST /api/tags. Dialog closes and resets form on success. Error handling with console.error. Build passes."
-    },
-    {
-      "id": "US-054",
-      "title": "Add real-time value polling to tree view",
-      "description": "As a user, I need to see current tag values so that I can monitor live data.",
-      "acceptanceCriteria": [
-        "Add useEffect in ConfigPage that polls GET /api/tags/{id}/current every 5 seconds",
-        "Only poll for visible/expanded tags in the tree",
-        "Display value next to tag name in tree: \"Temperature (23.5°C)\"",
-        "Show quality indicator: green dot for q=0 (good), red for q=1 (bad)",
-        "Add timestamp tooltip: \"Last update: 2024-01-24 10:30:45\"",
-        "Add toggle button to enable/disable polling",
-        "Typecheck passes",
-        "Verify in browser: values update every 5s, quality indicator works"
-      ],
-      "priority": 54,
-      "passes": true,
-      "notes": "Implemented real-time value polling in services/web-ui/src/pages/TagsPage.tsx (adapted for current UI structure since tree view doesn't exist). Added CurrentValue interface with value, timestamp, and quality fields. Added polling state management with currentValues Map, isPolling boolean, and pollingError. Implemented pollCurrentValues() function that calls GET /api/tags/{id}/current for all visible tags via Promise.all. Added toggle button (Enable Live/Live) with RefreshCw icon that spins when polling. useEffect polls values every 5 seconds when enabled and clears interval on cleanup. Quality indicator: green Circle for q=0 (good), red for q=1 (bad). Timestamp tooltip shows 'Last update: [full datetime]' and displays time inline. Error message displayed when polling fails. Values displayed in 'Current Value' table column with proper formatting for booleans and nulls. Build passes (436.04 kB JS, 27.13 kB CSS)."
-    },
-    {
-      "id": "US-055",
-      "title": "Implement gateway enabled/disabled toggle",
-      "description": "As a user, I need to enable/disable gateways so that I can control which drivers are active.",
-      "acceptanceCriteria": [
-        "Add toggle switch in detail panel when gateway is selected",
-        "Show current enabled state from gateway data",
-        "On toggle: call PUT /api/gateways/{id} with enabled: true/false",
-        "Update tree to show enabled/disabled status (grayed out when disabled)",
-        "Show loading state during API call",
-        "Typecheck passes",
-        "Verify in browser: toggle updates gateway status"
-      ],
-      "priority": 55,
-      "passes": true,
-      "notes": "Implemented gateway enabled/disabled toggle in services/web-ui/src/pages/GatewaysPage.tsx. Added update mutation to useGateways hook with query invalidation. Added handleToggleEnabled() function that calls PUT /api/gateways/{id} with enabled: true/false. Added 'Enabled' column to table with Switch component showing current enabled state. Table rows show opacity-50 (grayed out) when gateway.enabled is false. Loading state shown with RefreshCw spinning icon next to toggle during API call. Toggle disabled during update to prevent duplicate requests. Added RefreshCw import from lucide-react. Build passes (437.07 kB JS, 27.13 kB CSS)."
-    },
-    {
-      "id": "US-056",
-      "title": "Create trend/historian page with multi-tag support",
-      "description": "As a user, I need to view historical data for multiple tags so that I can compare trends.",
-      "acceptanceCriteria": [
-        "Create `/trend` page route with `src/pages/TrendPage.tsx`",
-        "Add multi-select dropdown for tag selection (populated from all tags)",
-        "Add date range picker with start and end datetime-local inputs",
-        "Set default range: last 24 hours",
-        "Add \"Query\" button to fetch data",
-        "Add aggregation controls: agg (Select: mean, max, min, sum), interval (Input: 1m, 5m, 1h, 1d)",
-        "Call GET /api/history for each selected tag",
-        "Display line chart using recharts library (npm install recharts)",
-        "Each tag gets different color with legend",
-        "X-axis: timestamp, Y-axis: value",
-        "Add \"Export CSV\" button that downloads data as CSV file",
-        "Show error message if no data found",
-        "Typecheck passes",
-        "Verify in browser: multi-tag chart renders, export works"
-      ],
-      "priority": 56,
-      "passes": true,
-      "notes": "Created `/trend` page route with `src/pages/TrendPage.tsx`. Implemented multi-tag selection with dropdown populated from all tags. Added date range picker with datetime-local inputs and default 24-hour range. Added quick range buttons (1h, 6h, 24h, 7d). Implemented aggregation controls (mean, max, min, sum) and interval selection (1m, 5m, 15m, 1h, 1d). Created history API (src/api/history.ts) and useHistory hook. Integrated recharts for line chart visualization with 8-color palette for multi-tag support. Each tag has unique color with legend. X-axis shows timestamp, Y-axis shows value. Added Export CSV functionality that downloads data as CSV file. Added empty states, error handling, and loading states with Loader2 spinner. Added toast notifications via sonner library. Added Trend link to Sidebar navigation. Updated types/index.ts with HistoryDataPoint and HistoryQueryParams. Updated useTags hook to support fetching all tags without gateway filter. Added Toaster component to MainLayout. Typecheck passes with npm run build (832.95 kB JS, 28.51 kB CSS). Go code compiles with go build ./... ."
-    },
-    {
-      "id": "US-057",
-      "title": "Add loading states and error handling",
-      "description": "As a user, I need clear feedback during loading and errors so that I understand what's happening.",
-      "acceptanceCriteria": [
-        "Add loading spinner component using shadcn Spinner",
-        "Show spinner during all async operations (API calls, data fetching)",
-        "Add skeleton loaders for tree view and detail panel using shadcn Skeleton",
-        "Show error messages with retry button for failed API calls",
-        "Add toast notifications for success feedback using shadcn Toast",
-        "Handle 403 by showing \"Access denied - check your organization selection\" error",
-        "Handle 404 with \"Resource not found\" error",
-        "Handle 500 with \"Server error, please try again\" message",
-        "If organization ID is missing from localStorage, redirect to /login",
-        "Typecheck passes",
-        "Verify in browser: loading states show, errors display correctly"
-      ],
-      "priority": 57,
-      "passes": true,
-      "notes": "Created comprehensive loading states and error handling system. Added Skeleton component (services/web-ui/src/components/ui/skeleton.tsx) with animate-pulse effect. Created Alert component (services/web-ui/src/components/ui/alert.tsx) for error display. Created AsyncWrapper component (services/web-ui/src/components/ui/async-wrapper.tsx) with loading spinner/skeleton modes, error states with retry button, and empty states. Created api-error-handler.ts (services/web-ui/src/lib/api-error-handler.ts) with formatApiError(), showApiError(), showApiSuccess(), handleApiCall() utilities for toast notifications. Enhanced API client (services/web-ui/src/api/client.ts) with CustomAxiosRequestConfig interface for request timing, slow request logging (>3s), detailed error logging for 403/401/timeout/network errors. Updated useOrganizations hook with toast notifications for create/delete, error formatting, and retry logic. Toaster component already present in MainLayout with sonner library. All HTTP error codes (403, 404, 500) properly handled with contextual toast messages. Build passes: npm run build (835.79 kB JS, 29.81 kB CSS). Go code compiles with go build ./... ."
-    },
-    {
-      "id": "US-058",
-      "title": "Create frontend Docker container",
-      "description": "As a developer, I need to containerize the frontend for production deployment.",
-      "acceptanceCriteria": [
-        "Create `frontend/Dockerfile` with multi-stage build",
-        "Stage 1: FROM node:18-alpine, RUN npm ci, RUN npm run build",
-        "Stage 2: FROM nginx:alpine, COPY build to /usr/share/nginx/html",
-        "Configure nginx.conf to handle SPA routing (try_files $uri /index.html)",
-        "Expose port 80",
-        "Add frontend service to docker-compose.yml",
-        "Set API base URL to core-api service name",
-        "Build image successfully: `docker-compose build frontend`",
-        "Container serves app on http://localhost:3000"
-      ],
-      "priority": 58,
-      "passes": true,
-      "notes": "Dockerfile already existed at services/web-ui/Dockerfile with multi-stage build (node:20-alpine -> nginx:alpine). nginx.conf configured inline with SPA routing (try_files $uri $uri/ /index.html) and API proxy to core-api:8080. web-ui service already configured in docker-compose.yml with port 3000:80, depends_on core-api healthcheck. npm run build creates dist/ folder successfully (836.11 kB JS, 29.81 kB CSS)."
-    },
-    {
-      "id": "US-059",
-      "title": "Create alarms list API endpoint",
-      "description": "As a developer, I need to add an API endpoint to fetch all alarms so that the frontend can display them.",
-      "acceptanceCriteria": [
-        "Add List() function to internal/handlers/alarms.go",
-        "Handle GET /api/alarms with optional query parameters: tag_id (int), state (string: ACTIVE, RTN, ACKNOWLEDGED, CLEAR)",
-        "Apply multi-tenant filtering using X-Organization-ID header middleware",
-        "Query returns alarms joined with tags table to include tag alias and code",
-        "Support pagination: limit (default 100) and offset parameters",
-        "Return JSON array with alarm details: id, tag_id, tag_alias, tag_code, state, message, triggered_at, acknowledged_at, cleared_at",
-        "Order by triggered_at DESC (newest first)",
-        "Typecheck passes",
-        "Verify via API call: GET /api/alarms returns alarm list"
-      ],
-      "priority": 59,
-      "passes": true,
-      "notes": "Updated List() handler in internal/handlers/alarms.go with: query parameters support (tag_id, state, limit, offset), multi-tenant filtering via organization context from middleware, joined query with tags table including tag_alias and tag_code, pagination with default limit=100, ordering by triggered_at DESC. Added state validation (ACTIVE, RTN, ACKNOWLEDGED, CLEAR). Typecheck passes with go build ./... ."
-    },
-    {
-      "id": "US-060",
-      "title": "Create alarms page in frontend",
-      "description": "As an operator, I need to view and manage alarms so that I can monitor system alerts.",
-      "acceptanceCriteria": [
-        "Create `/alarms` page route with `src/pages/AlarmsPage.tsx`",
-        "Add navigation link in sidebar to Alarms page",
-        "Fetch alarms on mount: GET /api/alarms with X-Organization-ID header",
-        "Display alarms in table with columns: Tag, State, Message, Time, Actions",
-        "Show state badge with color coding: ACTIVE (red), RTN (yellow), ACKNOWLEDGED (blue), CLEAR (gray)",
-        "Add filter controls: tag dropdown, state dropdown, date range picker",
-        "Add 'Acknowledge' button for ACTIVE alarms that calls POST /api/alarms/{id}/acknowledge",
-        "Add auto-refresh every 10 seconds to show new alarms",
-        "Add pause/resume toggle for auto-refresh",
-        "Typecheck passes",
-        "Verify in browser: alarms table renders, acknowledge works, auto-refresh functions"
-      ],
-      "priority": 60,
-      "passes": true,
-      "notes": "Implemented full alarms page with table display, filter controls (state dropdown, tag dropdown, date range picker), acknowledge button, auto-refresh every 10 seconds with pause/resume toggle. Added URL search params for filters, filter count display, and Clear Filters button. Updated useAlarms hook to support all filter parameters. Updated alarmsApi.getAll to accept AlarmsFilters interface. Build passes: npm run build (841.12 kB JS, 29.87 kB CSS)."
-    },
-    {
-      "id": "US-061",
-      "title": "Add alarm filtering to alarms page",
-      "description": "As an operator, I need to filter alarms by tag and state so that I can focus on specific issues.",
-      "acceptanceCriteria": [
-        "Add tag dropdown to filter alarms by specific tag (populated from fetched tags)",
-        "Add state dropdown with options: All, ACTIVE, RTN, ACKNOWLEDGED, CLEAR",
-        "Add date range picker with start and end datetime-local inputs",
-        "Add 'Apply Filters' button that fetches GET /api/alarms with query parameters",
-        "Store filter state in URL search params for shareability",
-        "Show count of filtered alarms",
-        "Add 'Clear Filters' button to reset all filters",
-        "Typecheck passes",
-        "Verify in browser: filters work, URL params update correctly"
-      ],
-      "priority": 61,
-      "passes": true,
-      "notes": "All filtering functionality was implemented in US-060. Tag dropdown populated from useTags hook, state dropdown with All/ACTIVE/RTN/ACKNOWLEDGED/CLEAR options, date range picker with datetime-local inputs, Apply Filters button, Clear Filters button, URL search params with useSearchParams hook, filter count displayed in header. Build passes."
-    },
-    {
-      "id": "US-062",
-      "title": "Add alarm detail dialog",
-      "description": "As an operator, I need to see detailed alarm information so that I can understand the context.",
-      "acceptanceCriteria": [
-        "Create `src/components/AlarmDetailDialog.tsx` using shadcn Dialog",
-        "Show when clicking on an alarm row in the table",
-        "Display full alarm details: tag info, state, message, timestamps, priority (from tag config)",
-        "Show 'Acknowledge' button if state is ACTIVE (same as table action)",
-        "Add 'Close' button to dismiss dialog",
-        "Add link to navigate to tag configuration for quick access",
-        "Show history of state changes if available (ACTIVE → RTN → ACKNOWLEDGED, etc.)",
-        "Typecheck passes",
-        "Verify in browser: dialog opens with correct alarm details"
-      ],
-      "priority": 62,
-      "passes": true,
-      "notes": "Created AlarmDetailDialog.tsx component with: full alarm details display (tag info, state, message, timestamps), priority badge from tag config, acknowledge button for active alarms, close button, link to navigate to tag configuration page, note about state history. Updated AlarmsPage.tsx to make table rows clickable (cursor-pointer, hover effect) and show dialog on click. Added tag_code field to Alarm type in types/index.ts. Typecheck passes with npm run build (847.03 kB JS, 30.45 kB CSS). Go code compiles with go build ./... ."
-    },
-    {
-      "id": "US-063",
-      "title": "Add real-time alarm notifications",
-      "description": "As an operator, I need to receive real-time notifications for new alarms so that I can respond quickly.",
-      "acceptanceCriteria": [
-        "Subscribe to MQTT topic events/alarms/# using MQTT client in frontend",
-        "Parse alarm event payload: {tag, state, msg, ts}",
-        "When new ACTIVE alarm received: show toast notification with sound (optional)",
-        "Update alarm badge count in header navigation",
-        "Add 'Alarms' button in header that shows red dot when active alarms exist",
-        "Store received alarms in local state to avoid duplicate notifications",
-        "Auto-refresh alarms list when new alarm event is received",
-        "Add notification sound toggle in settings (enabled/disabled)",
-        "Typecheck passes",
-        "Verify in browser: toast appears for new MQTT alarm events"
-      ],
-      "priority": 63,
-      "passes": true,
-      "notes": "Implemented real-time alarm notifications with MQTT client. Created services/web-ui/src/lib/mqtt-client.ts with MQTTClientService for WebSocket MQTT connection, subscription to events/alarms/# topic, alarm event parsing with AlarmEvent interface, toast notifications using sonner for new ACTIVE alarms, notification sound with Web Audio API fallback, and localStorage persistence for sound preference. Created services/web-ui/src/stores/useAlarmStore.ts with zustand for state management (activeAlarmCount, lastAlarmEvent, isMqttConnected, notificationSoundEnabled), connectMqtt/disconnectMqtt actions, and automatic alarm count updates. Updated Header.tsx to display real-time active alarm count badge (99+ for large counts) and MQTT connection status (green/red indicator). Updated AlarmsPage.tsx to auto-refresh when lastAlarmEvent changes via useEffect. Updated SystemPage.tsx with notification settings card featuring sound toggle switch, test sound button using Web Audio API, and status icons (Volume2/VolumeX). MQTT connection supports environment variables (VITE_MQTT_HOST, VITE_MQTT_PORT, VITE_MQTT_PATH) with auto-reconnect. Build passes: npm run build (1230.24 kB JS, 30.98 kB CSS). Go code compiles with go build ./... ."
-    },
-    {
-      "id": "US-100",
-      "title": "Implement organization creation dialog",
-      "description": "As a user, I need to create organizations so that I can set up new tenants.",
-      "acceptanceCriteria": [
-        "Create `src/components/dialogs/CreateOrgDialog.tsx`",
-        "Use shadcn Dialog component with proper styling",
-        "Render Input field for \"Organization Name\"",
-        "Add \"Create\" button that validates input (not empty, min 2 chars)",
-        "On submit: call `api.createOrganization()` with name",
-        "On success: close dialog, refresh hierarchy, show success toast",
-        "On error: show error toast with message from API",
-        "Add keyboard shortcut (Enter to submit, Escape to close)",
-        "Typecheck passes",
-        "Verify in browser: dialog opens/closes, creation works"
-      ],
-      "priority": 100,
-      "passes": true,
-      "notes": "Created frontend/src/components/dialogs/CreateOrgDialog.tsx with shadcn Dialog component. Features: Input field for organization name with validation (min 2 characters), Create button that calls api.createOrganization(), success toast on creation with name confirmation, error toast with API error message, keyboard shortcuts (Enter to submit, Escape to close), form reset on dialog close, loading state during submission, disabled state for Create button when input is empty or submitting. Build passes: npm run build (440.43 kB JS, 28.10 kB CSS). Go code compiles with go build ./... ."
-    },
-    {
-      "id": "US-101",
-      "title": "Implement site creation dialog",
-      "description": "As a user, I need to create sites within organizations so that I can organize locations.",
-      "acceptanceCriteria": [
-        "Create `src/components/dialogs/CreateSiteDialog.tsx`",
-        "Include Select dropdown for parent organization (fetched from API)",
-        "Include Input for \"Site Name\" with validation",
-        "Show organization name in dialog title for context",
-        "On submit: call `api.createSite()` with org_id and name",
-        "Handle success/error with toast notifications",
-        "Reset form on close/open",
-        "Typecheck passes",
-        "Verify in browser: org dropdown populates, creation works"
-      ],
-      "priority": 101,
-      "passes": true,
-      "notes": "Created frontend/src/components/dialogs/CreateSiteDialog.tsx with shadcn Dialog component. Features: Select dropdown for parent organization fetched from getOrganizations() API, auto-selects first organization if only one exists, Input field for site name with validation (min 2 characters), organization name shown in dialog title for context (\"Create Site for {org_name}\"), Create button calls api.createSite() with org_id and name, success toast with confirmation message including organization name, error toast with API error message, keyboard shortcuts (Enter to submit, Escape to close), form reset on dialog close, loading states during organizations fetch and submission, disabled Create button when inputs are invalid or submitting. Build passes: npm run build (440.43 kB JS, 28.13 kB CSS). Go code compiles with go build ./... ."
-    },
-    {
-      "id": "US-102",
-      "title": "Implement area creation dialog",
-      "description": "As a user, I need to create areas within sites so that I can define physical zones.",
-      "acceptanceCriteria": [
-        "Create `src/components/dialogs/CreateAreaDialog.tsx`",
-        "Include Select for parent site (filtered by current org)",
-        "Include Input for \"Area Name\"",
-        "Show breadcrumb context: Org > Site > New Area",
-        "Call `api.createArea()` on submit",
-        "Refresh hierarchy on success",
-        "Typecheck passes",
-        "Verify in browser: site dropdown filters correctly, area appears in tree"
-      ],
-      "priority": 102,
-      "passes": true,
-      "notes": "Created frontend/src/components/dialogs/CreateAreaDialog.tsx with shadcn Dialog component. Features: Select dropdown for parent site fetched from getSites() API (filtered by current org via X-Organization-ID header), auto-selects first site if only one exists, Input field for area name with validation (min 2 characters), breadcrumb context in dialog description showing 'Organization > {site_name} > New Area', Create button calls api.createArea() with site_id and name, success toast with confirmation message including site name, error toast with API error message, keyboard shortcuts (Enter to submit, Escape to close), form reset on dialog close, loading states during sites fetch and submission, disabled Create button when inputs are invalid or submitting, onSuccess callback for hierarchy refresh. Build passes: npm run build (440.43 kB JS, 28.13 kB CSS). Go code compiles with go build ./... ."
-    },
-    {
-      "id": "US-103",
-      "title": "Implement gateway creation dialog",
-      "description": "As a user, I need to create gateways so that I can connect PLC drivers.",
-      "acceptanceCriteria": [
-        "Create `src/components/dialogs/CreateGatewayDialog.tsx`",
-        "Include fields: name (Input text, required), driver_type (Select: S7, MODBUS_TCP, required), area_id (Select dropdown, required)",
-        "Include dynamic connection_config form based on driver_type",
-        "S7 fields: ip (Input), rack (Input number), slot (Input number), port (Input number, default 102)",
-        "Modbus fields: ip (Input), port (Input number, default 502), slaveId (Input number)",
-        "Add scan_rate_ms (Input number, default 1000)",
-        "Add enabled (Switch/Checkbox, default true)",
-        "Show JSON preview of connection_config",
-        "Validate all fields before submit (IP format, port ranges)",
-        "Call `api.createGateway()` on submit",
-        "Typecheck passes",
-        "Verify in browser: driver type switches form, JSON validates, creation works"
-      ],
-      "priority": 103,
-      "passes": true,
-      "notes": "Created frontend/src/components/dialogs/CreateGatewayDialog.tsx with shadcn Dialog component. Features: name Input (required, min 2 chars), driver_type Select (S7, MODBUS_TCP), area_id dropdown fetched from getAreas() API, dynamic connection_config form based on driver type, S7 fields (ip, rack 0-7, slot 0-31, port default 102), Modbus fields (ip, port default 502, slaveId 1-247), scan_rate_ms Input (100-60000ms, default 1000), enabled Switch (default true), JSON preview of connection_config, comprehensive validation (IP regex, port ranges, rack/slot/slaveId limits), api.createGateway() call on submit, success toast with confirmation message including driver type, error toast with API error message, keyboard shortcuts (Enter to submit, Escape to close), form reset on dialog close, loading states during areas fetch and submission, disabled Create button when inputs are invalid or submitting, onSuccess callback. Created frontend/src/components/ui/switch.tsx with Radix UI Switch component. Added @radix-ui/react-switch dependency. Build passes: npm run build (440.46 kB JS, 29.82 kB CSS). Typecheck passes with npm run type-check."
-    },
-    {
-      "id": "US-104",
-      "title": "Implement tag creation dialog",
-      "description": "As a user, I need to create tags so that I can define data points to read from PLCs.",
-      "acceptanceCriteria": [
-        "Create `src/components/dialogs/CreateTagDialog.tsx` with multi-section form",
-        "Basic section: code (Input text, PLC address, required), alias (Input text, display name, required), data_type (Select: BOOL, INT, REAL, DINT, required), gateway_id (Select dropdown, required)",
-        "Historization section: historize (Switch/Checkbox), historize_deadband (Input number, conditional on historize)",
-        "Alarm section: alarm_enabled (Switch/Checkbox), alarm_threshold (Input number, conditional on alarm_enabled), alarm_operator (Select: >, <, =, !=, conditional), alarm_priority (Input number 1-5, conditional)",
-        "Validate required fields (code, alias, data_type, gateway_id)",
-        "Show help text for each field",
-        "Use Tabs or Card to separate sections",
-        "Call `api.createTag()` on submit",
-        "Typecheck passes",
-        "Verify in browser: all sections render, conditional fields show/hide, validation works"
-      ],
-      "priority": 104,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-105",
-      "title": "Add real-time value polling to tree view",
-      "description": "As a user, I need to see current tag values in the tree so that I can monitor live data.",
-      "acceptanceCriteria": [
-        "Add polling state to ConfigPage (isPolling, pollingInterval)",
-        "Add useEffect that polls `api.getCurrentTagValue()` every 5 seconds",
-        "Only poll for tags that are currently visible/expanded in tree",
-        "Display value next to tag name in tree: \"Temperature (23.5 °C)\"",
-        "Show quality indicator: Green dot for quality=0 (good), Red dot for quality=1 (bad), Gray dot for no data",
-        "Add timestamp tooltip: \"Last update: 2024-01-24 10:30:45\"",
-        "Add toggle button in header: \"Enable Live\" / \"Live\" with RefreshCw icon",
-        "Stop polling when leaving the page",
-        "Handle errors gracefully (show warning toast, continue polling)",
-        "Typecheck passes",
-        "Verify in browser: values update every 5s, quality indicator works, toggle works"
-      ],
-      "priority": 105,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-106",
-      "title": "Implement gateway enabled/disabled toggle",
-      "description": "As a user, I need to enable/disable gateways so that I can control which drivers are active.",
-      "acceptanceCriteria": [
-        "Add Switch component in DetailPanel when gateway node is selected",
-        "Show current enabled state from gateway data",
-        "On toggle change: call `api.updateGateway()` with enabled: true/false",
-        "Show loading state during API call (spinner on switch)",
-        "Update tree to show enabled/disabled status: Grayed out opacity when disabled, Disabled icon indicator",
-        "Show success toast: \"Gateway {name} enabled/disabled\"",
-        "Disable toggle during API call to prevent duplicate requests",
-        "Typecheck passes",
-        "Verify in browser: toggle updates gateway status, tree updates"
-      ],
-      "priority": 106,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-107",
-      "title": "Create trend/historian page with multi-tag support",
-      "description": "As a user, I need to view historical data for multiple tags so that I can compare trends.",
-      "acceptanceCriteria": [
-        "Create `/trend` route with `src/pages/TrendPage.tsx`",
-        "Install chart library: `npm install recharts`",
-        "Add multi-select dropdown for tag selection (filter from all tags)",
-        "Add date range picker: Start datetime-local input, End datetime-local input, Quick range buttons: 1h, 6h, 24h, 7d, 30d",
-        "Set default range: last 24 hours",
-        "Add aggregation controls: agg (Select: mean, max, min, sum, count), interval (Select: 1m, 5m, 15m, 1h, 1d)",
-        "Add \"Query\" button to fetch data",
-        "Call `api.getHistory()` for each selected tag",
-        "Display line chart using recharts: Each tag gets different color (8-color palette), Legend showing tag names, X-axis: timestamp (formatted), Y-axis: value with auto-scaling, Tooltip showing values on hover",
-        "Add \"Export CSV\" button that downloads data as CSV file",
-        "Show loading spinner during fetch",
-        "Show error message if no data found",
-        "Add empty state when no tags selected",
-        "Typecheck passes",
-        "Verify in browser: multi-tag chart renders, export works, time range works"
-      ],
-      "priority": 107,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-108",
-      "title": "Add loading states and error handling components",
-      "description": "As a user, I need clear feedback during loading and errors so that I understand what's happening.",
-      "acceptanceCriteria": [
-        "Create `src/components/ui/skeleton.tsx` with animate-pulse effect",
-        "Create `src/components/ui/async-wrapper.tsx` component with: Loading state (skeleton or spinner), Error state with message and retry button, Empty state with icon and message",
-        "Create `src/lib/api-error-handler.ts` with utilities: formatApiError(error), showApiError(error, toast), showApiSuccess(message, toast)",
-        "Update API client interceptors: Log slow requests (>3s), Add detailed error logging for 403/401/timeout/network errors",
-        "Add loading skeletons to: Tree view while loading hierarchy, Detail panel while loading entity data, Tags table while loading",
-        "Update all error handling to use new utilities",
-        "Typecheck passes",
-        "Verify in browser: skeletons show, errors display with retry button"
-      ],
-      "priority": 108,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-109",
-      "title": "Create frontend Docker container",
-      "description": "As a developer, I need to containerize the frontend for production deployment.",
-      "acceptanceCriteria": [
-        "Create `frontend/Dockerfile` with multi-stage build",
-        "Stage 1: FROM node:20-alpine, WORKDIR /app, COPY package*.json ./, RUN npm ci, COPY . ., RUN npm run build",
-        "Stage 2: FROM nginx:alpine, COPY --from=1 /app/dist /usr/share/nginx/html, Create nginx.conf with SPA routing (try_files $uri /index.html), Configure API proxy to core-api:8080 at /api, EXPOSE 80",
-        "Update docker-compose.yml: Add `web-ui` service, Build from `frontend/Dockerfile`, Port mapping: 3004:80, Depends on core-api with healthcheck, Environment: VITE_API_BASE_URL=http://core-api:8080",
-        "Build image successfully: `docker-compose build web-ui`",
-        "Container serves app on http://localhost:3004",
-        "Verify SPA routing works (refresh on /trend loads correctly)"
-      ],
-      "priority": 109,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-110",
-      "title": "Create alarms page",
-      "description": "As an operator, I need to view and manage alarms so that I can monitor system alerts.",
-      "acceptanceCriteria": [
-        "Create `/alarms` route with `src/pages/AlarmsPage.tsx`",
-        "Add navigation link in sidebar to Alarms page (AlertTriangle icon)",
-        "Fetch alarms on mount: `api.getAlarms()` with X-Organization-ID header",
-        "Display alarms in Table with columns: Tag (show tag alias and code), State (badge with color coding), Message, Priority (badge 1-5), Triggered At (formatted datetime), Actions (Acknowledge button)",
-        "State badge colors: ACTIVE (red bg-red-100 text-red-800), RTN (yellow bg-yellow-100 text-yellow-800), ACKNOWLEDGED (blue bg-blue-100 text-blue-800), CLEAR (gray bg-gray-100 text-gray-800)",
-        "Add filter controls: State dropdown (All, ACTIVE, RTN, ACKNOWLEDGED, CLEAR), Tag dropdown (populated from fetched tags), Date range picker (start/end), Apply Filters button, Clear Filters button",
-        "Store filter state in URL search params for shareability",
-        "Show count of filtered alarms",
-        "Add 'Acknowledge' button for ACTIVE alarms: Calls `api.acknowledgeAlarm()`, Shows success toast, Refreshes alarms list",
-        "Add auto-refresh every 10 seconds",
-        "Add pause/resume toggle for auto-refresh",
-        "Add loading spinner during fetch",
-        "Add empty state: \"No alarms found\"",
-        "Typecheck passes",
-        "Verify in browser: alarms table renders, acknowledge works, auto-refresh functions"
-      ],
-      "priority": 110,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-111",
-      "title": "Add alarm filtering enhancements",
-      "description": "As an operator, I need enhanced filtering so that I can focus on specific alarms.",
-      "acceptanceCriteria": [
-        "Add URL search params sync for all filters",
-        "Show active filter count badge on \"Apply Filters\" button",
-        "Add \"Clear Filters\" button that resets all filters and URL params",
-        "Add filter persistence (filters restored on page reload)",
-        "Add visual indicator for active filters (badge count in header)",
-        "Update `api.getAlarms()` to accept filter parameters",
-        "Handle edge cases: No alarms match filters (show empty state), Invalid date range (show error)",
-        "Typecheck passes",
-        "Verify in browser: filters persist, URL params update, badge count works"
-      ],
-      "priority": 111,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-112",
-      "title": "Add alarm detail dialog",
-      "description": "As an operator, I need to see detailed alarm information so that I can understand the context.",
-      "acceptanceCriteria": [
-        "Create `src/components/dialogs/AlarmDetailDialog.tsx` using shadcn Dialog",
-        "Show when clicking on an alarm row in the table (cursor-pointer, hover effect)",
-        "Display full alarm details: Tag info (alias, code, gateway, area, site, org), Current state (badge), Message, Priority (badge with color: 1=low green, 5=critical red), Triggered At (formatted datetime), Acknowledged At (if applicable), Cleared At (if applicable)",
-        "Show 'Acknowledge' button if state is ACTIVE",
-        "Add 'Close' button to dismiss dialog",
-        "Add link to navigate to tag configuration: \"View Tag Configuration\"",
-        "Add note: \"State history tracking coming soon\"",
-        "Add dialog title with alarm icon",
-        "Typecheck passes",
-        "Verify in browser: dialog opens with correct alarm details, link works"
-      ],
-      "priority": 112,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-113",
-      "title": "Add real-time alarm notifications via MQTT",
-      "description": "As an operator, I need to receive real-time notifications for new alarms so that I can respond quickly.",
-      "acceptanceCriteria": [
-        "Install MQTT client: `npm install mqtt`",
-        "Create `src/lib/mqtt-client.ts` with MQTTClientService: Connect to WebSocket MQTT (ws://localhost:9001/mqtt or via VITE_MQTT_WS_URL), Auto-reconnect on disconnect, Subscribe to topic: `events/alarms/#`, Parse alarm event payload: {tag, tag_code, state, message, timestamp, priority}, Emit events via callback or event emitter",
-        "Create `src/stores/useAlarmStore.ts` with zustand: State (activeAlarmCount, lastAlarmEvent, isMqttConnected), Actions (connectMqtt(), disconnectMqtt(), incrementAlarmCount()), Persist connection state to localStorage",
-        "When new ACTIVE alarm received: Show toast notification with alarm details, Play notification sound (optional, toggleable), Update alarm badge count in header",
-        "Add 'Alarms' badge in header navigation: Shows red dot when active alarms exist, Shows count number (99+ for large counts), Clicking navigates to /alarms page",
-        "Add MQTT connection status indicator: Green dot when connected, Red dot when disconnected, Tooltip: \"MQTT Connected\" / \"MQTT Disconnected\"",
-        "Auto-refresh alarms list when new alarm event received",
-        "Add notification sound toggle in localStorage (enabled by default)",
-        "Add environment variables: VITE_MQTT_WS_URL (default: ws://localhost:9001/mqtt), VITE_MQTT_TOPIC (default: events/alarms/#)",
-        "Typecheck passes",
-        "Verify in browser: toast appears for new MQTT alarm events, badge updates, status indicator works"
-      ],
-      "priority": 113,
-      "passes": false,
-      "notes": ""
-    },
-    {
-      "id": "US-114",
-      "title": "Add notification settings panel",
-      "description": "As a user, I need to configure notification preferences so that I can control how I receive alerts.",
-      "acceptanceCriteria": [
-        "Create `/settings` route with `src/pages/SettingsPage.tsx`",
-        "Add navigation link in sidebar: \"Settings\" (Settings icon)",
-        "Create settings sections using Card components",
-        "Notifications section: Sound notifications toggle (Switch), Test sound button (plays notification sound), Auto-refresh interval (Select: 5s, 10s, 30s, off)",
-        "Display section: Theme toggle (light/dark - for future implementation), Density (comfortable/compact)",
-        "Persist all settings to localStorage",
-        "Load settings on mount",
-        "Add \"Reset to Defaults\" button",
-        "Show success toast when settings saved",
-        "Typecheck passes",
-        "Verify in browser: settings persist, sound test works, toggle works"
-      ],
-      "priority": 114,
       "passes": false,
       "notes": ""
     }

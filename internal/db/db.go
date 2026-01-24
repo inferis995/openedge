@@ -7,20 +7,15 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// Config holds database connection configuration
-type Config struct {
-	Host     string
-	Port     int
-	User     string
-	Password string
-	Database string
-}
-
-// Connect creates a new database connection
+// Connect establishes a connection to PostgreSQL using the provided configuration
 func Connect(cfg Config) (*sql.DB, error) {
 	connStr := fmt.Sprintf(
 		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Database,
+		cfg.Host,
+		cfg.Port,
+		cfg.User,
+		cfg.Password,
+		cfg.Database,
 	)
 
 	db, err := sql.Open("postgres", connStr)
@@ -33,4 +28,12 @@ func Connect(cfg Config) (*sql.DB, error) {
 	}
 
 	return db, nil
+}
+
+// Close closes the database connection
+func Close(db *sql.DB) error {
+	if db == nil {
+		return nil
+	}
+	return db.Close()
 }
