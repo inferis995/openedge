@@ -643,8 +643,8 @@
         "Verify in browser: org selection works, redirect happens"
       ],
       "priority": 41,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created /login route with LoginPage.tsx featuring centered card layout with shadcn components. Implemented organization selection with Select dropdown populated from GET /api/organizations. Added 'Enter' button that stores selected organization ID in localStorage as 'ralph_org_id' and redirects to /config. On success: shows welcome toast and redirects to /config. On error: shows error toast if organizations list is empty. Added useEffect to check for existing org ID and redirect if already selected. Installed react-router-dom@^6.22.0 for client-side routing with BrowserRouter. Created placeholder ConfigPage.tsx for routing destination. Typecheck passes with npm run type-check. Build succeeds with npm run build (378.70 kB JS, 22.88 kB CSS)."
     },
     {
       "id": "US-043",

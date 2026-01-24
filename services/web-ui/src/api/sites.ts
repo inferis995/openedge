@@ -8,7 +8,12 @@ export const sitesApi = {
     },
 
     create: async (data: CreateSiteDto): Promise<Site> => {
-        const response = await api.post('/sites', data);
+        const config = {
+            headers: {
+                'X-Organization-ID': data.org_id.toString()
+            }
+        };
+        const response = await api.post('/sites', data, config);
         return response.data;
     },
 

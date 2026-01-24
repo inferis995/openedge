@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSites } from '@/hooks/useSites';
+import { sitesApi } from '@/api/sites';
 import { useAreas } from '@/hooks/useAreas';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import { Button } from '@/components/ui/button';
@@ -33,9 +34,9 @@ import { useNavigate } from 'react-router-dom';
 
 const AreasPage = () => {
     const navigate = useNavigate();
-    const { selectedSiteId, setSelectedAreaId } = useNavigationStore();
+    const { selectedSiteId, selectedOrgId, setSelectedAreaId } = useNavigationStore();
     const { areas, isLoading, create, remove } = useAreas(selectedSiteId);
-    const { sites } = useSites(); // Get all sites to map names
+    const { sites } = useSites(selectedOrgId); // Get sites for current org to map names
 
     const [isOpen, setIsOpen] = useState(false);
     const [newAreaName, setNewAreaName] = useState('');
@@ -43,12 +44,29 @@ const AreasPage = () => {
         selectedSiteId ? selectedSiteId.toString() : ''
     );
 
+    // Removed hook useSite to avoid race conditions. We fetch JIT.
+
     const handleCreate = async () => {
         if (!newAreaName || !selectedSiteForCreate) return;
+
+        let orgIdToUse = selectedOrgId || undefined;
+
+        // If no orgId in store, fetch the site to get it
+        if (!orgIdToUse && selectedSiteForCreate) {
+            try {
+                const siteData = await sitesApi.get(parseInt(selectedSiteForCreate));
+                orgIdToUse = siteData.org_id;
+            } catch (e) {
+                console.error("Could not fetch site details", e);
+                // Fallthrough, might fail
+            }
+        }
+
         try {
             await create({
                 site_id: parseInt(selectedSiteForCreate),
-                name: newAreaName
+                name: newAreaName,
+                org_id: orgIdToUse
             });
             setIsOpen(false);
             setNewAreaName('');

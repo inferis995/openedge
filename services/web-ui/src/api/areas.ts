@@ -8,7 +8,12 @@ export const areasApi = {
     },
 
     create: async (data: CreateAreaDto): Promise<Area> => {
-        const response = await api.post('/areas', data);
+        const config = data.org_id ? {
+            headers: {
+                'X-Organization-ID': data.org_id.toString()
+            }
+        } : undefined;
+        const response = await api.post('/areas', data, config);
         return response.data;
     },
 

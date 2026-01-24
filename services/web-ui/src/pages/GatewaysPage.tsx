@@ -36,9 +36,9 @@ import { Badge } from '@/components/ui/badge';
 
 const GatewaysPage = () => {
     const navigate = useNavigate();
-    const { selectedAreaId } = useNavigationStore();
+    const { selectedAreaId, selectedSiteId } = useNavigationStore();
     const { gateways, isLoading, create, remove, testConnection } = useGateways(selectedAreaId);
-    const { areas } = useAreas(); // Get all areas for selection
+    const { areas } = useAreas(selectedSiteId); // Get areas for current site
 
     const [isOpen, setIsOpen] = useState(false);
     const [testResult, setTestResult] = useState<{ id: number, success: boolean, message: string } | null>(null);
@@ -69,6 +69,7 @@ const GatewaysPage = () => {
             await create({
                 ...formData,
                 area_id: parseInt(selectedAreaForCreate),
+                org_id: useNavigationStore.getState().selectedOrgId || undefined
             } as CreateGatewayDto);
             setIsOpen(false);
             setFormData({

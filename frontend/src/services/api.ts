@@ -1,12 +1,12 @@
 // API Client Service with axios
 // Design System: See tasks/design-system.md
 
-import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
+import axios, { AxiosError } from 'axios';
+import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios';
 import type {
   Organization,
   Site,
   Area,
-  Gateway,
   GatewayWithHealth,
   Tag,
   TagValue,

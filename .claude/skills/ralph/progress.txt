@@ -1683,3 +1683,62 @@ All components created in `frontend/src/components/ui/`:
 #### Next Priority:
 - **US-042**: Create organization selection page
 
+
+### 2026-01-24 - Organization Selection Page (Iteration 34)
+
+#### Completed User Stories:
+- **US-042**: Created organization selection page
+
+#### Features Implemented:
+- `frontend/src/pages/LoginPage.tsx` - Organization selection page with:
+  - Centered card layout using shadcn Card component
+  - Organization dropdown (Select) populated from `GET /api/organizations`
+  - "Enter" button that stores selected org ID in localStorage as `ralph_org_id`
+  - Success flow: shows welcome toast and redirects to `/config`
+  - Error handling: shows error toast if organizations list is empty
+  - useEffect hook to check for existing org ID and auto-redirect if already selected
+  - Loading spinner while fetching organizations
+  - Disabled state for Enter button when no organization is selected
+
+- `frontend/src/pages/ConfigPage.tsx` - Placeholder page for routing destination
+
+- `frontend/src/App.tsx` - Updated with React Router setup:
+  - BrowserRouter for client-side routing
+  - Routes: `/login` (LoginPage), `/config` (ConfigPage)
+  - Default redirect from `/` to `/login`
+  - Catch-all route redirects to `/login`
+
+#### Page Design:
+- Card layout centered on screen with max-width of 384px
+- Application title: "Industrial Edge Middleware" (text-3xl, font-bold)
+- Description: "Select your organization to access the system"
+- Violet theme (bg-violet-600, hover:bg-violet-700) for primary button
+- Loading state with animated spinner
+- Alert component shows when no organizations available
+- Toast notifications for success and error feedback
+
+#### Routing Flow:
+1. User visits app → redirected to `/login`
+2. If `ralph_org_id` exists in localStorage → auto-redirect to `/config`
+3. User selects organization → enters system
+4. Org ID stored in localStorage for subsequent requests
+
+#### Dependencies Added:
+- react-router-dom ^6.22.0
+
+#### Files Created:
+- `frontend/src/pages/LoginPage.tsx` - Organization selection page
+- `frontend/src/pages/ConfigPage.tsx` - Placeholder configuration page
+
+#### Files Modified:
+- `frontend/src/App.tsx` - Added BrowserRouter with Routes for /login and /config
+- `frontend/src/services/api.ts` - Fixed TypeScript import issues (type-only imports for AxiosInstance, InternalAxiosRequestConfig, AxiosResponse)
+- `frontend/package.json` - Added react-router-dom dependency
+
+#### Typecheck:
+- `npm run type-check` passes successfully
+- `npm run build` creates production build successfully (378.70 kB JS, 22.88 kB CSS)
+
+#### Next Priority:
+- **US-043**: Create main layout with header and navigation
+

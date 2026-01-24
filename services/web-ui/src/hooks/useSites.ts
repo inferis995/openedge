@@ -37,3 +37,11 @@ export const useSites = (orgId?: number | null) => {
         isDeleting: deleteMutation.isPending,
     };
 };
+
+export const useSite = (id?: number | null) => {
+    return useQuery({
+        queryKey: ['site', id],
+        queryFn: () => sitesApi.get(id!),
+        enabled: !!id,
+    });
+};

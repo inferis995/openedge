@@ -13,7 +13,12 @@ export const gatewaysApi = {
     },
 
     create: async (data: CreateGatewayDto): Promise<Gateway> => {
-        const response = await api.post('/gateways', data);
+        const config = data.org_id ? {
+            headers: {
+                'X-Organization-ID': data.org_id.toString()
+            }
+        } : undefined;
+        const response = await api.post('/gateways', data, config);
         return response.data;
     },
 

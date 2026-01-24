@@ -6,7 +6,7 @@ export interface Organization {
 
 export interface Site {
     id: number;
-    organization_id: number;
+    org_id: number;
     name: string;
     created_at: string;
 }
@@ -79,6 +79,7 @@ export interface CreateSiteDto {
 export interface CreateAreaDto {
     site_id: number;
     name: string;
+    org_id?: number; // Helper for passing context to API layer
 }
 
 export interface CreateGatewayDto {
@@ -92,6 +93,7 @@ export interface CreateGatewayDto {
     slave_id?: number;
     scan_rate_ms: number;
     enabled: boolean;
+    org_id?: number; // Helper for passing context to API layer
 }
 
 export interface CreateTagDto {
