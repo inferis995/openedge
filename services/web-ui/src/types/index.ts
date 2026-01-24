@@ -108,3 +108,17 @@ export interface CreateTagDto {
     alarm_operator?: '>' | '<' | '>=' | '<=' | '=' | '!=' | string; // Relaxed type for now
     alarm_priority?: number;
 }
+
+export interface HistoryDataPoint {
+    timestamp: number;
+    value: number;
+    quality: number;
+}
+
+export interface HistoryQueryParams {
+    tag_id: number;
+    start: string;
+    end: string;
+    agg?: 'mean' | 'max' | 'min' | 'sum' | 'first' | 'last' | 'count' | 'median' | 'stddev';
+    interval?: string;
+}

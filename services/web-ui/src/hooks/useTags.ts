@@ -6,9 +6,15 @@ export const useTags = (gatewayId?: number | null) => {
     const queryClient = useQueryClient();
 
     const query = useQuery({
-        queryKey: ['tags', gatewayId],
-        queryFn: () => tagsApi.getAll(gatewayId || undefined),
-        enabled: !!gatewayId,
+        queryKey: ['tags', gatewayId ?? 'all'],
+        queryFn: () => {
+            if (gatewayId === null || gatewayId === undefined) {
+                return tagsApi.getAllTags();
+            }
+            return tagsApi.getAll(gatewayId);
+        },
+        // Always enable - if gatewayId is provided, filter by it; otherwise get all tags
+        enabled: true,
     });
 
     const createMutation = useMutation({

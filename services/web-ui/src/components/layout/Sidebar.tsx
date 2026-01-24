@@ -8,7 +8,8 @@ import {
     Cpu,
     Tags,
     Bell,
-    Settings
+    Settings,
+    TrendingUp
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -21,6 +22,7 @@ const Sidebar = () => {
         { name: 'Areas', path: '/areas', icon: MapPin },
         { name: 'Gateways', path: '/gateways', icon: Cpu },
         { name: 'Tags', path: '/tags', icon: Tags },
+        { name: 'Trend', path: '/trend', icon: TrendingUp },
         { name: 'Alarms', path: '/alarms', icon: Bell },
         { name: 'System', path: '/system', icon: Settings },
     ];

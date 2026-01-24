@@ -2196,3 +2196,75 @@ Implemented gateway enabled/disabled toggle in `services/web-ui/src/pages/Gatewa
 
 #### Next Priority:
 - **US-056**: Create trend/historian page with multi-tag support
+
+
+### 2026-01-24 - Trend/Historian Page with Multi-Tag Support (Iteration 43)
+
+#### Completed User Stories:
+- **US-056**: Create trend/historian page with multi-tag support
+
+#### Features Implemented:
+- `services/web-ui/src/api/history.ts` - History API client with:
+  - `HistoryQueryParams` interface - tag_id, start, end, agg (mean/max/min/sum), interval
+  - `HistoryDataPoint` interface - timestamp, value, quality
+  - `query()` function that calls GET /api/history with query parameters
+
+- `services/web-ui/src/hooks/useHistory.ts` - History data hook with:
+  - `useHistory(params, enabled)` - React Query hook for fetching historical data
+  - Returns data, isLoading, isError, error, refetch
+  - Enabled when tag_id, start, and end are provided
+
+- `services/web-ui/src/pages/TrendPage.tsx` - Trend/Historian page with:
+  - Multi-tag selection dropdown populated from all tags (using useTags(null))
+  - Selected tags displayed as removable badges with color indicators
+  - Date range picker with datetime-local inputs
+  - Default range: last 24 hours
+  - Quick range buttons: 1h, 6h, 24h, 7d
+  - Aggregation controls: mean, max, min, sum
+  - Interval selection: 1m, 5m, 15m, 1h, 1d
+  - Query button to fetch historical data
+  - Line chart using recharts library
+  - 8-color palette for multi-tag support (violet, blue, emerald, amber, red, pink, cyan, lime)
+  - X-axis: timestamp (formatted as time), Y-axis: value
+  - Legend showing all tags with colors
+  - Export CSV button - downloads chart data as CSV file
+  - Empty states for no selection and no data
+  - Error handling with toast notifications via sonner
+  - Loading states with Loader2 spinner
+
+- `services/web-ui/src/App.tsx` - Added `/trend` route
+
+- `services/web-ui/src/components/layout/Sidebar.tsx` - Added Trend navigation link with TrendingUp icon
+
+- `services/web-ui/src/components/layout/MainLayout.tsx` - Added Toaster component from sonner
+
+- `services/web-ui/src/types/index.ts` - Added HistoryDataPoint and HistoryQueryParams interfaces
+
+- `services/web-ui/src/api/tags.ts` - Updated getAll() to support null gatewayId, added getAllTags() function
+
+- `services/web-ui/src/hooks/useTags.ts` - Updated to handle null gatewayId (fetch all tags)
+
+#### Dependencies Added:
+- recharts - Chart library for data visualization
+- sonner - Toast notification library
+
+#### Typecheck:
+- `go build ./...` passes successfully
+- `npm run build` creates production build successfully (832.95 kB JS, 28.51 kB CSS)
+
+#### Files Created:
+- `services/web-ui/src/api/history.ts` - History API client
+- `services/web-ui/src/hooks/useHistory.ts` - History data hook
+- `services/web-ui/src/pages/TrendPage.tsx` - Trend/Historian page
+
+#### Files Modified:
+- `services/web-ui/src/App.tsx` - Added /trend route
+- `services/web-ui/src/components/layout/Sidebar.tsx` - Added Trend link
+- `services/web-ui/src/components/layout/MainLayout.tsx` - Added Toaster
+- `services/web-ui/src/types/index.ts` - Added history types
+- `services/web-ui/src/api/tags.ts` - Updated for all tags support
+- `services/web-ui/src/hooks/useTags.ts` - Updated for null gatewayId support
+- `services/web-ui/package.json` - Added recharts and sonner dependencies
+
+#### Next Priority:
+- **US-057**: Add loading states and error handling

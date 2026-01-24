@@ -1,5 +1,6 @@
 import Sidebar from './Sidebar';
 import Header from './Header';
+import { Toaster } from 'sonner';
 
 interface MainLayoutProps {
     children: React.ReactNode;
@@ -17,6 +18,7 @@ const MainLayout = ({ children }: MainLayoutProps) => {
                     </div>
                 </main>
             </div>
+            <Toaster position="top-right" richColors />
         </div>
     );
 };

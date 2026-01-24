@@ -2,8 +2,15 @@ import api from './client';
 import { Tag, CreateTagDto } from '@/types';
 
 export const tagsApi = {
-    getAll: async (gatewayId?: number): Promise<Tag[]> => {
-        const response = await api.get('/tags', { params: { gateway_id: gatewayId } });
+    getAll: async (gatewayId?: number | null): Promise<Tag[]> => {
+        const params = gatewayId !== undefined && gatewayId !== null ? { gateway_id: gatewayId } : {};
+        const response = await api.get('/tags', { params });
+        return response.data;
+    },
+
+    // Get all tags without filtering by gateway
+    getAllTags: async (): Promise<Tag[]> => {
+        const response = await api.get('/tags');
         return response.data;
     },
 

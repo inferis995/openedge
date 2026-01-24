@@ -15,6 +15,8 @@ import TagsPage from '@/pages/TagsPage';
 import AlarmsPage from '@/pages/AlarmsPage';
 import SystemPage from '@/pages/SystemPage';
 
+import TrendPage from '@/pages/TrendPage';
+
 function App() {
     return (
         <MainLayout>
@@ -27,6 +29,7 @@ function App() {
                 <Route path="/tags" element={<TagsPage />} />
                 <Route path="/alarms" element={<AlarmsPage />} />
                 <Route path="/system" element={<SystemPage />} />
+                <Route path="/trend" element={<TrendPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
         </MainLayout>
