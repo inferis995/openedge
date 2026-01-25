@@ -140,24 +140,24 @@ func (c *Client) Unsubscribe(topic string) error {
 }
 
 // Publish publishes a message to a topic
-func (c *Client) Publish(topic string, payload string) error {
+func (c *Client) Publish(topic string, payload interface{}) error {
 	token := c.client.Publish(topic, 0, false, payload)
 	if token.Wait() && token.Error() != nil {
 		return token.Error()
 	}
 
-	log.Printf("[MQTT] Published to topic %s: %s", topic, payload)
+	log.Printf("[MQTT] Published to topic %s: %v", topic, payload)
 	return nil
 }
 
 // PublishWithQoS publishes a message to a topic with specified QoS and retain flag
-func (c *Client) PublishWithQoS(topic string, payload string, qos byte, retained bool) error {
+func (c *Client) PublishWithQoS(topic string, payload interface{}, qos byte, retained bool) error {
 	token := c.client.Publish(topic, qos, retained, payload)
 	if token.Wait() && token.Error() != nil {
 		return token.Error()
 	}
 
-	log.Printf("[MQTT] Published to topic %s (QoS=%d, retained=%t): %s", topic, qos, retained, payload)
+	log.Printf("[MQTT] Published to topic %s (QoS=%d, retained=%t): %v", topic, qos, retained, payload)
 	return nil
 }
 

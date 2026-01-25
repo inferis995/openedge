@@ -125,7 +125,7 @@ func main() {
 
 	// CORS Configuration
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://127.0.0.1:3000"},
+		AllowOrigins:     []string{"http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3004", "http://127.0.0.1:3004"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Organization-ID"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -141,6 +141,7 @@ func main() {
 	tagsHandler := handlers.NewTagsHandler(database, mqttClient, redisClient)
 	alarmsHandler := handlers.NewAlarmsHandler(database, mqttClient)
 	systemHandler := handlers.NewSystemHandler(database, mqttClient)
+	realtimeHandler := handlers.NewRealtimeHandler(redisClient)
 
 	// Create history handler with InfluxDB client (optional)
 	var historyHandler *handlers.HistoryHandler
@@ -233,6 +234,9 @@ func main() {
 				history.GET("", historyHandler.Query)
 			}
 		}
+
+		// WebSocket endpoints
+		api.GET("/ws/realtime", realtimeHandler.HandleRealtime)
 	}
 
 	// Swagger documentation endpoints

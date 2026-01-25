@@ -2,11 +2,14 @@ package main
 
 import (
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,53 +22,61 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 )
 
-// GatewayConfig holds the loaded gateway configuration
+// TagInBlock stores a tag with its pre-computed offset within a block
+type TagInBlock struct {
+	Tag       models.Tag
+	Offset    uint16 // Pre-computed 0-based offset
+	BitOffset *int   // Optional bit offset
+}
+
+// Block represents a contiguous block of Modbus registers
+type Block struct {
+	StartAddress uint16
+	Count        uint16
+	DataType     string       // "holding", "input", "coil", "discrete"
+	Tags         []TagInBlock // Tags with pre-computed offsets
+}
+
 type GatewayConfig struct {
 	Gateway models.Gateway
 	Tags    []models.Tag
+	Blocks  []Block
 	OrgName string
 	Site    string
 	Area    string
 }
 
-// TagPayload represents the MQTT message payload for tag values
 type TagPayload struct {
+	TagID     int         `json:"tag_id"`
 	Value     interface{} `json:"v"`
 	Timestamp int64       `json:"ts"`
 	Quality   int         `json:"q"`
 }
 
-// Driver manages the Modbus driver lifecycle
 type Driver struct {
-	gatewayID  int
-	database   *sql.DB
-	mqttClient *mqtt.Client
-	modbusClient *modbus.Client
-	config     *GatewayConfig
-	configMu   sync.RWMutex
-	stopChan   chan struct{}
-	reloadChan chan struct{}
-	// Report by Exception: store previous values for change detection
+	gatewayID      int
+	database       *sql.DB
+	mqttClient     *mqtt.Client
+	modbusClient   *modbus.Client
+	config         *GatewayConfig
+	configMu       sync.RWMutex
+	stopChan       chan struct{}
+	reloadChan     chan struct{}
 	previousValues map[int]interface{}
 	prevValuesMu   sync.RWMutex
 }
 
 func main() {
-	log.Println("Starting driver-modbus...")
+	log.Println("[DRIVER] Starting driver-modbus...")
 
-	// Get gateway ID from environment
 	gatewayIDStr := getEnv("GATEWAY_ID", "")
 	if gatewayIDStr == "" {
-		log.Fatal("GATEWAY_ID environment variable is required")
+		log.Fatal("[DRIVER] GATEWAY_ID environment variable is required")
 	}
-	gatewayID, err := strconv.Atoi(gatewayIDStr)
-	if err != nil {
-		log.Fatalf("Invalid GATEWAY_ID: %v", err)
-	}
+	gatewayID, _ := strconv.Atoi(gatewayIDStr)
 
-	// Connect to PostgreSQL
 	dbCfg := db.Config{
-		Host:     getEnv("DB_HOST", "localhost"),
+		Host:     getEnv("DB_HOST", "postgres"),
 		Port:     getEnvInt("DB_PORT", 5432),
 		User:     getEnv("DB_USER", "postgres"),
 		Password: getEnv("DB_PASSWORD", "postgres"),
@@ -74,12 +85,11 @@ func main() {
 
 	database, err := db.Connect(dbCfg)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Fatalf("[DRIVER] Failed to connect to database: %v", err)
 	}
 	defer database.Close()
-	log.Println("Connected to PostgreSQL")
+	log.Println("[DRIVER] Connected to PostgreSQL")
 
-	// Create MQTT client with LWT for health monitoring
 	mqttCfg := mqtt.Config{
 		Host:          getEnv("MQTT_HOST", "localhost"),
 		Port:          getEnvInt("MQTT_PORT", 1883),
@@ -94,17 +104,11 @@ func main() {
 
 	mqttClient := mqtt.NewClient(mqttCfg)
 	if err := mqttClient.Connect(); err != nil {
-		log.Fatalf("Failed to connect to MQTT broker: %v", err)
+		log.Fatalf("[DRIVER] Failed to connect to MQTT broker: %v", err)
 	}
 	defer mqttClient.Disconnect(1000)
-	log.Println("Connected to MQTT broker")
+	log.Println("[DRIVER] Connected to MQTT broker")
 
-	// Publish online status
-	if err := mqttClient.PublishWithQoS(fmt.Sprintf("sys/health/%d", gatewayID), "online", 1, true); err != nil {
-		log.Printf("Failed to publish online status: %v", err)
-	}
-
-	// Create driver instance
 	driver := &Driver{
 		gatewayID:      gatewayID,
 		database:       database,
@@ -116,48 +120,42 @@ func main() {
 
 	// Load initial configuration
 	if err := driver.loadConfig(); err != nil {
-		log.Fatalf("Failed to load gateway configuration: %v", err)
+		log.Fatalf("[DRIVER] Failed to load config: %v", err)
 	}
 
-	// Subscribe to reload command
+	// Subscribe to reload commands
 	reloadTopic := fmt.Sprintf("sys/command/reload/%d", gatewayID)
-	if err := mqttClient.Subscribe(reloadTopic, driver.handleReloadCommand); err != nil {
-		log.Fatalf("Failed to subscribe to reload topic: %v", err)
-	}
-	log.Printf("Subscribed to reload topic: %s", reloadTopic)
+	mqttClient.Subscribe(reloadTopic, driver.handleReloadCommand)
+	mqttClient.Subscribe("sys/command/reload/+", driver.handleReloadCommand)
+	log.Printf("[DRIVER] Subscribed to reload topic: %s", reloadTopic)
 
-	// Also subscribe to wildcard reload
-	if err := mqttClient.Subscribe("sys/command/reload/+", driver.handleReloadCommand); err != nil {
-		log.Printf("Warning: Failed to subscribe to wildcard reload topic: %v", err)
-	}
-
-	// Start the driver loop
 	go driver.run()
 
-	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	log.Println("Shutting down driver-modbus...")
+	log.Println("[DRIVER] Shutting down...")
 	close(driver.stopChan)
-
-	// Disconnect from Modbus device
 	if driver.modbusClient != nil {
-		if err := driver.modbusClient.Disconnect(); err != nil {
-			log.Printf("Error disconnecting from Modbus device: %v", err)
-		}
+		driver.modbusClient.Disconnect()
 	}
 }
 
-// loadConfig loads the gateway configuration from PostgreSQL
+func (d *Driver) handleReloadCommand(topic string, payload []byte) {
+	log.Printf("[DRIVER] Received reload signal via %s", topic)
+	select {
+	case d.reloadChan <- struct{}{}:
+	default:
+	}
+}
+
 func (d *Driver) loadConfig() error {
 	d.configMu.Lock()
 	defer d.configMu.Unlock()
 
-	// Load gateway with hierarchy info
 	query := `
-		SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled,
+		SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled, g.zero_based,
 		       o.name as org_name, s.name as site_name, a.name as area_name
 		FROM gateways g
 		JOIN areas a ON g.area_id = a.id
@@ -171,333 +169,268 @@ func (d *Driver) loadConfig() error {
 	var orgName, siteName, areaName string
 
 	err := d.database.QueryRow(query, d.gatewayID).Scan(
-		&gateway.ID,
-		&gateway.AreaID,
-		&gateway.Name,
-		&gateway.DriverType,
-		&connConfigBytes,
-		&gateway.ScanRateMs,
-		&gateway.Enabled,
-		&orgName,
-		&siteName,
-		&areaName,
+		&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &connConfigBytes,
+		&gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &orgName, &siteName, &areaName,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to load gateway: %w", err)
+		return err
 	}
 
-	// Parse connection config
-	if err := json.Unmarshal(connConfigBytes, &gateway.ConnectionConfig); err != nil {
-		return fmt.Errorf("failed to parse connection config: %w", err)
-	}
+	json.Unmarshal(connConfigBytes, &gateway.ConnectionConfig)
 
-	// Verify it's a MODBUS_TCP gateway
-	if gateway.DriverType != "MODBUS_TCP" {
-		return fmt.Errorf("gateway %d is not a MODBUS_TCP gateway (type: %s)", d.gatewayID, gateway.DriverType)
-	}
-
-	// Load tags for this gateway
-	tagsQuery := `
-		SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband,
-		       alarm_enabled, alarm_threshold, alarm_operator, alarm_priority
-		FROM tags
-		WHERE gateway_id = $1
-	`
-
+	tagsQuery := `SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband FROM tags WHERE gateway_id = $1`
 	rows, err := d.database.Query(tagsQuery, d.gatewayID)
 	if err != nil {
-		return fmt.Errorf("failed to load tags: %w", err)
+		return err
 	}
 	defer rows.Close()
 
 	var tags []models.Tag
 	for rows.Next() {
-		var tag models.Tag
-		err := rows.Scan(
-			&tag.ID,
-			&tag.GatewayID,
-			&tag.Code,
-			&tag.Alias,
-			&tag.DataType,
-			&tag.Historize,
-			&tag.HistorizeDeadband,
-			&tag.AlarmEnabled,
-			&tag.AlarmThreshold,
-			&tag.AlarmOperator,
-			&tag.AlarmPriority,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to scan tag: %w", err)
-		}
-		tags = append(tags, tag)
+		var t models.Tag
+		rows.Scan(&t.ID, &t.GatewayID, &t.Code, &t.Alias, &t.DataType, &t.Historize, &t.HistorizeDeadband)
+		tags = append(tags, t)
 	}
+
+	blocks := d.createBlocks(tags, gateway.ZeroBased)
 
 	d.config = &GatewayConfig{
 		Gateway: gateway,
 		Tags:    tags,
+		Blocks:  blocks,
 		OrgName: slugify(orgName),
 		Site:    slugify(siteName),
 		Area:    slugify(areaName),
 	}
 
-	log.Printf("Loaded gateway config: %s (ID: %d) with %d tags", gateway.Name, gateway.ID, len(tags))
-	log.Printf("Topic prefix: data/%s/%s/%s/%s", d.config.OrgName, d.config.Site, d.config.Area, slugify(gateway.Name))
-
+	log.Printf("[DRIVER] Config loaded: %d tags, %d blocks (Scan Rate: %dms)", len(tags), len(blocks), gateway.ScanRateMs)
 	return nil
 }
 
-// handleReloadCommand handles the reload command from MQTT
-func (d *Driver) handleReloadCommand(topic string, payload []byte) {
-	// Extract gateway ID from topic (sys/command/reload/{gateway_id})
-	parts := strings.Split(topic, "/")
-	if len(parts) < 4 {
-		return
+func (d *Driver) createBlocks(tags []models.Tag, zeroBased bool) []Block {
+	if len(tags) == 0 {
+		return nil
 	}
 
-	targetID, err := strconv.Atoi(parts[3])
-	if err != nil {
-		return
+	type TagWithAddr struct {
+		Tag  models.Tag
+		Addr modbus.Address
+	}
+	var parsed []TagWithAddr
+	for _, t := range tags {
+		addr, err := modbus.ParseAddress(t.Code)
+		if err == nil {
+			parsed = append(parsed, TagWithAddr{t, addr})
+		}
 	}
 
-	// Only reload if this command is for this gateway
-	if targetID != d.gatewayID {
-		return
+	sort.Slice(parsed, func(i, j int) bool {
+		if parsed[i].Addr.Type != parsed[j].Addr.Type {
+			return parsed[i].Addr.Type < parsed[j].Addr.Type
+		}
+		return parsed[i].Addr.Offset < parsed[j].Addr.Offset
+	})
+
+	var blocks []Block
+	if len(parsed) == 0 {
+		return blocks
 	}
 
-	log.Printf("Received reload command for gateway %d", d.gatewayID)
-
-	// Signal reload (non-blocking)
-	select {
-	case d.reloadChan <- struct{}{}:
-	default:
-		// Already a reload pending
+	curr := Block{
+		DataType:     parsed[0].Addr.Type,
+		StartAddress: parsed[0].Addr.Offset,
+		Tags:         []TagInBlock{{parsed[0].Tag, parsed[0].Addr.Offset, parsed[0].Addr.BitOffset}},
 	}
+	lastEnd := parsed[0].Addr.Offset + 1
+
+	for i := 1; i < len(parsed); i++ {
+		p := parsed[i]
+		if p.Addr.Type == curr.DataType && p.Addr.Offset-lastEnd <= 5 && (p.Addr.Offset-curr.StartAddress) < 100 {
+			curr.Tags = append(curr.Tags, TagInBlock{p.Tag, p.Addr.Offset, p.Addr.BitOffset})
+			lastEnd = p.Addr.Offset + 1
+		} else {
+			curr.Count = lastEnd - curr.StartAddress
+			blocks = append(blocks, curr)
+			curr = Block{
+				DataType:     p.Addr.Type,
+				StartAddress: p.Addr.Offset,
+				Tags:         []TagInBlock{{p.Tag, p.Addr.Offset, p.Addr.BitOffset}},
+			}
+			lastEnd = p.Addr.Offset + 1
+		}
+	}
+	curr.Count = lastEnd - curr.StartAddress
+	blocks = append(blocks, curr)
+	return blocks
 }
 
-// run is the main driver loop
 func (d *Driver) run() {
 	d.configMu.RLock()
-	scanRate := time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond
+	rate := time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond
 	d.configMu.RUnlock()
 
-	ticker := time.NewTicker(scanRate)
-	defer ticker.Stop()
+	pollTicker := time.NewTicker(rate)
+	refreshTicker := time.NewTicker(5 * time.Minute) // Fallback periodic refresh
 
-	log.Printf("Starting Modbus polling loop with scan rate: %v", scanRate)
+	log.Printf("[DRIVER] Starting loop at %v", rate)
 
 	for {
 		select {
 		case <-d.stopChan:
-			log.Println("Stopping Modbus polling loop")
 			return
-
 		case <-d.reloadChan:
-			log.Println("Reloading configuration...")
-			if err := d.loadConfig(); err != nil {
-				log.Printf("Failed to reload configuration: %v", err)
-			} else {
-				// Update ticker with new scan rate
+			log.Println("[DRIVER] Reloading config...")
+			if err := d.loadConfig(); err == nil {
 				d.configMu.RLock()
-				newScanRate := time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond
+				newRate := time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond
 				d.configMu.RUnlock()
-				ticker.Reset(newScanRate)
-				log.Printf("Configuration reloaded, scan rate: %v", newScanRate)
+				pollTicker.Reset(newRate)
 			}
-
-		case <-ticker.C:
+		case <-refreshTicker.C:
+			log.Println("[DRIVER] Periodic config refresh...")
+			d.loadConfig()
+		case <-pollTicker.C:
 			d.poll()
 		}
 	}
 }
 
-// poll reads data from Modbus device and publishes to MQTT
 func (d *Driver) poll() {
 	d.configMu.RLock()
-	config := d.config
+	cfg := d.config
 	d.configMu.RUnlock()
 
-	if config == nil || !config.Gateway.Enabled {
+	if cfg == nil || !cfg.Gateway.Enabled {
 		return
 	}
 
-	// Ensure Modbus connection is active
 	if d.modbusClient == nil || !d.modbusClient.IsConnected() {
-		if err := d.connectModbus(); err != nil {
-			log.Printf("Failed to connect to Modbus device: %v", err)
+		log.Println("[DRIVER] Connecting to Modbus...")
+		client, err := modbus.NewClientFromConfig(cfg.Gateway.ConnectionConfig)
+		if err != nil {
+			log.Printf("[DRIVER] Connection failed: %v", err)
 			return
 		}
-	}
-
-	// Build topic prefix: data/{org}/{site}/{area}/{gateway}
-	topicPrefix := fmt.Sprintf("data/%s/%s/%s/%s",
-		config.OrgName,
-		config.Site,
-		config.Area,
-		slugify(config.Gateway.Name),
-	)
-
-	timestamp := time.Now().UnixMilli()
-
-	// Read all tags and publish to MQTT
-	for _, tag := range config.Tags {
-		value, quality := d.readTag(&tag)
-
-		// Report by Exception: only publish if value changed
-		if d.hasValueChanged(tag.ID, value) || quality != 0 {
-			d.publishTagValue(topicPrefix, tag, value, timestamp, quality)
-			d.updatePreviousValue(tag.ID, value)
+		if err := client.ConnectWithRetry(3, 1*time.Second); err != nil {
+			log.Printf("[DRIVER] Connection failed: %v", err)
+			return
 		}
+		d.modbusClient = client
+		log.Println("[DRIVER] Connected.")
+	}
+
+	prefix := fmt.Sprintf("data/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name))
+	ts := time.Now().UnixMilli()
+
+	for _, b := range cfg.Blocks {
+		d.readBlock(b, prefix, ts)
 	}
 }
 
-// connectModbus creates and connects a Modbus client from the gateway config
-func (d *Driver) connectModbus() error {
-	d.configMu.RLock()
-	config := d.config
-	d.configMu.RUnlock()
+func (d *Driver) readBlock(b Block, prefix string, ts int64) {
+	var data []byte
+	var err error
 
-	if config == nil {
-		return fmt.Errorf("no configuration loaded")
+	switch b.DataType {
+	case "holding":
+		data, err = d.modbusClient.ReadHoldingRegisters(b.StartAddress, b.Count)
+	case "input":
+		data, err = d.modbusClient.ReadInputRegisters(b.StartAddress, b.Count)
+	case "coil":
+		data, err = d.modbusClient.ReadCoils(b.StartAddress, b.Count)
+	case "discrete":
+		data, err = d.modbusClient.ReadDiscreteInputs(b.StartAddress, b.Count)
 	}
 
-	// Create Modbus client from connection config
-	client, err := modbus.NewClientFromConfig(config.Gateway.ConnectionConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create Modbus client: %w", err)
-	}
-
-	// Connect with retry (up to 3 attempts with 2 second intervals)
-	if err := client.ConnectWithRetry(3, 2*time.Second); err != nil {
-		return fmt.Errorf("failed to connect to Modbus device: %w", err)
-	}
-
-	d.modbusClient = client
-	log.Printf("Connected to Modbus device for gateway %s", config.Gateway.Name)
-	return nil
-}
-
-// readTag reads a single tag value from the Modbus device
-func (d *Driver) readTag(tag *models.Tag) (interface{}, int) {
-	if d.modbusClient == nil || !d.modbusClient.IsConnected() {
-		return nil, 1 // Bad quality
-	}
-
-	value, err := d.modbusClient.ReadTag(tag.Code, tag.DataType)
-	if err != nil {
-		log.Printf("Error reading tag %s (%s): %v", tag.Alias, tag.Code, err)
-		return nil, 1 // Bad quality
-	}
-
-	return value, 0 // Good quality
-}
-
-// publishTagValue publishes a tag value to MQTT
-func (d *Driver) publishTagValue(topicPrefix string, tag models.Tag, value interface{}, timestamp int64, quality int) {
-	// Build topic: data/{org}/{site}/{area}/{gateway}/{alias}
-	topic := fmt.Sprintf("%s/%s", topicPrefix, slugify(tag.Alias))
-
-	// Build payload
-	payload := TagPayload{
-		Value:     value,
-		Timestamp: timestamp,
-		Quality:   quality,
-	}
-
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("Error marshaling payload for tag %s: %v", tag.Alias, err)
+		log.Printf("[DRIVER] Read error (type=%s, addr=%d): %v", b.DataType, b.StartAddress, err)
 		return
 	}
 
-	// Publish to MQTT (QoS 1 for reliability)
-	if err := d.mqttClient.Publish(topic, string(payloadBytes)); err != nil {
-		log.Printf("Error publishing tag %s to %s: %v", tag.Alias, topic, err)
-	}
-}
+	for _, tib := range b.Tags {
+		off := tib.Offset - b.StartAddress
+		val, err := parseValue(data, off, tib.Tag.DataType, tib.BitOffset, b.DataType)
+		if err != nil {
+			continue
+		}
 
-// hasValueChanged checks if a value has changed from its previous value (Report by Exception)
-func (d *Driver) hasValueChanged(tagID int, newValue interface{}) bool {
-	d.prevValuesMu.RLock()
-	prevValue, exists := d.previousValues[tagID]
-	d.prevValuesMu.RUnlock()
-
-	// If no previous value exists, it's always considered "changed"
-	if !exists {
-		return true
-	}
-
-	// Compare values based on type
-	return !valuesEqual(prevValue, newValue)
-}
-
-// updatePreviousValue updates the stored previous value for a tag
-func (d *Driver) updatePreviousValue(tagID int, value interface{}) {
-	d.prevValuesMu.Lock()
-	d.previousValues[tagID] = value
-	d.prevValuesMu.Unlock()
-}
-
-// valuesEqual compares two values for equality
-func valuesEqual(a, b interface{}) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-
-	// Handle different types
-	switch av := a.(type) {
-	case bool:
-		bv, ok := b.(bool)
-		return ok && av == bv
-	case int16:
-		bv, ok := b.(int16)
-		return ok && av == bv
-	case int32:
-		bv, ok := b.(int32)
-		return ok && av == bv
-	case uint16:
-		bv, ok := b.(uint16)
-		return ok && av == bv
-	case uint32:
-		bv, ok := b.(uint32)
-		return ok && av == bv
-	case float32:
-		bv, ok := b.(float32)
-		return ok && av == bv
-	case float64:
-		bv, ok := b.(float64)
-		return ok && av == bv
-	case int:
-		bv, ok := b.(int)
-		return ok && av == bv
-	default:
-		// Fallback to direct comparison
-		return a == b
-	}
-}
-
-// slugify converts a string to a URL-friendly slug
-func slugify(s string) string {
-	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, " ", "-")
-	return s
-}
-
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func getEnvInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		var intVal int
-		if _, err := fmt.Sscanf(value, "%d", &intVal); err == nil {
-			return intVal
+		if d.hasValueChanged(tib.Tag.ID, val) {
+			topic := fmt.Sprintf("%s/%s", prefix, slugify(tib.Tag.Alias))
+			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, val, ts, 0})
+			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
+			d.updatePreviousValue(tib.Tag.ID, val)
+			log.Printf("[DRIVER] PUBLISHED: %s = %v", tib.Tag.Alias, val)
 		}
 	}
-	return defaultValue
+}
+
+func parseValue(data []byte, off uint16, dtype string, boff *int, btype string) (interface{}, error) {
+	if btype == "coil" || btype == "discrete" {
+		// Bit based
+		byteIdx := off / 8
+		bitIdx := off % 8
+		if int(byteIdx) >= len(data) {
+			return nil, fmt.Errorf("out of bounds")
+		}
+		return (data[byteIdx] & (1 << bitIdx)) != 0, nil
+	}
+
+	// Register based (2 bytes per register)
+	byteOff := int(off) * 2
+	if byteOff+2 > len(data) {
+		return nil, fmt.Errorf("out of bounds")
+	}
+
+	switch dtype {
+	case "BOOL":
+		if boff == nil {
+			return nil, fmt.Errorf("no bit offset")
+		}
+		reg := binary.BigEndian.Uint16(data[byteOff:])
+		return (reg >> *boff & 1) == 1, nil
+	case "INT":
+		return int16(binary.BigEndian.Uint16(data[byteOff:])), nil
+	case "REAL":
+		if byteOff+4 > len(data) {
+			return nil, fmt.Errorf("out of bounds")
+		}
+		bits := binary.BigEndian.Uint32(data[byteOff:])
+		return math.Float32frombits(bits), nil
+	}
+	return nil, fmt.Errorf("unsupported")
+}
+
+func (d *Driver) hasValueChanged(id int, val interface{}) bool {
+	d.prevValuesMu.RLock()
+	defer d.prevValuesMu.RUnlock()
+	prev, ok := d.previousValues[id]
+	if !ok {
+		return true
+	}
+	return fmt.Sprintf("%v", prev) != fmt.Sprintf("%v", val)
+}
+
+func (d *Driver) updatePreviousValue(id int, val interface{}) {
+	d.prevValuesMu.Lock()
+	defer d.prevValuesMu.Unlock()
+	d.previousValues[id] = val
+}
+
+func slugify(s string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(s)), " ", "-")
+}
+
+func getEnv(k, d string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return d
+}
+
+func getEnvInt(k string, d int) int {
+	if v := os.Getenv(k); v != "" {
+		i, _ := strconv.Atoi(v)
+		return i
+	}
+	return d
 }

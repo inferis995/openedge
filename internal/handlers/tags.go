@@ -4,17 +4,20 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
+	"github.com/redis/go-redis/v9"
 )
 
 // RedisClient defines the interface for Redis operations
 type RedisClient interface {
 	Get(key string) (string, error)
+	Subscribe(channel string) *redis.PubSub
 }
 
 // TagsHandler handles tag-related HTTP requests
@@ -102,6 +105,7 @@ func validateAlarmPriority(priority int) bool {
 func (h *TagsHandler) Create(c *gin.Context) {
 	var req CreateTagRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("[API] Tag Creation Failed: JSON binding error: %v", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -200,6 +204,15 @@ func (h *TagsHandler) Create(c *gin.Context) {
 		return
 	}
 
+	// Publish reload command to MQTT so the driver picks up the new tag
+	if h.mqttClient != nil {
+		topic := fmt.Sprintf("sys/command/reload/%d", tag.GatewayID)
+		log.Printf("[API] Sending reload signal for gateway %d to topic %s", tag.GatewayID, topic)
+		if err := h.mqttClient.Publish(topic, "reload"); err != nil {
+			log.Printf("[API] Failed to publish reload signal: %v", err)
+		}
+	}
+
 	c.JSON(http.StatusCreated, tag)
 }
 
@@ -227,6 +240,7 @@ func (h *TagsHandler) List(c *gin.Context) {
 	}
 
 	gatewayIDStr := c.Query("gateway_id")
+	log.Printf("[API] List Tags: org=%d, gateway_id=%s", orgID, gatewayIDStr)
 
 	var rows *sql.Rows
 	var err error
@@ -668,7 +682,11 @@ func (h *TagsHandler) GetCurrentValue(c *gin.Context) {
 		return
 	}
 	if !tagExists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Tag not found"})
+		c.JSON(http.StatusOK, CurrentValueResponse{
+			V:  nil,
+			Ts: 0,
+			Q:  1, // Bad quality for non-existent tag
+		})
 		return
 	}
 

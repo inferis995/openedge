@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"sync"
@@ -32,13 +33,13 @@ type GatewayState struct {
 
 // Manager manages driver container lifecycle
 type Manager struct {
-	database     *sql.DB
-	dockerClient *client.Client
+	database      *sql.DB
+	dockerClient  *client.Client
 	gatewayStates map[int]*GatewayState
-	mu           sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
-	networkID    string
+	mu            sync.RWMutex
+	ctx           context.Context
+	cancel        context.CancelFunc
+	networkID     string
 }
 
 func main() {
@@ -61,7 +62,7 @@ func main() {
 	log.Println("Connected to PostgreSQL")
 
 	// Create Docker client
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithVersion("1.44"))
 	if err != nil {
 		log.Fatalf("Failed to create Docker client: %v", err)
 	}
@@ -250,21 +251,42 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 	case "MODBUS_TCP":
 		imageName = "industrial-driver-modbus:latest"
 		containerNamePrefix = "driver-modbus"
+	case "REDIS":
+		imageName = "industrial-driver-redis:latest"
+		containerNamePrefix = "driver-redis"
 	default:
 		return fmt.Errorf("unsupported driver type: %s", gateway.DriverType)
 	}
 
 	containerName := fmt.Sprintf("%s-%d", containerNamePrefix, gateway.ID)
 
+	// Resolve DB_HOST to IP to avoid DNS issues in child containers
+	dbHost := getEnv("DB_HOST", "postgres")
+	if ips, err := net.LookupHost(dbHost); err == nil && len(ips) > 0 {
+		log.Printf("Resolved DB_HOST %s to IP %s", dbHost, ips[0])
+		dbHost = ips[0]
+	} else {
+		log.Printf("Warning: Failed to resolve DB_HOST %s: %v", dbHost, err)
+	}
+
+	// Resolve MQTT_HOST to IP
+	mqttHost := getEnv("MQTT_HOST", "mosquitto")
+	if ips, err := net.LookupHost(mqttHost); err == nil && len(ips) > 0 {
+		log.Printf("Resolved MQTT_HOST %s to IP %s", mqttHost, ips[0])
+		mqttHost = ips[0]
+	} else {
+		log.Printf("Warning: Failed to resolve MQTT_HOST %s: %v", mqttHost, err)
+	}
+
 	// Create container config
 	env := []string{
 		fmt.Sprintf("GATEWAY_ID=%d", gateway.ID),
-		fmt.Sprintf("DB_HOST=%s", getEnv("DB_HOST", "postgres")),
+		fmt.Sprintf("DB_HOST=%s", dbHost),
 		fmt.Sprintf("DB_PORT=%s", getEnv("DB_PORT", "5432")),
 		fmt.Sprintf("DB_USER=%s", getEnv("DB_USER", "industrial_user")),
 		fmt.Sprintf("DB_PASSWORD=%s", getEnv("DB_PASSWORD", "industrial_pass")),
 		fmt.Sprintf("DB_NAME=%s", getEnv("DB_NAME", "industrial_edge")),
-		fmt.Sprintf("MQTT_HOST=%s", getEnv("MQTT_HOST", "mosquitto")),
+		fmt.Sprintf("MQTT_HOST=%s", mqttHost),
 		fmt.Sprintf("MQTT_PORT=%s", getEnv("MQTT_PORT", "1883")),
 	}
 
@@ -278,6 +300,7 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 			Name: "unless-stopped",
 		},
 		NetworkMode: container.NetworkMode(dockerNetworkName),
+		ExtraHosts:  []string{"host.docker.internal:host-gateway"},
 	}
 
 	// Pull image if needed (skip if image exists locally)

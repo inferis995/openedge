@@ -201,9 +201,12 @@ func (h *AlarmsHandler) List(c *gin.Context) {
 
 	// Build query with multi-tenant filtering
 	var args []interface{}
+	// argIdx tracks the next parameter index ($1, $2, etc.)
 	argIdx := 1
+	args = append(args, orgID) // $1 is always orgID
 
-	baseQuery := `
+	// Initial query with correct placeholder for orgID ($1)
+	baseQuery := fmt.Sprintf(`
 		SELECT DISTINCT a.id, a.tag_id, COALESCE(t.alias, '') as tag_alias,
 		       COALESCE(t.code, '') as tag_code, a.state,
 		       COALESCE(a.message, '') as message, a.triggered_at,
@@ -213,8 +216,7 @@ func (h *AlarmsHandler) List(c *gin.Context) {
 		LEFT JOIN gateways g ON t.gateway_id = g.id
 		LEFT JOIN areas ar ON g.area_id = ar.id
 		LEFT JOIN sites s ON ar.site_id = s.id
-		WHERE s.org_id = $%d
-	`
+		WHERE s.org_id = $%d`, argIdx)
 	argIdx++
 
 	// Add tag_id filter if provided
@@ -233,14 +235,14 @@ func (h *AlarmsHandler) List(c *gin.Context) {
 	if stateFilter != "" {
 		// Validate state values
 		validStates := map[string]bool{
-			"ACTIVE":        true,
-			"RTN":           true,
-			"ACKNOWLEDGED":  true,
-			"CLEAR":         true,
-			"active":        true,
-			"rtn":           true,
-			"acknowledged":  true,
-			"clear":         true,
+			"ACTIVE":       true,
+			"RTN":          true,
+			"ACKNOWLEDGED": true,
+			"CLEAR":        true,
+			"active":       true,
+			"rtn":          true,
+			"acknowledged": true,
+			"clear":        true,
 		}
 		if !validStates[stateFilter] {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid state parameter. Must be one of: ACTIVE, RTN, ACKNOWLEDGED, CLEAR"})
@@ -252,8 +254,7 @@ func (h *AlarmsHandler) List(c *gin.Context) {
 	}
 
 	// Add ordering and pagination
-	query := fmt.Sprintf(baseQuery+" ORDER BY a.triggered_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
-	args = append([]interface{}{orgID}, args...)
+	query := baseQuery + fmt.Sprintf(" ORDER BY a.triggered_at DESC LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
 	args = append(args, limit, offset)
 
 	rows, err := h.db.Query(query, args...)

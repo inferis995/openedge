@@ -67,6 +67,7 @@ type MQTTPayload struct {
 // TagInfo holds tag configuration loaded from PostgreSQL
 type TagInfo struct {
 	ID                int
+	OrganizationID    int
 	Historize         bool
 	HistorizeDeadband float64
 }
@@ -239,22 +240,34 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	gateway := parts[4]
 	alias := parts[5]
 
+	// Unslugify: convert hyphens back to spaces for DB lookup
+	org = strings.ReplaceAll(org, "-", " ")
+	site = strings.ReplaceAll(site, "-", " ")
+	area = strings.ReplaceAll(area, "-", " ")
+	gateway = strings.ReplaceAll(gateway, "-", " ")
+	alias = strings.ReplaceAll(alias, "-", " ")
+
 	// Parse JSON payload: {"v": value, "ts": timestamp_ms, "q": quality}
 	var mqttPayload MQTTPayload
 	if err := json.Unmarshal(payload, &mqttPayload); err != nil {
-		log.Printf("Failed to parse MQTT payload from %s: %v", topic, err)
+		log.Printf("[HISTORIAN] Failed to parse MQTT payload from %s: %v", topic, err)
 		return
 	}
+
+	log.Printf("[HISTORIAN] Received data for topic: %s, value: %v", topic, mqttPayload.V)
 
 	// Get tag info (includes deadband configuration)
 	tagInfo, err := s.getTagInfo(org, site, area, gateway, alias)
 	if err != nil {
-		log.Printf("Failed to get tag info for %s: %v", topic, err)
+		log.Printf("[HISTORIAN] Tag lookup failed for alias '%s' in %s/%s/%s/%s: %v", alias, org, site, area, gateway, err)
 		return
 	}
 
 	// Store current value in Redis for real-time queries (always store, even if not historized)
 	s.storeRealtimeValue(tagInfo.ID, mqttPayload)
+
+	// Broadast real-time update via Redis Pub/Sub
+	s.broadcastRealtimeUpdate(tagInfo.OrganizationID, tagInfo.ID, mqttPayload)
 
 	// Skip if historize is disabled
 	if !tagInfo.Historize {
@@ -394,7 +407,7 @@ func (s *HistorianService) getTagInfo(org, site, area, gateway, alias string) (*
 
 	// Not in cache, query from PostgreSQL
 	query := `
-		SELECT t.id, t.historize, t.historize_deadband
+		SELECT t.id, s.org_id, t.historize, t.historize_deadband
 		FROM tags t
 		JOIN gateways g ON t.gateway_id = g.id
 		JOIN areas a ON g.area_id = a.id
@@ -410,6 +423,7 @@ func (s *HistorianService) getTagInfo(org, site, area, gateway, alias string) (*
 	var tagInfo TagInfo
 	err = s.db.QueryRow(query, org, site, area, gateway, alias).Scan(
 		&tagInfo.ID,
+		&tagInfo.OrganizationID,
 		&tagInfo.Historize,
 		&tagInfo.HistorizeDeadband,
 	)
@@ -498,8 +512,23 @@ func (s *HistorianService) storeRealtimeValue(tagID int, payload MQTTPayload) {
 		Q:  payload.Q,
 	}
 	realtimeJSON, _ := json.Marshal(realtimeValue)
-	// Store with 60 day TTL (5184000 seconds)
-	s.redisClient.Set(realtimeKey, string(realtimeJSON), realtimeCacheTTL)
+	// Store with 60 day TTL
+	s.redisClient.Set(realtimeKey, string(realtimeJSON), time.Duration(realtimeCacheTTL)*time.Second)
+}
+
+// broadcastRealtimeUpdate publishes the update to Redis Pub/Sub
+func (s *HistorianService) broadcastRealtimeUpdate(orgID int, tagID int, payload MQTTPayload) {
+	channel := fmt.Sprintf("realtime_updates:%d", orgID)
+	message := map[string]interface{}{
+		"tag_id": tagID,
+		"v":      payload.V,
+		"ts":     payload.Ts,
+		"q":      payload.Q,
+	}
+	messageJSON, _ := json.Marshal(message)
+	if err := s.redisClient.Publish(channel, string(messageJSON)); err != nil {
+		log.Printf("Failed to publish real-time update to Redis: %v", err)
+	}
 }
 
 func getEnv(key, defaultValue string) string {

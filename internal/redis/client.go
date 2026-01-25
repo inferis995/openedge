@@ -148,6 +148,16 @@ func (c *Client) Ping() error {
 	return c.client.Ping(c.ctx).Err()
 }
 
+// Subscribe returns a Redis PubSub channel
+func (c *Client) Subscribe(channel string) *redis.PubSub {
+	return c.client.Subscribe(c.ctx, channel)
+}
+
+// Publish publishes a message to a channel
+func (c *Client) Publish(channel string, message interface{}) error {
+	return c.client.Publish(c.ctx, channel, message).Err()
+}
+
 // IsConnected returns true if the client is connected to Redis
 func (c *Client) IsConnected() bool {
 	return c.client.Ping(c.ctx).Err() == nil

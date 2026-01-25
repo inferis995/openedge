@@ -15,6 +15,7 @@ type Gateway struct {
 	ConnectionConfig ConnectionConfig `json:"connection_config" db:"connection_config"`
 	ScanRateMs       int              `json:"scan_rate_ms" db:"scan_rate_ms"`
 	Enabled          bool             `json:"enabled" db:"enabled"`
+	ZeroBased        bool             `json:"zero_based" db:"zero_based"`
 	CreatedAt        time.Time        `json:"created_at" db:"created_at"`
 }
 

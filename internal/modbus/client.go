@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/simonvetter/modbus"
 )
 
 var (
@@ -28,13 +31,11 @@ type Config struct {
 	Timeout time.Duration
 }
 
-// Client represents a Modbus TCP client
+// Client represents a Modbus TCP client wrapper around simonvetter/modbus
 type Client struct {
-	config     Config
-	conn       net.Conn
-	connected  bool
-	connMu     sync.RWMutex
-	transactionID uint16
+	config Config
+	client *modbus.ModbusClient
+	mu     sync.Mutex // Protects connection state
 }
 
 // NewClient creates a new Modbus TCP client
@@ -43,8 +44,7 @@ func NewClient(cfg Config) *Client {
 		cfg.Timeout = 5 * time.Second
 	}
 	return &Client{
-		config:        cfg,
-		transactionID: 1,
+		config: cfg,
 	}
 }
 
@@ -52,8 +52,12 @@ func NewClient(cfg Config) *Client {
 func NewClientFromConfig(connConfig map[string]interface{}) (*Client, error) {
 	host, _ := connConfig["ip"].(string)
 	if host == "" {
-		return nil, errors.New("missing 'ip' in connection config")
+		host, _ = connConfig["ip_address"].(string)
 	}
+	if host == "" {
+		return nil, errors.New("missing 'ip' or 'ip_address' in connection config")
+	}
+	host = strings.TrimSpace(host)
 
 	var port int
 	if p, ok := connConfig["port"].(float64); ok {
@@ -79,24 +83,33 @@ func NewClientFromConfig(connConfig map[string]interface{}) (*Client, error) {
 
 // Connect establishes a TCP connection to the Modbus device
 func (c *Client) Connect() error {
-	c.connMu.Lock()
-	defer c.connMu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	address := fmt.Sprintf("%s:%d", c.config.Host, c.config.Port)
+	// simonvetter/modbus manages connection state internally, but Open() re-opens or errors?
+	// The library doesn't expose IsConnected. We should just try to Open() or handle errors.
+	// For this wrapper, let's just proceed to Open().
 
-	conn, err := net.DialTimeout("tcp", address, c.config.Timeout)
+	url := fmt.Sprintf("tcp://%s:%d", c.config.Host, c.config.Port)
+	client, err := modbus.NewClient(&modbus.ClientConfiguration{
+		URL:      url,
+		Timeout:  c.config.Timeout,
+		Speed:    19200, // Default for RTU, ignored for TCP but good to set
+		DataBits: 8,     // Default
+		Parity:   modbus.PARITY_NONE,
+		StopBits: 1,
+	})
 	if err != nil {
+		return fmt.Errorf("failed to create client: %w", err)
+	}
+
+	if err := client.Open(); err != nil {
 		return fmt.Errorf("%w: %v", ErrConnectionTimeout, err)
 	}
 
-	// Set read/write deadlines
-	if err := conn.SetDeadline(time.Now().Add(c.config.Timeout)); err != nil {
-		conn.Close()
-		return err
-	}
+	client.SetUnitId(uint8(c.config.SlaveID))
 
-	c.conn = conn
-	c.connected = true
+	c.client = client
 	return nil
 }
 
@@ -118,166 +131,158 @@ func (c *Client) ConnectWithRetry(maxRetries int, retryInterval time.Duration) e
 
 // Disconnect closes the connection to the Modbus device
 func (c *Client) Disconnect() error {
-	c.connMu.Lock()
-	defer c.connMu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if c.conn != nil {
-		c.connected = false
-		err := c.conn.Close()
-		c.conn = nil
-		return err
+	if c.client != nil {
+		if err := c.client.Close(); err != nil {
+			return err
+		}
+		c.client = nil
 	}
 	return nil
 }
 
 // IsConnected returns whether the client is connected
 func (c *Client) IsConnected() bool {
-	c.connMu.RLock()
-	defer c.connMu.RUnlock()
-	return c.connected && c.conn != nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.client != nil
+	// Note: simonvetter doesn't expose IsConnected() on the interface easily without locking issues or internal checks?
+	// Actually we should trust our own state or simple check.
+	// But let's just check if client is not nil.
+	// The library manages connection state internally.
 }
 
-// nextTransactionID returns the next transaction ID
-func (c *Client) nextTransactionID() uint16 {
-	c.connMu.Lock()
-	defer c.connMu.Unlock()
+// ReadCoils reads coils (function code 0x01)
+func (c *Client) ReadCoils(address uint16, quantity uint16) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	id := c.transactionID
-	c.transactionID++
-	if c.transactionID == 0 {
-		c.transactionID = 1 // Skip 0 as it's not valid
-	}
-	return id
-}
-
-// sendRequest sends a Modbus request and receives the response
-func (c *Client) sendRequest(functionCode byte, data []byte) ([]byte, error) {
-	c.connMu.RLock()
-	if !c.connected || c.conn == nil {
-		c.connMu.RUnlock()
+	if c.client == nil {
 		return nil, ErrNotConnected
 	}
-	conn := c.conn
-	c.connMu.RUnlock()
 
-	// Update deadline for this transaction
-	if err := conn.SetDeadline(time.Now().Add(c.config.Timeout)); err != nil {
+	// ReadCoils returns []byte where each byte = 1 coil if we want raw bytes?
+	// simonvetter: ReadCoils(addr, quantity) returns ([]bool, error)
+	// We need to convert []bool to []byte (packed) to match existing interface?
+	// Existing interface used to return []byte.
+	// Let's check how driver-modbus uses it.
+	// driver-modbus calls: data, err := c.ReadCoils(...).
+	// Then it passes 'data' to parseValue.
+	// parseValue expects []byte.
+	// Internal logic was: return response[1:] (byte count + data).
+	// Actually response[1] is byte count.
+	// Whatever, let's keep it simple. If usage expects []byte packed, lets pack it.
+
+	bits, err := c.client.ReadCoils(address, quantity)
+	if err != nil {
 		return nil, err
 	}
 
-	transactionID := c.nextTransactionID()
+	return boolsToBytes(bits), nil
+}
 
-	// Build Modbus TCP MBAP header (7 bytes)
-	// Transaction ID (2 bytes) + Protocol ID (2 bytes, always 0) + Length (2 bytes) + Unit ID (1 byte)
-	length := byte(len(data) + 1) // +1 for unit ID
-	mbap := make([]byte, 7)
-	binary.BigEndian.PutUint16(mbap[0:2], transactionID)
-	binary.BigEndian.PutUint16(mbap[2:4], 0) // Protocol ID
-	binary.BigEndian.PutUint16(mbap[4:6], uint16(length))
-	mbap[6] = c.config.SlaveID
+// ReadDiscreteInputs reads discrete inputs (function code 0x02)
+func (c *Client) ReadDiscreteInputs(address uint16, quantity uint16) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	// Build complete request: MBAP + Function Code + Data
-	request := make([]byte, 0, len(mbap)+1+len(data))
-	request = append(request, mbap...)
-	request = append(request, functionCode)
-	request = append(request, data...)
-
-	// Send request
-	if _, err := conn.Write(request); err != nil {
-		c.connected = false
-		return nil, fmt.Errorf("write error: %w", err)
+	if c.client == nil {
+		return nil, ErrNotConnected
 	}
 
-	// Read response header (MBAP - 7 bytes)
-	header := make([]byte, 7)
-	if _, err := conn.Read(header); err != nil {
-		c.connected = false
-		return nil, fmt.Errorf("read header error: %w", err)
+	bits, err := c.client.ReadDiscreteInputs(address, quantity)
+	if err != nil {
+		return nil, err
 	}
 
-	// Verify transaction ID
-	respTransactionID := binary.BigEndian.Uint16(header[0:2])
-	if respTransactionID != transactionID {
-		return nil, fmt.Errorf("%w: transaction ID mismatch", ErrInvalidResponse)
-	}
-
-	// Get response length
-	respLength := binary.BigEndian.Uint16(header[4:6])
-	if respLength < 2 {
-		return nil, fmt.Errorf("%w: invalid length", ErrInvalidResponse)
-	}
-
-	// Read rest of response (function code + data)
-	remaining := int(respLength) - 1 // -1 for unit ID which is already in header
-	response := make([]byte, remaining)
-	if _, err := conn.Read(response); err != nil {
-		c.connected = false
-		return nil, fmt.Errorf("read response error: %w", err)
-	}
-
-	// Check for exception response
-	if response[0]&0x80 != 0 {
-		if len(response) < 2 {
-			return nil, ErrModbusException
-		}
-		return nil, fmt.Errorf("%w: exception code %d", ErrModbusException, response[1])
-	}
-
-	// Verify function code matches
-	if response[0] != functionCode {
-		return nil, fmt.Errorf("%w: function code mismatch", ErrInvalidResponse)
-	}
-
-	return response[1:], nil // Return data part (skip function code)
+	return boolsToBytes(bits), nil
 }
 
 // ReadHoldingRegister reads a single holding register (function code 0x03)
 func (c *Client) ReadHoldingRegister(address uint16) (uint16, error) {
-	data, err := c.readRegisters(0x03, address, 1)
-	if err != nil {
-		return 0, err
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.client == nil {
+		return 0, ErrNotConnected
 	}
-	return binary.BigEndian.Uint16(data), nil
+
+	return c.client.ReadRegister(address, modbus.HOLDING_REGISTER)
 }
 
-// ReadInputRegister reads a single input register (function code 0x04)
-func (c *Client) ReadInputRegister(address uint16) (uint16, error) {
-	data, err := c.readRegisters(0x04, address, 1)
-	if err != nil {
-		return 0, err
+// ReadHoldingRegisters reads multiple holding registers (function code 0x03)
+func (c *Client) ReadHoldingRegisters(address uint16, quantity uint16) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.client == nil {
+		return nil, ErrNotConnected
 	}
-	return binary.BigEndian.Uint16(data), nil
-}
 
-// readRegisters reads multiple registers using function code 0x03 or 0x04
-func (c *Client) readRegisters(functionCode byte, address uint16, quantity uint16) ([]byte, error) {
-	// Build request: starting address (2 bytes) + quantity (2 bytes)
-	request := make([]byte, 4)
-	binary.BigEndian.PutUint16(request[0:2], address)
-	binary.BigEndian.PutUint16(request[2:4], quantity)
-
-	response, err := c.sendRequest(functionCode, request)
+	// Returns []uint16
+	regs, err := c.client.ReadRegisters(address, quantity, modbus.HOLDING_REGISTER)
 	if err != nil {
 		return nil, err
 	}
 
-	// Response format: byte count (1 byte) + register data
-	if len(response) < 1 {
-		return nil, fmt.Errorf("%w: no byte count", ErrInvalidResponse)
+	// Convert []uint16 to []byte (Big Endian)
+	bytes := make([]byte, len(regs)*2)
+	for i, reg := range regs {
+		binary.BigEndian.PutUint16(bytes[i*2:], reg)
+	}
+	return bytes, nil
+}
+
+// ReadInputRegister reads a single input register (function code 0x04)
+func (c *Client) ReadInputRegister(address uint16) (uint16, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.client == nil {
+		return 0, ErrNotConnected
 	}
 
-	byteCount := int(response[0])
-	if len(response) < 1+byteCount {
-		return nil, fmt.Errorf("%w: incomplete data", ErrInvalidResponse)
+	return c.client.ReadRegister(address, modbus.INPUT_REGISTER)
+}
+
+// ReadInputRegisters reads multiple input registers (function code 0x04)
+func (c *Client) ReadInputRegisters(address uint16, quantity uint16) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.client == nil {
+		return nil, ErrNotConnected
 	}
 
-	return response[1:], nil
+	regs, err := c.client.ReadRegisters(address, quantity, modbus.INPUT_REGISTER)
+	if err != nil {
+		return nil, err
+	}
+
+	bytes := make([]byte, len(regs)*2)
+	for i, reg := range regs {
+		binary.BigEndian.PutUint16(bytes[i*2:], reg)
+	}
+	return bytes, nil
+}
+
+// Helper to pack bools to bytes
+func boolsToBytes(bits []bool) []byte {
+	numBytes := (len(bits) + 7) / 8
+	bytes := make([]byte, numBytes)
+	for i, b := range bits {
+		if b {
+			byteIdx := i / 8
+			bitIdx := uint(i % 8)
+			bytes[byteIdx] |= (1 << bitIdx)
+		}
+	}
+	return bytes
 }
 
 // ReadTag reads a tag value based on address and data type
-// Address format for holding registers: HR{address} (e.g., HR100) or HR{address}.{bit} for BOOL (e.g., HR100.0)
-// Address format for input registers: IR{address} (e.g., IR100) or IR{address}.{bit} for BOOL (e.g., IR100.0)
-// Data types supported: INT, BOOL, REAL
 func (c *Client) ReadTag(address string, dataType string) (interface{}, error) {
 	addrType, addrOffset, bitOffset, err := parseAddress(address)
 	if err != nil {
@@ -285,13 +290,18 @@ func (c *Client) ReadTag(address string, dataType string) (interface{}, error) {
 	}
 
 	switch dataType {
+	case "BOOL":
+		// For Coils/Discrete Inputs, bitOffset is ignored (or effectively 0)
+		if addrType == "coil" || addrType == "discrete" {
+			return c.readBoolDirect(addrType, addrOffset)
+		}
+		// For Registers, we need a bit offset
+		if bitOffset < 0 {
+			return nil, fmt.Errorf("%w: BOOL register address must include bit offset (e.g., 40001.0)", ErrInvalidAddressFormat)
+		}
+		return c.readBoolFromRegister(addrType, addrOffset, bitOffset)
 	case "INT":
 		return c.readInt(addrType, addrOffset)
-	case "BOOL":
-		if bitOffset < 0 {
-			return nil, fmt.Errorf("%w: BOOL address must include bit offset (e.g., HR100.0)", ErrInvalidAddressFormat)
-		}
-		return c.readBool(addrType, addrOffset, bitOffset)
 	case "REAL":
 		return c.readReal(addrType, addrOffset)
 	default:
@@ -301,45 +311,87 @@ func (c *Client) ReadTag(address string, dataType string) (interface{}, error) {
 
 // parseAddress parses the address string and returns type, offset, and bit offset
 func parseAddress(address string) (string, uint16, int8, error) {
-	if len(address) < 3 {
+	c := strings.TrimSpace(address)
+	if c == "" {
 		return "", 0, -1, ErrInvalidAddressFormat
 	}
 
-	prefix := address[:2]
-	offsetStr := address[2:]
+	var bitOffset int = -1
+	addrPart := c
 
-	var addrOffset uint16
-	var bitOffset int8 = -1
-
-	// Check for bit offset in BOOL addresses (e.g., HR100.0)
-	dotIdx := -1
-	for i, ch := range offsetStr {
-		if ch == '.' {
-			dotIdx = i
-			break
-		}
-	}
-
-	if dotIdx >= 0 {
-		// Parse bit offset
-		if _, err := fmt.Sscanf(offsetStr[dotIdx+1:], "%d", &bitOffset); err != nil || bitOffset < 0 || bitOffset > 15 {
+	// Check for bit offset (e.g., 40001.0)
+	if strings.Contains(c, ".") {
+		parts := strings.Split(c, ".")
+		if len(parts) != 2 {
 			return "", 0, -1, ErrInvalidAddressFormat
 		}
-		offsetStr = offsetStr[:dotIdx]
+		addrPart = parts[0]
+		bit, err := strconv.Atoi(parts[1])
+		if err != nil || bit < 0 || bit > 15 {
+			return "", 0, -1, ErrInvalidAddressFormat
+		}
+		bitOffset = bit
 	}
 
-	if _, err := fmt.Sscanf(offsetStr, "%d", &addrOffset); err != nil {
+	// Try to parse address part as integer
+	val, err := strconv.Atoi(addrPart)
+	if err != nil {
+		// Legacy/Prefix format (HR1, C1, etc.)
+		upperC := strings.ToUpper(addrPart)
+		var prefix string
+		var suffix string
+		if strings.HasPrefix(upperC, "HR") {
+			prefix = "holding"
+			suffix = addrPart[2:]
+		} else if strings.HasPrefix(upperC, "IR") {
+			prefix = "input"
+			suffix = addrPart[2:]
+		} else if strings.HasPrefix(upperC, "DI") {
+			prefix = "discrete"
+			suffix = addrPart[2:]
+		} else if strings.HasPrefix(upperC, "C") {
+			prefix = "coil"
+			suffix = addrPart[1:]
+		}
+
+		if prefix != "" {
+			off, err := strconv.Atoi(suffix)
+			if err == nil {
+				return prefix, uint16(off), int8(bitOffset), nil
+			}
+		}
 		return "", 0, -1, ErrInvalidAddressFormat
 	}
 
-	switch prefix {
-	case "HR", "hr":
-		return "holding", addrOffset, bitOffset, nil
-	case "IR", "ir":
-		return "input", addrOffset, bitOffset, nil
-	default:
-		return "", 0, -1, ErrInvalidAddressFormat
+	// Standard Modbus mapping
+	// Standard Modbus mapping
+	if val >= 40001 && val <= 49999 {
+		return "holding", uint16(val - 40001), int8(bitOffset), nil
 	}
+	if val >= 30001 && val <= 39999 {
+		return "input", uint16(val - 30001), int8(bitOffset), nil
+	}
+	if val >= 10001 && val <= 19999 {
+		return "discrete", uint16(val - 10001), int8(bitOffset), nil
+	}
+	if val >= 1 && val <= 9999 {
+		return "coil", uint16(val - 1), int8(bitOffset), nil
+	}
+
+	// Fallback for raw offsets (< 30000)
+	if val < 30000 {
+		return "holding", uint16(val), int8(bitOffset), nil
+	}
+
+	// Extended addressing (6-digit)
+	if val >= 400001 && val <= 499999 {
+		return "holding", uint16(val - 400001), int8(bitOffset), nil
+	}
+	if val >= 300001 && val <= 399999 {
+		return "input", uint16(val - 300001), int8(bitOffset), nil
+	}
+
+	return "", 0, -1, ErrInvalidAddressFormat
 }
 
 // readInt reads a 16-bit signed integer
@@ -353,7 +405,7 @@ func (c *Client) readInt(addrType string, address uint16) (int16, error) {
 	case "input":
 		value, err = c.ReadInputRegister(address)
 	default:
-		return 0, ErrInvalidAddressFormat
+		return 0, fmt.Errorf("%w: INT valid only for holding/input registers", ErrInvalidAddressFormat)
 	}
 
 	if err != nil {
@@ -363,9 +415,34 @@ func (c *Client) readInt(addrType string, address uint16) (int16, error) {
 	return int16(value), nil
 }
 
-// readBool reads a boolean value from a single bit in a register
-// Format: HR100.0 = bit 0 of holding register 100, HR100.15 = bit 15
-func (c *Client) readBool(addrType string, regAddr uint16, bitOffset int8) (bool, error) {
+// readBoolDirect reads a boolean from Coil or Discrete Input
+func (c *Client) readBoolDirect(addrType string, address uint16) (bool, error) {
+	var data []byte
+	var err error
+
+	switch addrType {
+	case "coil":
+		data, err = c.ReadCoils(address, 1)
+	case "discrete":
+		data, err = c.ReadDiscreteInputs(address, 1)
+	default:
+		return false, ErrInvalidAddressFormat
+	}
+
+	if err != nil {
+		return false, err
+	}
+
+	if len(data) == 0 {
+		return false, ErrInvalidResponse
+	}
+
+	// First bit of first byte
+	return (data[0] & 0x01) == 1, nil
+}
+
+// readBoolFromRegister reads a boolean value from a single bit in a register
+func (c *Client) readBoolFromRegister(addrType string, regAddr uint16, bitOffset int8) (bool, error) {
 	var value uint16
 	var err error
 
@@ -389,29 +466,28 @@ func (c *Client) readBool(addrType string, regAddr uint16, bitOffset int8) (bool
 
 // readReal reads a 32-bit float (REAL) from two consecutive registers
 func (c *Client) readReal(addrType string, address uint16) (float32, error) {
-	var data []byte
+	// Read 2 registers (4 bytes)
+	var regs []byte
 	var err error
 
-	// Read 2 registers (4 bytes)
 	switch addrType {
 	case "holding":
-		data, err = c.readRegisters(0x03, address, 2)
+		regs, err = c.ReadHoldingRegisters(address, 2)
 	case "input":
-		data, err = c.readRegisters(0x04, address, 2)
+		regs, err = c.ReadInputRegisters(address, 2)
 	default:
-		return 0, ErrInvalidAddressFormat
+		return 0, fmt.Errorf("%w: REAL valid only for holding/input registers", ErrInvalidAddressFormat)
 	}
 
 	if err != nil {
 		return 0, err
 	}
 
-	if len(data) < 4 {
-		return 0, fmt.Errorf("%w: insufficient data for REAL", ErrInvalidResponse)
+	if len(regs) < 4 {
+		return 0, fmt.Errorf("%w: insufficient data", ErrInvalidResponse)
 	}
 
-	// Convert big-endian uint32 to float32
-	bits := binary.BigEndian.Uint32(data[0:4])
+	bits := binary.BigEndian.Uint32(regs)
 	value := math.Float32frombits(bits)
 
 	return value, nil

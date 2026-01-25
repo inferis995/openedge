@@ -42,6 +42,7 @@ type CreateGatewayRequest struct {
 	DriverType       string                  `json:"driver_type" binding:"required"`
 	ConnectionConfig models.ConnectionConfig `json:"connection_config" binding:"required"`
 	ScanRateMs       int                     `json:"scan_rate_ms"`
+	ZeroBased        *bool                   `json:"zero_based"` // Optional, default should be true
 }
 
 // UpdateGatewayRequest represents the request body for updating a gateway
@@ -51,6 +52,7 @@ type UpdateGatewayRequest struct {
 	ConnectionConfig *models.ConnectionConfig `json:"connection_config"`
 	ScanRateMs       *int                     `json:"scan_rate_ms"`
 	Enabled          *bool                    `json:"enabled"`
+	ZeroBased        *bool                    `json:"zero_based"`
 }
 
 // GatewayHealthStatus represents the health status from Redis
@@ -68,6 +70,7 @@ type GatewayWithHealth struct {
 	ConnectionConfig models.ConnectionConfig `json:"connection_config"`
 	ScanRateMs       int                     `json:"scan_rate_ms"`
 	Enabled          bool                    `json:"enabled"`
+	ZeroBased        bool                    `json:"zero_based"`
 	CreatedAt        time.Time               `json:"created_at"`
 	ConnectionStatus string                  `json:"connection_status,omitempty"` // "online" or "offline"
 	LastSeen         *int64                  `json:"last_seen,omitempty"`         // Unix timestamp in milliseconds
@@ -106,6 +109,7 @@ func (h *GatewaysHandler) enrichGatewayWithHealth(gateway models.Gateway) Gatewa
 		ConnectionConfig: gateway.ConnectionConfig,
 		ScanRateMs:       gateway.ScanRateMs,
 		Enabled:          gateway.Enabled,
+		ZeroBased:        gateway.ZeroBased,
 		CreatedAt:        gateway.CreatedAt,
 		ConnectionStatus: status,
 		LastSeen:         lastSeen,
@@ -175,17 +179,25 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 		scanRateMs = 1000
 	}
 
+	// Set default zero_based if not provided (nil check handled by defaulting logic or SQL default)
+	// Ideally, the DB defaults to TRUE.
+	zeroBased := true
+	if req.ZeroBased != nil {
+		zeroBased = *req.ZeroBased
+	}
+
 	var gateway models.Gateway
 	err = h.db.QueryRow(
-		`INSERT INTO gateways (area_id, name, driver_type, connection_config, scan_rate_ms, enabled)
-		 VALUES ($1, $2, $3, $4, $5, TRUE)
-		 RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at`,
+		`INSERT INTO gateways (area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based)
+		 VALUES ($1, $2, $3, $4, $5, TRUE, $6)
+		 RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at`,
 		req.AreaID,
 		req.Name,
 		req.DriverType,
 		req.ConnectionConfig,
 		scanRateMs,
-	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt)
+		zeroBased,
+	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create gateway"})
@@ -255,13 +267,13 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 		}
 
 		rows, err = h.db.Query(
-			"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at FROM gateways WHERE area_id = $1 ORDER BY id",
+			"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at FROM gateways WHERE area_id = $1 ORDER BY id",
 			areaID,
 		)
 	} else {
 		// Case 2: List All Gateways for Organization
 		rows, err = h.db.Query(
-			`SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled, g.created_at 
+			`SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled, g.zero_based, g.created_at 
 			 FROM gateways g
 			 JOIN areas a ON g.area_id = a.id
 			 JOIN sites s ON a.site_id = s.id
@@ -280,7 +292,7 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 	var gatewaysWithHealth []GatewayWithHealth
 	for rows.Next() {
 		var gateway models.Gateway
-		if err := rows.Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt); err != nil {
+		if err := rows.Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan gateway"})
 			return
 		}
@@ -321,9 +333,9 @@ func (h *GatewaysHandler) Get(c *gin.Context) {
 
 	var gateway models.Gateway
 	err := h.db.QueryRow(
-		"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at FROM gateways WHERE id = $1",
+		"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at FROM gateways WHERE id = $1",
 		id,
-	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt)
+	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -549,6 +561,11 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 		args = append(args, *req.Enabled)
 		argPos++
 	}
+	if req.ZeroBased != nil {
+		updates = append(updates, "zero_based = $"+strconv.Itoa(argPos))
+		args = append(args, *req.ZeroBased)
+		argPos++
+	}
 
 	if len(updates) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
@@ -561,12 +578,12 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 	for i := 1; i < len(updates); i++ {
 		query += ", " + updates[i]
 	}
-	query += " WHERE id = $" + strconv.Itoa(argPos) + " RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, created_at"
+	query += " WHERE id = $" + strconv.Itoa(argPos) + " RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at"
 
 	var gateway models.Gateway
 	err = h.db.QueryRow(query, args...).Scan(
 		&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType,
-		&gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.CreatedAt,
+		&gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt,
 	)
 
 	if err != nil {

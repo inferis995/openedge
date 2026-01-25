@@ -92,7 +92,13 @@ services:
       REDIS_PORT: 6379
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
+      INFLUX_URL: http://influxdb:8086
+      INFLUX_TOKEN: my-super-secret-auth-token
+      INFLUX_ORG: industrial_edge
+      INFLUX_BUCKET: historical_data
       PORT: 8080
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8080:8080"
     depends_on:
@@ -113,7 +119,7 @@ services:
 
   web-ui:
     build:
-      context: frontend
+      context: services/web-ui
       dockerfile: Dockerfile
     container_name: industrial-web-ui
     ports:
@@ -121,6 +127,34 @@ services:
     depends_on:
       core-api:
         condition: service_healthy
+    networks:
+      - industrial-network
+
+  # Driver Images (Built for Driver Manager to spawn)
+  driver-modbus:
+    build:
+      context: .
+      dockerfile: services/driver-modbus/Dockerfile
+    image: industrial-driver-modbus:latest
+    profiles: [ "drivers" ] # Don't start automatically
+    networks:
+      - industrial-network
+
+  driver-redis:
+    build:
+      context: .
+      dockerfile: services/driver-redis/Dockerfile
+    image: industrial-driver-redis:latest
+    profiles: [ "drivers" ] # Don't start automatically
+    networks:
+      - industrial-network
+
+  driver-s7:
+    build:
+      context: .
+      dockerfile: services/driver-s7/Dockerfile
+    image: industrial-driver-s7:latest
+    profiles: [ "drivers" ] # Don't start automatically
     networks:
       - industrial-network
 
@@ -139,6 +173,8 @@ services:
       MQTT_PORT: 1883
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       postgres:
         condition: service_healthy
