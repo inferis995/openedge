@@ -1,9 +1,14 @@
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Bell, RefreshCw, ChevronRight } from 'lucide-react';
+import { Bell, RefreshCw, ChevronRight, Building2, Factory, MapPin, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAlarmStore } from '@/stores/useAlarmStore';
+import { useNavigationStore } from '@/stores/useNavigationStore';
+import { organizationsApi } from '@/api/organizations';
+import { sitesApi } from '@/api/sites';
+import { areasApi } from '@/api/areas';
 import { useEffect } from 'react';
 
 const Header = () => {
@@ -12,6 +17,28 @@ const Header = () => {
 
     // Get real-time alarm state from store
     const { activeAlarmCount, isMqttConnected, connectMqtt } = useAlarmStore();
+
+    // Get navigation context
+    const { selectedOrgId, selectedSiteId, selectedAreaId, clearSelection } = useNavigationStore();
+
+    // Fetch context names
+    const { data: org } = useQuery({
+        queryKey: ['org', selectedOrgId],
+        queryFn: () => organizationsApi.get(selectedOrgId!),
+        enabled: !!selectedOrgId
+    });
+
+    const { data: site } = useQuery({
+        queryKey: ['site', selectedSiteId],
+        queryFn: () => sitesApi.get(selectedSiteId!),
+        enabled: !!selectedSiteId
+    });
+
+    const { data: area } = useQuery({
+        queryKey: ['area', selectedAreaId],
+        queryFn: () => areasApi.get(selectedAreaId!),
+        enabled: !!selectedAreaId
+    });
 
     // Connect to MQTT on mount
     useEffect(() => {
@@ -22,8 +49,6 @@ const Header = () => {
         const path = location.pathname;
         const parts = path.split('/').filter(Boolean);
 
-        // Simple breadcrumb logic based on path
-        // In a real app, we would fetch names based on IDs from store
         const crumbs = [
             { name: 'Home', path: '/' },
             ...parts.map((part, index) => {
@@ -38,21 +63,68 @@ const Header = () => {
 
     return (
         <header className="h-16 border-b bg-background px-6 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                {breadcrumbs.map((crumb, index) => (
-                    <div key={crumb.path} className="flex items-center gap-2">
-                        {index > 0 && <ChevronRight size={14} />}
-                        <span
-                            className={cn(
-                                "cursor-pointer hover:text-foreground transition-colors",
-                                index === breadcrumbs.length - 1 && "font-semibold text-foreground"
+            <div className="flex items-center gap-6">
+                {/* Standard Breadcrumbs */}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mr-4">
+                    {breadcrumbs.map((crumb, index) => (
+                        <div key={crumb.path} className="flex items-center gap-2">
+                            {index > 0 && <ChevronRight size={14} />}
+                            <span
+                                className={cn(
+                                    "cursor-pointer hover:text-foreground transition-colors",
+                                    index === breadcrumbs.length - 1 && "font-semibold text-foreground"
+                                )}
+                                onClick={() => navigate(crumb.path)}
+                            >
+                                {crumb.name}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Context Indicator (Professional Badge) */}
+                {(selectedOrgId || selectedSiteId || selectedAreaId) && (
+                    <div className="hidden md:flex items-center bg-slate-100 dark:bg-slate-800 rounded-full px-3 py-1 border border-slate-200 dark:border-slate-700">
+                        <span className="text-xs font-medium text-slate-500 mr-2 uppercase tracking-wider">Context:</span>
+
+                        <div className="flex items-center gap-1 text-sm text-slate-700 dark:text-slate-300">
+                            {org && (
+                                <div className="flex items-center gap-1">
+                                    <Building2 size={12} className="text-blue-500" />
+                                    <span className="font-medium">{org.name}</span>
+                                </div>
                             )}
-                            onClick={() => navigate(crumb.path)}
+
+                            {site && (
+                                <>
+                                    <span className="text-slate-400">/</span>
+                                    <div className="flex items-center gap-1">
+                                        <Factory size={12} className="text-indigo-500" />
+                                        <span className="font-medium">{site.name}</span>
+                                    </div>
+                                </>
+                            )}
+
+                            {area && (
+                                <>
+                                    <span className="text-slate-400">/</span>
+                                    <div className="flex items-center gap-1">
+                                        <MapPin size={12} className="text-violet-500" />
+                                        <span className="font-medium">{area.name}</span>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
+                        <button
+                            onClick={clearSelection}
+                            className="ml-3 p-0.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-red-500 transition-colors"
+                            title="Clear Context Filter"
                         >
-                            {crumb.name}
-                        </span>
+                            <X size={14} />
+                        </button>
                     </div>
-                ))}
+                )}
             </div>
 
             <div className="flex items-center gap-4">

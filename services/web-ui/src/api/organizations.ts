@@ -7,6 +7,11 @@ export const organizationsApi = {
         return response.data;
     },
 
+    get: async (id: number): Promise<Organization> => {
+        const response = await api.get(`/organizations/${id}`);
+        return response.data;
+    },
+
     create: async (data: CreateOrganizationDto): Promise<Organization> => {
         const response = await api.post('/organizations', data);
         return response.data;

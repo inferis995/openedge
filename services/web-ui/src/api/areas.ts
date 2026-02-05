@@ -7,6 +7,11 @@ export const areasApi = {
         return response.data;
     },
 
+    get: async (id: number): Promise<Area> => {
+        const response = await api.get(`/areas/${id}`);
+        return response.data;
+    },
+
     create: async (data: CreateAreaDto): Promise<Area> => {
         const config = data.org_id ? {
             headers: {
