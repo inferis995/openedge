@@ -1,9 +1,9 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useTags } from '@/hooks/useTags';
+import { tagsApi } from '@/api/tags';
 import { useGateways } from '@/hooks/useGateways';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useNavigationStore } from '@/stores/useNavigationStore';
-import { tagsApi } from '@/api/tags';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -346,12 +346,41 @@ const TagsPage = () => {
     };
 
     // Initial values will come through the WebSocket (useRealtime)
-    // Legacy polling removed to prevent 404 spam for deleted tags.
+    // Also fetch initial values on page load so we don't show "-" until first change
+    useEffect(() => {
+        const fetchInitialValues = async () => {
+            if (!tags || tags.length === 0) return;
 
-    // Clear current values when tags change or gateway changes
+            const newValues = new Map<number, CurrentValue>();
+
+            // Fetch current value for each tag in parallel using tagsApi (includes X-Organization-ID)
+            await Promise.allSettled(
+                tags.map(async (tag) => {
+                    try {
+                        const currentValue = await tagsApi.getCurrentValue(tag.id);
+                        newValues.set(tag.id, currentValue);
+                    } catch (err) {
+                        // Silently ignore errors for individual tags (no value in Redis yet)
+                    }
+                })
+            );
+
+            if (newValues.size > 0) {
+                setCurrentValues(prev => {
+                    const merged = new Map(prev);
+                    newValues.forEach((v, k) => merged.set(k, v));
+                    return merged;
+                });
+            }
+        };
+
+        fetchInitialValues();
+    }, [tags]);
+
+    // Clear current values when gateway changes
     useEffect(() => {
         setCurrentValues(new Map());
-    }, [selectedGatewayId, tags]);
+    }, [selectedGatewayId]);
 
     const tagsList = useMemo(() => tags, [tags]);
 

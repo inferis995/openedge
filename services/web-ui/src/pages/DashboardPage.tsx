@@ -83,7 +83,7 @@ const DashboardPage = () => {
                                 recentGateways.map((gw) => (
                                     <div key={gw.id} className="flex items-center justify-between border-b pb-2 last:border-0 last:pb-0">
                                         <div className="flex items-center gap-4">
-                                            <div className={`h-2 w-2 rounded-full ${gw.status === 'online' ? 'bg-green-500' : 'bg-red-500'}`} />
+                                            <div className={`h-2 w-2 rounded-full ${gw.connection_status === 'online' ? 'bg-green-500' : 'bg-red-500'}`} />
                                             <div>
                                                 <p className="text-sm font-medium leading-none">{gw.name}</p>
                                                 <p className="text-xs text-muted-foreground">{gw.driver_type} • {gw.connection_config?.ip_address || ''}</p>

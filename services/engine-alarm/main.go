@@ -181,7 +181,7 @@ func (s *AlarmService) handleDataMessage(topic string, payload []byte) {
 	// Parse topic structure: data/{org}/{site}/{area}/{gateway}/{alias}
 	parts := strings.Split(topic, "/")
 	if len(parts) < 6 || parts[0] != "data" {
-		log.Printf("Invalid topic format: %s", topic)
+		log.Printf("[ALARM] Invalid topic format: %s", topic)
 		return
 	}
 
@@ -194,24 +194,30 @@ func (s *AlarmService) handleDataMessage(topic string, payload []byte) {
 	// Parse MQTT payload
 	var mqttPayload MQTTPayload
 	if err := json.Unmarshal(payload, &mqttPayload); err != nil {
-		log.Printf("Failed to parse MQTT payload from topic %s: %v", topic, err)
+		log.Printf("[ALARM] Failed to parse MQTT payload from topic %s: %v", topic, err)
 		return
 	}
 
 	// Skip bad quality values
 	if mqttPayload.Q != 0 {
+		log.Printf("[ALARM] Skipping bad quality data (q=%d) from topic: %s", mqttPayload.Q, topic)
 		return
 	}
+
+	// Log incoming data for debugging
+	log.Printf("[ALARM] Processing data from topic: %s, value: %v (type: %T), ts: %d",
+		topic, mqttPayload.V, mqttPayload.V, mqttPayload.Ts)
 
 	// Get tag alarm configuration from database
 	tagConfig, err := s.getTagAlarmConfig(org, site, area, gateway, alias)
 	if err != nil {
-		log.Printf("Failed to get tag alarm config for topic %s: %v", topic, err)
+		// Error already logged in getTagAlarmConfig
 		return
 	}
 
 	// Skip if alarm is not enabled for this tag
 	if !tagConfig.AlarmEnabled {
+		log.Printf("[ALARM] Alarm not enabled for tag ID %d, skipping", tagConfig.TagID)
 		return
 	}
 
@@ -221,6 +227,13 @@ func (s *AlarmService) handleDataMessage(topic string, payload []byte) {
 
 // getTagAlarmConfig retrieves alarm configuration for a tag based on its topic
 func (s *AlarmService) getTagAlarmConfig(org, site, area, gateway, alias string) (*TagAlarmConfig, error) {
+	// Trim whitespace from all parameters to handle cases with extra spaces
+	org = strings.TrimSpace(org)
+	site = strings.TrimSpace(site)
+	area = strings.TrimSpace(area)
+	gateway = strings.TrimSpace(gateway)
+	alias = strings.TrimSpace(alias)
+
 	query := `
 		SELECT t.id, t.alarm_enabled, t.alarm_threshold, t.alarm_operator, t.alarm_priority
 		FROM tags t
@@ -228,11 +241,11 @@ func (s *AlarmService) getTagAlarmConfig(org, site, area, gateway, alias string)
 		JOIN areas a ON g.area_id = a.id
 		JOIN sites si ON a.site_id = si.id
 		JOIN organizations o ON si.org_id = o.id
-		WHERE LOWER(o.name) = LOWER($1)
-		AND LOWER(si.name) = LOWER($2)
-		AND LOWER(a.name) = LOWER($3)
-		AND LOWER(g.name) = LOWER($4)
-		AND LOWER(t.alias) = LOWER($5)
+		WHERE TRIM(LOWER(o.name)) = TRIM(LOWER($1))
+		AND TRIM(LOWER(si.name)) = TRIM(LOWER($2))
+		AND TRIM(LOWER(a.name)) = TRIM(LOWER($3))
+		AND TRIM(LOWER(g.name)) = TRIM(LOWER($4))
+		AND TRIM(LOWER(t.alias)) = TRIM(LOWER($5))
 	`
 
 	var config TagAlarmConfig
@@ -245,8 +258,17 @@ func (s *AlarmService) getTagAlarmConfig(org, site, area, gateway, alias string)
 	)
 
 	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("[ALARM] Tag config not found for topic: org=%q site=%q area=%q gateway=%q alias=%q",
+				org, site, area, gateway, alias)
+		} else {
+			log.Printf("[ALARM] Database error querying tag config: %v", err)
+		}
 		return nil, err
 	}
+
+	log.Printf("[ALARM] Found tag config: ID=%d, enabled=%v, threshold=%.2f, operator=%s",
+		config.TagID, config.AlarmEnabled, config.AlarmThreshold, config.AlarmOperator)
 
 	return &config, nil
 }
@@ -269,6 +291,7 @@ func (s *AlarmService) checkAlarmCondition(config *TagAlarmConfig, value interfa
 	case bool:
 		// Boolean values don't use threshold comparison
 		// They trigger on true, clear on false
+		log.Printf("[ALARM] Boolean check for tag %d: %v", config.TagID, v)
 		if v {
 			s.transitionToAlarm(config.TagID, timestamp, "Value is true")
 		} else {
@@ -276,7 +299,7 @@ func (s *AlarmService) checkAlarmCondition(config *TagAlarmConfig, value interfa
 		}
 		return
 	default:
-		log.Printf("Unsupported value type for alarm check: %T", value)
+		log.Printf("[ALARM] Unsupported value type for alarm check: %T", value)
 		return
 	}
 
@@ -298,17 +321,24 @@ func (s *AlarmService) checkAlarmCondition(config *TagAlarmConfig, value interfa
 		alarmTriggered = floatValue == config.AlarmThreshold
 		message = fmt.Sprintf("Value equals threshold %.2f", floatValue)
 	default:
-		log.Printf("Unknown alarm operator: %s", config.AlarmOperator)
+		log.Printf("[ALARM] Unknown alarm operator: %s", config.AlarmOperator)
 		return
 	}
+
+	log.Printf("[ALARM] Tag %d check: value=%.2f, operator=%s, threshold=%.2f, triggered=%v, current_state=%s",
+		config.TagID, floatValue, config.AlarmOperator, config.AlarmThreshold, alarmTriggered, currentState)
 
 	// Handle state transitions
 	if alarmTriggered {
 		if currentState != AlarmStateActive && currentState != AlarmStateAcknowledged {
+			log.Printf("[ALARM] Transitioning tag %d to ACTIVE", config.TagID)
 			s.transitionToAlarm(config.TagID, timestamp, message)
+		} else {
+			log.Printf("[ALARM] Tag %d already in %s state, not re-triggering", config.TagID, currentState)
 		}
 	} else {
 		if currentState == AlarmStateActive || currentState == AlarmStateAcknowledged {
+			log.Printf("[ALARM] Transitioning tag %d to RTN", config.TagID)
 			s.transitionToRTN(config.TagID, timestamp)
 		}
 	}

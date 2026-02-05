@@ -109,6 +109,11 @@ func main() {
 	defer mqttClient.Disconnect(1000)
 	log.Println("[DRIVER] Connected to MQTT broker")
 
+	// Publish online status (matches LWT topic for health tracking)
+	healthTopic := fmt.Sprintf("sys/health/%d", gatewayID)
+	mqttClient.PublishWithQoS(healthTopic, "online", 1, true)
+	log.Printf("[DRIVER] Published online status to %s", healthTopic)
+
 	driver := &Driver{
 		gatewayID:      gatewayID,
 		database:       database,

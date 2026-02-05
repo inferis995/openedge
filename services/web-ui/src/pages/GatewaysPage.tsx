@@ -406,8 +406,8 @@ const GatewaysPage = () => {
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">
-                                            <div className={`h-2.5 w-2.5 rounded-full ${gw.status === 'online' ? 'bg-green-500' : 'bg-red-500'}`} />
-                                            <span className="text-sm capitalize">{gw.status || 'Unknown'}</span>
+                                            <div className={`h-2.5 w-2.5 rounded-full ${gw.connection_status === 'online' ? 'bg-green-500' : 'bg-red-500'}`} />
+                                            <span className="text-sm capitalize">{gw.connection_status || 'Unknown'}</span>
                                         </div>
                                     </TableCell>
                                     <TableCell>

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -86,7 +87,8 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 	orgName, err := h.getTagOrganization(tagID, orgID)
 	if err != nil {
 		// Tag not found or doesn't belong to this organization
-		c.JSON(http.StatusForbidden, gin.H{"error": "Tag not found or access denied"})
+		log.Printf("[HISTORY] Tag %d not found or access denied for org %d: %v", tagID, orgID, err)
+		c.JSON(http.StatusForbidden, gin.H{"error": "Tag not found or access denied", "detail": err.Error()})
 		return
 	}
 
@@ -127,12 +129,15 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 
 	// Build Flux query with organization filter
 	query := h.buildFluxQuery(tagID, orgName, startTime, endTime, agg, interval)
+	log.Printf("[HISTORY] Querying tag_id=%d, org=%q, start=%s, end=%s, agg=%s, interval=%s",
+		tagID, orgName, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339), agg, interval)
 
 	// Execute query
 	queryAPI := h.influxClient.QueryAPI(h.influxOrg)
 	result, err := queryAPI.Query(context.Background(), query)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to query InfluxDB: %v", err)})
+		log.Printf("[HISTORY] Failed to query InfluxDB: %v\nQuery was: %s", err, query)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to query InfluxDB: %v", err), "query": query})
 		return
 	}
 	defer result.Close()
@@ -160,8 +165,16 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 
 	// Check for query errors
 	if result.Err() != nil {
+		log.Printf("[HISTORY] Query error after iteration: %v", result.Err())
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Query error: %v", result.Err())})
 		return
+	}
+
+	log.Printf("[HISTORY] Query successful: returned %d data points for tag_id=%d", len(dataPoints), tagID)
+
+	// Return empty array instead of null for consistency
+	if dataPoints == nil {
+		dataPoints = []HistoryDataPoint{}
 	}
 
 	c.JSON(http.StatusOK, dataPoints)

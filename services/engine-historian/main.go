@@ -240,12 +240,12 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	gateway := parts[4]
 	alias := parts[5]
 
-	// Unslugify: convert hyphens back to spaces for DB lookup
+	// Unslugify: convert hyphens back to spaces for DB lookup (except alias, which can contain hyphens)
 	org = strings.ReplaceAll(org, "-", " ")
 	site = strings.ReplaceAll(site, "-", " ")
 	area = strings.ReplaceAll(area, "-", " ")
 	gateway = strings.ReplaceAll(gateway, "-", " ")
-	alias = strings.ReplaceAll(alias, "-", " ")
+	// Note: alias is NOT unslugified because tag aliases can legitimately contain hyphens (e.g., "test-1")
 
 	// Parse JSON payload: {"v": value, "ts": timestamp_ms, "q": quality}
 	var mqttPayload MQTTPayload
@@ -271,17 +271,23 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 
 	// Skip if historize is disabled
 	if !tagInfo.Historize {
+		log.Printf("[HISTORIAN] Tag %d has historize=false, skipping InfluxDB storage", tagInfo.ID)
 		return
 	}
 
 	// Check deadband filter
 	if !s.shouldStoreValue(tagInfo, mqttPayload.V) {
 		// Value within deadband, skip storing
+		log.Printf("[HISTORIAN] Tag %d value within deadband (%.2f), skipping storage",
+			tagInfo.ID, tagInfo.HistorizeDeadband)
 		return
 	}
 
 	// Store previous value in Redis for next deadband comparison
 	s.storePreviousValue(tagInfo.ID, mqttPayload.V)
+
+	log.Printf("[HISTORIAN] Storing data point for tag %d: value=%v, ts=%d",
+		tagInfo.ID, mqttPayload.V, mqttPayload.Ts)
 
 	// Create data point
 	dp := &DataPoint{
@@ -394,6 +400,13 @@ func (s *HistorianService) flushBufferUnsafe() {
 
 // getTagInfo retrieves tag information from PostgreSQL, with Redis caching
 func (s *HistorianService) getTagInfo(org, site, area, gateway, alias string) (*TagInfo, error) {
+	// Trim whitespace from all parameters to handle cases with extra spaces
+	org = strings.TrimSpace(org)
+	site = strings.TrimSpace(site)
+	area = strings.TrimSpace(area)
+	gateway = strings.TrimSpace(gateway)
+	alias = strings.TrimSpace(alias)
+
 	// First try to get from Redis cache
 	cacheKey := fmt.Sprintf("tag_info:%s:%s:%s:%s:%s", org, site, area, gateway, alias)
 	cached, err := s.redisClient.Get(cacheKey)
@@ -413,11 +426,11 @@ func (s *HistorianService) getTagInfo(org, site, area, gateway, alias string) (*
 		JOIN areas a ON g.area_id = a.id
 		JOIN sites s ON a.site_id = s.id
 		JOIN organizations o ON s.org_id = o.id
-		WHERE LOWER(o.name) = LOWER($1)
-		  AND LOWER(s.name) = LOWER($2)
-		  AND LOWER(a.name) = LOWER($3)
-		  AND LOWER(g.name) = LOWER($4)
-		  AND LOWER(t.alias) = LOWER($5)
+		WHERE TRIM(LOWER(o.name)) = TRIM(LOWER($1))
+		  AND TRIM(LOWER(s.name)) = TRIM(LOWER($2))
+		  AND TRIM(LOWER(a.name)) = TRIM(LOWER($3))
+		  AND TRIM(LOWER(g.name)) = TRIM(LOWER($4))
+		  AND TRIM(LOWER(t.alias)) = TRIM(LOWER($5))
 	`
 
 	var tagInfo TagInfo
@@ -428,8 +441,13 @@ func (s *HistorianService) getTagInfo(org, site, area, gateway, alias string) (*
 		&tagInfo.HistorizeDeadband,
 	)
 	if err != nil {
+		log.Printf("[HISTORIAN] Tag lookup failed: org=%q site=%q area=%q gateway=%q alias=%q: %v",
+			org, site, area, gateway, alias, err)
 		return nil, fmt.Errorf("failed to query tag info: %w", err)
 	}
+
+	log.Printf("[HISTORIAN] Found tag: ID=%d, historize=%v, deadband=%.2f",
+		tagInfo.ID, tagInfo.Historize, tagInfo.HistorizeDeadband)
 
 	// Cache in Redis for 1 hour (3600 seconds)
 	tagInfoJSON, _ := json.Marshal(tagInfo)

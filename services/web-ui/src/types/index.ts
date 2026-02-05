@@ -26,7 +26,8 @@ export interface Gateway {
     connection_config: any; // Nested config
     scan_rate_ms: number;
     enabled: boolean;
-    status?: string; // "online" | "offline"
+    status?: string; // deprecated, use connection_status
+    connection_status?: string; // "online" | "offline" from API
     last_seen?: number;
     created_at?: string;
     zero_based?: boolean;

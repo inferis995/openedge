@@ -17,7 +17,7 @@ export const useRealtime = (orgId: number | undefined) => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         // Use the same host as the API, but check if we are in dev mode (localhost:3004 vs localhost:8080)
         // Usually the API is on port 8080 as per docker-compose
-        const apiHost = window.location.hostname === 'localhost' ? 'localhost:8080' : window.location.host;
+        const apiHost = window.location.hostname === 'localhost' ? 'localhost:8081' : window.location.host;
         const wsUrl = `${protocol}//${apiHost}/api/ws/realtime?org_id=${orgId}`;
 
         console.log(`[WS] Connecting to ${wsUrl}`);
