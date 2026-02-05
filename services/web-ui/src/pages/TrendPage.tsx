@@ -71,7 +71,7 @@ const TrendPage = () => {
     const chartData = useMemo(() => {
         try {
             // Create a map of all timestamps
-            const timestampMap = new Map<number, Record<string, string | number>>();
+            const timestampMap = new Map<number, Record<string, string | number | null>>();
 
             historyQueries.forEach((query, index) => {
                 const tagId = selectedTagIds[index];
@@ -88,7 +88,11 @@ const TrendPage = () => {
                         timestampMap.set(ts, { timestamp: ts, date: new Date(ts).toLocaleString() });
                     }
                     const entry = timestampMap.get(ts)!;
-                    entry[`${tagKey}_value`] = typeof point.value === 'number' ? point.value : 0;
+                    if (point.quality === 2) {
+                        entry[`${tagKey}_value`] = null;
+                    } else {
+                        entry[`${tagKey}_value`] = typeof point.value === 'number' ? point.value : 0;
+                    }
                     entry[`${tagKey}_quality`] = point.quality;
                 });
             });

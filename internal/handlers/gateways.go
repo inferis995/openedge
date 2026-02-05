@@ -17,6 +17,7 @@ import (
 // MQTTClient interface for publishing reload commands
 type MQTTClient interface {
 	Publish(topic string, payload interface{}) error
+	PublishWithQoS(topic string, payload interface{}, qos byte, retained bool) error
 }
 
 // GatewaysHandler handles gateway-related HTTP requests
@@ -412,6 +413,41 @@ func (h *GatewaysHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	// 0. MQTT Retained Message Cleanup
+	// Fetch all tags to clear their retained messages from broker
+	// We need org, site, area, gateway, tag_alias to build the topic
+	rows, err := h.db.Query(`
+		SELECT 
+			o.name as org, 
+			s.name as site, 
+			a.name as area, 
+			g.name as gateway, 
+			t.alias 
+		FROM tags t
+		JOIN gateways g ON t.gateway_id = g.id
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id
+		JOIN organizations o ON s.org_id = o.id
+		WHERE g.id = $1`, id)
+
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var org, site, area, gateway, tagAlias string
+			if err := rows.Scan(&org, &site, &area, &gateway, &tagAlias); err == nil {
+				// Topic format: data/{org}/{site}/{area}/{gateway}/{tag_alias}
+				topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", org, site, area, gateway, tagAlias)
+
+				// Publish empty retained message to clear it
+				if h.mqttClient != nil {
+					// Publish with QoS 1 and Retained=true to clear the message from broker
+					// Empty payload ("") or nil deletes the retained message
+					h.mqttClient.PublishWithQoS(topic, "", 1, true)
+				}
+			}
+		}
+	}
+
 	// Manual Cascade Delete Transaction
 	tx, err := h.db.Begin()
 	if err != nil {
@@ -449,13 +485,11 @@ func (h *GatewaysHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Also should define commands to stop driver if running, but for now we assume
-	// driver manager will handle config reload or we publish a delete/reload command
+	// Publish reload command
 	if h.mqttClient != nil {
-		// Just send a reload command to valid gateway ID? Or a special delete command?
-		// For simplicity, we can rely on periodic sync or manual reload.
-		// A cleaner way is publishing a system reload event.
-		// h.mqttClient.Publish("sys/command/reload/" + id, "deleted")
+		// Also publish health unknown/offline
+		h.mqttClient.Publish(fmt.Sprintf("sys/health/%s", id), "offline")
+		h.mqttClient.Publish(fmt.Sprintf("sys/command/reload/%s", id), "deleted")
 	}
 
 	c.Status(http.StatusNoContent)

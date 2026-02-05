@@ -74,7 +74,8 @@ type TagInfo struct {
 
 // PreviousValue represents the previous value stored in Redis for deadband comparison
 type PreviousValue struct {
-	Value interface{} `json:"v"`
+	Value   interface{} `json:"v"`
+	Quality int         `json:"q"`
 }
 
 // RealtimeValue represents the current value stored in Redis for real-time queries
@@ -276,7 +277,7 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	}
 
 	// Check deadband filter
-	if !s.shouldStoreValue(tagInfo, mqttPayload.V) {
+	if !s.shouldStoreValue(tagInfo, mqttPayload.V, mqttPayload.Q) {
 		// Value within deadband, skip storing
 		log.Printf("[HISTORIAN] Tag %d value within deadband (%.2f), skipping storage",
 			tagInfo.ID, tagInfo.HistorizeDeadband)
@@ -284,7 +285,7 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	}
 
 	// Store previous value in Redis for next deadband comparison
-	s.storePreviousValue(tagInfo.ID, mqttPayload.V)
+	s.storePreviousValue(tagInfo.ID, mqttPayload.V, mqttPayload.Q)
 
 	log.Printf("[HISTORIAN] Storing data point for tag %d: value=%v, ts=%d",
 		tagInfo.ID, mqttPayload.V, mqttPayload.Ts)
@@ -457,7 +458,7 @@ func (s *HistorianService) getTagInfo(org, site, area, gateway, alias string) (*
 }
 
 // shouldStoreValue checks if the value should be stored based on deadband filtering
-func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface{}) bool {
+func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface{}, newQuality int) bool {
 	// If deadband is 0 or negative, always store (no filtering)
 	if tagInfo.HistorizeDeadband <= 0 {
 		return true
@@ -475,6 +476,11 @@ func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface
 	var prevValue PreviousValue
 	if err := json.Unmarshal([]byte(cached), &prevValue); err != nil {
 		// Failed to parse, store the value
+		return true
+	}
+
+	// CHECK QUALITY CHANGE: If quality changed, ALWAYS store, regardless of value deadband
+	if prevValue.Quality != newQuality {
 		return true
 	}
 
@@ -513,9 +519,9 @@ func (s *HistorianService) exceedsDeadband(prev, new interface{}, deadband float
 }
 
 // storePreviousValue stores the previous value in Redis for deadband comparison
-func (s *HistorianService) storePreviousValue(tagID int, value interface{}) {
+func (s *HistorianService) storePreviousValue(tagID int, value interface{}, quality int) {
 	prevValueKey := fmt.Sprintf("prev_value:%d", tagID)
-	prevValue := PreviousValue{Value: value}
+	prevValue := PreviousValue{Value: value, Quality: quality}
 	prevValueJSON, _ := json.Marshal(prevValue)
 	// Store with no expiration (will be overwritten on next value)
 	s.redisClient.Set(prevValueKey, string(prevValueJSON), 0)

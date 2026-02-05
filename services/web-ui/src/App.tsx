@@ -16,6 +16,7 @@ import AlarmsPage from '@/pages/AlarmsPage';
 import SystemPage from '@/pages/SystemPage';
 
 import TrendPage from '@/pages/TrendPage';
+import MqttMonitorPage from '@/pages/MqttMonitorPage';
 
 import { useEffect, useState } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -66,6 +67,7 @@ function App() {
                 <Route path="/alarms" element={<AlarmsPage />} />
                 <Route path="/system" element={<SystemPage />} />
                 <Route path="/trend" element={<TrendPage />} />
+                <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
         </MainLayout>

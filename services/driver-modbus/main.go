@@ -309,26 +309,48 @@ func (d *Driver) poll() {
 		return
 	}
 
+	prefix := fmt.Sprintf("data/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name))
+	ts := time.Now().UnixMilli()
+
 	if d.modbusClient == nil || !d.modbusClient.IsConnected() {
 		log.Println("[DRIVER] Connecting to Modbus...")
 		client, err := modbus.NewClientFromConfig(cfg.Gateway.ConnectionConfig)
 		if err != nil {
-			log.Printf("[DRIVER] Connection failed: %v", err)
+			log.Printf("[DRIVER] Configuration error: %v", err)
 			return
 		}
 		if err := client.ConnectWithRetry(3, 1*time.Second); err != nil {
 			log.Printf("[DRIVER] Connection failed: %v", err)
+			// Connection failed, so all tags are BAD
+			d.publishBadQualityForBlocks(cfg.Blocks, prefix, ts)
 			return
 		}
 		d.modbusClient = client
 		log.Println("[DRIVER] Connected.")
 	}
 
-	prefix := fmt.Sprintf("data/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name))
-	ts := time.Now().UnixMilli()
-
 	for _, b := range cfg.Blocks {
 		d.readBlock(b, prefix, ts)
+	}
+}
+
+func (d *Driver) publishBadQualityForBlocks(blocks []Block, prefix string, ts int64) {
+	for _, b := range blocks {
+		for _, tib := range b.Tags {
+			topic := fmt.Sprintf("%s/%s", prefix, slugify(tib.Tag.Alias))
+
+			// Get last known value or default
+			var val interface{} = 0
+			d.prevValuesMu.RLock()
+			if v, ok := d.previousValues[tib.Tag.ID]; ok {
+				val = v
+			}
+			d.prevValuesMu.RUnlock()
+
+			// Quality 2 = BAD
+			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, val, ts, 2})
+			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
+		}
 	}
 }
 
@@ -349,6 +371,28 @@ func (d *Driver) readBlock(b Block, prefix string, ts int64) {
 
 	if err != nil {
 		log.Printf("[DRIVER] Read error (type=%s, addr=%d): %v", b.DataType, b.StartAddress, err)
+
+		// Force disconnect to trigger reconnection on next poll (Fixes broken pipe loop)
+		if d.modbusClient != nil {
+			d.modbusClient.Disconnect()
+		}
+
+		// Publish BAD quality for all tags in this block
+		for _, tib := range b.Tags {
+			topic := fmt.Sprintf("%s/%s", prefix, slugify(tib.Tag.Alias))
+
+			// Get last known value or default
+			var val interface{} = 0
+			d.prevValuesMu.RLock()
+			if v, ok := d.previousValues[tib.Tag.ID]; ok {
+				val = v
+			}
+			d.prevValuesMu.RUnlock()
+
+			// Quality 2 = BAD
+			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, val, ts, 2})
+			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
+		}
 		return
 	}
 
