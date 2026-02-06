@@ -399,6 +399,7 @@ func (d *Driver) readBlock(b Block, prefix string, ts int64) {
 			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
 
 			// Update quality state to BAD so we detect recovery later
+			log.Printf("[DEBUG] ID %d: Setting Quality BAD (2). Previous: %v", tib.Tag.ID, val)
 			d.updateState(tib.Tag.ID, val, 2)
 		}
 		return
@@ -464,15 +465,18 @@ func (d *Driver) shouldPublish(id int, val interface{}, quality int) bool {
 	prevQual, okQual := d.previousQualities[id]
 
 	if !okVal || !okQual {
+		// log.Printf("[DEBUG] ID %d: First time publish.", id)
 		return true
 	}
 
 	// Publish if quality changed OR value changed
 	if prevQual != quality {
+		log.Printf("[DEBUG] ID %d: Quality changed %d -> %d. Publishing fix.", id, prevQual, quality)
 		return true
 	}
 
-	return fmt.Sprintf("%v", prevVal) != fmt.Sprintf("%v", val)
+	changed := fmt.Sprintf("%v", prevVal) != fmt.Sprintf("%v", val)
+	return changed
 }
 
 func (d *Driver) updateState(id int, val interface{}, quality int) {
