@@ -54,16 +54,17 @@ type TagPayload struct {
 }
 
 type Driver struct {
-	gatewayID      int
-	database       *sql.DB
-	mqttClient     *mqtt.Client
-	modbusClient   *modbus.Client
-	config         *GatewayConfig
-	configMu       sync.RWMutex
-	stopChan       chan struct{}
-	reloadChan     chan struct{}
-	previousValues map[int]interface{}
-	prevValuesMu   sync.RWMutex
+	gatewayID         int
+	database          *sql.DB
+	mqttClient        *mqtt.Client
+	modbusClient      *modbus.Client
+	config            *GatewayConfig
+	configMu          sync.RWMutex
+	stopChan          chan struct{}
+	reloadChan        chan struct{}
+	previousValues    map[int]interface{}
+	previousQualities map[int]int
+	prevValuesMu      sync.RWMutex
 }
 
 func main() {
@@ -115,12 +116,13 @@ func main() {
 	log.Printf("[DRIVER] Published online status to %s", healthTopic)
 
 	driver := &Driver{
-		gatewayID:      gatewayID,
-		database:       database,
-		mqttClient:     mqttClient,
-		stopChan:       make(chan struct{}),
-		reloadChan:     make(chan struct{}, 1),
-		previousValues: make(map[int]interface{}),
+		gatewayID:         gatewayID,
+		database:          database,
+		mqttClient:        mqttClient,
+		stopChan:          make(chan struct{}),
+		reloadChan:        make(chan struct{}, 1),
+		previousValues:    make(map[int]interface{}),
+		previousQualities: make(map[int]int),
 	}
 
 	// Load initial configuration
@@ -350,6 +352,9 @@ func (d *Driver) publishBadQualityForBlocks(blocks []Block, prefix string, ts in
 			// Quality 2 = BAD
 			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, val, ts, 2})
 			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
+
+			// Update quality state to BAD so we detect recovery later
+			d.updateState(tib.Tag.ID, val, 2)
 		}
 	}
 }
@@ -403,11 +408,11 @@ func (d *Driver) readBlock(b Block, prefix string, ts int64) {
 			continue
 		}
 
-		if d.hasValueChanged(tib.Tag.ID, val) {
+		if d.shouldPublish(tib.Tag.ID, val, 0) {
 			topic := fmt.Sprintf("%s/%s", prefix, slugify(tib.Tag.Alias))
 			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, val, ts, 0})
 			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
-			d.updatePreviousValue(tib.Tag.ID, val)
+			d.updateState(tib.Tag.ID, val, 0)
 			log.Printf("[DRIVER] PUBLISHED: %s = %v", tib.Tag.Alias, val)
 		}
 	}
@@ -449,20 +454,29 @@ func parseValue(data []byte, off uint16, dtype string, boff *int, btype string) 
 	return nil, fmt.Errorf("unsupported")
 }
 
-func (d *Driver) hasValueChanged(id int, val interface{}) bool {
+func (d *Driver) shouldPublish(id int, val interface{}, quality int) bool {
 	d.prevValuesMu.RLock()
 	defer d.prevValuesMu.RUnlock()
-	prev, ok := d.previousValues[id]
-	if !ok {
+	prevVal, okVal := d.previousValues[id]
+	prevQual, okQual := d.previousQualities[id]
+
+	if !okVal || !okQual {
 		return true
 	}
-	return fmt.Sprintf("%v", prev) != fmt.Sprintf("%v", val)
+
+	// Publish if quality changed OR value changed
+	if prevQual != quality {
+		return true
+	}
+
+	return fmt.Sprintf("%v", prevVal) != fmt.Sprintf("%v", val)
 }
 
-func (d *Driver) updatePreviousValue(id int, val interface{}) {
+func (d *Driver) updateState(id int, val interface{}, quality int) {
 	d.prevValuesMu.Lock()
 	defer d.prevValuesMu.Unlock()
 	d.previousValues[id] = val
+	d.previousQualities[id] = quality
 }
 
 func slugify(s string) string {
