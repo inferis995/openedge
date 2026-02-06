@@ -397,6 +397,9 @@ func (d *Driver) readBlock(b Block, prefix string, ts int64) {
 			// Quality 2 = BAD
 			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, val, ts, 2})
 			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
+
+			// Update quality state to BAD so we detect recovery later
+			d.updateState(tib.Tag.ID, val, 2)
 		}
 		return
 	}
