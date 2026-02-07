@@ -32,7 +32,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Edit2, Bell, Database, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Edit2, Database, RefreshCw } from 'lucide-react';
 import { CreateTagDto } from '@/types';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
@@ -68,10 +68,7 @@ const TagsPage = () => {
         data_type: 'REAL',
         historize: false,
         deadband_value: 0.1,
-        alarm_enabled: false,
-        alarm_threshold: 0,
-        alarm_operator: '>',
-        alarm_priority: 3,
+
     });
 
     // Modbus builder state
@@ -195,10 +192,7 @@ const TagsPage = () => {
             data_type: tag.data_type,
             historize: tag.historize,
             deadband_value: tag.historize_deadband || 0.1,
-            alarm_enabled: tag.alarm_enabled,
-            alarm_threshold: tag.alarm_threshold || 0,
-            alarm_operator: tag.alarm_operator || '>',
-            alarm_priority: tag.alarm_priority || 3,
+
         });
         setIsOpen(true);
     };
@@ -258,10 +252,7 @@ const TagsPage = () => {
             data_type: 'REAL',
             historize: false,
             deadband_value: 0.1,
-            alarm_enabled: false,
-            alarm_threshold: 0,
-            alarm_operator: '>',
-            alarm_priority: 3,
+
         });
         setIsOpen(true);
     };
@@ -565,63 +556,7 @@ const TagsPage = () => {
                                         )}
                                     </div>
 
-                                    {/* Alarm Config */}
-                                    <div className="space-y-4">
-                                        <div className="flex items-center space-x-2">
-                                            <Switch
-                                                id="alarm"
-                                                checked={formData.alarm_enabled}
-                                                onCheckedChange={(checked) => handleInputChange('alarm_enabled', checked)}
-                                            />
-                                            <Label htmlFor="alarm" className="flex items-center gap-2">
-                                                <Bell size={14} /> Alarm Enabled
-                                            </Label>
-                                        </div>
 
-                                        {formData.alarm_enabled && (
-                                            <div className="space-y-3 pl-6 border-l-2">
-                                                <div className="grid grid-cols-2 gap-2">
-                                                    <div>
-                                                        <Label className="text-xs">Operator</Label>
-                                                        <Select
-                                                            value={formData.alarm_operator}
-                                                            onValueChange={(val) => handleInputChange('alarm_operator', val)}
-                                                        >
-                                                            <SelectTrigger className="h-8">
-                                                                <SelectValue />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value=">">{'>'}</SelectItem>
-                                                                <SelectItem value="<">{'<'}</SelectItem>
-                                                                <SelectItem value="=">{'='}</SelectItem>
-                                                                <SelectItem value="!=">{'!='}</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </div>
-                                                    <div>
-                                                        <Label className="text-xs">Threshold</Label>
-                                                        <Input
-                                                            type="number"
-                                                            className="h-8"
-                                                            value={formData.alarm_threshold}
-                                                            onChange={(e) => handleInputChange('alarm_threshold', parseFloat(e.target.value))}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div>
-                                                    <Label className="text-xs">Priority (1-5)</Label>
-                                                    <Input
-                                                        type="number"
-                                                        min="1"
-                                                        max="5"
-                                                        className="h-8"
-                                                        value={formData.alarm_priority}
-                                                        onChange={(e) => handleInputChange('alarm_priority', parseInt(e.target.value))}
-                                                    />
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
                                 </div>
                             </div>
                             <DialogFooter>
@@ -642,14 +577,14 @@ const TagsPage = () => {
                             <TableHead>Type</TableHead>
                             <TableHead>Current Value</TableHead>
                             <TableHead>History</TableHead>
-                            <TableHead>Alarm</TableHead>
+
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {tagsList.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center">
+                                <TableCell colSpan={6} className="h-24 text-center">
                                     No tags found. {selectedGatewayId && selectedGatewayId !== 'all' ? 'Create one for the selected gateway.' : 'Select a gateway to view tags.'}
                                 </TableCell>
                             </TableRow>
@@ -709,16 +644,7 @@ const TagsPage = () => {
                                                 <span className="text-xs text-muted-foreground">Disabled</span>
                                             )}
                                         </TableCell>
-                                        <TableCell>
-                                            {tag.alarm_enabled ? (
-                                                <div className="flex items-center gap-1 text-xs text-amber-600">
-                                                    <Bell size={12} />
-                                                    <span>{tag.alarm_operator} {tag.alarm_threshold} (P{tag.alarm_priority})</span>
-                                                </div>
-                                            ) : (
-                                                <span className="text-xs text-muted-foreground">Disabled</span>
-                                            )}
-                                        </TableCell>
+
                                         <TableCell className="text-right">
                                             <div className="flex items-center justify-end gap-2">
                                                 <Button

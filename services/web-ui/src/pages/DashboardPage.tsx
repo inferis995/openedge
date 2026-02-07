@@ -1,6 +1,6 @@
 import { useDashboardStats } from '@/hooks/useDashboardStats';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Building2, Cpu, Bell, Activity } from 'lucide-react';
+import { Activity, Cpu, Building2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
@@ -20,7 +20,7 @@ const StatCard = ({ title, value, icon: Icon, color, subtext }: any) => (
 
 const DashboardPage = () => {
     const navigate = useNavigate();
-    const { stats, recentAlarms, recentGateways, isLoading } = useDashboardStats();
+    const { stats, recentGateways, isLoading } = useDashboardStats();
 
     if (isLoading) {
         return <div className="p-8 text-center text-slate-500">Loading dashboard...</div>;
@@ -51,13 +51,7 @@ const DashboardPage = () => {
                     color="text-indigo-500"
                     subtext={`${stats.gatewaysOnline} online`}
                 />
-                <StatCard
-                    title="Active Alarms"
-                    value={stats.activeAlarms}
-                    icon={Bell}
-                    color="text-red-500"
-                    subtext="Requires attention"
-                />
+                {/* Alarms Stat Card Removed */}
                 <StatCard
                     title="System Status"
                     value="Healthy"
@@ -68,7 +62,7 @@ const DashboardPage = () => {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-                <Card className="col-span-4">
+                <Card className="col-span-7">
                     <CardHeader>
                         <CardTitle>Recent Gateways</CardTitle>
                         <CardDescription>
@@ -90,35 +84,6 @@ const DashboardPage = () => {
                                             </div>
                                         </div>
                                         <Badge variant={gw.enabled ? 'outline' : 'secondary'}>{gw.enabled ? 'Enabled' : 'Disabled'}</Badge>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    </CardContent>
-                </Card>
-
-                <Card className="col-span-3">
-                    <CardHeader>
-                        <CardTitle>Active Alarms</CardTitle>
-                        <CardDescription>
-                            Most recent active alarms.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="space-y-4">
-                            {recentAlarms.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-8 text-center text-slate-500">
-                                    <Bell className="h-8 w-8 mb-2 opacity-20" />
-                                    <p className="text-sm">No active alarms</p>
-                                </div>
-                            ) : (
-                                recentAlarms.map((alarm) => (
-                                    <div key={alarm.id} className="flex items-start gap-4 p-3 rounded-lg bg-red-50 border border-red-100">
-                                        <Bell className="h-5 w-5 text-red-500 mt-0.5" />
-                                        <div>
-                                            <p className="text-sm font-medium text-red-900">{alarm.message}</p>
-                                            <p className="text-xs text-red-700 mt-1">{new Date(alarm.triggered_at).toLocaleTimeString()}</p>
-                                        </div>
                                     </div>
                                 ))
                             )}

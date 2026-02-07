@@ -116,6 +116,15 @@ func main() {
 		} else {
 			log.Println("Subscribed to gateway health status updates")
 		}
+
+		// Subscribe to data updates
+		if err := mqttClient.Subscribe("data/#", func(topic string, payload []byte) {
+			handleDataUpdate(topic, payload, redisClient)
+		}); err != nil {
+			log.Printf("Warning: Failed to subscribe to data topic: %v", err)
+		} else {
+			log.Println("Subscribed to data updates")
+		}
 	}
 
 	log.Println("Industrial Edge Middleware - core-api starting...")
@@ -232,6 +241,7 @@ func main() {
 			history.Use(middleware.OrganizationContext())
 			{
 				history.GET("", historyHandler.Query)
+				history.GET("/events", historyHandler.QueryEvents)
 			}
 		}
 
@@ -322,4 +332,47 @@ func handleGatewayHealthUpdate(topic string, payload []byte, redisClient *redis.
 	}
 
 	log.Printf("Gateway %d health status updated: %s", gatewayID, status)
+}
+
+// handleDataUpdate processes tag data updates from MQTT
+// Payload: TagPayload JSON
+func handleDataUpdate(topic string, payload []byte, redisClient *redis.Client) {
+	if redisClient == nil {
+		return
+	}
+
+	var update struct {
+		TagID     int         `json:"tag_id"`
+		OrgID     int         `json:"org_id"`
+		Value     interface{} `json:"v"`
+		Timestamp int64       `json:"ts"`
+		Quality   int         `json:"q"`
+	}
+
+	if err := json.Unmarshal(payload, &update); err != nil {
+		// Only log verbose error if needed, avoiding spam
+		return
+	}
+
+	if update.TagID == 0 {
+		return
+	}
+
+	// 1. Store in Redis for "Current Value" endpoints
+	key := fmt.Sprintf("realtime:%d", update.TagID)
+	// Cache for 24h or indefinite? 0 = no expire
+	if err := redisClient.Set(key, string(payload), 0); err != nil {
+		log.Printf("Error storing realtime value for tag %d: %v", update.TagID, err)
+	}
+
+	// 2. Publish to Redis Channel for WebSockets
+	// Channel: realtime_updates:{org_id}
+	// If OrgID is 0 (missing), we can't route efficiently.
+	// But driver-modbus NOW includes OrgID.
+	if update.OrgID > 0 {
+		channel := fmt.Sprintf("realtime_updates:%d", update.OrgID)
+		if err := redisClient.Publish(channel, string(payload)); err != nil {
+			log.Printf("Error publishing realtime update for org %d: %v", update.OrgID, err)
+		}
+	}
 }

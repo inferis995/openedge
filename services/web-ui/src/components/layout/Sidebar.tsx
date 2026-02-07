@@ -8,13 +8,13 @@ import {
     MapPin,
     Cpu,
     Tags,
-    Bell,
     Settings,
     TrendingUp,
     Radio,
     Network,
     ChevronLeft,
     ChevronRight,
+    History,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 
@@ -30,8 +30,9 @@ const Sidebar = () => {
         { name: 'Gateways', path: '/gateways', icon: Cpu },
         { name: 'Tags', path: '/tags', icon: Tags },
         { name: 'Trend', path: '/trend', icon: TrendingUp },
+        { name: 'Historian', path: '/history', icon: History },
         { name: 'MQTT Monitor', path: '/mqtt-monitor', icon: Radio },
-        { name: 'Alarms', path: '/alarms', icon: Bell },
+
         { name: 'System', path: '/system', icon: Settings },
     ];
 

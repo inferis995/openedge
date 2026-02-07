@@ -1,20 +1,20 @@
 import { useState } from 'react';
 import { systemApi } from '@/api/system';
-import { useAlarmStore } from '@/stores/useAlarmStore';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
-import { RefreshCw, Download, AlertTriangle, CheckCircle, Bell, Volume2, VolumeX } from 'lucide-react';
+
+import { RefreshCw, Download, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { toast } from 'sonner';
+
 
 const SystemPage = () => {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
     // Get notification sound setting from alarm store
-    const { notificationSoundEnabled, setNotificationSoundEnabled } = useAlarmStore();
+    // const { notificationSoundEnabled, setNotificationSoundEnabled } = useAlarmStore();
 
     const handleReload = async () => {
         setLoading(true);
@@ -64,45 +64,7 @@ const SystemPage = () => {
         }
     };
 
-    const handleSoundToggle = (enabled: boolean) => {
-        setNotificationSoundEnabled(enabled);
-        if (enabled) {
-            toast.success('Notification sound enabled', {
-                description: 'You will hear a sound when new alarms are triggered.',
-            });
-        } else {
-            toast('Notification sound disabled', {
-                description: 'You will not hear sounds for new alarms.',
-            });
-        }
-    };
-
-    const handleTestSound = () => {
-        // Create a test sound using Web Audio API
-        try {
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-            const oscillator = audioContext.createOscillator();
-            const gainNode = audioContext.createGain();
-
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.destination);
-
-            oscillator.frequency.value = 800;
-            oscillator.type = 'sine';
-            gainNode.gain.value = 0.3;
-
-            oscillator.start();
-            oscillator.stop(audioContext.currentTime + 0.2);
-
-            toast.success('Test sound played', {
-                description: 'If you heard the sound, notifications are working correctly.',
-            });
-        } catch (error) {
-            toast.error('Could not play test sound', {
-                description: 'Your browser may not support audio playback.',
-            });
-        }
-    };
+    // Sound handlers removed
 
     return (
         <div className="space-y-6">
@@ -170,56 +132,7 @@ const SystemPage = () => {
                     </CardContent>
                 </Card>
 
-                {/* Notification Settings */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Bell className="h-5 w-5 text-violet-500" />
-                            Notification Settings
-                        </CardTitle>
-                        <CardDescription>
-                            Configure how you receive alarm notifications. When a new alarm is triggered, you will receive a toast notification.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        {/* Sound toggle */}
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                {notificationSoundEnabled ? (
-                                    <Volume2 className="h-5 w-5 text-violet-500" />
-                                ) : (
-                                    <VolumeX className="h-5 w-5 text-muted-foreground" />
-                                )}
-                                <div>
-                                    <Label htmlFor="sound-toggle" className="font-medium">Notification Sound</Label>
-                                    <p className="text-sm text-muted-foreground">
-                                        {notificationSoundEnabled ? 'Sound enabled for alarms' : 'Sound muted'}
-                                    </p>
-                                </div>
-                            </div>
-                            <Switch
-                                id="sound-toggle"
-                                checked={notificationSoundEnabled}
-                                onCheckedChange={handleSoundToggle}
-                            />
-                        </div>
 
-                        {/* Test sound button */}
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleTestSound}
-                            className="w-full"
-                        >
-                            <Bell size={14} className="mr-2" />
-                            Test Notification Sound
-                        </Button>
-
-                        <p className="text-xs text-muted-foreground">
-                            Note: Sound playback requires user interaction first and may be blocked by some browsers until you interact with the page.
-                        </p>
-                    </CardContent>
-                </Card>
             </div>
         </div>
     );

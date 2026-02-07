@@ -312,6 +312,10 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 		// For now, assume images are built locally
 	}
 
+	// Remove existing container with same name if it exists to avoid conflicts
+	// This handles cases where the manager was restarted but containers were left running
+	_ = m.dockerClient.ContainerRemove(m.ctx, containerName, types.ContainerRemoveOptions{Force: true})
+
 	// Create container
 	resp, err := m.dockerClient.ContainerCreate(m.ctx, containerConfig, hostConfig, nil, nil, containerName)
 	if err != nil {

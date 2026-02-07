@@ -216,33 +216,32 @@ services:
     restart: unless-stopped
     networks:
       - industrial-network
-
-  engine-alarm:
-    build:
-      context: .
-      dockerfile: services/engine-alarm/Dockerfile
-    container_name: industrial-engine-alarm
-    environment:
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: industrial_user
-      DB_PASSWORD: industrial_pass
-      DB_NAME: industrial_edge
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      MQTT_HOST: mosquitto
-      MQTT_PORT: 1883
-      MQTT_CLIENT_ID: engine-alarm
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      mosquitto:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - industrial-network
+  # engine-alarm:
+  #   build:
+  #     context: .
+  #     dockerfile: services/engine-alarm/Dockerfile
+  #   container_name: industrial-engine-alarm
+  #   environment:
+  #     DB_HOST: postgres
+  #     DB_PORT: 5432
+  #     DB_USER: industrial_user
+  #     DB_PASSWORD: industrial_pass
+  #     DB_NAME: industrial_edge
+  #     REDIS_HOST: redis
+  #     REDIS_PORT: 6379
+  #     MQTT_HOST: mosquitto
+  #     MQTT_PORT: 1883
+  #     MQTT_CLIENT_ID: engine-alarm
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     mosquitto:
+  #       condition: service_healthy
+  #   restart: unless-stopped
+  #   networks:
+  #     - industrial-network
 
 volumes:
   postgres_data:

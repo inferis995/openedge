@@ -12,10 +12,10 @@ import GatewaysPage from '@/pages/GatewaysPage';
 
 import TagsPage from '@/pages/TagsPage';
 
-import AlarmsPage from '@/pages/AlarmsPage';
 import SystemPage from '@/pages/SystemPage';
 
 import TrendPage from '@/pages/TrendPage';
+import HistoryPage from '@/pages/HistoryPage';
 import MqttMonitorPage from '@/pages/MqttMonitorPage';
 
 import { useEffect, useState } from 'react';
@@ -64,9 +64,10 @@ function App() {
                 <Route path="/areas" element={<AreasPage />} />
                 <Route path="/gateways" element={<GatewaysPage />} />
                 <Route path="/tags" element={<TagsPage />} />
-                <Route path="/alarms" element={<AlarmsPage />} />
+                {/* Route /alarms removed */}
                 <Route path="/system" element={<SystemPage />} />
                 <Route path="/trend" element={<TrendPage />} />
+                <Route path="/history" element={<HistoryPage />} />
                 <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

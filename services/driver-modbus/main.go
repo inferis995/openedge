@@ -42,12 +42,14 @@ type GatewayConfig struct {
 	Tags    []models.Tag
 	Blocks  []Block
 	OrgName string
+	OrgID   int
 	Site    string
 	Area    string
 }
 
 type TagPayload struct {
 	TagID     int         `json:"tag_id"`
+	OrgID     int         `json:"org_id"`
 	Value     interface{} `json:"v"`
 	Timestamp int64       `json:"ts"`
 	Quality   int         `json:"q"`
@@ -65,6 +67,7 @@ type Driver struct {
 	previousValues    map[int]interface{}
 	previousQualities map[int]int
 	prevValuesMu      sync.RWMutex
+	isConnected       bool
 }
 
 func main() {
@@ -163,7 +166,7 @@ func (d *Driver) loadConfig() error {
 
 	query := `
 		SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled, g.zero_based,
-		       o.name as org_name, s.name as site_name, a.name as area_name
+		       o.name as org_name, o.id as org_id, s.name as site_name, a.name as area_name
 		FROM gateways g
 		JOIN areas a ON g.area_id = a.id
 		JOIN sites s ON a.site_id = s.id
@@ -174,10 +177,11 @@ func (d *Driver) loadConfig() error {
 	var gateway models.Gateway
 	var connConfigBytes []byte
 	var orgName, siteName, areaName string
+	var orgID int
 
 	err := d.database.QueryRow(query, d.gatewayID).Scan(
 		&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &connConfigBytes,
-		&gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &orgName, &siteName, &areaName,
+		&gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &orgName, &orgID, &siteName, &areaName,
 	)
 	if err != nil {
 		return err
@@ -206,6 +210,7 @@ func (d *Driver) loadConfig() error {
 		Tags:    tags,
 		Blocks:  blocks,
 		OrgName: slugify(orgName),
+		OrgID:   orgID,
 		Site:    slugify(siteName),
 		Area:    slugify(areaName),
 	}
@@ -323,12 +328,14 @@ func (d *Driver) poll() {
 		}
 		if err := client.ConnectWithRetry(3, 1*time.Second); err != nil {
 			log.Printf("[DRIVER] Connection failed: %v", err)
+			d.setConnectionState(false)
 			// Connection failed, so all tags are BAD
 			d.publishBadQualityForBlocks(cfg.Blocks, prefix, ts)
 			return
 		}
 		d.modbusClient = client
 		log.Println("[DRIVER] Connected.")
+		d.setConnectionState(true)
 	}
 
 	for _, b := range cfg.Blocks {
@@ -338,6 +345,10 @@ func (d *Driver) poll() {
 
 func (d *Driver) publishBadQualityForBlocks(blocks []Block, prefix string, ts int64) {
 	for _, b := range blocks {
+		d.configMu.RLock()
+		orgID := d.config.OrgID
+		d.configMu.RUnlock()
+
 		for _, tib := range b.Tags {
 			topic := fmt.Sprintf("%s/%s", prefix, slugify(tib.Tag.Alias))
 
@@ -350,7 +361,7 @@ func (d *Driver) publishBadQualityForBlocks(blocks []Block, prefix string, ts in
 			d.prevValuesMu.RUnlock()
 
 			// Quality 2 = BAD
-			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, val, ts, 2})
+			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, orgID, val, ts, 2})
 			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
 
 			// Update quality state to BAD so we detect recovery later
@@ -381,8 +392,13 @@ func (d *Driver) readBlock(b Block, prefix string, ts int64) {
 		if d.modbusClient != nil {
 			d.modbusClient.Disconnect()
 		}
+		d.setConnectionState(false)
 
 		// Publish BAD quality for all tags in this block
+		d.configMu.RLock()
+		orgID := d.config.OrgID
+		d.configMu.RUnlock()
+
 		for _, tib := range b.Tags {
 			topic := fmt.Sprintf("%s/%s", prefix, slugify(tib.Tag.Alias))
 
@@ -395,7 +411,7 @@ func (d *Driver) readBlock(b Block, prefix string, ts int64) {
 			d.prevValuesMu.RUnlock()
 
 			// Quality 2 = BAD
-			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, val, ts, 2})
+			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, orgID, val, ts, 2})
 			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
 
 			// Update quality state to BAD so we detect recovery later
@@ -414,7 +430,10 @@ func (d *Driver) readBlock(b Block, prefix string, ts int64) {
 
 		if d.shouldPublish(tib.Tag.ID, val, 0) {
 			topic := fmt.Sprintf("%s/%s", prefix, slugify(tib.Tag.Alias))
-			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, val, ts, 0})
+			d.configMu.RLock()
+			orgID := d.config.OrgID
+			d.configMu.RUnlock()
+			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, orgID, val, ts, 0})
 			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
 			d.updateState(tib.Tag.ID, val, 0)
 			log.Printf("[DRIVER] PUBLISHED: %s = %v", tib.Tag.Alias, val)
@@ -503,4 +522,23 @@ func getEnvInt(k string, d int) int {
 		return i
 	}
 	return d
+}
+func (d *Driver) setConnectionState(connected bool) {
+	d.configMu.Lock()
+	defer d.configMu.Unlock()
+
+	if d.isConnected == connected {
+		return
+	}
+
+	d.isConnected = connected
+	status := "offline"
+	if connected {
+		status = "online"
+	}
+
+	topic := fmt.Sprintf("sys/health/%d", d.gatewayID)
+	// Retain=true so Last Known Status is available
+	d.mqttClient.PublishWithQoS(topic, status, 1, true)
+	log.Printf("[DRIVER] Health status changed to: %s", status)
 }

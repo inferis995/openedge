@@ -25,6 +25,7 @@ import (
 
 const (
 	mqttTopicData       = "data/#"
+	mqttTopicHealth     = "sys/health/+"
 	bufferFlushSize     = 1000
 	bufferFlushInterval = 1 * time.Second
 )
@@ -70,6 +71,18 @@ type TagInfo struct {
 	OrganizationID    int
 	Historize         bool
 	HistorizeDeadband float64
+}
+
+// GatewayInfo holds gateway hierarchy info
+type GatewayInfo struct {
+	ID       int
+	Name     string
+	AreaID   int
+	AreaName string
+	SiteID   int
+	SiteName string
+	OrgID    int
+	OrgName  string
 }
 
 // PreviousValue represents the previous value stored in Redis for deadband comparison
@@ -194,6 +207,13 @@ func main() {
 	}
 	log.Println("Successfully subscribed to data topics")
 
+	// Subscribe to health topics (gateway connection events)
+	log.Printf("Subscribing to MQTT topic: %s", mqttTopicHealth)
+	if err := mqttClient.Subscribe(mqttTopicHealth, service.handleHealthMessage); err != nil {
+		log.Fatalf("Failed to subscribe to health topic: %v", err)
+	}
+	log.Println("Successfully subscribed to health topics")
+
 	// Start InfluxDB write API error handling
 	service.wg.Add(1)
 	go service.handleInfluxErrors()
@@ -219,6 +239,73 @@ func main() {
 	service.wg.Wait()
 
 	log.Println("Historian service stopped")
+}
+
+func (s *HistorianService) handleHealthMessage(topic string, payload []byte) {
+	select {
+	case <-s.shutdown:
+		return
+	default:
+	}
+
+	// Parse topic: sys/health/{gateway_id}
+	parts := strings.Split(topic, "/")
+	if len(parts) < 3 {
+		log.Printf("Invalid health topic format: %s", topic)
+		return
+	}
+
+	gatewayIDStr := parts[2]
+	status := string(payload) // "online" or "offline"
+
+	log.Printf("[HISTORIAN] Received health event for Gateway %s: %s", gatewayIDStr, status)
+
+	// Get gateway info to populate tags (Org, Site, etc.) for filtering
+	gatewayID, _ := strconv.Atoi(gatewayIDStr)
+	gwInfo, err := s.getGatewayInfo(gatewayID)
+
+	orgName := "unknown"
+	siteName := "unknown"
+	areaName := "unknown"
+	gwName := gatewayIDStr
+
+	if err == nil && gwInfo != nil {
+		orgName = gwInfo.OrgName
+		siteName = gwInfo.SiteName
+		areaName = gwInfo.AreaName
+		gwName = gwInfo.Name
+	} else {
+		log.Printf("[HISTORIAN] Warning: Could not resolve info for Gateway ID %d: %v", gatewayID, err)
+	}
+
+	// Determine message based on status
+	var message string
+	if status == "online" {
+		message = "Gateway connected"
+	} else {
+		message = "Gateway disconnected"
+	}
+
+	// Create event data point
+	dp := &DataPoint{
+		Measurement: "system_events",
+		Tags: map[string]string{
+			"type":         "connection",
+			"gateway_id":   gatewayIDStr,
+			"organization": orgName,
+			"site":         siteName,
+			"area":         areaName,
+			"gateway":      gwName,
+		},
+		Fields: map[string]interface{}{
+			"status":  status,
+			"message": message,
+		},
+		Timestamp: time.Now().UnixMilli(),
+	}
+
+	// Add to buffer (reusing the same buffer logic for efficiency)
+	s.addToBuffer(dp)
 }
 
 func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
@@ -455,6 +542,46 @@ func (s *HistorianService) getTagInfo(org, site, area, gateway, alias string) (*
 	s.redisClient.Set(cacheKey, string(tagInfoJSON), 3600)
 
 	return &tagInfo, nil
+}
+
+// getGatewayInfo retrieves gateway hierarchy info from PostgreSQL, with Redis caching
+func (s *HistorianService) getGatewayInfo(gatewayID int) (*GatewayInfo, error) {
+	// Cache key
+	cacheKey := fmt.Sprintf("gateway_info:%d", gatewayID)
+	cached, err := s.redisClient.Get(cacheKey)
+	if err == nil && cached != "" {
+		var gwInfo GatewayInfo
+		if err := json.Unmarshal([]byte(cached), &gwInfo); err == nil {
+			return &gwInfo, nil
+		}
+	}
+
+	// Query DB
+	query := `
+		SELECT g.id, g.name, a.id, a.name, s.id, s.name, o.id, o.name
+		FROM gateways g
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id
+		JOIN organizations o ON s.org_id = o.id
+		WHERE g.id = $1
+	`
+
+	var gwInfo GatewayInfo
+	err = s.db.QueryRow(query, gatewayID).Scan(
+		&gwInfo.ID, &gwInfo.Name,
+		&gwInfo.AreaID, &gwInfo.AreaName,
+		&gwInfo.SiteID, &gwInfo.SiteName,
+		&gwInfo.OrgID, &gwInfo.OrgName,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache
+	gwInfoJSON, _ := json.Marshal(gwInfo)
+	s.redisClient.Set(cacheKey, string(gwInfoJSON), 3600)
+
+	return &gwInfo, nil
 }
 
 // shouldStoreValue checks if the value should be stored based on deadband filtering

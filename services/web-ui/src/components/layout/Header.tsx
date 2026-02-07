@@ -1,8 +1,8 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Bell, RefreshCw, ChevronRight, Building2, Factory, MapPin, X } from 'lucide-react';
+
+import { RefreshCw, ChevronRight, Building2, Factory, MapPin, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAlarmStore } from '@/stores/useAlarmStore';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -16,7 +16,11 @@ const Header = () => {
     const location = useLocation();
 
     // Get real-time alarm state from store
-    const { activeAlarmCount, isMqttConnected, connectMqtt } = useAlarmStore();
+    // Get real-time alarm state from store - DISABLED
+    // const { activeAlarmCount, isMqttConnected, connectMqtt } = useAlarmStore();
+    // Get real-time alarm state from store - DISABLED
+    // We keep useAlarmStore for MQTT status only
+    const { isMqttConnected, connectMqtt } = useAlarmStore();
 
     // Get navigation context
     const { selectedOrgId, selectedSiteId, selectedAreaId, clearSelection } = useNavigationStore();
@@ -141,23 +145,7 @@ const Header = () => {
                 </div>
 
                 {/* Alarms Button with Badge */}
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="relative"
-                    onClick={() => navigate('/alarms')}
-                    title={activeAlarmCount > 0 ? `${activeAlarmCount} active alarm${activeAlarmCount > 1 ? 's' : ''}` : 'No active alarms'}
-                >
-                    <Bell size={20} />
-                    {activeAlarmCount > 0 && (
-                        <Badge
-                            variant="destructive"
-                            className="absolute -top-1 -right-1 h-5 min-w-5 px-1 flex items-center justify-center text-xs"
-                        >
-                            {activeAlarmCount > 99 ? '99+' : activeAlarmCount}
-                        </Badge>
-                    )}
-                </Button>
+                {/* Alarms Button Removed */}
 
                 {/* Reload Config Button */}
                 <Button variant="outline" size="sm" className="gap-2">

@@ -124,7 +124,7 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 	}
 
 	// Get optional aggregation parameters
-	agg := c.Query("agg")     // e.g., "mean", "max", "min", "sum", "first", "last"
+	agg := c.Query("agg")           // e.g., "mean", "max", "min", "sum", "first", "last"
 	interval := c.Query("interval") // e.g., "1m", "5m", "1h", "1d"
 
 	// Build Flux query with organization filter
@@ -251,4 +251,145 @@ func (h *HistoryHandler) getTagOrganization(tagID, orgID int) (string, error) {
 	}
 
 	return orgName, nil
+}
+
+// HistoryEvent represents a system event
+type HistoryEvent struct {
+	Timestamp int64  `json:"timestamp"`
+	Type      string `json:"type"`   // connection, alert
+	Source    string `json:"source"` // gateway name or id
+	Status    string `json:"status"`
+	Message   string `json:"message"`
+}
+
+// QueryEvents handles GET /api/history/events?start={iso}&end={iso}
+// @Summary Query historical events
+// @Description Query system events (connections, etc.) from InfluxDB
+// @Tags history
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param start query string true "Start time (ISO 8601)"
+// @Param end query string true "End time (ISO 8601)"
+// @Success 200 {array} HistoryEvent
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/history/events [get]
+func (h *HistoryHandler) QueryEvents(c *gin.Context) {
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	// Resolve Organization Name for filtering
+	orgName, err := h.getOrganizationName(orgID)
+	if err != nil {
+		log.Printf("[HISTORY] Failed to resolve organization name for ID %d: %v", orgID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve organization context"})
+		return
+	}
+
+	startStr := c.Query("start")
+	if startStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "start query parameter is required (ISO 8601 format)"})
+		return
+	}
+
+	endStr := c.Query("end")
+	if endStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "end query parameter is required (ISO 8601 format)"})
+		return
+	}
+
+	// Parse start and end times
+	startTime, err := time.Parse(time.RFC3339, startStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid start parameter format, use ISO 8601 format"})
+		return
+	}
+
+	endTime, err := time.Parse(time.RFC3339, endStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid end parameter format, use ISO 8601 format"})
+		return
+	}
+
+	if endTime.Before(startTime) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "end time must be after start time"})
+		return
+	}
+
+	// Build Flux query for events
+	// Filter by measurement "system_events" and organization tag
+	query := fmt.Sprintf(`
+		from(bucket: "%s")
+			|> range(start: %s, stop: %s)
+			|> filter(fn: (r) => r._measurement == "system_events")
+			|> filter(fn: (r) => r.organization == "%s")
+			|> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
+	`, h.influxBucket, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339), orgName)
+
+	log.Printf("[HISTORY] Querying events for org=%q, start=%s, end=%s", orgName, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+
+	// Execute query
+	queryAPI := h.influxClient.QueryAPI(h.influxOrg)
+	result, err := queryAPI.Query(context.Background(), query)
+	if err != nil {
+		log.Printf("[HISTORY] Failed to query InfluxDB for events: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to query events: %v", err)})
+		return
+	}
+	defer result.Close()
+
+	// Parse results
+	var events []HistoryEvent
+	for result.Next() {
+		record := result.Record()
+
+		timestamp := record.Time().Unix()
+
+		// Pivot puts fields as columns in the record values
+		// Access them safely
+		status, _ := record.ValueByKey("status").(string)
+		message, _ := record.ValueByKey("message").(string)
+
+		// Tags are also available
+		typeTag, _ := record.ValueByKey("type").(string)
+		source, _ := record.ValueByKey("gateway").(string) // Use gateway name as source
+		if source == "" {
+			source, _ = record.ValueByKey("gateway_id").(string)
+		}
+
+		events = append(events, HistoryEvent{
+			Timestamp: timestamp,
+			Type:      typeTag,
+			Source:    source,
+			Status:    status,
+			Message:   message,
+		})
+	}
+
+	if result.Err() != nil {
+		log.Printf("[HISTORY] Query error after iteration: %v", result.Err())
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Query error: %v", result.Err())})
+		return
+	}
+
+	if events == nil {
+		events = []HistoryEvent{}
+	}
+
+	c.JSON(http.StatusOK, events)
+}
+
+func (h *HistoryHandler) getOrganizationName(orgID int) (string, error) {
+	var name string
+	err := h.db.QueryRow("SELECT name FROM organizations WHERE id = $1", orgID).Scan(&name)
+	if err != nil {
+		return "", err
+	}
+	return name, nil
 }
