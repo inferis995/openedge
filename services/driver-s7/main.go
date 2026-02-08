@@ -37,14 +37,14 @@ type TagPayload struct {
 
 // Driver manages the S7 driver lifecycle
 type Driver struct {
-	gatewayID    int
-	database     *sql.DB
-	mqttClient   *mqtt.Client
-	s7Client     *s7.Client
-	config       *GatewayConfig
-	configMu     sync.RWMutex
-	stopChan     chan struct{}
-	reloadChan   chan struct{}
+	gatewayID  int
+	database   *sql.DB
+	mqttClient *mqtt.Client
+	s7Client   *s7.Client
+	config     *GatewayConfig
+	configMu   sync.RWMutex
+	stopChan   chan struct{}
+	reloadChan chan struct{}
 	// Report by Exception: store previous values for change detection
 	previousValues map[int]interface{}
 	prevValuesMu   sync.RWMutex
@@ -413,7 +413,7 @@ func (d *Driver) publishTagValue(topicPrefix string, tag models.Tag, value inter
 	}
 
 	// Publish to MQTT (QoS 1 for reliability)
-	if err := d.mqttClient.Publish(topic, string(payloadBytes)); err != nil {
+	if err := d.mqttClient.PublishWithQoS(topic, string(payloadBytes), 1, false); err != nil {
 		log.Printf("Error publishing tag %s to %s: %v", tag.Alias, topic, err)
 	}
 }

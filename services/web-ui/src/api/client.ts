@@ -1,5 +1,6 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useNavigationStore } from '@/stores/useNavigationStore';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 // Extend InternalAxiosRequestConfig to include metadata
 interface CustomAxiosRequestConfig extends InternalAxiosRequestConfig {
@@ -21,6 +22,12 @@ const api = axios.create({
 api.interceptors.request.use(
     (config: CustomAxiosRequestConfig) => {
         const { selectedOrgId } = useNavigationStore.getState();
+        const { token } = useAuthStore.getState();
+
+        if (token) {
+            config.headers['Authorization'] = `Bearer ${token}`;
+        }
+
         if (selectedOrgId && !config.headers['X-Organization-ID']) {
             config.headers['X-Organization-ID'] = selectedOrgId.toString();
         }
@@ -66,6 +73,9 @@ api.interceptors.response.use(
             console.error('403 Forbidden - Organization access denied. Check X-Organization-ID header.');
         } else if (error.response?.status === 401) {
             console.error('401 Unauthorized - Authentication required');
+            // Auto logout
+            useAuthStore.getState().logout();
+            // Redirect to login is handled by React Router (RequireAuth)
         } else if (error.code === 'ECONNABORTED') {
             console.error('Request timeout - Server took too long to respond');
         } else if (error.code === 'ERR_NETWORK') {

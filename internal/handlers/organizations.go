@@ -129,6 +129,51 @@ func (h *OrganizationsHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, org)
 }
 
+// UpdateOrganizationRequest represents the request body for updating an organization
+type UpdateOrganizationRequest struct {
+	Name string `json:"name" binding:"required"`
+}
+
+// Update handles PUT /api/organizations/{id}
+// @Summary Update an organization
+// @Description Update an organization's name by ID
+// @Tags organizations
+// @Accept json
+// @Produce json
+// @Param id path int true "Organization ID"
+// @Param request body UpdateOrganizationRequest true "Organization update request"
+// @Success 200 {object} Organization
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 404 {object} map[string]string "Organization not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/organizations/{id} [put]
+func (h *OrganizationsHandler) Update(c *gin.Context) {
+	id := c.Param("id")
+
+	var req UpdateOrganizationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var org models.Organization
+	err := h.db.QueryRow(
+		"UPDATE organizations SET name = $1 WHERE id = $2 RETURNING id, name, created_at",
+		req.Name, id,
+	).Scan(&org.ID, &org.Name, &org.CreatedAt)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update organization"})
+		return
+	}
+
+	c.JSON(http.StatusOK, org)
+}
+
 // Delete handles DELETE /api/organizations/{id}
 // @Summary Delete an organization
 // @Description Delete an organization by ID (cascades to sites, areas, gateways, tags)

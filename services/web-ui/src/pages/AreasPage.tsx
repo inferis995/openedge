@@ -3,6 +3,7 @@ import { useSites } from '@/hooks/useSites';
 import { sitesApi } from '@/api/sites';
 import { useAreas } from '@/hooks/useAreas';
 import { useNavigationStore } from '@/stores/useNavigationStore';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,6 +38,7 @@ const AreasPage = () => {
     const { selectedSiteId, selectedOrgId, setSelectedAreaId } = useNavigationStore();
     const { areas, isLoading, create, remove } = useAreas(selectedSiteId);
     const { sites } = useSites(selectedOrgId); // Get sites for current org to map names
+    const { isAdmin } = useAuthStore();
 
     const [isOpen, setIsOpen] = useState(false);
     const [newAreaName, setNewAreaName] = useState('');
@@ -104,50 +106,52 @@ const AreasPage = () => {
                         Define logical areas within sites (e.g. Line 1, Warehouse).
                     </p>
                 </div>
-                <Dialog open={isOpen} onOpenChange={setIsOpen}>
-                    <DialogTrigger asChild>
-                        <Button className="gap-2">
-                            <Plus size={16} /> Add Area
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                        <DialogHeader>
-                            <DialogTitle>Create Area</DialogTitle>
-                        </DialogHeader>
-                        <div className="grid gap-4 py-4">
-                            <div className="grid gap-2">
-                                <Label htmlFor="site">Site</Label>
-                                <Select
-                                    value={selectedSiteForCreate}
-                                    onValueChange={setSelectedSiteForCreate}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue placeholder="Select Site" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {sites.map((site) => (
-                                            <SelectItem key={site.id} value={site.id.toString()}>
-                                                {site.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                {isAdmin() && (
+                    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+                        <DialogTrigger asChild>
+                            <Button className="gap-2">
+                                <Plus size={16} /> Add Area
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                            <DialogHeader>
+                                <DialogTitle>Create Area</DialogTitle>
+                            </DialogHeader>
+                            <div className="grid gap-4 py-4">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="site">Site</Label>
+                                    <Select
+                                        value={selectedSiteForCreate}
+                                        onValueChange={setSelectedSiteForCreate}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select Site" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {sites.map((site) => (
+                                                <SelectItem key={site.id} value={site.id.toString()}>
+                                                    {site.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="name">Area Name</Label>
+                                    <Input
+                                        id="name"
+                                        value={newAreaName}
+                                        onChange={(e) => setNewAreaName(e.target.value)}
+                                        placeholder="e.g. Assembly Line 1"
+                                    />
+                                </div>
                             </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="name">Area Name</Label>
-                                <Input
-                                    id="name"
-                                    value={newAreaName}
-                                    onChange={(e) => setNewAreaName(e.target.value)}
-                                    placeholder="e.g. Assembly Line 1"
-                                />
-                            </div>
-                        </div>
-                        <DialogFooter>
-                            <Button onClick={handleCreate}>Create</Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+                            <DialogFooter>
+                                <Button onClick={handleCreate}>Create</Button>
+                            </DialogFooter>
+                        </DialogContent>
+                    </Dialog>
+                )}
             </div>
 
             <div className="rounded-md border bg-white">
@@ -158,7 +162,7 @@ const AreasPage = () => {
                             <TableHead>Name</TableHead>
                             <TableHead>Site</TableHead>
                             <TableHead>Created At</TableHead>
-                            <TableHead className="text-right">Actions</TableHead>
+                            {isAdmin() && <TableHead className="text-right">Actions</TableHead>}
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -189,19 +193,21 @@ const AreasPage = () => {
                                             </div>
                                         </TableCell>
                                         <TableCell>{new Date(area.created_at).toLocaleDateString()}</TableCell>
-                                        <TableCell className="text-right">
-                                            <div className="flex items-center justify-end gap-2">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
-                                                    onClick={(e) => handleDelete(e, area.id)}
-                                                >
-                                                    <Trash2 size={16} />
-                                                </Button>
-                                                <ChevronRight size={16} className="text-slate-300" />
-                                            </div>
-                                        </TableCell>
+                                        {isAdmin() && (
+                                            <TableCell className="text-right">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                                        onClick={(e) => handleDelete(e, area.id)}
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </Button>
+                                                    <ChevronRight size={16} className="text-slate-300" />
+                                                </div>
+                                            </TableCell>
+                                        )}
                                     </TableRow>
                                 );
                             })

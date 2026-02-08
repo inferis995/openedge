@@ -402,7 +402,7 @@ func (d *Driver) publishTagValue(topicPrefix string, tag models.Tag, value inter
 	payload := TagPayload{Value: value, Timestamp: timestamp, Quality: quality}
 
 	bytes, _ := json.Marshal(payload)
-	d.mqttClient.Publish(topic, string(bytes))
+	d.mqttClient.PublishWithQoS(topic, string(bytes), 1, false)
 }
 
 func (d *Driver) hasValueChanged(tagID int, newValue interface{}) bool {

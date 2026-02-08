@@ -460,10 +460,15 @@ func (h *TagsHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Publish reload command to MQTT
+	// Publish reload command to MQTT AND clear retained message for this tag
 	if h.mqttClient != nil {
-		topic := fmt.Sprintf("sys/command/reload/%d", gatewayID)
-		h.mqttClient.Publish(topic, "reload")
+		// 1. Clear retained message for this tag by publishing empty retained message
+		dataTopic := fmt.Sprintf("data/%d", id)
+		h.mqttClient.PublishWithQoS(dataTopic, "", 1, true) // Empty retained = clears old data
+
+		// 2. Send reload command to driver
+		reloadTopic := fmt.Sprintf("sys/command/reload/%d", gatewayID)
+		h.mqttClient.Publish(reloadTopic, "reload")
 	}
 
 	c.Status(http.StatusNoContent)

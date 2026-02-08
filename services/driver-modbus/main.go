@@ -362,7 +362,7 @@ func (d *Driver) publishBadQualityForBlocks(blocks []Block, prefix string, ts in
 
 			// Quality 2 = BAD
 			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, orgID, val, ts, 2})
-			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
+			d.mqttClient.PublishWithQoS(topic, string(payload), 1, false)
 
 			// Update quality state to BAD so we detect recovery later
 			d.updateState(tib.Tag.ID, val, 2)
@@ -412,7 +412,7 @@ func (d *Driver) readBlock(b Block, prefix string, ts int64) {
 
 			// Quality 2 = BAD
 			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, orgID, val, ts, 2})
-			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
+			d.mqttClient.PublishWithQoS(topic, string(payload), 1, false)
 
 			// Update quality state to BAD so we detect recovery later
 			log.Printf("[DEBUG] ID %d: Setting Quality BAD (2). Previous: %v", tib.Tag.ID, val)
@@ -434,7 +434,7 @@ func (d *Driver) readBlock(b Block, prefix string, ts int64) {
 			orgID := d.config.OrgID
 			d.configMu.RUnlock()
 			payload, _ := json.Marshal(TagPayload{tib.Tag.ID, orgID, val, ts, 0})
-			d.mqttClient.PublishWithQoS(topic, string(payload), 1, true)
+			d.mqttClient.PublishWithQoS(topic, string(payload), 1, false)
 			d.updateState(tib.Tag.ID, val, 0)
 			log.Printf("[DRIVER] PUBLISHED: %s = %v", tib.Tag.Alias, val)
 		}

@@ -13,9 +13,11 @@ import (
 	"github.com/gin-gonic/gin"
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	_ "github.com/ralph/industrial-edge-middleware/docs"
+	"github.com/ralph/industrial-edge-middleware/internal/auth"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/handlers"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
+	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
 	swaggerFiles "github.com/swaggo/files"
@@ -158,66 +160,80 @@ func main() {
 		historyHandler = handlers.NewHistoryHandler(influxClient, influxOrg, influxBucket, database)
 	}
 
+	// Create auth service and handler
+	authService := auth.NewService(database)
+	authHandler := handlers.NewAuthHandler(authService)
+
+	// Create users handler
+	usersHandler := handlers.NewUsersHandler(database)
+
 	// Register routes
 	api := router.Group("/api")
 	{
-		// Organizations endpoints (public - no organization context required)
-		orgs := api.Group("/organizations")
+		// Auth endpoints (public)
+		auth := api.Group("/auth")
 		{
-			orgs.POST("", orgsHandler.Create)
+			auth.POST("/login", authHandler.Login)
+		}
+		// Organizations endpoints
+		orgs := api.Group("/organizations")
+		orgs.Use(middleware.RequireAuth)
+		{
+			orgs.POST("", middleware.RequireRole(models.RoleAdmin), orgsHandler.Create)
 			orgs.GET("", orgsHandler.List)
 			orgs.GET("/:id", orgsHandler.Get)
-			orgs.DELETE("/:id", orgsHandler.Delete)
+			orgs.PUT("/:id", middleware.RequireRole(models.RoleAdmin), orgsHandler.Update)
+			orgs.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), orgsHandler.Delete)
 		}
 
 		// Multi-tenant protected endpoints - require organization context
 		// Sites endpoints
 		sites := api.Group("/sites")
-		sites.Use(middleware.OrganizationContext())
+		sites.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
-			sites.POST("", sitesHandler.Create)
+			sites.POST("", middleware.RequireRole(models.RoleAdmin), sitesHandler.Create)
 			sites.GET("", sitesHandler.List)
 			sites.GET("/:id", sitesHandler.Get)
-			sites.DELETE("/:id", sitesHandler.Delete)
+			sites.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), sitesHandler.Delete)
 		}
 
 		// Areas endpoints
 		areas := api.Group("/areas")
-		areas.Use(middleware.OrganizationContext())
+		areas.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
-			areas.POST("", areasHandler.Create)
+			areas.POST("", middleware.RequireRole(models.RoleAdmin), areasHandler.Create)
 			areas.GET("", areasHandler.List)
 			areas.GET("/:id", areasHandler.Get)
-			areas.DELETE("/:id", areasHandler.Delete)
+			areas.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), areasHandler.Delete)
 		}
 
 		// Gateways endpoints
 		gateways := api.Group("/gateways")
-		gateways.Use(middleware.OrganizationContext())
+		gateways.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
-			gateways.POST("", gatewaysHandler.Create)
+			gateways.POST("", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.Create)
 			gateways.GET("", gatewaysHandler.List)
 			gateways.GET("/:id", gatewaysHandler.Get)
-			gateways.DELETE("/:id", gatewaysHandler.Delete)
-			gateways.PUT("/:id", gatewaysHandler.Update)
-			gateways.POST("/:id/test", gatewaysHandler.TestConnection)
+			gateways.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.Delete)
+			gateways.PUT("/:id", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.Update)
+			gateways.POST("/:id/test", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.TestConnection)
 		}
 
 		// Tags endpoints
 		tags := api.Group("/tags")
-		tags.Use(middleware.OrganizationContext())
+		tags.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
-			tags.POST("", tagsHandler.Create)
+			tags.POST("", middleware.RequireRole(models.RoleAdmin), tagsHandler.Create)
 			tags.GET("", tagsHandler.List)
 			tags.GET("/:id", tagsHandler.Get)
-			tags.DELETE("/:id", tagsHandler.Delete)
-			tags.PUT("/:id", tagsHandler.Update)
+			tags.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), tagsHandler.Delete)
+			tags.PUT("/:id", middleware.RequireRole(models.RoleAdmin), tagsHandler.Update)
 			tags.GET("/:id/current", tagsHandler.GetCurrentValue)
 		}
 
 		// Alarms endpoints
 		alarms := api.Group("/alarms")
-		alarms.Use(middleware.OrganizationContext())
+		alarms.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
 			alarms.GET("", alarmsHandler.List)
 			alarms.POST("/:id/acknowledge", alarmsHandler.Acknowledge)
@@ -225,20 +241,32 @@ func main() {
 
 		// System endpoints
 		system := api.Group("/system")
+		system.Use(middleware.RequireAuth)
 		{
-			system.POST("/reload", systemHandler.Reload)
+			system.POST("/reload", middleware.RequireRole(models.RoleAdmin), systemHandler.Reload)
 		}
 
 		config := api.Group("/config")
+		config.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
 		{
 			config.GET("/export", systemHandler.ExportConfig)
 			config.POST("/import", systemHandler.ImportConfig)
 		}
 
+		// Users management endpoints (admin only)
+		users := api.Group("/users")
+		users.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			users.GET("", usersHandler.List)
+			users.POST("", usersHandler.Create)
+			users.PUT("/:id", usersHandler.Update)
+			users.DELETE("/:id", usersHandler.Delete)
+		}
+
 		// History endpoint (only if InfluxDB is configured)
 		if historyHandler != nil {
 			history := api.Group("/history")
-			history.Use(middleware.OrganizationContext())
+			history.Use(middleware.RequireAuth, middleware.OrganizationContext())
 			{
 				history.GET("", historyHandler.Query)
 				history.GET("/events", historyHandler.QueryEvents)

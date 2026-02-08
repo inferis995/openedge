@@ -24,6 +24,18 @@ export const useOrganizations = () => {
         },
     });
 
+    const updateMutation = useMutation({
+        mutationFn: ({ id, data }: { id: number; data: CreateOrganizationDto }) =>
+            organizationsApi.update(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['organizations'] });
+            showApiSuccess('Organization updated', 'The organization has been updated successfully');
+        },
+        onError: (error) => {
+            showApiError(error, 'Failed to update organization');
+        },
+    });
+
     const deleteMutation = useMutation({
         mutationFn: (id: number) => organizationsApi.delete(id),
         onSuccess: () => {
@@ -46,6 +58,8 @@ export const useOrganizations = () => {
         error,
         create: createMutation.mutateAsync,
         isCreating: createMutation.isPending,
+        update: updateMutation.mutateAsync,
+        isUpdating: updateMutation.isPending,
         remove: deleteMutation.mutateAsync,
         isDeleting: deleteMutation.isPending,
         refetch: query.refetch,
