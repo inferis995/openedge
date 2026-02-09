@@ -13,8 +13,6 @@ const SystemPage = () => {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
-    // Get notification sound setting from alarm store
-    // const { notificationSoundEnabled, setNotificationSoundEnabled } = useAlarmStore();
 
     const handleReload = async () => {
         setLoading(true);

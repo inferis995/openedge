@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 
 import { RefreshCw, ChevronRight, Building2, Factory, MapPin, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useAlarmStore } from '@/stores/useAlarmStore';
+import { useMqttStore } from '@/stores/useMqttStore';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import { organizationsApi } from '@/api/organizations';
 import { sitesApi } from '@/api/sites';
@@ -15,12 +15,7 @@ const Header = () => {
     const navigate = useNavigate();
     const location = useLocation();
 
-    // Get real-time alarm state from store
-    // Get real-time alarm state from store - DISABLED
-    // const { activeAlarmCount, isMqttConnected, connectMqtt } = useAlarmStore();
-    // Get real-time alarm state from store - DISABLED
-    // We keep useAlarmStore for MQTT status only
-    const { isMqttConnected, connectMqtt } = useAlarmStore();
+    const { isMqttConnected, connectMqtt } = useMqttStore();
 
     // Get navigation context
     const { selectedOrgId, selectedSiteId, selectedAreaId, clearSelection } = useNavigationStore();
@@ -143,15 +138,6 @@ const Header = () => {
                     )}></span>
                     {isMqttConnected ? 'MQTT Connected' : 'MQTT Disconnected'}
                 </div>
-
-                {/* Alarms Button with Badge */}
-                {/* Alarms Button Removed */}
-
-                {/* Reload Config Button */}
-                <Button variant="outline" size="sm" className="gap-2">
-                    <RefreshCw size={14} />
-                    Reload Config
-                </Button>
             </div>
         </header>
     );

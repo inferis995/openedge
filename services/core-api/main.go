@@ -150,7 +150,6 @@ func main() {
 	areasHandler := handlers.NewAreasHandler(database)
 	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient, redisClient)
 	tagsHandler := handlers.NewTagsHandler(database, mqttClient, redisClient)
-	alarmsHandler := handlers.NewAlarmsHandler(database, mqttClient)
 	systemHandler := handlers.NewSystemHandler(database, mqttClient)
 	realtimeHandler := handlers.NewRealtimeHandler(redisClient)
 
@@ -237,14 +236,6 @@ func main() {
 			tags.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), tagsHandler.Delete)
 			tags.PUT("/:id", middleware.RequireRole(models.RoleAdmin), tagsHandler.Update)
 			tags.GET("/:id/current", tagsHandler.GetCurrentValue)
-		}
-
-		// Alarms endpoints
-		alarms := api.Group("/alarms")
-		alarms.Use(middleware.RequireAuth, middleware.OrganizationContext())
-		{
-			alarms.GET("", alarmsHandler.List)
-			alarms.POST("/:id/acknowledge", alarmsHandler.Acknowledge)
 		}
 
 		// System endpoints

@@ -231,10 +231,6 @@ const TagsPage = () => {
                 data_type: 'REAL',
                 historize: false,
                 deadband_value: 0.1,
-                alarm_enabled: false,
-                alarm_threshold: 0,
-                alarm_operator: '>',
-                alarm_priority: 3,
             });
         } catch (error) {
             console.error('Failed to save tag', error);
@@ -249,7 +245,6 @@ const TagsPage = () => {
             data_type: tag.data_type,
             historize: tag.historize,
             deadband_value: tag.historize_deadband || 0.1,
-
         });
         setIsOpen(true);
     };

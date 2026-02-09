@@ -44,10 +44,6 @@ type CreateTagRequest struct {
 	DataType          string   `json:"data_type" binding:"required"`
 	Historize         *bool    `json:"historize"`
 	HistorizeDeadband *float64 `json:"historize_deadband"`
-	AlarmEnabled      *bool    `json:"alarm_enabled"`
-	AlarmThreshold    *float64 `json:"alarm_threshold"`
-	AlarmOperator     string   `json:"alarm_operator"`
-	AlarmPriority     *int     `json:"alarm_priority"`
 }
 
 // UpdateTagRequest represents the request body for updating a tag
@@ -57,10 +53,6 @@ type UpdateTagRequest struct {
 	DataType          *string  `json:"data_type"`
 	Historize         *bool    `json:"historize"`
 	HistorizeDeadband *float64 `json:"historize_deadband"`
-	AlarmEnabled      *bool    `json:"alarm_enabled"`
-	AlarmThreshold    *float64 `json:"alarm_threshold"`
-	AlarmOperator     *string  `json:"alarm_operator"`
-	AlarmPriority     *int     `json:"alarm_priority"`
 }
 
 // validateDataType checks if the data_type is valid
@@ -71,21 +63,6 @@ func validateDataType(dataType string) bool {
 	default:
 		return false
 	}
-}
-
-// validateAlarmOperator checks if the alarm_operator is valid
-func validateAlarmOperator(op string) bool {
-	switch op {
-	case ">", "<", "=", "":
-		return true
-	default:
-		return false
-	}
-}
-
-// validateAlarmPriority checks if the alarm_priority is valid
-func validateAlarmPriority(priority int) bool {
-	return priority >= 1 && priority <= 5
 }
 
 // Create handles POST /api/tags
@@ -150,22 +127,6 @@ func (h *TagsHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Validate alarm_operator if provided
-	if req.AlarmOperator != "" && !validateAlarmOperator(req.AlarmOperator) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "alarm_operator must be '>', '<', or '='"})
-		return
-	}
-
-	// Validate alarm_priority if provided
-	alarmPriority := 1
-	if req.AlarmPriority != nil {
-		if !validateAlarmPriority(*req.AlarmPriority) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "alarm_priority must be between 1 and 5"})
-			return
-		}
-		alarmPriority = *req.AlarmPriority
-	}
-
 	// Set defaults
 	historize := false
 	if req.Historize != nil {
@@ -177,32 +138,18 @@ func (h *TagsHandler) Create(c *gin.Context) {
 		historizeDeadband = *req.HistorizeDeadband
 	}
 
-	alarmEnabled := false
-	if req.AlarmEnabled != nil {
-		alarmEnabled = *req.AlarmEnabled
-	}
-
-	var alarmOperator *string
-	if req.AlarmOperator != "" {
-		alarmOperator = &req.AlarmOperator
-	}
-
 	var tag models.Tag
 	err = h.db.QueryRow(
-		`INSERT INTO tags (gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-		 RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority, created_at`,
+		`INSERT INTO tags (gateway_id, code, alias, data_type, historize, historize_deadband)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, created_at`,
 		req.GatewayID,
 		req.Code,
 		req.Alias,
 		req.DataType,
 		historize,
 		historizeDeadband,
-		alarmEnabled,
-		req.AlarmThreshold,
-		alarmOperator,
-		alarmPriority,
-	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.AlarmEnabled, &tag.AlarmThreshold, &tag.AlarmOperator, &tag.AlarmPriority, &tag.CreatedAt)
+	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.CreatedAt)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create tag"})
@@ -286,13 +233,13 @@ func (h *TagsHandler) List(c *gin.Context) {
 		}
 
 		rows, err = h.db.Query(
-			"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority, sort_order, created_at FROM tags WHERE gateway_id = $1 ORDER BY sort_order ASC, id ASC",
+			"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, created_at FROM tags WHERE gateway_id = $1 ORDER BY sort_order ASC, id ASC",
 			gatewayID,
 		)
 	} else {
 		// Case 2: List All Tags for Organization
 		rows, err = h.db.Query(
-			`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.alarm_enabled, t.alarm_threshold, t.alarm_operator, t.alarm_priority, t.sort_order, t.created_at
+			`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.created_at
 			 FROM tags t
 			 JOIN gateways g ON t.gateway_id = g.id
 			 JOIN areas a ON g.area_id = a.id
@@ -312,7 +259,7 @@ func (h *TagsHandler) List(c *gin.Context) {
 	var tags []models.Tag
 	for rows.Next() {
 		var tag models.Tag
-		if err := rows.Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.AlarmEnabled, &tag.AlarmThreshold, &tag.AlarmOperator, &tag.AlarmPriority, &tag.SortOrder, &tag.CreatedAt); err != nil {
+		if err := rows.Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan tag"})
 			return
 		}
@@ -352,9 +299,9 @@ func (h *TagsHandler) Get(c *gin.Context) {
 
 	var tag models.Tag
 	err := h.db.QueryRow(
-		"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority, created_at FROM tags WHERE id = $1",
+		"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, created_at FROM tags WHERE id = $1",
 		id,
-	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.AlarmEnabled, &tag.AlarmThreshold, &tag.AlarmOperator, &tag.AlarmPriority, &tag.CreatedAt)
+	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.CreatedAt)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -438,30 +385,10 @@ func (h *TagsHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Manual Cascade Delete Transaction
-	tx, err := h.db.Begin()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
-		return
-	}
-	defer tx.Rollback()
-
-	// 1. Delete Alarms
-	_, err = tx.Exec("DELETE FROM alarms WHERE tag_id = $1", id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related alarms"})
-		return
-	}
-
-	// 2. Delete Tag
-	_, err = tx.Exec("DELETE FROM tags WHERE id = $1", id)
+	// Delete Tag
+	_, err = h.db.Exec("DELETE FROM tags WHERE id = $1", id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete tag"})
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
 		return
 	}
 
@@ -550,18 +477,6 @@ func (h *TagsHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Validate alarm_operator if provided
-	if req.AlarmOperator != nil && *req.AlarmOperator != "" && !validateAlarmOperator(*req.AlarmOperator) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "alarm_operator must be '>', '<', or '='"})
-		return
-	}
-
-	// Validate alarm_priority if provided
-	if req.AlarmPriority != nil && !validateAlarmPriority(*req.AlarmPriority) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "alarm_priority must be between 1 and 5"})
-		return
-	}
-
 	// Build dynamic update query
 	updates := []string{}
 	args := []interface{}{}
@@ -592,30 +507,6 @@ func (h *TagsHandler) Update(c *gin.Context) {
 		args = append(args, *req.HistorizeDeadband)
 		argPos++
 	}
-	if req.AlarmEnabled != nil {
-		updates = append(updates, "alarm_enabled = $"+strconv.Itoa(argPos))
-		args = append(args, *req.AlarmEnabled)
-		argPos++
-	}
-	if req.AlarmThreshold != nil {
-		updates = append(updates, "alarm_threshold = $"+strconv.Itoa(argPos))
-		args = append(args, *req.AlarmThreshold)
-		argPos++
-	}
-	if req.AlarmOperator != nil {
-		updates = append(updates, "alarm_operator = $"+strconv.Itoa(argPos))
-		if *req.AlarmOperator == "" {
-			args = append(args, nil)
-		} else {
-			args = append(args, *req.AlarmOperator)
-		}
-		argPos++
-	}
-	if req.AlarmPriority != nil {
-		updates = append(updates, "alarm_priority = $"+strconv.Itoa(argPos))
-		args = append(args, *req.AlarmPriority)
-		argPos++
-	}
 
 	if len(updates) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
@@ -628,13 +519,12 @@ func (h *TagsHandler) Update(c *gin.Context) {
 	for i := 1; i < len(updates); i++ {
 		query += ", " + updates[i]
 	}
-	query += " WHERE id = $" + strconv.Itoa(argPos) + " RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority, created_at"
+	query += " WHERE id = $" + strconv.Itoa(argPos) + " RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, created_at"
 
 	var tag models.Tag
 	err = h.db.QueryRow(query, args...).Scan(
 		&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType,
-		&tag.Historize, &tag.HistorizeDeadband, &tag.AlarmEnabled,
-		&tag.AlarmThreshold, &tag.AlarmOperator, &tag.AlarmPriority, &tag.CreatedAt,
+		&tag.Historize, &tag.HistorizeDeadband, &tag.CreatedAt,
 	)
 
 	if err != nil {

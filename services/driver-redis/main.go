@@ -186,8 +186,7 @@ func (d *Driver) loadConfig() error {
 
 	// Load tags
 	tagsQuery := `
-		SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband,
-		       alarm_enabled, alarm_threshold, alarm_operator, alarm_priority
+		SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband
 		FROM tags
 		WHERE gateway_id = $1
 	`
@@ -209,10 +208,6 @@ func (d *Driver) loadConfig() error {
 			&tag.DataType,
 			&tag.Historize,
 			&tag.HistorizeDeadband,
-			&tag.AlarmEnabled,
-			&tag.AlarmThreshold,
-			&tag.AlarmOperator,
-			&tag.AlarmPriority,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to scan tag: %w", err)

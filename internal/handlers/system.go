@@ -118,7 +118,7 @@ func (h *SystemHandler) ExportConfig(c *gin.Context) {
 	}
 
 	// Fetch tags (using correct column names from model)
-	rows5, err := h.db.Query("SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority, created_at FROM tags ORDER BY id")
+	rows5, err := h.db.Query("SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, created_at FROM tags ORDER BY id")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch tags"})
 		return
@@ -126,7 +126,7 @@ func (h *SystemHandler) ExportConfig(c *gin.Context) {
 	defer rows5.Close()
 	for rows5.Next() {
 		var tag models.Tag
-		if err := rows5.Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.AlarmEnabled, &tag.AlarmThreshold, &tag.AlarmOperator, &tag.AlarmPriority, &tag.CreatedAt); err == nil {
+		if err := rows5.Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.CreatedAt); err == nil {
 			config.Tags = append(config.Tags, tag)
 		}
 	}

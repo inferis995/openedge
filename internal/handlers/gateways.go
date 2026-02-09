@@ -456,17 +456,7 @@ func (h *GatewaysHandler) Delete(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	// 1. Delete Alarms (via tags)
-	_, err = tx.Exec(`
-		DELETE FROM alarms WHERE tag_id IN (
-			SELECT id FROM tags WHERE gateway_id = $1
-		)`, id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related alarms"})
-		return
-	}
-
-	// 2. Delete Tags
+	// 1. Delete Tags
 	_, err = tx.Exec("DELETE FROM tags WHERE gateway_id = $1", id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related tags"})

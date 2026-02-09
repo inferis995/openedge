@@ -44,25 +44,7 @@ export interface Tag {
     historize_interval_ms?: number;
     deadband_mode?: 'absolute' | 'percent';
     deadband_value?: number;
-    alarm_enabled: boolean;
-    alarm_threshold?: number;
-    alarm_operator?: '>' | '<' | '>=' | '<=' | '=' | '!=';
-    alarm_priority?: number;
     created_at?: string;
-}
-
-export interface Alarm {
-    id: number;
-    tag_id: number;
-    state: 'active' | 'rtn' | 'acknowledged' | 'cleared';
-    message: string;
-    value_at_trigger?: number;
-    triggered_at: string;
-    acknowledged_at?: string;
-    cleared_at?: string;
-    tag_alias?: string;
-    tag_code?: string;
-    gateway_name?: string;
 }
 
 // DTOs
@@ -102,10 +84,6 @@ export interface CreateTagDto {
     data_type: 'BOOL' | 'INT' | 'REAL' | 'DINT' | 'STRING';
     historize: boolean;
     deadband_value?: number;
-    alarm_enabled: boolean;
-    alarm_threshold?: number;
-    alarm_operator?: '>' | '<' | '>=' | '<=' | '=' | '!=' | string; // Relaxed type for now
-    alarm_priority?: number;
 }
 
 export interface HistoryDataPoint {
