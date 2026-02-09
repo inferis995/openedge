@@ -510,3 +510,56 @@ func (c *Client) ReadMultipleTags(addresses []string, dataTypes []string) ([]int
 
 	return results, nil
 }
+
+// WriteSingleCoil writes a single coil (function code 0x05)
+func (c *Client) WriteSingleCoil(address uint16, value uint16) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.client == nil {
+		return ErrNotConnected
+	}
+
+	// value is 0xFF00 for ON, 0x0000 for OFF
+	boolVal := value == 0xFF00
+	return c.client.WriteCoil(address, boolVal)
+}
+
+// WriteSingleRegister writes a single holding register (function code 0x06)
+func (c *Client) WriteSingleRegister(address uint16, value uint16) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.client == nil {
+		return ErrNotConnected
+	}
+
+	return c.client.WriteRegister(address, value)
+}
+
+// WriteMultipleRegisters writes multiple holding registers (function code 0x10)
+func (c *Client) WriteMultipleRegisters(address uint16, quantity uint16, value []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.client == nil {
+		return ErrNotConnected
+	}
+
+	// Convert []byte to []uint16
+	if len(value)%2 != 0 {
+		return fmt.Errorf("value length must be even")
+	}
+
+	numRegs := len(value) / 2
+	if uint16(numRegs) != quantity {
+		return fmt.Errorf("quantity mismatch: expected %d, got %d from bytes", quantity, numRegs)
+	}
+
+	regs := make([]uint16, quantity)
+	for i := 0; i < int(quantity); i++ {
+		regs[i] = binary.BigEndian.Uint16(value[i*2:])
+	}
+
+	return c.client.WriteRegisters(address, regs)
+}

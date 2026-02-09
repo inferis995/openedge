@@ -236,6 +236,7 @@ func main() {
 			tags.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), tagsHandler.Delete)
 			tags.PUT("/:id", middleware.RequireRole(models.RoleAdmin), tagsHandler.Update)
 			tags.GET("/:id/current", tagsHandler.GetCurrentValue)
+			tags.POST("/:id/write", tagsHandler.Write)
 		}
 
 		// System endpoints

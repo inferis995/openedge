@@ -30,19 +30,19 @@ const (
 	areaPA = 0x82 // Outputs
 
 	// TPKT Header
-	tpktVersion = 0x03
+	tpktVersion  = 0x03
 	tpktReserved = 0x00
 
 	// COTP Connect
-	cotpConnectRequest  = 0xE0
-	cotpConnectConfirm  = 0xD0
-	cotpDataTransfer    = 0xF0
+	cotpConnectRequest = 0xE0
+	cotpConnectConfirm = 0xD0
+	cotpDataTransfer   = 0xF0
 
 	// S7 PDU Types
-	s7PDUJobRequest     = 0x01
-	s7PDUAck            = 0x02
-	s7PDUAckData        = 0x03
-	s7PDUUserData       = 0x07
+	s7PDUJobRequest = 0x01
+	s7PDUAck        = 0x02
+	s7PDUAckData    = 0x03
+	s7PDUUserData   = 0x07
 
 	// S7 Functions
 	s7FunctionSetupComm = 0xF0
@@ -202,11 +202,11 @@ func (c *Client) cotpConnect() error {
 		// TPKT Header
 		tpktVersion, tpktReserved, 0x00, 0x16, // Length = 22 bytes total
 		// COTP Header
-		0x11,             // Length indicator
+		0x11,               // Length indicator
 		cotpConnectRequest, // COTP type: Connect Request
-		0x00, 0x00,       // Destination reference
-		0x00, 0x01,       // Source reference
-		0x00,             // Class and options
+		0x00, 0x00,         // Destination reference
+		0x00, 0x01, // Source reference
+		0x00, // Class and options
 		// Parameters
 		0xC0, 0x01, 0x0A, // TPDU size (1024 bytes)
 		0xC1, 0x02, 0x01, 0x00, // Source TSAP
@@ -243,22 +243,22 @@ func (c *Client) s7SetupCommunication() error {
 		// TPKT Header
 		tpktVersion, tpktReserved, 0x00, 0x19, // Length = 25 bytes
 		// COTP Header
-		0x02,            // Length indicator
+		0x02,             // Length indicator
 		cotpDataTransfer, // COTP type: Data
-		0x80,            // Last data unit
+		0x80,             // Last data unit
 		// S7 Header
 		0x32,            // Protocol ID
 		s7PDUJobRequest, // PDU type: Job Request
 		0x00, 0x00,      // Reserved
-		0x00, 0x00,      // PDU reference
-		0x00, 0x08,      // Parameter length
-		0x00, 0x00,      // Data length
+		0x00, 0x00, // PDU reference
+		0x00, 0x08, // Parameter length
+		0x00, 0x00, // Data length
 		// S7 Parameters (Setup Communication)
 		s7FunctionSetupComm, // Function
 		0x00,                // Reserved
 		0x00, 0x01,          // Max AmQ calling
-		0x00, 0x01,          // Max AmQ called
-		0x01, 0xE0,          // PDU length (480 bytes)
+		0x00, 0x01, // Max AmQ called
+		0x01, 0xE0, // PDU length (480 bytes)
 	}
 
 	if _, err := c.conn.Write(setupPDU); err != nil {
@@ -408,26 +408,26 @@ func (c *Client) readArea(area int, dbNumber int, start int, size int, dataType 
 	request[6] = 0x80
 
 	// S7 Header
-	request[7] = 0x32                                         // Protocol ID
-	request[8] = s7PDUJobRequest                              // PDU type
-	request[9] = 0x00                                         // Reserved
-	request[10] = 0x00                                        // Reserved
-	binary.BigEndian.PutUint16(request[11:], c.sequenceNum)   // PDU reference
+	request[7] = 0x32                                             // Protocol ID
+	request[8] = s7PDUJobRequest                                  // PDU type
+	request[9] = 0x00                                             // Reserved
+	request[10] = 0x00                                            // Reserved
+	binary.BigEndian.PutUint16(request[11:], c.sequenceNum)       // PDU reference
 	binary.BigEndian.PutUint16(request[13:], uint16(paramLength)) // Parameter length
-	binary.BigEndian.PutUint16(request[15:], 0)               // Data length
+	binary.BigEndian.PutUint16(request[15:], 0)                   // Data length
 
 	// S7 Read Parameters
 	request[17] = s7FunctionReadVar // Function: Read Var
 	request[18] = 0x01              // Item count
 
 	// Read Item
-	request[19] = 0x12                               // Specification type
-	request[20] = 0x0A                               // Length of this item
-	request[21] = 0x10                               // Syntax ID: S7ANY
-	request[22] = transportSize                      // Transport size
-	binary.BigEndian.PutUint16(request[23:], uint16(size)) // Length
+	request[19] = 0x12                                         // Specification type
+	request[20] = 0x0A                                         // Length of this item
+	request[21] = 0x10                                         // Syntax ID: S7ANY
+	request[22] = transportSize                                // Transport size
+	binary.BigEndian.PutUint16(request[23:], uint16(size))     // Length
 	binary.BigEndian.PutUint16(request[25:], uint16(dbNumber)) // DB Number
-	request[27] = byte(area)                         // Area
+	request[27] = byte(area)                                   // Area
 	// Address (3 bytes, big endian, bit address)
 	request[28] = byte(bitAddress >> 16)
 	request[29] = byte(bitAddress >> 8)
@@ -711,4 +711,236 @@ func convertBufferToValue(buffer []byte, dataType DataType, bitOffset int) (inte
 	default:
 		return nil, fmt.Errorf("unsupported data type: %s", dataType)
 	}
+}
+
+// WriteTag writes a value to the PLC based on address and data type
+func (c *Client) WriteTag(address string, dataType DataType, value interface{}) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.connected {
+		return fmt.Errorf("not connected to PLC")
+	}
+
+	// Parse the address
+	area, dbNumber, start, bitOffset, size, err := parseAddress(address, dataType)
+	if err != nil {
+		return err
+	}
+
+	// Convert value to buffer
+	buffer, err := convertValueToBuffer(value, dataType, size)
+	if err != nil {
+		return err
+	}
+
+	// Perform write
+	c.conn.SetDeadline(time.Now().Add(c.config.Timeout))
+	defer c.conn.SetDeadline(time.Time{})
+
+	if err := c.writeArea(area, dbNumber, start, bitOffset, buffer, dataType); err != nil {
+		c.handleConnectionError(err)
+		return fmt.Errorf("write error: %w", err)
+	}
+
+	return nil
+}
+
+// writeArea writes data to a specific memory area
+func (c *Client) writeArea(area int, dbNumber int, start int, bitOffset int, data []byte, dataType DataType) error {
+	c.sequenceNum++
+
+	// Determine transport size for request
+	transportSize := byte(s7TransportByte)
+	if dataType == DataTypeBOOL {
+		transportSize = s7TransportBit
+	} else if dataType == DataTypeINT {
+		transportSize = s7TransportWord
+	} else if dataType == DataTypeDINT {
+		transportSize = s7TransportDWord
+	} else if dataType == DataTypeREAL {
+		transportSize = s7TransportReal
+	}
+
+	// Calculate bit address
+	bitAddress := start * 8
+	if dataType == DataTypeBOOL {
+		bitAddress += bitOffset
+	}
+
+	// Build S7 Write Request
+	paramLength := 14
+	dataLength := 4 + len(data) // Data header (4) + data
+
+	// TPKT + COTP + S7 Header + Params + Data
+	tpktLength := 4 + 3 + 12 + paramLength + dataLength
+
+	request := make([]byte, tpktLength)
+
+	// TPKT Header
+	request[0] = tpktVersion
+	request[1] = tpktReserved
+	binary.BigEndian.PutUint16(request[2:], uint16(tpktLength))
+
+	// COTP Header
+	request[4] = 0x02
+	request[5] = cotpDataTransfer
+	request[6] = 0x80
+
+	// S7 Header
+	request[7] = 0x32
+	request[8] = s7PDUJobRequest
+	request[9] = 0x00
+	request[10] = 0x00
+	binary.BigEndian.PutUint16(request[11:], c.sequenceNum)
+	binary.BigEndian.PutUint16(request[13:], uint16(paramLength))
+	binary.BigEndian.PutUint16(request[15:], uint16(dataLength))
+
+	// S7 Write Parameters
+	request[17] = s7FunctionWriteVar
+	request[18] = 0x01 // Item count
+
+	// Write Item Specification
+	request[19] = 0x12
+	request[20] = 0x0A
+	request[21] = 0x10
+	request[22] = transportSize
+	// Length in bits or bytes depending on transport size?
+	// For Write Var, length is typically 1 (item count) for basic types, or byte count
+	// Standard S7: Length is always number of items (bits/bytes/words)
+	// For specific types (REAL, INT, DINT), we are writing 1 unit
+	writeLen := 1
+	if dataType == DataTypeBOOL {
+		writeLen = 1 // 1 bit
+	} else if dataType == DataTypeINT {
+		writeLen = 1 // 1 word
+	} else if dataType == DataTypeDINT || dataType == DataTypeREAL {
+		writeLen = 1 // 1 dword
+	}
+	binary.BigEndian.PutUint16(request[23:], uint16(writeLen))
+
+	binary.BigEndian.PutUint16(request[25:], uint16(dbNumber))
+	request[27] = byte(area)
+	request[28] = byte(bitAddress >> 16)
+	request[29] = byte(bitAddress >> 8)
+	request[30] = byte(bitAddress)
+
+	// Data Section
+	dataOffset := 31           // End of params
+	request[dataOffset] = 0xFF // Return code (0xFF for request)
+
+	// Transport Size in Data Header
+	// For bit access: 0x03, byte/word/dword: 0x04
+	if dataType == DataTypeBOOL {
+		request[dataOffset+1] = 0x03
+	} else {
+		request[dataOffset+1] = 0x04
+	}
+
+	// Length in bits for data section
+	bitsLen := len(data) * 8
+	binary.BigEndian.PutUint16(request[dataOffset+2:], uint16(bitsLen))
+
+	// Payload
+	copy(request[dataOffset+4:], data)
+
+	// Send request
+	if _, err := c.conn.Write(request); err != nil {
+		return fmt.Errorf("failed to send write request: %w", err)
+	}
+
+	// Read response
+	response := make([]byte, 512)
+	n, err := c.conn.Read(response)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if n < 10 { // Minimal response check
+		return fmt.Errorf("response too short")
+	}
+
+	// Check S7 response
+	if response[8] != s7PDUAckData {
+		return fmt.Errorf("unexpected PDU type: 0x%02X", response[8])
+	}
+
+	// Check error class
+	if response[17] != 0 || response[18] != 0 {
+		return fmt.Errorf("S7 error: class=0x%02X code=0x%02X", response[17], response[18])
+	}
+
+	// Check item return code
+	// Param length
+	paramLen := binary.BigEndian.Uint16(response[13:])
+	// Data starts after param
+	itemReturnCodeOffset := 17 + int(paramLen)
+	if itemReturnCodeOffset >= n {
+		return fmt.Errorf("invalid response format")
+	}
+
+	if response[itemReturnCodeOffset] != 0xFF {
+		return fmt.Errorf("write item failed with code: 0x%02X", response[itemReturnCodeOffset])
+	}
+
+	return nil
+}
+
+// convertValueToBuffer converts Go value to byte buffer for S7
+func convertValueToBuffer(value interface{}, dataType DataType, size int) ([]byte, error) {
+	buffer := make([]byte, size)
+
+	switch dataType {
+	case DataTypeBOOL:
+		val := false
+		if v, ok := value.(bool); ok {
+			val = v
+		} else if v, ok := value.(float64); ok { // JSON float64
+			val = v != 0
+		} else if v, ok := value.(int); ok {
+			val = v != 0
+		} else {
+			return nil, fmt.Errorf("value is not boolean")
+		}
+
+		if val {
+			buffer[0] = 1
+		} else {
+			buffer[0] = 0
+		}
+	case DataTypeINT:
+		var val int16
+		if v, ok := value.(float64); ok {
+			val = int16(v)
+		} else if v, ok := value.(int); ok {
+			val = int16(v)
+		} else {
+			return nil, fmt.Errorf("value is not int")
+		}
+		binary.BigEndian.PutUint16(buffer, uint16(val))
+	case DataTypeDINT:
+		var val int32
+		if v, ok := value.(float64); ok {
+			val = int32(v)
+		} else if v, ok := value.(int); ok {
+			val = int32(v)
+		} else {
+			return nil, fmt.Errorf("value is not dint")
+		}
+		binary.BigEndian.PutUint32(buffer, uint32(val))
+	case DataTypeREAL:
+		var val float32
+		if v, ok := value.(float64); ok {
+			val = float32(v)
+		} else if v, ok := value.(float32); ok {
+			val = v
+		} else {
+			return nil, fmt.Errorf("value is not real")
+		}
+		bits := math.Float32bits(val)
+		binary.BigEndian.PutUint32(buffer, bits)
+	default:
+		return nil, fmt.Errorf("unsupported write data type")
+	}
+	return buffer, nil
 }

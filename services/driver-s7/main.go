@@ -48,6 +48,10 @@ type Driver struct {
 	// Report by Exception: store previous values for change detection
 	previousValues map[int]interface{}
 	prevValuesMu   sync.RWMutex
+
+	// Write Cooldown: prevent read-after-write flickering
+	writeCooldowns map[int]time.Time
+	cooldownMu     sync.RWMutex
 }
 
 func main() {
@@ -112,6 +116,7 @@ func main() {
 		stopChan:       make(chan struct{}),
 		reloadChan:     make(chan struct{}, 1),
 		previousValues: make(map[int]interface{}),
+		writeCooldowns: make(map[int]time.Time),
 	}
 
 	// Load initial configuration
@@ -130,6 +135,13 @@ func main() {
 	if err := mqttClient.Subscribe("sys/command/reload/+", driver.handleReloadCommand); err != nil {
 		log.Printf("Warning: Failed to subscribe to wildcard reload topic: %v", err)
 	}
+
+	// Subscribe to write commands
+	writeTopic := fmt.Sprintf("cmd/write/%d", gatewayID)
+	if err := mqttClient.Subscribe(writeTopic, driver.handleWriteCommand); err != nil {
+		log.Fatalf("Failed to subscribe to write topic: %v", err)
+	}
+	log.Printf("Subscribed to write topic: %s", writeTopic)
 
 	// Start the driver loop
 	go driver.run()
@@ -262,6 +274,84 @@ func (d *Driver) handleReloadCommand(topic string, payload []byte) {
 	}
 }
 
+// WriteCommand represents a write command from MQTT
+type WriteCommand struct {
+	TagID    int         `json:"tag_id"`
+	Code     string      `json:"code"`
+	Value    interface{} `json:"value"`
+	DataType string      `json:"data_type"`
+}
+
+// handleWriteCommand handles write commands from MQTT
+func (d *Driver) handleWriteCommand(topic string, payload []byte) {
+	log.Printf("Received write command: %s", string(payload))
+
+	var cmd WriteCommand
+	if err := json.Unmarshal(payload, &cmd); err != nil {
+		log.Printf("Failed to unmarshal write command: %v", err)
+		return
+	}
+
+	// EXECUTE WRITE TO PLC
+	d.configMu.RLock()
+	client := d.s7Client
+	config := d.config
+	d.configMu.RUnlock()
+
+	if client == nil || !client.IsConnected() {
+		log.Printf("Cannot write: S7 client not connected")
+		return
+	}
+
+	// Convert DataType string to s7.DataType
+	dataType := s7.DataType(cmd.DataType)
+
+	// Perform Write
+	if err := client.WriteTag(cmd.Code, dataType, cmd.Value); err != nil {
+		log.Printf("Write failed for tag %d (%s): %v", cmd.TagID, cmd.Code, err)
+		return
+	}
+
+	log.Printf("Write successful to %s (Value: %v)", cmd.Code, cmd.Value)
+
+	// OPTIMISTIC UPDATE & COOLDOWN
+	// 1. Update local cache immediately so we don't wait for next poll
+	d.updatePreviousValue(cmd.TagID, cmd.Value)
+
+	// 2. Set Cooldown to ignore read values for a short time
+	// This prevents the "flicker" where the next poll might read the OLD value
+	// from the PLC before the write has processed.
+	d.cooldownMu.Lock()
+	d.writeCooldowns[cmd.TagID] = time.Now().Add(2 * time.Second) // 2s cooldown
+	d.cooldownMu.Unlock()
+
+	// 3. Publish the new value back to MQTT immediately (feedback)
+	if config != nil {
+		topicPrefix := fmt.Sprintf("data/%s/%s/%s/%s",
+			config.OrgName,
+			config.Site,
+			config.Area,
+			slugify(config.Gateway.Name),
+		)
+
+		// Find tag alias for topic
+		var tagAlias string
+		for _, t := range config.Tags {
+			if t.ID == cmd.TagID {
+				tagAlias = t.Alias
+				break
+			}
+		}
+
+		if tagAlias != "" {
+			// Publish success feedback
+			tag := models.Tag{Alias: tagAlias, ID: cmd.TagID} // Minimal tag struct for publish
+			// Use 0 for "Good" quality on successful write
+			d.publishTagValue(topicPrefix, tag, cmd.Value, time.Now().UnixMilli(), 0)
+		}
+	}
+}
+
 // run is the main driver loop
 func (d *Driver) run() {
 	d.configMu.RLock()
@@ -374,6 +464,37 @@ func (d *Driver) poll() {
 			// Publish with bad quality
 			d.publishTagValue(topicPrefix, tag, nil, timestamp, 1)
 			continue
+		}
+
+		// COOLDOWN CHECK
+		d.cooldownMu.RLock()
+		cooldownUntil, hasCooldown := d.writeCooldowns[tag.ID]
+		d.cooldownMu.RUnlock()
+
+		if hasCooldown {
+			if time.Now().Before(cooldownUntil) {
+				// We are in cooldown. Check if PLC value matches our optimistic value.
+				d.prevValuesMu.RLock()
+				optValue, exists := d.previousValues[tag.ID]
+				d.prevValuesMu.RUnlock()
+
+				if exists && valuesEqual(result.Value, optValue) {
+					// PLC has caught up! Clear cooldown early.
+					d.cooldownMu.Lock()
+					delete(d.writeCooldowns, tag.ID)
+					d.cooldownMu.Unlock()
+					log.Printf("Write confirmed for tag %s (PLC matches optimistic value)", tag.Alias)
+				} else {
+					// PLC still shows old value (or different). Ignore to prevent flicker.
+					// log.Printf("Ignoring old value for tag %s during cooldown", tag.Alias)
+					continue
+				}
+			} else {
+				// Cooldown expired. Clean up.
+				d.cooldownMu.Lock()
+				delete(d.writeCooldowns, tag.ID)
+				d.cooldownMu.Unlock()
+			}
 		}
 
 		// Report by Exception: check if value has changed

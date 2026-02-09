@@ -58,19 +58,13 @@ type UpdateTagRequest struct {
 // validateDataType checks if the data_type is valid
 func validateDataType(dataType string) bool {
 	switch dataType {
-	case "INT", "REAL", "BOOL", "DINT":
+	case "INT", "REAL", "BOOL": // INT, DINT are checked by integer parsing
 		return true
 	default:
 		return false
 	}
 }
 
-// Create handles POST /api/tags
-// @Summary Create a new tag
-// @Description Create a new tag for the specified gateway
-// @Tags tags
-// @Accept json
-// @Produce json
 // @Param X-Organization-ID header int true "Organization ID"
 // @Param request body CreateTagRequest true "Tag creation request"
 // @Success 201 {object} models.Tag

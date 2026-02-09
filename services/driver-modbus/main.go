@@ -68,6 +68,10 @@ type Driver struct {
 	previousQualities map[int]int
 	prevValuesMu      sync.RWMutex
 	isConnected       bool
+
+	// Write Cooldown
+	writeCooldowns map[int]time.Time
+	cooldownMu     sync.RWMutex
 }
 
 func main() {
@@ -126,6 +130,7 @@ func main() {
 		reloadChan:        make(chan struct{}, 1),
 		previousValues:    make(map[int]interface{}),
 		previousQualities: make(map[int]int),
+		writeCooldowns:    make(map[int]time.Time),
 	}
 
 	// Load initial configuration
@@ -138,6 +143,11 @@ func main() {
 	mqttClient.Subscribe(reloadTopic, driver.handleReloadCommand)
 	mqttClient.Subscribe("sys/command/reload/+", driver.handleReloadCommand)
 	log.Printf("[DRIVER] Subscribed to reload topic: %s", reloadTopic)
+
+	// Subscribe to write commands
+	writeTopic := fmt.Sprintf("cmd/write/%d", gatewayID)
+	mqttClient.Subscribe(writeTopic, driver.handleWriteCommand)
+	log.Printf("[DRIVER] Subscribed to write topic: %s", writeTopic)
 
 	go driver.run()
 
@@ -157,6 +167,138 @@ func (d *Driver) handleReloadCommand(topic string, payload []byte) {
 	select {
 	case d.reloadChan <- struct{}{}:
 	default:
+	}
+}
+
+type WriteCommand struct {
+	TagID    int         `json:"tag_id"`
+	Code     string      `json:"code"`
+	Value    interface{} `json:"value"`
+	DataType string      `json:"data_type"`
+}
+
+func (d *Driver) handleWriteCommand(topic string, payload []byte) {
+	log.Printf("[DRIVER] Received write command: %s", string(payload))
+
+	var cmd WriteCommand
+	if err := json.Unmarshal(payload, &cmd); err != nil {
+		log.Printf("[DRIVER] Failed to unmarshal write command: %v", err)
+		return
+	}
+
+	// 1. Parse Address
+	addr, err := modbus.ParseAddress(cmd.Code)
+	if err != nil {
+		log.Printf("[DRIVER] Invalid address code '%s': %v", cmd.Code, err)
+		return
+	}
+
+	// 2. Convert Value based on DataType
+	var val uint16
+	var val32 uint32
+	var is32Bit bool
+
+	switch cmd.DataType {
+	case "BOOL":
+		// For BOOL, we need to read the register first if it's packed in a register (Holding/Input)
+		// But if it's Coil, we can write directly.
+		if addr.Type == "coil" {
+			boolVal := false
+			if v, ok := cmd.Value.(bool); ok {
+				boolVal = v
+			} else if v, ok := cmd.Value.(float64); ok { // JSON numbers are float64
+				boolVal = v != 0
+			}
+			if boolVal {
+				val = 0xFF00
+			} else {
+				val = 0x0000
+			}
+		} else {
+			// Masking write for BOOL in Register not supported yet in simple implementation
+			log.Printf("[DRIVER] Write to BOOL in Register not supported yet")
+			return
+		}
+	case "INT":
+		if v, ok := cmd.Value.(float64); ok {
+			val = uint16(int16(v))
+		}
+	case "UINT":
+		if v, ok := cmd.Value.(float64); ok {
+			val = uint16(v)
+		}
+	case "DINT", "REAL":
+		is32Bit = true
+		if cmd.DataType == "REAL" {
+			if v, ok := cmd.Value.(float64); ok {
+				val32 = math.Float32bits(float32(v))
+			}
+		} else {
+			if v, ok := cmd.Value.(float64); ok {
+				val32 = uint32(int32(v))
+			}
+		}
+	default:
+		log.Printf("[DRIVER] Unsupported write data type: %s", cmd.DataType)
+		return
+	}
+
+	// 3. Execute Write
+	if d.modbusClient == nil || !d.modbusClient.IsConnected() {
+		log.Printf("[DRIVER] Cannot write: Modbus client not connected")
+		return
+	}
+
+	var writeErr error
+	if addr.Type == "coil" {
+		writeErr = d.modbusClient.WriteSingleCoil(addr.Offset, val)
+	} else if addr.Type == "holding" {
+		if is32Bit {
+			// Write 2 registers
+			b := make([]byte, 4)
+			binary.BigEndian.PutUint32(b, val32)
+			writeErr = d.modbusClient.WriteMultipleRegisters(addr.Offset, 2, b)
+		} else {
+			writeErr = d.modbusClient.WriteSingleRegister(addr.Offset, val)
+		}
+	} else {
+		log.Printf("[DRIVER] Cannot write to %s (Read-only)", addr.Type)
+		return
+	}
+
+	if writeErr != nil {
+		log.Printf("[DRIVER] Write failed: %v", writeErr)
+	} else {
+		log.Printf("[DRIVER] Write successful to %s (Value: %v)", cmd.Code, cmd.Value)
+		// Optimistic update of local state
+		d.updateState(cmd.TagID, cmd.Value, 0)
+
+		// Set Cooldown
+		d.cooldownMu.Lock()
+		d.writeCooldowns[cmd.TagID] = time.Now().Add(2 * time.Second)
+		d.cooldownMu.Unlock()
+
+		// Force publish feedback immediately
+		// We need to find the alias for the tag to build the topic
+		d.configMu.RLock()
+		cfg := d.config
+		d.configMu.RUnlock()
+
+		if cfg != nil {
+			var alias string
+			for _, t := range cfg.Tags {
+				if t.ID == cmd.TagID {
+					alias = t.Alias
+					break
+				}
+			}
+
+			if alias != "" {
+				topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name), slugify(alias))
+				payload, _ := json.Marshal(TagPayload{cmd.TagID, cfg.OrgID, cmd.Value, time.Now().UnixMilli(), 0})
+				d.mqttClient.PublishWithQoS(topic, string(payload), 1, false)
+			}
+		}
 	}
 }
 
@@ -462,6 +604,36 @@ func (d *Driver) readBlock(b Block, prefix string, ts int64) {
 			continue
 		}
 
+		// COOLDOWN CHECK
+		d.cooldownMu.RLock()
+		cooldownUntil, hasCooldown := d.writeCooldowns[tib.Tag.ID]
+		d.cooldownMu.RUnlock()
+
+		if hasCooldown {
+			if time.Now().Before(cooldownUntil) {
+				// We are in cooldown. Check if PLC value matches our optimistic value.
+				d.prevValuesMu.RLock()
+				optValue, exists := d.previousValues[tib.Tag.ID]
+				d.prevValuesMu.RUnlock()
+
+				if exists && valuesEqual(val, optValue) {
+					// PLC has caught up! Clear cooldown early.
+					d.cooldownMu.Lock()
+					delete(d.writeCooldowns, tib.Tag.ID)
+					d.cooldownMu.Unlock()
+					log.Printf("[DRIVER] Write confirmed for tag %s", tib.Tag.Alias)
+				} else {
+					// PLC still shows old value. Ignore.
+					continue
+				}
+			} else {
+				// Cooldown expired
+				d.cooldownMu.Lock()
+				delete(d.writeCooldowns, tib.Tag.ID)
+				d.cooldownMu.Unlock()
+			}
+		}
+
 		if tib.Tag.Alias == "HMI_CFG_HBeg_1" {
 			byteOff := int(off) * 2
 			if byteOff+4 <= len(data) {
@@ -573,4 +745,45 @@ func (d *Driver) setConnectionState(connected bool) {
 	// Retain=true so Last Known Status is available
 	d.mqttClient.PublishWithQoS(topic, status, 1, true)
 	log.Printf("[DRIVER] Health status changed to: %s", status)
+}
+
+// valuesEqual compares two values for equality
+func valuesEqual(a, b interface{}) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	// Handle different types
+	switch av := a.(type) {
+	case bool:
+		bv, ok := b.(bool)
+		return ok && av == bv
+	case int16:
+		bv, ok := b.(int16)
+		return ok && av == bv
+	case uint16:
+		bv, ok := b.(uint16)
+		return ok && av == bv
+	case int32:
+		bv, ok := b.(int32)
+		return ok && av == bv
+	case uint32:
+		bv, ok := b.(uint32)
+		return ok && av == bv
+	case float32:
+		bv, ok := b.(float32)
+		return ok && av == bv
+	case float64:
+		bv, ok := b.(float64)
+		return ok && av == bv
+	case int:
+		bv, ok := b.(int)
+		return ok && av == bv
+	default:
+		// Fallback to direct comparison
+		return a == b
+	}
 }
