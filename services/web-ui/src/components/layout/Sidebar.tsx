@@ -11,7 +11,6 @@ import {
     Settings,
     TrendingUp,
     Radio,
-    Network,
     ChevronLeft,
     ChevronRight,
     History,
@@ -58,16 +57,14 @@ const Sidebar = () => {
                 collapsed ? "justify-center" : "justify-between"
             )}>
                 {collapsed ? (
-                    <div className="bg-blue-600 rounded-lg p-2 shadow-lg shadow-blue-900/20">
-                        <Network className="text-white h-6 w-6" />
+                    <div className="bg-blue-600/10 rounded-lg p-1 shadow-lg shadow-blue-900/20">
+                        <img src="/logo.png" alt="OpenEdge" className="h-8 w-8 object-contain" />
                     </div>
                 ) : (
                     <div className="flex items-center gap-3 overflow-hidden whitespace-nowrap">
-                        <div className="bg-blue-600 rounded-lg p-1.5 shadow-lg shadow-blue-900/20">
-                            <Network className="text-white h-5 w-5" />
-                        </div>
+                        <img src="/logo.png" alt="OpenEdge" className="h-10 w-10 object-contain rounded-md" />
                         <div>
-                            <h1 className="text-lg font-bold tracking-tight">NetEdge</h1>
+                            <h1 className="text-lg font-bold tracking-tight text-white">OpenEdge</h1>
                             <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Professional</p>
                         </div>
                     </div>

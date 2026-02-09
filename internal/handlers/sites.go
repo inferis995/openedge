@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
@@ -283,4 +284,78 @@ func (h *SitesHandler) Delete(c *gin.Context) {
 	}
 
 	c.Status(http.StatusNoContent)
+}
+
+// UpdateSiteRequest represents the request body for updating a site
+type UpdateSiteRequest struct {
+	Name *string `json:"name" binding:"required"`
+}
+
+// Update handles PUT /api/sites/{id}
+// Filters by organization from context (multi-tenant isolation)
+// @Summary Update a site
+// @Description Update a site by ID
+// @Tags sites
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Site ID"
+// @Param request body UpdateSiteRequest true "Site update request"
+// @Success 200 {object} Site
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Site not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/sites/{id} [put]
+func (h *SitesHandler) Update(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid site ID"})
+		return
+	}
+
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	// Check if site exists and belongs to org
+	var siteOrgID int
+	err = h.db.QueryRow("SELECT org_id FROM sites WHERE id = $1", id).Scan(&siteOrgID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Site not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check site"})
+		return
+	}
+
+	if siteOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot update site from another organization"})
+		return
+	}
+
+	var req UpdateSiteRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var site models.Site
+	err = h.db.QueryRow(
+		"UPDATE sites SET name = $1 WHERE id = $2 RETURNING id, org_id, name, created_at",
+		*req.Name,
+		id,
+	).Scan(&site.ID, &site.OrgID, &site.Name, &site.CreatedAt)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update site"})
+		return
+	}
+
+	c.JSON(http.StatusOK, site)
 }

@@ -25,6 +25,13 @@ export const useAreas = (siteId?: number | null) => {
         },
     });
 
+    const updateMutation = useMutation({
+        mutationFn: ({ id, data }: { id: number; data: { name: string } }) => areasApi.update(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['areas'] });
+        },
+    });
+
     return {
         areas: query.data || [],
         isLoading: query.isLoading,
@@ -33,5 +40,7 @@ export const useAreas = (siteId?: number | null) => {
         isCreating: createMutation.isPending,
         remove: deleteMutation.mutateAsync,
         isDeleting: deleteMutation.isPending,
+        update: updateMutation.mutateAsync,
+        isUpdating: updateMutation.isPending,
     };
 };

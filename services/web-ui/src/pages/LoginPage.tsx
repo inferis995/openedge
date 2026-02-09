@@ -44,7 +44,10 @@ const LoginPage = () => {
         <div className="flex min-h-screen items-center justify-center bg-slate-100">
             <div className="w-full max-w-md space-y-8 rounded-lg border bg-white p-8 shadow-lg">
                 <div className="text-center">
-                    <h2 className="text-3xl font-bold tracking-tight text-slate-900">Industrial Edge</h2>
+                    <div className="flex justify-center mb-4">
+                        <img src="/logo.png" alt="OpenEdge" className="h-16 w-16 object-contain rounded-lg" />
+                    </div>
+                    <h2 className="text-3xl font-bold tracking-tight text-slate-900">OpenEdge</h2>
                     <p className="mt-2 text-sm text-slate-600">
                         Sign in to your account
                     </p>

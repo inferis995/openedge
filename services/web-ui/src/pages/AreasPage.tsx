@@ -36,12 +36,14 @@ import { useNavigate } from 'react-router-dom';
 const AreasPage = () => {
     const navigate = useNavigate();
     const { selectedSiteId, selectedOrgId, setSelectedAreaId } = useNavigationStore();
-    const { areas, isLoading, create, remove } = useAreas(selectedSiteId);
+    const { areas, isLoading, create, remove, update } = useAreas(selectedSiteId);
     const { sites } = useSites(selectedOrgId); // Get sites for current org to map names
     const { isAdmin } = useAuthStore();
 
     const [isOpen, setIsOpen] = useState(false);
+    const [isEditOpen, setIsEditOpen] = useState(false);
     const [newAreaName, setNewAreaName] = useState('');
+    const [editingArea, setEditingArea] = useState<{ id: number; name: string } | null>(null);
     const [selectedSiteForCreate, setSelectedSiteForCreate] = useState<string>(
         selectedSiteId ? selectedSiteId.toString() : ''
     );
@@ -97,6 +99,23 @@ const AreasPage = () => {
         return <div className="p-8 text-center text-slate-500">Loading areas...</div>;
     }
 
+    const handleEdit = (e: React.MouseEvent, area: { id: number; name: string }) => {
+        e.stopPropagation();
+        setEditingArea(area);
+        setIsEditOpen(true);
+    };
+
+    const handleUpdate = async () => {
+        if (!editingArea || !editingArea.name) return;
+        try {
+            await update({ id: editingArea.id, data: { name: editingArea.name } });
+            setIsEditOpen(false);
+            setEditingArea(null);
+        } catch (error) {
+            console.error('Failed to update area', error);
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -107,50 +126,74 @@ const AreasPage = () => {
                     </p>
                 </div>
                 {isAdmin() && (
-                    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-                        <DialogTrigger asChild>
-                            <Button className="gap-2">
-                                <Plus size={16} /> Add Area
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                            <DialogHeader>
-                                <DialogTitle>Create Area</DialogTitle>
-                            </DialogHeader>
-                            <div className="grid gap-4 py-4">
-                                <div className="grid gap-2">
-                                    <Label htmlFor="site">Site</Label>
-                                    <Select
-                                        value={selectedSiteForCreate}
-                                        onValueChange={setSelectedSiteForCreate}
-                                    >
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Select Site" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {sites.map((site) => (
-                                                <SelectItem key={site.id} value={site.id.toString()}>
-                                                    {site.name}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                    <>
+                        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+                            <DialogTrigger asChild>
+                                <Button className="gap-2">
+                                    <Plus size={16} /> Add Area
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Create Area</DialogTitle>
+                                </DialogHeader>
+                                <div className="grid gap-4 py-4">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="site">Site</Label>
+                                        <Select
+                                            value={selectedSiteForCreate}
+                                            onValueChange={setSelectedSiteForCreate}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue placeholder="Select Site" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {sites.map((site) => (
+                                                    <SelectItem key={site.id} value={site.id.toString()}>
+                                                        {site.name}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="name">Area Name</Label>
+                                        <Input
+                                            id="name"
+                                            value={newAreaName}
+                                            onChange={(e) => setNewAreaName(e.target.value)}
+                                            placeholder="e.g. Assembly Line 1"
+                                        />
+                                    </div>
                                 </div>
-                                <div className="grid gap-2">
-                                    <Label htmlFor="name">Area Name</Label>
-                                    <Input
-                                        id="name"
-                                        value={newAreaName}
-                                        onChange={(e) => setNewAreaName(e.target.value)}
-                                        placeholder="e.g. Assembly Line 1"
-                                    />
+                                <DialogFooter>
+                                    <Button onClick={handleCreate}>Create</Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+
+                        <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+                            <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Edit Area</DialogTitle>
+                                </DialogHeader>
+                                <div className="grid gap-4 py-4">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="edit-name">Area Name</Label>
+                                        <Input
+                                            id="edit-name"
+                                            value={editingArea?.name || ''}
+                                            onChange={(e) => setEditingArea(prev => prev ? { ...prev, name: e.target.value } : null)}
+                                            placeholder="e.g. Assembly Line 1"
+                                        />
+                                    </div>
                                 </div>
-                            </div>
-                            <DialogFooter>
-                                <Button onClick={handleCreate}>Create</Button>
-                            </DialogFooter>
-                        </DialogContent>
-                    </Dialog>
+                                <DialogFooter>
+                                    <Button onClick={handleUpdate}>Save Changes</Button>
+                                </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
+                    </>
                 )}
             </div>
 
@@ -196,6 +239,13 @@ const AreasPage = () => {
                                         {isAdmin() && (
                                             <TableCell className="text-right">
                                                 <div className="flex items-center justify-end gap-2">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={(e) => handleEdit(e, area)}
+                                                    >
+                                                        Edit
+                                                    </Button>
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"

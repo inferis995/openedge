@@ -243,9 +243,23 @@ func (d *Driver) createBlocks(tags []models.Tag, zeroBased bool) []Block {
 		return parsed[i].Addr.Offset < parsed[j].Addr.Offset
 	})
 
+	log.Printf("[DEBUG] createBlocks: Processing %d tags", len(parsed))
+
 	var blocks []Block
 	if len(parsed) == 0 {
 		return blocks
+	}
+
+	// Helper to get size in registers
+	getSize := func(dtype string) uint16 {
+		switch dtype {
+		case "REAL", "FLOAT32", "DINT", "DWORD", "UDINT":
+			return 2
+		case "LREAL", "LINT", "INT64", "UINT64":
+			return 4
+		default:
+			return 1
+		}
 	}
 
 	curr := Block{
@@ -253,14 +267,28 @@ func (d *Driver) createBlocks(tags []models.Tag, zeroBased bool) []Block {
 		StartAddress: parsed[0].Addr.Offset,
 		Tags:         []TagInBlock{{parsed[0].Tag, parsed[0].Addr.Offset, parsed[0].Addr.BitOffset}},
 	}
-	lastEnd := parsed[0].Addr.Offset + 1
+	lastEnd := parsed[0].Addr.Offset + getSize(parsed[0].Tag.DataType)
 
 	for i := 1; i < len(parsed); i++ {
 		p := parsed[i]
-		if p.Addr.Type == curr.DataType && p.Addr.Offset-lastEnd <= 5 && (p.Addr.Offset-curr.StartAddress) < 100 {
+		size := getSize(p.Tag.DataType)
+
+		if p.Tag.DataType == "DINT" {
+			log.Printf("[DEBUG] Processing DINT: %s (Off %d). CurrBlock: Type=%s, LastEnd=%d", p.Tag.Alias, p.Addr.Offset, curr.DataType, lastEnd)
+		}
+
+		// Check continuity and block size limits
+		// Allow small gaps (<= 5 registers) to be filled to reduce request count
+		if p.Addr.Type == curr.DataType && p.Addr.Offset-lastEnd <= 5 && (p.Addr.Offset+size-curr.StartAddress) <= 120 {
 			curr.Tags = append(curr.Tags, TagInBlock{p.Tag, p.Addr.Offset, p.Addr.BitOffset})
-			lastEnd = p.Addr.Offset + 1
+
+			// Extend block end if needed
+			end := p.Addr.Offset + size
+			if end > lastEnd {
+				lastEnd = end
+			}
 		} else {
+			log.Printf("[DEBUG] Block Closed. Count=%d. New Block for %s (Off %d)", lastEnd-curr.StartAddress, p.Tag.Alias, p.Addr.Offset)
 			curr.Count = lastEnd - curr.StartAddress
 			blocks = append(blocks, curr)
 			curr = Block{
@@ -268,7 +296,7 @@ func (d *Driver) createBlocks(tags []models.Tag, zeroBased bool) []Block {
 				StartAddress: p.Addr.Offset,
 				Tags:         []TagInBlock{{p.Tag, p.Addr.Offset, p.Addr.BitOffset}},
 			}
-			lastEnd = p.Addr.Offset + 1
+			lastEnd = p.Addr.Offset + size
 		}
 	}
 	curr.Count = lastEnd - curr.StartAddress
@@ -425,7 +453,21 @@ func (d *Driver) readBlock(b Block, prefix string, ts int64) {
 		off := tib.Offset - b.StartAddress
 		val, err := parseValue(data, off, tib.Tag.DataType, tib.BitOffset, b.DataType)
 		if err != nil {
+			// Log errors for DINT tags to debug the issue
+			if tib.Tag.DataType == "DINT" {
+				byteOff := int(off) * 2
+				log.Printf("[DEBUG] DINT ERROR: %s (TagOffset=%d, BlockStart=%d, RelOff=%d, ByteOff=%d, DataLen=%d): %v",
+					tib.Tag.Alias, tib.Offset, b.StartAddress, off, byteOff, len(data), err)
+			}
 			continue
+		}
+
+		if tib.Tag.Alias == "HMI_CFG_HBeg_1" {
+			byteOff := int(off) * 2
+			if byteOff+4 <= len(data) {
+				raw := data[byteOff : byteOff+4]
+				log.Printf("[DEBUG] %s (Offset %d): Raw Bytes = % X, Parsed = %v", tib.Tag.Alias, tib.Offset, raw, val)
+			}
 		}
 
 		if d.shouldPublish(tib.Tag.ID, val, 0) {
@@ -473,29 +515,19 @@ func parseValue(data []byte, off uint16, dtype string, boff *int, btype string) 
 		}
 		bits := binary.BigEndian.Uint32(data[byteOff:])
 		return math.Float32frombits(bits), nil
+	case "DINT":
+		if byteOff+4 > len(data) {
+			return nil, fmt.Errorf("out of bounds")
+		}
+		return int32(binary.BigEndian.Uint32(data[byteOff:])), nil
 	}
 	return nil, fmt.Errorf("unsupported")
 }
 
 func (d *Driver) shouldPublish(id int, val interface{}, quality int) bool {
-	d.prevValuesMu.RLock()
-	defer d.prevValuesMu.RUnlock()
-	prevVal, okVal := d.previousValues[id]
-	prevQual, okQual := d.previousQualities[id]
-
-	if !okVal || !okQual {
-		// log.Printf("[DEBUG] ID %d: First time publish.", id)
-		return true
-	}
-
-	// Publish if quality changed OR value changed
-	if prevQual != quality {
-		log.Printf("[DEBUG] ID %d: Quality changed %d -> %d. Publishing fix.", id, prevQual, quality)
-		return true
-	}
-
-	changed := fmt.Sprintf("%v", prevVal) != fmt.Sprintf("%v", val)
-	return changed
+	// CYCLIC REPORTING: Always publish on every scan cycle (user requested)
+	// Original RBE logic disabled to show continuous data flow in UI
+	return true
 }
 
 func (d *Driver) updateState(id int, val interface{}, quality int) {

@@ -33,7 +33,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Edit2, Database, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Edit2, Database, RefreshCw, Upload, Download } from 'lucide-react';
 import { CreateTagDto } from '@/types';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
@@ -78,6 +78,55 @@ const TagsPage = () => {
     const [modbusType, setModbusType] = useState<string>('holding');
     const [modbusAddress, setModbusAddress] = useState<number>(1);
     const [modbusBit, setModbusBit] = useState<number>(0);
+
+    // Import/Export state
+    const [isImportOpen, setIsImportOpen] = useState(false);
+    const [importContent, setImportContent] = useState('');
+    const [isImporting, setIsImporting] = useState(false);
+    const [importResult, setImportResult] = useState<{ created: number; updated: number; errors?: string[] } | null>(null);
+
+    // Import/Export handlers
+    const handleImport = async () => {
+        if (!selectedGatewayId || selectedGatewayId === 'all') return;
+
+        setIsImporting(true);
+        setImportResult(null);
+
+        try {
+            const result = await tagsApi.importTags(parseInt(selectedGatewayId), importContent);
+            setImportResult(result);
+            if (result.created > 0 || result.updated > 0) {
+                // Refresh tags
+                window.location.reload();
+            }
+        } catch (error) {
+            console.error('Import failed:', error);
+            setImportResult({ created: 0, updated: 0, errors: ['Import failed: ' + String(error)] });
+        } finally {
+            setIsImporting(false);
+        }
+    };
+
+    const handleExport = async () => {
+        if (!selectedGatewayId || selectedGatewayId === 'all') return;
+
+        try {
+            const content = await tagsApi.exportTags(parseInt(selectedGatewayId));
+            // Download as .txt file
+            const blob = new Blob([content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `tags_gateway_${selectedGatewayId}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert('Export failed: ' + String(error));
+        }
+    };
 
     // Derive selected gateway driver type
     const selectedGatewayDriverType = useMemo(() => {
@@ -435,155 +484,220 @@ const TagsPage = () => {
                     </div>
 
                     {isAdmin() && (
-                        <Dialog open={isOpen} onOpenChange={setIsOpen}>
-                            <DialogTrigger asChild disabled={!selectedGatewayId || selectedGatewayId === 'all'}>
-                                <Button className="gap-2" onClick={handleCreateOpen}>
-                                    <Plus size={16} /> Add Tag
-                                </Button>
-                            </DialogTrigger>
-                            <DialogContent className="max-w-2xl">
-                                <DialogHeader>
-                                    <DialogTitle>{updatingTagId ? 'Edit Tag' : 'Create Tag'}</DialogTitle>
-                                    <DialogDescription>
-                                        {updatingTagId ? 'Modify existing tag configuration.' : 'Add a new tag to the gateway.'}
-                                    </DialogDescription>
-                                </DialogHeader>
-                                <div className="grid gap-6 py-4">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        {/* Modbus Address Builder */}
-                                        {selectedGatewayDriverType === 'MODBUS_TCP' && (
-                                            <div className="col-span-2 space-y-4 p-4 bg-slate-50 rounded-md border">
-                                                <h3 className="text-sm font-medium">Modbus Address Builder</h3>
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div className="grid gap-2">
-                                                        <Label htmlFor="mb-type">Register Type</Label>
-                                                        <Select
-                                                            value={modbusType}
-                                                            onValueChange={handleModbusTypeChange}
-                                                        >
-                                                            <SelectTrigger>
-                                                                <SelectValue />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                <SelectItem value="coil">Coil Status (0xxxxx)</SelectItem>
-                                                                <SelectItem value="discrete">Discrete Input (1xxxxx)</SelectItem>
-                                                                <SelectItem value="input">Input Register (3xxxxx)</SelectItem>
-                                                                <SelectItem value="holding">Holding Register (4xxxxx)</SelectItem>
-                                                            </SelectContent>
-                                                        </Select>
+                        <>
+                            {/* Export Button */}
+                            <Button
+                                variant="outline"
+                                className="gap-2"
+                                onClick={handleExport}
+                                disabled={!selectedGatewayId || selectedGatewayId === 'all'}
+                            >
+                                <Download size={16} /> Export
+                            </Button>
+
+                            {/* Import Dialog */}
+                            <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
+                                <DialogTrigger asChild>
+                                    <Button
+                                        variant="outline"
+                                        className="gap-2"
+                                        disabled={!selectedGatewayId || selectedGatewayId === 'all'}
+                                    >
+                                        <Upload size={16} /> Import
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-w-2xl">
+                                    <DialogHeader>
+                                        <DialogTitle>Import Tags</DialogTitle>
+                                        <DialogDescription>
+                                            Paste tag definitions in PLC format. Format: <code>Alias : DataType AT Address;</code>
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="space-y-4">
+                                        <textarea
+                                            className="w-full h-64 p-3 font-mono text-sm border rounded-md"
+                                            placeholder={`HMI_CFG_HBeg_1 : DINT AT 42095;\nHMI_PortataTotEM1 : REAL AT 42131;\nDO_Valvola_1 : BOOL AT 00001;`}
+                                            value={importContent}
+                                            onChange={(e) => setImportContent(e.target.value)}
+                                        />
+                                        {importResult && (
+                                            <div className={`p-3 rounded-md text-sm ${importResult.errors?.length ? 'bg-amber-50 border border-amber-200' : 'bg-green-50 border border-green-200'}`}>
+                                                <p>Created: {importResult.created} | Updated: {importResult.updated}</p>
+                                                {importResult.errors && importResult.errors.length > 0 && (
+                                                    <div className="mt-2 text-red-600">
+                                                        <p className="font-medium">Errors:</p>
+                                                        <ul className="list-disc list-inside max-h-32 overflow-auto">
+                                                            {importResult.errors.map((err, i) => (
+                                                                <li key={i}>{err}</li>
+                                                            ))}
+                                                        </ul>
                                                     </div>
-                                                    <div className="grid gap-2">
-                                                        <Label htmlFor="mb-addr">Address</Label>
-                                                        <Input
-                                                            id="mb-addr"
-                                                            type="number"
-                                                            min="1"
-                                                            value={modbusAddress}
-                                                            onChange={(e) => handleModbusAddressChange(parseInt(e.target.value) || 0)}
-                                                            placeholder="1"
-                                                        />
-                                                    </div>
-                                                    {/* Bit offset for registers to BOOL */}
-                                                    {(modbusType === 'holding' || modbusType === 'input') && formData.data_type === 'BOOL' && (
-                                                        <div className="grid gap-2">
-                                                            <Label htmlFor="mb-bit">Bit Offset (0-15)</Label>
-                                                            <Input
-                                                                id="mb-bit"
-                                                                type="number"
-                                                                min="0"
-                                                                max="15"
-                                                                value={modbusBit}
-                                                                onChange={(e) => handleModbusBitChange(parseInt(e.target.value) || 0)}
-                                                            />
-                                                        </div>
-                                                    )}
-                                                </div>
+                                                )}
                                             </div>
                                         )}
+                                    </div>
+                                    <DialogFooter>
+                                        <Button variant="outline" onClick={() => setIsImportOpen(false)}>
+                                            Cancel
+                                        </Button>
+                                        <Button onClick={handleImport} disabled={isImporting || !importContent.trim()}>
+                                            {isImporting ? 'Importing...' : 'Import'}
+                                        </Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
 
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="code">Tag Code / Address</Label>
-                                            <Input
-                                                id="code"
-                                                value={formData.code}
-                                                onChange={(e) => handleInputChange('code', e.target.value)}
-                                                placeholder="e.g. %MW100 or 40001"
-                                            // Removed readOnly to allow manual override
-                                            />
+                            {/* Add Tag Dialog */}
+                            <Dialog open={isOpen} onOpenChange={setIsOpen}>
+                                <DialogTrigger asChild disabled={!selectedGatewayId || selectedGatewayId === 'all'}>
+                                    <Button className="gap-2" onClick={handleCreateOpen}>
+                                        <Plus size={16} /> Add Tag
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-w-2xl">
+                                    <DialogHeader>
+                                        <DialogTitle>{updatingTagId ? 'Edit Tag' : 'Create Tag'}</DialogTitle>
+                                        <DialogDescription>
+                                            {updatingTagId ? 'Modify existing tag configuration.' : 'Add a new tag to the gateway.'}
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    <div className="grid gap-6 py-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                            {/* Modbus Address Builder */}
                                             {selectedGatewayDriverType === 'MODBUS_TCP' && (
-                                                <p className="text-[10px] text-muted-foreground">Auto-generated from builder above, or type manually</p>
-                                            )}
-                                        </div>
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="alias">Alias (Name)</Label>
-                                            <Input
-                                                id="alias"
-                                                value={formData.alias}
-                                                onChange={(e) => handleInputChange('alias', e.target.value)}
-                                                placeholder="e.g. Oven_Temp"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="type">Data Type</Label>
-                                        <Select
-                                            value={formData.data_type}
-                                            onValueChange={(val) => {
-                                                handleInputChange('data_type', val);
-                                                // Reset bit offset if not BOOL
-                                                if (val !== 'BOOL') setModbusBit(0);
-                                            }}
-                                        >
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="Select Data Type" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="BOOL">BOOL</SelectItem>
-                                                <SelectItem value="INT">INT</SelectItem>
-                                                <SelectItem value="REAL">REAL</SelectItem>
-                                                <SelectItem value="DINT">DINT</SelectItem>
-                                                <SelectItem value="STRING">STRING</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-6 border-t pt-4">
-                                        {/* History Config */}
-                                        <div className="space-y-4">
-                                            <div className="flex items-center space-x-2">
-                                                <Switch
-                                                    id="historize"
-                                                    checked={formData.historize}
-                                                    onCheckedChange={(checked) => handleInputChange('historize', checked)}
-                                                />
-                                                <Label htmlFor="historize" className="flex items-center gap-2">
-                                                    <Database size={14} /> Historize
-                                                </Label>
-                                            </div>
-
-                                            {formData.historize && (
-                                                <div className="grid gap-2 pl-6 border-l-2">
-                                                    <Label htmlFor="deadband">Deadband Value</Label>
-                                                    <Input
-                                                        id="deadband"
-                                                        type="number"
-                                                        step="0.01"
-                                                        value={formData.deadband_value}
-                                                        onChange={(e) => handleInputChange('deadband_value', parseFloat(e.target.value))}
-                                                    />
+                                                <div className="col-span-2 space-y-4 p-4 bg-slate-50 rounded-md border">
+                                                    <h3 className="text-sm font-medium">Modbus Address Builder</h3>
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div className="grid gap-2">
+                                                            <Label htmlFor="mb-type">Register Type</Label>
+                                                            <Select
+                                                                value={modbusType}
+                                                                onValueChange={handleModbusTypeChange}
+                                                            >
+                                                                <SelectTrigger>
+                                                                    <SelectValue />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="coil">Coil Status (0xxxxx)</SelectItem>
+                                                                    <SelectItem value="discrete">Discrete Input (1xxxxx)</SelectItem>
+                                                                    <SelectItem value="input">Input Register (3xxxxx)</SelectItem>
+                                                                    <SelectItem value="holding">Holding Register (4xxxxx)</SelectItem>
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                        <div className="grid gap-2">
+                                                            <Label htmlFor="mb-addr">Address</Label>
+                                                            <Input
+                                                                id="mb-addr"
+                                                                type="number"
+                                                                min="1"
+                                                                value={modbusAddress}
+                                                                onChange={(e) => handleModbusAddressChange(parseInt(e.target.value) || 0)}
+                                                                placeholder="1"
+                                                            />
+                                                        </div>
+                                                        {/* Bit offset for registers to BOOL */}
+                                                        {(modbusType === 'holding' || modbusType === 'input') && formData.data_type === 'BOOL' && (
+                                                            <div className="grid gap-2">
+                                                                <Label htmlFor="mb-bit">Bit Offset (0-15)</Label>
+                                                                <Input
+                                                                    id="mb-bit"
+                                                                    type="number"
+                                                                    min="0"
+                                                                    max="15"
+                                                                    value={modbusBit}
+                                                                    onChange={(e) => handleModbusBitChange(parseInt(e.target.value) || 0)}
+                                                                />
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             )}
+
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="code">Tag Code / Address</Label>
+                                                <Input
+                                                    id="code"
+                                                    value={formData.code}
+                                                    onChange={(e) => handleInputChange('code', e.target.value)}
+                                                    placeholder="e.g. %MW100 or 40001"
+                                                // Removed readOnly to allow manual override
+                                                />
+                                                {selectedGatewayDriverType === 'MODBUS_TCP' && (
+                                                    <p className="text-[10px] text-muted-foreground">Auto-generated from builder above, or type manually</p>
+                                                )}
+                                            </div>
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="alias">Alias (Name)</Label>
+                                                <Input
+                                                    id="alias"
+                                                    value={formData.alias}
+                                                    onChange={(e) => handleInputChange('alias', e.target.value)}
+                                                    placeholder="e.g. Oven_Temp"
+                                                />
+                                            </div>
                                         </div>
 
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="type">Data Type</Label>
+                                            <Select
+                                                value={formData.data_type}
+                                                onValueChange={(val) => {
+                                                    handleInputChange('data_type', val);
+                                                    // Reset bit offset if not BOOL
+                                                    if (val !== 'BOOL') setModbusBit(0);
+                                                }}
+                                            >
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select Data Type" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="BOOL">BOOL</SelectItem>
+                                                    <SelectItem value="INT">INT</SelectItem>
+                                                    <SelectItem value="REAL">REAL</SelectItem>
+                                                    <SelectItem value="DINT">DINT</SelectItem>
+                                                    <SelectItem value="STRING">STRING</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
 
+                                        <div className="grid grid-cols-2 gap-6 border-t pt-4">
+                                            {/* History Config */}
+                                            <div className="space-y-4">
+                                                <div className="flex items-center space-x-2">
+                                                    <Switch
+                                                        id="historize"
+                                                        checked={formData.historize}
+                                                        onCheckedChange={(checked) => handleInputChange('historize', checked)}
+                                                    />
+                                                    <Label htmlFor="historize" className="flex items-center gap-2">
+                                                        <Database size={14} /> Historize
+                                                    </Label>
+                                                </div>
+
+                                                {formData.historize && (
+                                                    <div className="grid gap-2 pl-6 border-l-2">
+                                                        <Label htmlFor="deadband">Deadband Value</Label>
+                                                        <Input
+                                                            id="deadband"
+                                                            type="number"
+                                                            step="0.01"
+                                                            value={formData.deadband_value}
+                                                            onChange={(e) => handleInputChange('deadband_value', parseFloat(e.target.value))}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+
+
+                                        </div>
                                     </div>
-                                </div>
-                                <DialogFooter>
-                                    <Button onClick={handleSaveWithValidation}>{updatingTagId ? 'Update Tag' : 'Create Tag'}</Button>
-                                </DialogFooter>
-                            </DialogContent>
-                        </Dialog>
+                                    <DialogFooter>
+                                        <Button onClick={handleSaveWithValidation}>{updatingTagId ? 'Update Tag' : 'Create Tag'}</Button>
+                                    </DialogFooter>
+                                </DialogContent>
+                            </Dialog>
+                        </>
                     )}
                 </div>
             </div>
@@ -634,7 +748,9 @@ const TagsPage = () => {
                                                             ? (currentValue.value ? 'TRUE' : 'FALSE')
                                                             : (currentValue.value !== null && currentValue.value !== undefined
                                                                 ? (typeof currentValue.value === 'number'
-                                                                    ? currentValue.value.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                                                                    ? (tag.data_type === 'DINT' || tag.data_type === 'INT'
+                                                                        ? Math.round(currentValue.value).toLocaleString()
+                                                                        : currentValue.value.toLocaleString(undefined, { maximumFractionDigits: 2 }))
                                                                     : currentValue.value.toString())
                                                                 : '-')
                                                     ) : '-'}

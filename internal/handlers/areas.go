@@ -335,3 +335,82 @@ func (h *AreasHandler) Delete(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 }
+
+// UpdateAreaRequest represents the request body for updating an area
+type UpdateAreaRequest struct {
+	Name *string `json:"name" binding:"required"`
+}
+
+// Update handles PUT /api/areas/{id}
+// Filters by organization from context (multi-tenant isolation)
+// @Summary Update an area
+// @Description Update an area by ID
+// @Tags areas
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Area ID"
+// @Param request body UpdateAreaRequest true "Area update request"
+// @Success 200 {object} Area
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 404 {object} map[string]string "Area not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/areas/{id} [put]
+func (h *AreasHandler) Update(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid area ID"})
+		return
+	}
+
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	// Check if area exists and check ownership
+	var areaOrgID int
+	err = h.db.QueryRow(`
+		SELECT s.org_id 
+		FROM areas a 
+		JOIN sites s ON a.site_id = s.id 
+		WHERE a.id = $1`, id).Scan(&areaOrgID)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Area not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check area"})
+		return
+	}
+
+	if areaOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot update area from another organization"})
+		return
+	}
+
+	var req UpdateAreaRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var area models.Area
+	err = h.db.QueryRow(
+		"UPDATE areas SET name = $1 WHERE id = $2 RETURNING id, site_id, name, created_at",
+		*req.Name,
+		id,
+	).Scan(&area.ID, &area.SiteID, &area.Name, &area.CreatedAt)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update area"})
+		return
+	}
+
+	c.JSON(http.StatusOK, area)
+}

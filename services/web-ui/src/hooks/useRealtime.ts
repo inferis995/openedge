@@ -15,10 +15,8 @@ export const useRealtime = (orgId: number | undefined) => {
         if (!orgId) return;
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // Use the same host as the API, but check if we are in dev mode (localhost:3004 vs localhost:8080)
-        // Usually the API is on port 8080 as per docker-compose
-        const apiHost = window.location.hostname === 'localhost' ? 'localhost:8081' : window.location.host;
-        const wsUrl = `${protocol}//${apiHost}/api/ws/realtime?org_id=${orgId}`;
+        // Use relative path to go through Nginx proxy (which handles /api/ws/ -> core-api:8081)
+        const wsUrl = `${protocol}//${window.location.host}/api/ws/realtime?org_id=${orgId}`;
 
         console.log(`[WS] Connecting to ${wsUrl}`);
         const socket = new WebSocket(wsUrl);

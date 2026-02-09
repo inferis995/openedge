@@ -24,5 +24,10 @@ export const areasApi = {
 
     delete: async (id: number): Promise<void> => {
         await api.delete(`/areas/${id}`);
+    },
+
+    update: async (id: number, data: { name: string }): Promise<Area> => {
+        const response = await api.put(`/areas/${id}`, data);
+        return response.data;
     }
 };

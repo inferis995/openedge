@@ -36,5 +36,17 @@ export const tagsApi = {
             timestamp: response.data.ts,
             quality: response.data.q
         };
+    },
+
+    // Import tags from PLC-style text format
+    importTags: async (gatewayId: number, content: string): Promise<{ created: number; updated: number; errors?: string[] }> => {
+        const response = await api.post('/tags/import', { gateway_id: gatewayId, content });
+        return response.data;
+    },
+
+    // Export tags to PLC-style text format
+    exportTags: async (gatewayId: number): Promise<string> => {
+        const response = await api.get('/tags/export', { params: { gateway_id: gatewayId } });
+        return response.data.content;
     }
 };

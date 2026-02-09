@@ -188,7 +188,7 @@ func (h *HistoryHandler) buildFluxQuery(tagID int, orgName string, start, end ti
 			|> range(start: %s, stop: %s)
 			|> filter(fn: (r) => r._measurement == "tag_data")
 			|> filter(fn: (r) => r.tag_id == "%d")
-			|> filter(fn: (r) => r.organization == "%s")
+			|> filter(fn: (r) => r.organization =~ /(?i)^%s$/)
 			|> filter(fn: (r) => r._field == "value")
 	`, h.influxBucket, start.Format(time.RFC3339), end.Format(time.RFC3339), tagID, orgName)
 
@@ -328,7 +328,7 @@ func (h *HistoryHandler) QueryEvents(c *gin.Context) {
 		from(bucket: "%s")
 			|> range(start: %s, stop: %s)
 			|> filter(fn: (r) => r._measurement == "system_events")
-			|> filter(fn: (r) => r.organization == "%s")
+			|> filter(fn: (r) => r.organization =~ /(?i)^%s$/)
 			|> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
 	`, h.influxBucket, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339), orgName)
 

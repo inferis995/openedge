@@ -24,5 +24,10 @@ export const sitesApi = {
     get: async (id: number): Promise<Site> => {
         const response = await api.get(`/sites/${id}`);
         return response.data;
+    },
+
+    update: async (id: number, data: { name: string }): Promise<Site> => {
+        const response = await api.put(`/sites/${id}`, data);
+        return response.data;
     }
 };

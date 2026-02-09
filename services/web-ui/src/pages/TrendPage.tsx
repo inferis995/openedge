@@ -40,6 +40,7 @@ const TrendPage = () => {
 
     // State for query trigger
     const [shouldQuery, setShouldQuery] = useState(false);
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
 
     // Fetch all tags (without gatewayId filter to get all tags)
     const { tags } = useTags(null);
@@ -57,7 +58,7 @@ const TrendPage = () => {
                 interval: interval,
             };
             return {
-                queryKey: ['history', params],
+                queryKey: ['history', params, refreshTrigger],
                 queryFn: () => historyApi.query(params),
                 enabled: shouldQuery && selectedTagIds.includes(tagId),
             };
@@ -88,12 +89,33 @@ const TrendPage = () => {
                         timestampMap.set(ts, { timestamp: ts, date: new Date(ts).toLocaleString() });
                     }
                     const entry = timestampMap.get(ts)!;
+                    const key = `${tagKey}_value`;
+                    const qualityKey = `${tagKey}_quality`;
+
+                    entry[qualityKey] = point.quality;
+
                     if (point.quality === 2) {
-                        entry[`${tagKey}_value`] = null;
-                    } else {
-                        entry[`${tagKey}_value`] = typeof point.value === 'number' ? point.value : 0;
+                        entry[key] = null;
+                        return;
                     }
-                    entry[`${tagKey}_quality`] = point.quality;
+
+                    if (typeof point.value === 'boolean') {
+                        entry[key] = point.value ? 1 : 0;
+                    } else if (typeof point.value === 'number') {
+                        entry[key] = point.value;
+                    } else if (typeof point.value === 'string') {
+                        // Try to parse string
+                        const strValue = point.value as string;
+                        const lower = strValue.toLowerCase();
+                        if (lower === 'true') entry[key] = 1;
+                        else if (lower === 'false') entry[key] = 0;
+                        else {
+                            const num = parseFloat(strValue);
+                            entry[key] = isNaN(num) ? 0 : num;
+                        }
+                    } else {
+                        entry[key] = 0;
+                    }
                 });
             });
 
@@ -130,6 +152,7 @@ const TrendPage = () => {
             return;
         }
         setShouldQuery(true);
+        setRefreshTrigger(prev => prev + 1);
     };
 
     // Handle export CSV
@@ -384,25 +407,106 @@ const TrendPage = () => {
                     </CardHeader>
                     <CardContent>
                         <SafeChart>
-                            <ResponsiveContainer width="100%" height={400}>
-                                <LineChart data={chartData}>
-                                    <CartesianGrid strokeDasharray="3 3" />
+                            <ResponsiveContainer width="100%" height={500}>
+                                <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                                     <XAxis
-                                        dataKey="date"
-                                        tick={{ fontSize: 12 }}
-                                        tickFormatter={(value) => new Date(value).toLocaleTimeString()}
+                                        dataKey="timestamp"
+                                        tick={{ fontSize: 11, fill: '#6b7280' }}
+                                        tickFormatter={(value) => {
+                                            const date = new Date(value);
+                                            const duration = endDate.getTime() - startDate.getTime();
+                                            // If range > 24h, show date + time, else just time
+                                            if (duration > 24 * 60 * 60 * 1000) {
+                                                return date.toLocaleDateString('it-IT', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                                            }
+                                            return date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                                        }}
+                                        angle={-45}
+                                        textAnchor="end"
+                                        height={80}
                                     />
-                                    <YAxis tick={{ fontSize: 12 }} />
-                                    <Tooltip
-                                        labelFormatter={(value) => new Date(value).toLocaleString()}
-                                        formatter={(value: any) => {
-                                            return [(typeof value === 'number' ? value.toFixed(2) : 'N/A'), ''];
+                                    <YAxis
+                                        tick={{ fontSize: 11, fill: '#6b7280' }}
+                                        tickFormatter={(value) => {
+                                            // Format large numbers with k/M suffix
+                                            if (Math.abs(value) >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+                                            if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(1)}k`;
+                                            return value.toFixed(2);
                                         }}
                                     />
-                                    <Legend />
+                                    <Tooltip
+                                        contentStyle={{
+                                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                            border: '1px solid #e5e7eb',
+                                            borderRadius: '8px',
+                                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                                            padding: '12px'
+                                        }}
+                                        labelFormatter={(value) => {
+                                            const date = new Date(value);
+                                            return date.toLocaleString('it-IT', {
+                                                year: 'numeric',
+                                                month: 'short',
+                                                day: 'numeric',
+                                                hour: '2-digit',
+                                                minute: '2-digit',
+                                                second: '2-digit'
+                                            });
+                                        }}
+                                        formatter={(value: any, name?: string) => {
+                                            if (!name) return ['', ''];
+                                            // Extract tag info from name (format: "alias_value")
+                                            const tagKey = name.replace('_value', '');
+                                            const tag = selectedTags.find(t => (t.alias || t.code) === tagKey);
+
+                                            // Handle null values
+                                            if (value === null) {
+                                                return ['N/A', tagKey];
+                                            }
+
+                                            // Format value based on data type
+                                            if (tag?.data_type === 'BOOL') {
+                                                return [value === 1 ? 'TRUE' : 'FALSE', tagKey];
+                                            } else if (tag?.data_type === 'INT' || tag?.data_type === 'DINT') {
+                                                return [Math.round(value).toString(), tagKey];
+                                            } else if (tag?.data_type === 'REAL') {
+                                                return [Number(value).toFixed(2), tagKey];
+                                            }
+                                            return [Number(value).toFixed(2), tagKey];
+                                        }}
+                                    />
+                                    <Legend
+                                        wrapperStyle={{ paddingTop: '20px' }}
+                                        iconType="line"
+                                        formatter={(value: string) => {
+                                            const tagKey = value.replace('_value', '');
+                                            const tag = selectedTags.find(t => (t.alias || t.code) === tagKey);
+                                            return `${tagKey} (${tag?.data_type || 'N/A'})`;
+                                        }}
+                                    />
                                     {selectedTags.map((tag, index) => {
                                         const key = tag.alias || tag.code;
                                         const color = TAG_COLORS[index % TAG_COLORS.length];
+
+                                        // For BOOL tags, use step chart
+                                        if (tag.data_type === 'BOOL') {
+                                            return (
+                                                <Line
+                                                    key={tag.id}
+                                                    type="stepAfter"
+                                                    dataKey={`${key}_value`}
+                                                    name={key}
+                                                    stroke={color}
+                                                    strokeWidth={2}
+                                                    dot={false}
+                                                    isAnimationActive={false}
+                                                    connectNulls={false}
+                                                />
+                                            );
+                                        }
+
+                                        // For analog values (REAL, INT, DINT), use smooth line
                                         return (
                                             <Line
                                                 key={tag.id}
@@ -411,7 +515,7 @@ const TrendPage = () => {
                                                 name={key}
                                                 stroke={color}
                                                 strokeWidth={2}
-                                                dot={false}
+                                                dot={chartData.length < 50}
                                                 isAnimationActive={false}
                                                 connectNulls={false}
                                             />
@@ -420,6 +524,32 @@ const TrendPage = () => {
                                 </LineChart>
                             </ResponsiveContainer>
                         </SafeChart>
+
+                        {/* Chart Info Panel */}
+                        <div className="mt-4 p-4 bg-slate-50 rounded-md border border-slate-200">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                                <div>
+                                    <p className="text-slate-600 font-medium">Data Points:</p>
+                                    <p className="text-slate-900 text-lg font-bold">{chartData.length}</p>
+                                </div>
+                                <div>
+                                    <p className="text-slate-600 font-medium">Time Span:</p>
+                                    <p className="text-slate-900 text-lg font-bold">
+                                        {(() => {
+                                            const duration = endDate.getTime() - startDate.getTime();
+                                            const hours = Math.floor(duration / (1000 * 60 * 60));
+                                            const days = Math.floor(hours / 24);
+                                            if (days > 0) return `${days}d ${hours % 24}h`;
+                                            return `${hours}h`;
+                                        })()}
+                                    </p>
+                                </div>
+                                <div>
+                                    <p className="text-slate-600 font-medium">Tags Queried:</p>
+                                    <p className="text-slate-900 text-lg font-bold">{selectedTags.length}</p>
+                                </div>
+                            </div>
+                        </div>
                     </CardContent>
                 </Card>
             )}

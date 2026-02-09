@@ -71,9 +71,15 @@ func (s *Service) generateToken(user models.User) (string, error) {
 }
 
 func (s *Service) logAccess(userID int, username, eventType, ipAddress string) {
+	if ipAddress == "" {
+		ipAddress = "0.0.0.0"
+	}
 	query := `INSERT INTO access_logs (user_id, username, event_type, ip_address) VALUES ($1, $2, $3, $4)`
 	// Use background context for logging to ensure it completes even if request cancels
 	go func() {
-		s.db.Exec(query, userID, username, eventType, ipAddress)
+		if _, err := s.db.Exec(query, userID, username, eventType, ipAddress); err != nil {
+			// Log error but don't crash
+			// fmt.Printf("Failed to log access: %v\n", err)
+		}
 	}()
 }

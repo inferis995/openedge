@@ -204,6 +204,15 @@ func (m *Manager) syncGateways() error {
 
 		state, exists := m.gatewayStates[gateway.ID]
 
+		// If we think the container is running, verify it's actually running
+		if exists && state.Running {
+			running, err := m.isContainerRunning(state.ContainerID)
+			if err != nil || !running {
+				log.Printf("Container for gateway %d is no longer running (was %s), marking for restart", gateway.ID, state.ContainerID)
+				state.Running = false
+			}
+		}
+
 		if gateway.Enabled {
 			// Gateway should be running
 			if !exists || !state.Running {
@@ -238,6 +247,15 @@ func (m *Manager) syncGateways() error {
 	}
 
 	return nil
+}
+
+// isContainerRunning checks if a container is actually running
+func (m *Manager) isContainerRunning(containerID string) (bool, error) {
+	inspect, err := m.dockerClient.ContainerInspect(m.ctx, containerID)
+	if err != nil {
+		return false, err
+	}
+	return inspect.State.Running, nil
 }
 
 // startGatewayContainer starts a driver container for a gateway

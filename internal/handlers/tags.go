@@ -182,6 +182,11 @@ func (h *TagsHandler) Create(c *gin.Context) {
 		alarmEnabled = *req.AlarmEnabled
 	}
 
+	var alarmOperator *string
+	if req.AlarmOperator != "" {
+		alarmOperator = &req.AlarmOperator
+	}
+
 	var tag models.Tag
 	err = h.db.QueryRow(
 		`INSERT INTO tags (gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority)
@@ -195,7 +200,7 @@ func (h *TagsHandler) Create(c *gin.Context) {
 		historizeDeadband,
 		alarmEnabled,
 		req.AlarmThreshold,
-		req.AlarmOperator,
+		alarmOperator,
 		alarmPriority,
 	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.AlarmEnabled, &tag.AlarmThreshold, &tag.AlarmOperator, &tag.AlarmPriority, &tag.CreatedAt)
 
@@ -546,7 +551,7 @@ func (h *TagsHandler) Update(c *gin.Context) {
 	}
 
 	// Validate alarm_operator if provided
-	if req.AlarmOperator != nil && !validateAlarmOperator(*req.AlarmOperator) {
+	if req.AlarmOperator != nil && *req.AlarmOperator != "" && !validateAlarmOperator(*req.AlarmOperator) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "alarm_operator must be '>', '<', or '='"})
 		return
 	}
@@ -599,7 +604,11 @@ func (h *TagsHandler) Update(c *gin.Context) {
 	}
 	if req.AlarmOperator != nil {
 		updates = append(updates, "alarm_operator = $"+strconv.Itoa(argPos))
-		args = append(args, *req.AlarmOperator)
+		if *req.AlarmOperator == "" {
+			args = append(args, nil)
+		} else {
+			args = append(args, *req.AlarmOperator)
+		}
 		argPos++
 	}
 	if req.AlarmPriority != nil {

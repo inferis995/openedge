@@ -136,7 +136,7 @@ func main() {
 
 	// CORS Configuration
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3004", "http://127.0.0.1:3004"},
+		AllowOrigins:     []string{"http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3004", "http://127.0.0.1:3004", "http://localhost:4000", "http://127.0.0.1:4000"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Organization-ID"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -195,6 +195,7 @@ func main() {
 			sites.GET("", sitesHandler.List)
 			sites.GET("/:id", sitesHandler.Get)
 			sites.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), sitesHandler.Delete)
+			sites.PUT("/:id", middleware.RequireRole(models.RoleAdmin), sitesHandler.Update)
 		}
 
 		// Areas endpoints
@@ -205,6 +206,7 @@ func main() {
 			areas.GET("", areasHandler.List)
 			areas.GET("/:id", areasHandler.Get)
 			areas.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), areasHandler.Delete)
+			areas.PUT("/:id", middleware.RequireRole(models.RoleAdmin), areasHandler.Update)
 		}
 
 		// Gateways endpoints
@@ -223,6 +225,11 @@ func main() {
 		tags := api.Group("/tags")
 		tags.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
+			log.Println("[API] Registering Tags routes including Import/Export")
+			// Import/Export endpoints for bulk tag management - params must be registered before wildcards if possible (though Gin handles priority)
+			tags.POST("/import", middleware.RequireRole(models.RoleAdmin), tagsHandler.ImportTags)
+			tags.GET("/export", tagsHandler.ExportTags)
+
 			tags.POST("", middleware.RequireRole(models.RoleAdmin), tagsHandler.Create)
 			tags.GET("", tagsHandler.List)
 			tags.GET("/:id", tagsHandler.Get)
