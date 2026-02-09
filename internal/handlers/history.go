@@ -83,8 +83,8 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 		return
 	}
 
-	// Verify tag ownership and get organization name
-	orgName, err := h.getTagOrganization(tagID, orgID)
+	// Verify tag ownership and get organization name and data type
+	orgName, dataType, err := h.getTagDetails(tagID, orgID)
 	if err != nil {
 		// Tag not found or doesn't belong to this organization
 		log.Printf("[HISTORY] Tag %d not found or access denied for org %d: %v", tagID, orgID, err)
@@ -128,9 +128,9 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 	interval := c.Query("interval") // e.g., "1m", "5m", "1h", "1d"
 
 	// Build Flux query with organization filter
-	query := h.buildFluxQuery(tagID, orgName, startTime, endTime, agg, interval)
-	log.Printf("[HISTORY] Querying tag_id=%d, org=%q, start=%s, end=%s, agg=%s, interval=%s",
-		tagID, orgName, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339), agg, interval)
+	query := h.buildFluxQuery(tagID, orgName, dataType, startTime, endTime, agg, interval)
+	log.Printf("[HISTORY] Querying tag_id=%d, org=%q, type=%s, start=%s, end=%s, agg=%s, interval=%s",
+		tagID, orgName, dataType, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339), agg, interval)
 
 	// Execute query
 	queryAPI := h.influxClient.QueryAPI(h.influxOrg)
@@ -172,7 +172,7 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 
 	log.Printf("[HISTORY] Query successful: returned %d data points for tag_id=%d", len(dataPoints), tagID)
 
-	// Return empty array instead of null for consistency
+	// Return empty array instead of declaration for consistency
 	if dataPoints == nil {
 		dataPoints = []HistoryDataPoint{}
 	}
@@ -181,7 +181,7 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 }
 
 // buildFluxQuery constructs a Flux query for InfluxDB
-func (h *HistoryHandler) buildFluxQuery(tagID int, orgName string, start, end time.Time, agg, interval string) string {
+func (h *HistoryHandler) buildFluxQuery(tagID int, orgName, dataType string, start, end time.Time, agg, interval string) string {
 	// Base query to fetch data for the tag with organization filter
 	baseQuery := fmt.Sprintf(`
 		from(bucket: "%s")
@@ -194,6 +194,12 @@ func (h *HistoryHandler) buildFluxQuery(tagID int, orgName string, start, end ti
 
 	// Add aggregation if specified
 	if agg != "" && interval != "" {
+		// Fix for BOOLEAN tags: InfluxDB aggregation functions (mean, sum, etc.) do not work on booleans.
+		// We must convert boolean to float (0.0/1.0) before aggregation.
+		if dataType == "BOOL" {
+			baseQuery += ` |> map(fn: (r) => ({r with _value: if r._value == true then 1.0 else 0.0}))`
+		}
+
 		// Map common aggregation functions to Flux window functions
 		var aggFunc string
 		switch agg {
@@ -231,12 +237,13 @@ func (h *HistoryHandler) buildFluxQuery(tagID int, orgName string, start, end ti
 	return baseQuery + `|> yield(name: "raw")`
 }
 
-// getTagOrganization retrieves the organization name for a tag and verifies ownership
-func (h *HistoryHandler) getTagOrganization(tagID, orgID int) (string, error) {
+// getTagDetails retrieves the organization name and data type for a tag and verifies ownership
+func (h *HistoryHandler) getTagDetails(tagID, orgID int) (string, string, error) {
 	var orgName string
+	var dataType string
 
 	query := `
-		SELECT o.name
+		SELECT o.name, t.data_type
 		FROM tags t
 		JOIN gateways g ON t.gateway_id = g.id
 		JOIN areas a ON g.area_id = a.id
@@ -245,12 +252,12 @@ func (h *HistoryHandler) getTagOrganization(tagID, orgID int) (string, error) {
 		WHERE t.id = $1 AND s.org_id = $2
 	`
 
-	err := h.db.QueryRow(query, tagID, orgID).Scan(&orgName)
+	err := h.db.QueryRow(query, tagID, orgID).Scan(&orgName, &dataType)
 	if err != nil {
-		return "", fmt.Errorf("failed to verify tag ownership: %w", err)
+		return "", "", fmt.Errorf("failed to verify tag ownership: %w", err)
 	}
 
-	return orgName, nil
+	return orgName, dataType, nil
 }
 
 // HistoryEvent represents a system event
