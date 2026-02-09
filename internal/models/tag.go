@@ -15,6 +15,7 @@ type Tag struct {
 	AlarmThreshold    *float64  `json:"alarm_threshold,omitempty" db:"alarm_threshold"`
 	AlarmOperator     *string   `json:"alarm_operator,omitempty" db:"alarm_operator"`
 	AlarmPriority     int       `json:"alarm_priority" db:"alarm_priority"`
+	SortOrder         float64   `json:"sort_order" db:"sort_order"`
 	CreatedAt         time.Time `json:"created_at" db:"created_at"`
 }
 

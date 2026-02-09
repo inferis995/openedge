@@ -33,7 +33,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Edit2, Database, RefreshCw, Upload, Download } from 'lucide-react';
+import { Plus, Trash2, Edit2, Database, RefreshCw, Upload, Download, ArrowUp, ArrowDown, CheckSquare, Square, X } from 'lucide-react';
 import { CreateTagDto } from '@/types';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
@@ -84,7 +84,11 @@ const TagsPage = () => {
     const [importContent, setImportContent] = useState('');
     const [isImporting, setIsImporting] = useState(false);
     const [importResult, setImportResult] = useState<{ created: number; updated: number; errors?: string[] } | null>(null);
+
     const [isHistorizeImport, setIsHistorizeImport] = useState(false);
+
+    // Batch Selection State
+    const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
 
     // Import/Export handlers
     const handleImport = async () => {
@@ -386,6 +390,114 @@ const TagsPage = () => {
         e.stopPropagation();
         if (confirm('Are you sure you want to delete this tag?')) {
             await remove(id);
+        }
+    };
+
+    // Batch Action Handlers
+    const toggleSelect = (id: number) => {
+        setSelectedTagIds(prev =>
+            prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
+        );
+    };
+
+    const handleSelectAll = () => {
+        if (selectedTagIds.length === tagsList.length) {
+            setSelectedTagIds([]);
+        } else {
+            setSelectedTagIds(tagsList.map(t => t.id));
+        }
+    };
+
+    const handleBatchDelete = async () => {
+        if (!confirm(`Delete ${selectedTagIds.length} tags?`)) return;
+
+        // Execute sequentially to avoid overwhelming the server/DB
+        for (const id of selectedTagIds) {
+            await remove(id);
+        }
+        setSelectedTagIds([]);
+    };
+
+    /*
+    const _handleMoveSelected = async (direction: 'up' | 'down') => {
+        if (selectedTagIds.length === 0) return;
+
+        // Create a copy of the current tags list
+        const currentList = [...tagsList];
+        const selectedSet = new Set(selectedTagIds);
+
+        // Sort selected IDs based on current position to handle moving multiple contiguous items
+        // For 'up': process from top to bottom
+        // For 'down': process from bottom to top
+        const selectedIndices = currentList
+            .map((tag, index) => ({ id: tag.id, index }))
+            .filter(item => selectedSet.has(item.id))
+            .sort((a, b) => direction === 'up' ? a.index - b.index : b.index - a.index);
+
+        let newList = [...currentList];
+
+        for (const { index } of selectedIndices) {
+            const newIndex = direction === 'up' ? index - 1 : index + 1;
+
+            // Boundary checks
+            if (newIndex < 0 || newIndex >= newList.length) continue;
+
+            // Swap if the target adjacent item is NOT also selected (moving block logic)
+            // simplified: actually just swap with neighbor
+            // But if neighbor is also selected, we don't swap with it? 
+            // Standard behavior: 
+            // - Move Up: Swap with element above if above element is NOT selected. 
+            // - If above element IS selected, it should have already moved up (if processing top-down).
+
+
+            // If we are moving UP, and the item ABOVE is also selected, we don't swap (they move together)
+            // But since we process top-down for UP, the item above would have moved first if it could.
+
+            // Let's us array manipulation: remove and insert.
+            const item = newList[index];
+            newList.splice(index, 1);
+            newList.splice(newIndex, 0, item);
+        }
+
+        // Optimistic UI update (optional, but good for responsiveness)
+        // Since we rely on backend sort_order, we must call API.
+
+        // Extract new order of IDs
+        const newOrderIds = newList.map(t => t.id);
+
+        try {
+            await tagsApi.reorder(newOrderIds);
+            // Trigger refresh or rely on realtime update if implemented? 
+            // tagsApi.reorder should theoretically trigger a reload if we listened, but here we just reload the list
+            window.location.reload(); // Simple reload to get new order
+        } catch (error) {
+            console.error("Failed to reorder tags", error);
+            alert("Failed to reorder tags");
+        }
+        }
+    };
+    */
+
+    const handleMoveSingle = async (id: number, direction: 'up' | 'down') => {
+        const index = tagsList.findIndex(t => t.id === id);
+        if (index === -1) return;
+
+        const newIndex = direction === 'up' ? index - 1 : index + 1;
+        if (newIndex < 0 || newIndex >= tagsList.length) return;
+
+        const newList = [...tagsList];
+        const item = newList[index];
+        newList.splice(index, 1);
+        newList.splice(newIndex, 0, item);
+
+        const newOrderIds = newList.map(t => t.id);
+
+        try {
+            await tagsApi.reorder(newOrderIds);
+            window.location.reload();
+        } catch (error) {
+            console.error("Failed to reorder tag", error);
+            alert("Failed to reorder tag");
         }
     };
 
@@ -712,10 +824,38 @@ const TagsPage = () => {
             </div>
 
 
+            {/* Bulk Actions Toolbar */}
+            {
+                selectedTagIds.length > 0 && (
+                    <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-md text-blue-800 animate-in fade-in slide-in-from-top-2">
+                        <span className="text-sm font-medium px-2">{selectedTagIds.length} Selected</span>
+                        <div className="h-4 w-px bg-blue-200 mx-2" />
+                        <Button variant="ghost" size="sm" onClick={handleBatchDelete} className="gap-1 hover:bg-red-100 text-red-600 hover:text-red-700">
+                            <Trash2 size={16} /> Delete Selected
+                        </Button>
+                        <div className="flex-1" />
+                        <Button variant="ghost" size="sm" onClick={() => setSelectedTagIds([])} className="gap-1 hover:bg-blue-100 text-blue-700">
+                            <X size={16} /> Cancel
+                        </Button>
+                    </div>
+                )
+            }
+
             <div className="rounded-md border bg-white">
                 <Table>
                     <TableHeader>
                         <TableRow>
+                            {isAdmin() && (
+                                <TableHead className="w-[40px]">
+                                    <Button variant="ghost" size="sm" className="p-0 h-6 w-6" onClick={handleSelectAll}>
+                                        {selectedTagIds.length === tagsList.length && tagsList.length > 0 ? (
+                                            <CheckSquare size={16} className="text-blue-600" />
+                                        ) : (
+                                            <Square size={16} className="text-slate-300" />
+                                        )}
+                                    </Button>
+                                </TableHead>
+                            )}
                             <TableHead>Code</TableHead>
                             <TableHead>Alias</TableHead>
                             <TableHead>Type</TableHead>
@@ -728,7 +868,7 @@ const TagsPage = () => {
                     <TableBody>
                         {tagsList.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center">
+                                <TableCell colSpan={7} className="h-24 text-center">
                                     No tags found. {selectedGatewayId && selectedGatewayId !== 'all' ? 'Create one for the selected gateway.' : 'Select a gateway to view tags.'}
                                 </TableCell>
                             </TableRow>
@@ -736,7 +876,46 @@ const TagsPage = () => {
                             tagsList.map((tag) => {
                                 const currentValue = currentValues.get(tag.id);
                                 return (
-                                    <TableRow key={tag.id}>
+                                    <TableRow key={tag.id} className={selectedTagIds.includes(tag.id) ? 'bg-blue-50/50' : ''}>
+                                        {isAdmin() && (
+                                            <TableCell>
+                                                <div className="flex items-center gap-1">
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="p-0 h-6 w-6"
+                                                        onClick={(e) => { e.stopPropagation(); toggleSelect(tag.id); }}
+                                                    >
+                                                        {selectedTagIds.includes(tag.id) ? (
+                                                            <CheckSquare size={16} className="text-blue-600" />
+                                                        ) : (
+                                                            <Square size={16} className="text-slate-300" />
+                                                        )}
+                                                    </Button>
+                                                    {selectedTagIds.includes(tag.id) && (
+                                                        <div className="flex flex-col gap-0 animate-in fade-in zoom-in duration-200">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-5 w-5 p-0 text-blue-600 hover:bg-blue-100"
+                                                                onClick={(e) => { e.stopPropagation(); handleMoveSingle(tag.id, 'up'); }}
+                                                            >
+                                                                <ArrowUp size={14} />
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                className="h-5 w-5 p-0 text-blue-600 hover:bg-blue-100"
+                                                                onClick={(e) => { e.stopPropagation(); handleMoveSingle(tag.id, 'down'); }}
+                                                            >
+                                                                <ArrowDown size={14} />
+                                                            </Button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </TableCell>
+                                        )}
+
                                         <TableCell className="font-medium font-mono text-xs">{tag.code}</TableCell>
                                         <TableCell className="font-medium">{tag.alias || '-'}</TableCell>
                                         <TableCell>

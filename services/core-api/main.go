@@ -229,6 +229,7 @@ func main() {
 			// Import/Export endpoints for bulk tag management - params must be registered before wildcards if possible (though Gin handles priority)
 			tags.POST("/import", middleware.RequireRole(models.RoleAdmin), tagsHandler.ImportTags)
 			tags.GET("/export", tagsHandler.ExportTags)
+			tags.PUT("/reorder", middleware.RequireRole(models.RoleAdmin), tagsHandler.ReorderTags)
 
 			tags.POST("", middleware.RequireRole(models.RoleAdmin), tagsHandler.Create)
 			tags.GET("", tagsHandler.List)

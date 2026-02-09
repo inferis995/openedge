@@ -14,9 +14,11 @@ interface TagSearchProps {
     tags: Tag[]
     onSelect: (tag: Tag) => void
     selectedTags: number[]
+    onSelectTags?: (tags: Tag[]) => void
+    onClear?: () => void
 }
 
-export function TagSearch({ tags, onSelect, selectedTags }: TagSearchProps) {
+export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear }: TagSearchProps) {
     const [open, setOpen] = React.useState(false)
     const [searchQuery, setSearchQuery] = React.useState("")
     const listRef = React.useRef<HTMLDivElement>(null)
@@ -36,6 +38,14 @@ export function TagSearch({ tags, onSelect, selectedTags }: TagSearchProps) {
         onSelect(tag);
         setOpen(false);
         setSearchQuery("");
+    };
+
+    const handleSelectAll = () => {
+        if (onSelectTags) {
+            onSelectTags(filteredTags);
+            setOpen(false);
+            setSearchQuery("");
+        }
     };
 
     return (
@@ -66,6 +76,35 @@ export function TagSearch({ tags, onSelect, selectedTags }: TagSearchProps) {
                             autoFocus
                         />
                     </div>
+
+                    {(onSelectTags || onClear) && (
+                        <div className="flex items-center justify-between px-2 py-1 border-b bg-muted/30">
+                            {onSelectTags && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 text-xs"
+                                    onClick={handleSelectAll}
+                                    disabled={filteredTags.length === 0}
+                                >
+                                    Select All ({filteredTags.length})
+                                </Button>
+                            )}
+                            {onClear && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 text-xs text-red-500 hover:text-red-600"
+                                    onClick={() => {
+                                        onClear();
+                                        setOpen(false);
+                                    }}
+                                >
+                                    Deselect All
+                                </Button>
+                            )}
+                        </div>
+                    )}
 
                     <div
                         ref={listRef}

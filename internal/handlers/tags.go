@@ -286,19 +286,19 @@ func (h *TagsHandler) List(c *gin.Context) {
 		}
 
 		rows, err = h.db.Query(
-			"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority, created_at FROM tags WHERE gateway_id = $1 ORDER BY id",
+			"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, alarm_enabled, alarm_threshold, alarm_operator, alarm_priority, sort_order, created_at FROM tags WHERE gateway_id = $1 ORDER BY sort_order ASC, id ASC",
 			gatewayID,
 		)
 	} else {
 		// Case 2: List All Tags for Organization
 		rows, err = h.db.Query(
-			`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.alarm_enabled, t.alarm_threshold, t.alarm_operator, t.alarm_priority, t.created_at
+			`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.alarm_enabled, t.alarm_threshold, t.alarm_operator, t.alarm_priority, t.sort_order, t.created_at
 			 FROM tags t
 			 JOIN gateways g ON t.gateway_id = g.id
 			 JOIN areas a ON g.area_id = a.id
 			 JOIN sites s ON a.site_id = s.id
 			 WHERE s.org_id = $1
-			 ORDER BY t.id`,
+			 ORDER BY t.sort_order ASC, t.id ASC`,
 			orgID,
 		)
 	}
@@ -312,7 +312,7 @@ func (h *TagsHandler) List(c *gin.Context) {
 	var tags []models.Tag
 	for rows.Next() {
 		var tag models.Tag
-		if err := rows.Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.AlarmEnabled, &tag.AlarmThreshold, &tag.AlarmOperator, &tag.AlarmPriority, &tag.CreatedAt); err != nil {
+		if err := rows.Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.AlarmEnabled, &tag.AlarmThreshold, &tag.AlarmOperator, &tag.AlarmPriority, &tag.SortOrder, &tag.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan tag"})
 			return
 		}

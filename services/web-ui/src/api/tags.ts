@@ -47,6 +47,10 @@ export const tagsApi = {
     // Export tags to PLC-style text format
     exportTags: async (gatewayId: number): Promise<string> => {
         const response = await api.get('/tags/export', { params: { gateway_id: gatewayId } });
-        return response.data.content;
+        return response.data;
+    },
+
+    reorder: async (tagIds: number[]): Promise<void> => {
+        await api.put('/tags/reorder', { tag_ids: tagIds });
     }
 };
