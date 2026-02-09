@@ -247,23 +247,7 @@ const TrendPage = () => {
                     <p className="text-sm text-muted-foreground">Real-time historical data visualization</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Button
-                        onClick={handleQuery}
-                        disabled={selectedTagIds.length === 0 || isLoadingHistory}
-                        className={shouldQuery ? "bg-green-600 hover:bg-green-700" : "bg-violet-600 hover:bg-violet-700"}
-                    >
-                        {isLoadingHistory ? (
-                            <>
-                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                Loading...
-                            </>
-                        ) : (
-                            <>
-                                <RefreshCw className="w-4 h-4 mr-2" />
-                                {shouldQuery ? "Refresh Data" : "Load Chart"}
-                            </>
-                        )}
-                    </Button>
+
                     <Button
                         onClick={handleExportCSV}
                         disabled={chartData.length === 0}

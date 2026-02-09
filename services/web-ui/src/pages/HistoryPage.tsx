@@ -80,9 +80,7 @@ const HistoryPage = () => {
                         </SelectContent>
                     </Select>
 
-                    <Button variant="ghost" size="icon" onClick={() => refetch()}>
-                        <RefreshCw className="h-4 w-4" />
-                    </Button>
+
 
                     <Button variant="outline" size="icon">
                         <Download className="h-4 w-4" />

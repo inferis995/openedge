@@ -1,8 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Button } from '@/components/ui/button';
-
-import { RefreshCw, ChevronRight, Building2, Factory, MapPin, X } from 'lucide-react';
+import { ChevronRight, Building2, Factory, MapPin, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMqttStore } from '@/stores/useMqttStore';
 import { useNavigationStore } from '@/stores/useNavigationStore';

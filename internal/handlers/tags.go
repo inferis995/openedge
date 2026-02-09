@@ -140,16 +140,16 @@ func (h *TagsHandler) Create(c *gin.Context) {
 
 	var tag models.Tag
 	err = h.db.QueryRow(
-		`INSERT INTO tags (gateway_id, code, alias, data_type, historize, historize_deadband)
-		 VALUES ($1, $2, $3, $4, $5, $6)
-		 RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, created_at`,
+		`INSERT INTO tags (gateway_id, code, alias, data_type, historize, historize_deadband, sort_order)
+		 VALUES ($1, $2, $3, $4, $5, $6, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tags WHERE gateway_id = $1))
+		 RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, created_at`,
 		req.GatewayID,
 		req.Code,
 		req.Alias,
 		req.DataType,
 		historize,
 		historizeDeadband,
-	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.CreatedAt)
+	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.CreatedAt)
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create tag"})
@@ -251,6 +251,7 @@ func (h *TagsHandler) List(c *gin.Context) {
 	}
 
 	if err != nil {
+		log.Printf("[API] Query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query tags"})
 		return
 	}
@@ -260,6 +261,7 @@ func (h *TagsHandler) List(c *gin.Context) {
 	for rows.Next() {
 		var tag models.Tag
 		if err := rows.Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.CreatedAt); err != nil {
+			log.Printf("[API] Scan error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan tag"})
 			return
 		}
@@ -299,9 +301,9 @@ func (h *TagsHandler) Get(c *gin.Context) {
 
 	var tag models.Tag
 	err := h.db.QueryRow(
-		"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, created_at FROM tags WHERE id = $1",
+		"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, created_at FROM tags WHERE id = $1",
 		id,
-	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.CreatedAt)
+	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.CreatedAt)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -519,12 +521,12 @@ func (h *TagsHandler) Update(c *gin.Context) {
 	for i := 1; i < len(updates); i++ {
 		query += ", " + updates[i]
 	}
-	query += " WHERE id = $" + strconv.Itoa(argPos) + " RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, created_at"
+	query += " WHERE id = $" + strconv.Itoa(argPos) + " RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, created_at"
 
 	var tag models.Tag
 	err = h.db.QueryRow(query, args...).Scan(
 		&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType,
-		&tag.Historize, &tag.HistorizeDeadband, &tag.CreatedAt,
+		&tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.CreatedAt,
 	)
 
 	if err != nil {
@@ -547,6 +549,54 @@ func (h *TagsHandler) Update(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, tag)
+// ReorderTagsRequest represents the request body for reordering tags
+type ReorderTagsRequest struct {
+	Tags []struct {
+		ID        int     `json:"id" binding:"required"`
+		SortOrder float64 `json:"sort_order" binding:"required"`
+	} `json:"tags" binding:"required"`
+}
+
+// ReorderTags handles PUT /api/tags/reorder
+// @Summary Reorder tags
+// @Description Update the sort order for multiple tags
+// @Tags tags
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param request body ReorderTagsRequest true "Reorder tags request"
+// @Success 204 "Tags reordered"
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/tags/reorder [put]
+func (h *TagsHandler) ReorderTags(c *gin.Context) {
+	var req ReorderTagsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback()
+
+	for _, t := range req.Tags {
+		_, err := tx.Exec("UPDATE tags SET sort_order = $1 WHERE id = $2", t.SortOrder, t.ID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update tag order"})
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+		return
+	}
+
+	c.Status(http.StatusNoContent)
 }
 
 // CurrentValueResponse represents the response for current value endpoint

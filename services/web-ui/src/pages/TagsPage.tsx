@@ -557,11 +557,7 @@ const TagsPage = () => {
                 </div>
 
                 <div className="flex items-center gap-4">
-                    {/* Live status indicator - always on */}
-                    <span className="flex items-center gap-2 text-sm text-green-600">
-                        <RefreshCw size={14} className="animate-spin" />
-                        Live
-                    </span>
+
 
                     <div className="w-[300px]">
                         <Input

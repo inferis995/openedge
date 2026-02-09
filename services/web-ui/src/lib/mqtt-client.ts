@@ -37,7 +37,7 @@ class MQTTClientService {
                 resolve();
             });
 
-            this.client.on('message', (topic: string, payload: Buffer) => {
+            this.client.on('message', (_topic: string, _payload: Buffer) => {
                 // Potential future generic message handling
             });
 
