@@ -219,10 +219,12 @@ func (h *HistoryHandler) buildFluxQuery(tagID int, orgName, dataType string, sta
 			aggFunc = "mean" // Default to mean if unknown
 		}
 
-		// Use createEmpty: true to generate windows even if no data exists
-		// Then use fill(usePrevious: true) to carry forward the last known value
-		// This handles the "deadband suppression" issue where unchanged values aren't stored
+		// Fix for BOOLEAN/INT tags: InfluxDB aggregation functions often require floats.
+		// Bool -> toFloat -> 0.0/1.0
+		// Int -> toFloat -> float
+		// We use createEmpty: true and fill(usePrevious: true) to handle sparse data (deadband).
 		aggregationQuery := fmt.Sprintf(`
+			|> toFloat()
 			|> aggregateWindow(every: %s, fn: %s, createEmpty: true)
 			|> fill(usePrevious: true)
 			|> yield(name: "aggregated")
