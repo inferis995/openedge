@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS gateways (
     connection_config JSONB NOT NULL,
     scan_rate_ms INT DEFAULT 1000,
     enabled BOOLEAN DEFAULT TRUE,
+    zero_based BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 

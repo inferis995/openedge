@@ -1,38 +1,56 @@
 import { useState, useMemo } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { historyApi } from '@/api/history';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
-import { useTags } from '@/hooks/useTags';
-
+import {
+    TrendingUp,
+    Download,
+    Filter,
+    RefreshCw,
+    Loader2,
+    X
+} from "lucide-react";
+import {
+    LineChart,
+    Line,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    Legend,
+    ResponsiveContainer
+} from 'recharts';
+import { TagSearch } from '@/components/TagSearch';
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue
+} from "@/components/ui/select";
+// Removed unused imports: Input, Badge, Calendar
 import { Tag, HistoryDataPoint } from '@/types';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { TrendingUp, Download, Calendar, Filter, X, Loader2 } from 'lucide-react';
+import { useTags } from '@/hooks/useTags';
 import { toast } from 'sonner';
 
 // Color palette for multiple tags
 const TAG_COLORS = [
-    '#8b5cf6', // violet
-    '#3b82f6', // blue
-    '#10b981', // emerald
-    '#f59e0b', // amber
-    '#ef4444', // red
-    '#ec4899', // pink
-    '#06b6d4', // cyan
-    '#84cc16', // lime
+    '#7c3aed', // violet-600
+    '#db2777', // pink-600
+    '#059669', // emerald-600
+    '#2563eb', // blue-600
+    '#d97706', // amber-600
 ];
 
 const TrendPage = () => {
-    console.log('TrendPage v3 (Paranoid Mode) rendering...');
     // State for selected tags
     const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
 
     // State for date range (default last 24 hours)
-    const [endDate, setEndDate] = useState(new Date());
-    const [startDate, setStartDate] = useState(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const [startDate, setStartDate] = useState<Date>(new Date(Date.now() - 24 * 60 * 60 * 1000));
+    const [endDate, setEndDate] = useState<Date>(new Date());
 
     // State for aggregation controls
     const [aggregation, setAggregation] = useState<'mean' | 'max' | 'min' | 'sum'>('mean');
@@ -217,363 +235,294 @@ const TrendPage = () => {
         return new Date(date.getTime() - tzOffset).toISOString().slice(0, 16);
     };
 
-    // Available tags (excluding already selected)
-    const availableTags = safeTags.filter(tag => !selectedTagIds.includes(tag.id));
-
     return (
-        <div className="space-y-6">
+        <div className="h-[calc(100vh-6rem)] flex flex-col gap-4">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between pb-2 border-b">
                 <div>
-                    <h1 className="text-3xl font-bold flex items-center gap-2">
-                        <TrendingUp className="w-8 h-8 text-violet-600" />
-                        Trend / Historian
+                    <h1 className="text-2xl font-bold flex items-center gap-2">
+                        <TrendingUp className="w-6 h-6 text-violet-600" />
+                        Professional Trend Analysis
                     </h1>
-                    <p className="text-gray-600 mt-1">View and compare historical tag data</p>
+                    <p className="text-sm text-muted-foreground">Real-time historical data visualization</p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <Button
+                        onClick={handleQuery}
+                        disabled={selectedTagIds.length === 0 || isLoadingHistory}
+                        className={shouldQuery ? "bg-green-600 hover:bg-green-700" : "bg-violet-600 hover:bg-violet-700"}
+                    >
+                        {isLoadingHistory ? (
+                            <>
+                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                Loading...
+                            </>
+                        ) : (
+                            <>
+                                <RefreshCw className="w-4 h-4 mr-2" />
+                                {shouldQuery ? "Refresh Data" : "Load Chart"}
+                            </>
+                        )}
+                    </Button>
+                    <Button
+                        onClick={handleExportCSV}
+                        disabled={chartData.length === 0}
+                        variant="outline"
+                        size="icon"
+                        title="Export CSV"
+                    >
+                        <Download className="w-4 h-4" />
+                    </Button>
                 </div>
             </div>
 
-            {/* Controls Card */}
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <Filter className="w-5 h-5" />
-                        Query Controls
-                    </CardTitle>
-                    <CardDescription>Configure your historical data query</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                    {/* Tag Selection */}
-                    <div className="space-y-2">
-                        <Label htmlFor="tag-select">Add Tags to Query</Label>
-                        <Select onValueChange={handleAddTag} value="">
-                            <SelectTrigger id="tag-select">
-                                <SelectValue placeholder="Select tags to add..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {availableTags.map(tag => (
-                                    <SelectItem key={tag.id} value={tag.id.toString()}>
-                                        {tag.alias || tag.code} ({tag.code})
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    {/* Selected Tags Display */}
-                    {selectedTags.length > 0 && (
-                        <div className="space-y-2">
-                            <Label>Selected Tags</Label>
-                            <div className="flex flex-wrap gap-2">
-                                {selectedTags.map((tag, index) => (
-                                    <Badge
-                                        key={tag.id}
-                                        variant="secondary"
-                                        className="px-3 py-1 text-sm flex items-center gap-2"
-                                        style={{ backgroundColor: `${TAG_COLORS[index % TAG_COLORS.length]}20`, border: `1px solid ${TAG_COLORS[index % TAG_COLORS.length]}` }}
-                                    >
-                                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: TAG_COLORS[index % TAG_COLORS.length] }} />
-                                        {tag.alias || tag.code}
-                                        <button
-                                            onClick={() => handleRemoveTag(tag.id)}
-                                            className="ml-1 hover:bg-gray-200 rounded-full p-0.5"
-                                        >
-                                            <X className="w-3 h-3" />
-                                        </button>
-                                    </Badge>
-                                ))}
+            <div className="grid grid-cols-12 gap-6 h-full min-h-0">
+                {/* Sidebar Controls */}
+                <div className="col-span-12 md:col-span-3 flex flex-col gap-4 overflow-y-auto pr-2">
+                    <Card>
+                        <CardHeader className="py-3 px-4">
+                            <CardTitle className="text-sm font-medium">Tag Selection</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-0 space-y-4">
+                            <div className="space-y-2">
+                                <Label className="text-xs">Search & Add Tag</Label>
+                                <TagSearch
+                                    tags={safeTags}
+                                    selectedTags={selectedTagIds}
+                                    onSelect={(tag) => handleAddTag(tag.id.toString())}
+                                />
                             </div>
-                        </div>
-                    )}
 
-                    {/* Date Range */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="start-date">
-                                <Calendar className="w-4 h-4 inline mr-1" />
-                                Start Date
-                            </Label>
-                            <input
-                                id="start-date"
-                                type="datetime-local"
-                                value={formatInputValue(startDate)}
-                                onChange={(e) => setStartDate(new Date(e.target.value))}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="end-date">
-                                <Calendar className="w-4 h-4 inline mr-1" />
-                                End Date
-                            </Label>
-                            <input
-                                id="end-date"
-                                type="datetime-local"
-                                value={formatInputValue(endDate)}
-                                onChange={(e) => setEndDate(new Date(e.target.value))}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-violet-500"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Quick Range Selectors */}
-                    <div className="flex flex-wrap gap-2 items-center">
-                        <Label className="mr-2 text-sm text-muted-foreground">Quick Presets:</Label>
-                        <Button variant="outline" size="sm" onClick={() => setQuickRange('1h')}>1 Hour</Button>
-                        <Button variant="outline" size="sm" onClick={() => setQuickRange('6h')}>6 Hours</Button>
-                        <Button variant="outline" size="sm" onClick={() => setQuickRange('24h')}>24 Hours</Button>
-                        <Button variant="outline" size="sm" onClick={() => setQuickRange('7d')}>7 Days</Button>
-                        <Button variant="outline" size="sm" onClick={() => setQuickRange('30d')}>30 Days</Button>
-                    </div>
-
-                    {/* Aggregation Controls */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label htmlFor="aggregation">Aggregation</Label>
-                            <Select value={aggregation} onValueChange={(value: any) => setAggregation(value)}>
-                                <SelectTrigger id="aggregation">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="mean">Mean (Average)</SelectItem>
-                                    <SelectItem value="max">Maximum</SelectItem>
-                                    <SelectItem value="min">Minimum</SelectItem>
-                                    <SelectItem value="sum">Sum</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                        <div className="space-y-2">
-                            <Label htmlFor="interval">Interval</Label>
-                            <Select value={interval} onValueChange={setInterval}>
-                                <SelectTrigger id="interval">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="1m">1 Minute</SelectItem>
-                                    <SelectItem value="5m">5 Minutes</SelectItem>
-                                    <SelectItem value="15m">15 Minutes</SelectItem>
-                                    <SelectItem value="1h">1 Hour</SelectItem>
-                                    <SelectItem value="1d">1 Day</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-
-                    {/* Action Buttons */}
-                    <div className="flex gap-3">
-                        <Button
-                            onClick={handleQuery}
-                            disabled={selectedTagIds.length === 0 || isLoadingHistory}
-                            className="bg-violet-600 hover:bg-violet-700"
-                        >
-                            {isLoadingHistory ? (
-                                <>
-                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                    Querying...
-                                </>
-                            ) : (
-                                'Query Data'
-                            )}
-                        </Button>
-                        <Button
-                            onClick={handleExportCSV}
-                            disabled={chartData.length === 0}
-                            variant="outline"
-                        >
-                            <Download className="w-4 h-4 mr-2" />
-                            Export CSV
-                        </Button>
-                    </div>
-                </CardContent>
-            </Card>
-
-            {/* Error Display */}
-            {hasError && (
-                <Card className="border-red-200 bg-red-50">
-                    <CardContent className="pt-6">
-                        <p className="text-red-600">Error fetching historical data. Please check your query parameters and try again.</p>
-                    </CardContent>
-                </Card>
-            )}
-
-            {/* Chart */}
-            {chartData.length > 0 && !hasError && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Historical Data</CardTitle>
-                        <CardDescription>
-                            {selectedTags.map(tag => tag.alias || tag.code).join(', ')} | {startDate.toLocaleString()} to {endDate.toLocaleString()}
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <SafeChart>
-                            <ResponsiveContainer width="100%" height={500}>
-                                <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 60 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                                    <XAxis
-                                        dataKey="timestamp"
-                                        tick={{ fontSize: 11, fill: '#6b7280' }}
-                                        tickFormatter={(value) => {
-                                            const date = new Date(value);
-                                            const duration = endDate.getTime() - startDate.getTime();
-                                            // If range > 24h, show date + time, else just time
-                                            if (duration > 24 * 60 * 60 * 1000) {
-                                                return date.toLocaleDateString('it-IT', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-                                            }
-                                            return date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                                        }}
-                                        angle={-45}
-                                        textAnchor="end"
-                                        height={80}
-                                    />
-                                    <YAxis
-                                        tick={{ fontSize: 11, fill: '#6b7280' }}
-                                        tickFormatter={(value) => {
-                                            // Format large numbers with k/M suffix
-                                            if (Math.abs(value) >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
-                                            if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(1)}k`;
-                                            return value.toFixed(2);
-                                        }}
-                                    />
-                                    <Tooltip
-                                        contentStyle={{
-                                            backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                                            border: '1px solid #e5e7eb',
-                                            borderRadius: '8px',
-                                            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-                                            padding: '12px'
-                                        }}
-                                        labelFormatter={(value) => {
-                                            const date = new Date(value);
-                                            return date.toLocaleString('it-IT', {
-                                                year: 'numeric',
-                                                month: 'short',
-                                                day: 'numeric',
-                                                hour: '2-digit',
-                                                minute: '2-digit',
-                                                second: '2-digit'
-                                            });
-                                        }}
-                                        formatter={(value: any, name?: string) => {
-                                            if (!name) return ['', ''];
-                                            // Extract tag info from name (format: "alias_value")
-                                            const tagKey = name.replace('_value', '');
-                                            const tag = selectedTags.find(t => (t.alias || t.code) === tagKey);
-
-                                            // Handle null values
-                                            if (value === null) {
-                                                return ['N/A', tagKey];
-                                            }
-
-                                            // Format value based on data type
-                                            if (tag?.data_type === 'BOOL') {
-                                                return [value === 1 ? 'TRUE' : 'FALSE', tagKey];
-                                            } else if (tag?.data_type === 'INT' || tag?.data_type === 'DINT') {
-                                                return [Math.round(value).toString(), tagKey];
-                                            } else if (tag?.data_type === 'REAL') {
-                                                return [Number(value).toFixed(2), tagKey];
-                                            }
-                                            return [Number(value).toFixed(2), tagKey];
-                                        }}
-                                    />
-                                    <Legend
-                                        wrapperStyle={{ paddingTop: '20px' }}
-                                        iconType="line"
-                                        formatter={(value: string) => {
-                                            const tagKey = value.replace('_value', '');
-                                            const tag = selectedTags.find(t => (t.alias || t.code) === tagKey);
-                                            return `${tagKey} (${tag?.data_type || 'N/A'})`;
-                                        }}
-                                    />
-                                    {selectedTags.map((tag, index) => {
-                                        const key = tag.alias || tag.code;
-                                        const color = TAG_COLORS[index % TAG_COLORS.length];
-
-                                        // For BOOL tags, use step chart
-                                        if (tag.data_type === 'BOOL') {
-                                            return (
-                                                <Line
-                                                    key={tag.id}
-                                                    type="stepAfter"
-                                                    dataKey={`${key}_value`}
-                                                    name={key}
-                                                    stroke={color}
-                                                    strokeWidth={2}
-                                                    dot={false}
-                                                    isAnimationActive={false}
-                                                    connectNulls={false}
+                            <div className="space-y-2">
+                                <Label className="text-xs">Active Traces ({selectedTags.length})</Label>
+                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                                    {selectedTags.length === 0 && (
+                                        <p className="text-xs text-muted-foreground italic">No tags selected</p>
+                                    )}
+                                    {selectedTags.map((tag, index) => (
+                                        <div key={tag.id} className="flex items-center justify-between p-2 rounded-md bg-secondary/50 border text-sm group">
+                                            <div className="flex items-center gap-2 overflow-hidden">
+                                                <div
+                                                    className="w-3 h-3 rounded-full shrink-0"
+                                                    style={{ backgroundColor: TAG_COLORS[index % TAG_COLORS.length] }}
                                                 />
-                                            );
-                                        }
-
-                                        // For analog values (REAL, INT, DINT), use smooth line
-                                        return (
-                                            <Line
-                                                key={tag.id}
-                                                type="monotone"
-                                                dataKey={`${key}_value`}
-                                                name={key}
-                                                stroke={color}
-                                                strokeWidth={2}
-                                                dot={chartData.length < 50}
-                                                isAnimationActive={false}
-                                                connectNulls={false}
-                                            />
-                                        );
-                                    })}
-                                </LineChart>
-                            </ResponsiveContainer>
-                        </SafeChart>
-
-                        {/* Chart Info Panel */}
-                        <div className="mt-4 p-4 bg-slate-50 rounded-md border border-slate-200">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                                <div>
-                                    <p className="text-slate-600 font-medium">Data Points:</p>
-                                    <p className="text-slate-900 text-lg font-bold">{chartData.length}</p>
-                                </div>
-                                <div>
-                                    <p className="text-slate-600 font-medium">Time Span:</p>
-                                    <p className="text-slate-900 text-lg font-bold">
-                                        {(() => {
-                                            const duration = endDate.getTime() - startDate.getTime();
-                                            const hours = Math.floor(duration / (1000 * 60 * 60));
-                                            const days = Math.floor(hours / 24);
-                                            if (days > 0) return `${days}d ${hours % 24}h`;
-                                            return `${hours}h`;
-                                        })()}
-                                    </p>
-                                </div>
-                                <div>
-                                    <p className="text-slate-600 font-medium">Tags Queried:</p>
-                                    <p className="text-slate-900 text-lg font-bold">{selectedTags.length}</p>
+                                                <div className="flex flex-col truncate">
+                                                    <span className="font-medium truncate" title={tag.alias}>{tag.alias || tag.code}</span>
+                                                    <span className="text-[10px] text-muted-foreground">{tag.code}</span>
+                                                </div>
+                                            </div>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                onClick={() => handleRemoveTag(tag.id)}
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </Button>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
+                        </CardContent>
+                    </Card>
 
-            {/* Empty State */}
-            {!isLoadingHistory && chartData.length === 0 && selectedTagIds.length > 0 && shouldQuery && (
-                <Card>
-                    <CardContent className="pt-6 text-center text-gray-500">
-                        <TrendingUp className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                        <p>No data found for the selected query parameters.</p>
-                        <p className="text-sm mt-2">Try adjusting the date range or selecting different tags.</p>
-                    </CardContent>
-                </Card>
-            )}
+                    <Card>
+                        <CardHeader className="py-3 px-4">
+                            <CardTitle className="text-sm font-medium">Time Range</CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-0 space-y-4">
+                            <div className="grid grid-cols-2 gap-2">
+                                {['1h', '6h', '12h', '24h', '7d', '30d'].map(preset => (
+                                    <Button
+                                        key={preset}
+                                        variant="outline"
+                                        size="sm"
+                                        className="text-xs h-7"
+                                        onClick={() => setQuickRange(preset)}
+                                    >
+                                        {preset}
+                                    </Button>
+                                ))}
+                            </div>
 
-            {/* Initial Empty State */}
-            {selectedTagIds.length === 0 && (
-                <Card>
-                    <CardContent className="pt-6 text-center text-gray-500">
-                        <TrendingUp className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                        <p>Select tags and configure your query to view historical data.</p>
-                    </CardContent>
-                </Card>
-            )}
+                            <div className="space-y-2 border-t pt-2">
+                                <div className="grid gap-1">
+                                    <Label className="text-xs">Start</Label>
+                                    <input
+                                        type="datetime-local"
+                                        value={formatInputValue(startDate)}
+                                        onChange={(e) => setStartDate(new Date(e.target.value))}
+                                        className="w-full text-xs px-2 py-1 border rounded"
+                                    />
+                                </div>
+                                <div className="grid gap-1">
+                                    <Label className="text-xs">End</Label>
+                                    <input
+                                        type="datetime-local"
+                                        value={formatInputValue(endDate)}
+                                        onChange={(e) => setEndDate(new Date(e.target.value))}
+                                        className="w-full text-xs px-2 py-1 border rounded"
+                                    />
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* Main Content - Chart */}
+                <div className="col-span-12 md:col-span-9 h-full min-h-[500px]">
+                    <Card className="h-full flex flex-col shadow-sm">
+                        <CardHeader className="py-3 px-6 border-b flex flex-row items-center justify-between">
+                            <div className="space-y-0.5">
+                                <CardTitle className="text-base">Trend View</CardTitle>
+                                <CardDescription className="text-xs">
+                                    {startDate.toLocaleString()} — {endDate.toLocaleString()}
+                                </CardDescription>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Select value={aggregation} onValueChange={(value: any) => setAggregation(value)}>
+                                    <SelectTrigger className="w-[110px] h-8 text-xs">
+                                        <SelectValue placeholder="Agg" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="mean">Mean</SelectItem>
+                                        <SelectItem value="max">Max</SelectItem>
+                                        <SelectItem value="min">Min</SelectItem>
+                                        <SelectItem value="sum">Sum</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <Select value={interval} onValueChange={setInterval}>
+                                    <SelectTrigger className="w-[80px] h-8 text-xs">
+                                        <SelectValue placeholder="Int" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="1m">1m</SelectItem>
+                                        <SelectItem value="5m">5m</SelectItem>
+                                        <SelectItem value="15m">15m</SelectItem>
+                                        <SelectItem value="1h">1h</SelectItem>
+                                        <SelectItem value="1d">1d</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="flex-1 p-2 min-h-0 relative">
+                            {/* Error State */}
+                            {hasError && (
+                                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/80 backdrop-blur-sm">
+                                    <div className="text-center text-red-600 p-4 border border-red-200 rounded bg-red-50 shadow-lg">
+                                        <p className="font-bold">Error loading data</p>
+                                        <p className="text-sm">Please check your query settings.</p>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Loading State */}
+                            {isLoadingHistory && (
+                                <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/50 backdrop-blur-sm">
+                                    <div className="flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-lg border">
+                                        <Loader2 className="w-4 h-4 animate-spin text-violet-600" />
+                                        <span className="text-sm font-medium">Fetching historical data...</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Chart or Empty State */}
+                            {chartData.length > 0 ? (
+                                <SafeChart>
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <LineChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 20 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                                            <XAxis
+                                                dataKey="timestamp"
+                                                tick={{ fontSize: 10, fill: '#6b7280' }}
+                                                tickFormatter={(value) => {
+                                                    const date = new Date(value);
+                                                    const duration = endDate.getTime() - startDate.getTime();
+                                                    if (duration > 24 * 60 * 60 * 1000) {
+                                                        return date.toLocaleDateString('it-IT', { month: 'short', day: 'numeric', hour: '2-digit' });
+                                                    }
+                                                    return date.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+                                                }}
+                                                height={30}
+                                            />
+                                            <YAxis
+                                                tick={{ fontSize: 10, fill: '#6b7280' }}
+                                                tickFormatter={(value) => {
+                                                    if (Math.abs(value) >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+                                                    if (Math.abs(value) >= 1000) return `${(value / 1000).toFixed(1)}k`;
+                                                    // Integers for counts/bools
+                                                    if (Number.isInteger(value)) return value.toString();
+                                                    return value.toFixed(1);
+                                                }}
+                                                width={40}
+                                            />
+                                            <Tooltip
+                                                contentStyle={{
+                                                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                                    border: '1px solid #e2e8f0',
+                                                    borderRadius: '6px',
+                                                    boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
+                                                    fontSize: '12px',
+                                                    padding: '8px 12px'
+                                                }}
+                                                labelFormatter={(value) => new Date(value).toLocaleString()}
+                                            />
+                                            <Legend
+                                                verticalAlign="top"
+                                                height={36}
+                                                iconType="circle"
+                                                iconSize={8}
+                                                wrapperStyle={{ fontSize: '12px' }}
+                                            />
+                                            {selectedTags.map((tag, index) => {
+                                                const key = tag.alias || tag.code;
+                                                const color = TAG_COLORS[index % TAG_COLORS.length];
+                                                const isBool = tag.data_type === 'BOOL';
+
+                                                return (
+                                                    <Line
+                                                        key={tag.id}
+                                                        type={isBool ? "stepAfter" : "monotone"}
+                                                        dataKey={`${key}_value`}
+                                                        name={tag.alias || tag.code}
+                                                        stroke={color}
+                                                        strokeWidth={isBool ? 2 : 1.5}
+                                                        dot={false}
+                                                        activeDot={{ r: 4, strokeWidth: 0 }}
+                                                        connectNulls={false}
+                                                        isAnimationActive={false}
+                                                    />
+                                                );
+                                            })}
+                                        </LineChart>
+                                    </ResponsiveContainer>
+                                </SafeChart>
+                            ) : (
+                                <div className="h-full flex flex-col items-center justify-center text-muted-foreground bg-slate-50/50 border-2 border-dashed border-slate-200 rounded-lg m-4">
+                                    {selectedTagIds.length === 0 ? (
+                                        <>
+                                            <TrendingUp className="w-12 h-12 mb-4 text-slate-300" />
+                                            <p className="font-medium">No Tags Selected</p>
+                                            <p className="text-sm">Use the sidebar to search and add tags to the chart.</p>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Filter className="w-12 h-12 mb-4 text-slate-300" />
+                                            <p className="font-medium">No Data Found</p>
+                                            <p className="text-sm">Try adjusting the time range or check if data is being recorded.</p>
+                                            {shouldQuery && !isLoadingHistory && (
+                                                <Button size="sm" variant="outline" className="mt-4" onClick={handleQuery}>
+                                                    <RefreshCw className="w-3 h-3 mr-2" /> Try Again
+                                                </Button>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+            </div>
         </div>
     );
 };
