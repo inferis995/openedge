@@ -126,9 +126,9 @@ services:
       - industrial-network
 
   web-ui:
-    # build:
-    #   context: services/web-ui
-    #   dockerfile: Dockerfile
+    build:
+      context: .
+      dockerfile: services/web-ui/Dockerfile
     image: ralph-wiggum-claude-code--main-web-ui:latest
     container_name: industrial-web-ui
     ports:

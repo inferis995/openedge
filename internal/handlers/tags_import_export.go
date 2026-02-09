@@ -15,6 +15,7 @@ import (
 type TagImportRequest struct {
 	GatewayID int    `json:"gateway_id" binding:"required"`
 	Content   string `json:"content" binding:"required"`
+	Historize bool   `json:"historize"` // Optional, defaults to false
 }
 
 // TagImportResult represents the import result
@@ -134,18 +135,18 @@ func (h *TagsHandler) ImportTags(c *gin.Context) {
 			// Create new tag
 			_, err = h.db.Exec(`
 				INSERT INTO tags (gateway_id, code, alias, data_type, historize, historize_deadband)
-				VALUES ($1, $2, $3, $4, false, 0.1)
-			`, req.GatewayID, parsed.Address, parsed.Alias, parsed.DataType)
+				VALUES ($1, $2, $3, $4, $5, 0.1)
+			`, req.GatewayID, parsed.Address, parsed.Alias, parsed.DataType, req.Historize)
 			if err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("Line %d: failed to create: %s", lineNum+1, err.Error()))
 				continue
 			}
 			result.Created++
 		} else if err == nil {
-			// Update existing tag alias and data_type
+			// Update existing tag alias, data_type and historize
 			_, err = h.db.Exec(`
-				UPDATE tags SET alias = $1, data_type = $2 WHERE id = $3
-			`, parsed.Alias, parsed.DataType, existingID)
+				UPDATE tags SET alias = $1, data_type = $2, historize = $3 WHERE id = $4
+			`, parsed.Alias, parsed.DataType, req.Historize, existingID)
 			if err != nil {
 				result.Errors = append(result.Errors, fmt.Sprintf("Line %d: failed to update: %s", lineNum+1, err.Error()))
 				continue
@@ -153,6 +154,15 @@ func (h *TagsHandler) ImportTags(c *gin.Context) {
 			result.Updated++
 		} else {
 			result.Errors = append(result.Errors, fmt.Sprintf("Line %d: DB error: %s", lineNum+1, err.Error()))
+		}
+	}
+
+	// Publish reload command to MQTT if changes were made
+	if (result.Created > 0 || result.Updated > 0) && h.mqttClient != nil {
+		topic := fmt.Sprintf("sys/command/reload/%d", req.GatewayID)
+		if err := h.mqttClient.Publish(topic, "reload"); err != nil {
+			// Log error but don't fail the request
+			// log.Printf("[API] Failed to publish import reload: %v", err)
 		}
 	}
 

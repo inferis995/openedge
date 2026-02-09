@@ -84,6 +84,7 @@ const TagsPage = () => {
     const [importContent, setImportContent] = useState('');
     const [isImporting, setIsImporting] = useState(false);
     const [importResult, setImportResult] = useState<{ created: number; updated: number; errors?: string[] } | null>(null);
+    const [isHistorizeImport, setIsHistorizeImport] = useState(false);
 
     // Import/Export handlers
     const handleImport = async () => {
@@ -93,7 +94,7 @@ const TagsPage = () => {
         setImportResult(null);
 
         try {
-            const result = await tagsApi.importTags(parseInt(selectedGatewayId), importContent);
+            const result = await tagsApi.importTags(parseInt(selectedGatewayId), importContent, isHistorizeImport);
             setImportResult(result);
             if (result.created > 0 || result.updated > 0) {
                 // Refresh tags
@@ -520,6 +521,14 @@ const TagsPage = () => {
                                             value={importContent}
                                             onChange={(e) => setImportContent(e.target.value)}
                                         />
+                                        <div className="flex items-center space-x-2">
+                                            <Switch
+                                                id="historize-import"
+                                                checked={isHistorizeImport}
+                                                onCheckedChange={setIsHistorizeImport}
+                                            />
+                                            <Label htmlFor="historize-import">Enable History for all imported tags</Label>
+                                        </div>
                                         {importResult && (
                                             <div className={`p-3 rounded-md text-sm ${importResult.errors?.length ? 'bg-amber-50 border border-amber-200' : 'bg-green-50 border border-green-200'}`}>
                                                 <p>Created: {importResult.created} | Updated: {importResult.updated}</p>

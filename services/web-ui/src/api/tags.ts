@@ -39,8 +39,8 @@ export const tagsApi = {
     },
 
     // Import tags from PLC-style text format
-    importTags: async (gatewayId: number, content: string): Promise<{ created: number; updated: number; errors?: string[] }> => {
-        const response = await api.post('/tags/import', { gateway_id: gatewayId, content });
+    importTags: async (gatewayId: number, content: string, historize?: boolean): Promise<{ created: number; updated: number; errors?: string[] }> => {
+        const response = await api.post('/tags/import', { gateway_id: gatewayId, content, historize });
         return response.data;
     },
 
