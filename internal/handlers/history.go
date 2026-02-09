@@ -194,12 +194,6 @@ func (h *HistoryHandler) buildFluxQuery(tagID int, orgName, dataType string, sta
 
 	// Add aggregation if specified
 	if agg != "" && interval != "" {
-		// Fix for BOOLEAN tags: InfluxDB aggregation functions (mean, sum, etc.) do not work on booleans.
-		// We must convert boolean to float (0.0/1.0) before aggregation.
-		if dataType == "BOOL" {
-			baseQuery += ` |> map(fn: (r) => ({r with _value: if r._value == true then 1.0 else 0.0}))`
-		}
-
 		// Map common aggregation functions to Flux window functions
 		var aggFunc string
 		switch agg {
@@ -225,8 +219,12 @@ func (h *HistoryHandler) buildFluxQuery(tagID int, orgName, dataType string, sta
 			aggFunc = "mean" // Default to mean if unknown
 		}
 
+		// Use createEmpty: true to generate windows even if no data exists
+		// Then use fill(usePrevious: true) to carry forward the last known value
+		// This handles the "deadband suppression" issue where unchanged values aren't stored
 		aggregationQuery := fmt.Sprintf(`
-			|> aggregateWindow(every: %s, fn: %s, createEmpty: false)
+			|> aggregateWindow(every: %s, fn: %s, createEmpty: true)
+			|> fill(usePrevious: true)
 			|> yield(name: "aggregated")
 		`, interval, aggFunc)
 
