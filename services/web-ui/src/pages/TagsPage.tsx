@@ -33,7 +33,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Edit2, Database, RefreshCw, Upload, Download, ArrowUp, ArrowDown, CheckSquare, Square, X } from 'lucide-react';
+import { Plus, Trash2, Edit2, Database, Upload, Download, ArrowUp, ArrowDown, CheckSquare, Square, X } from 'lucide-react';
 import { CreateTagDto } from '@/types';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';

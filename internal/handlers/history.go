@@ -118,7 +118,7 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 	}
 
 	// Validate time range
-	if endTime.Before(startTime) {
+	if !endTime.After(startTime) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "end time must be after start time"})
 		return
 	}

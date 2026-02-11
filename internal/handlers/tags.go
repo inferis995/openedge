@@ -58,7 +58,7 @@ type UpdateTagRequest struct {
 // validateDataType checks if the data_type is valid
 func validateDataType(dataType string) bool {
 	switch dataType {
-	case "INT", "REAL", "BOOL": // INT, DINT are checked by integer parsing
+	case "INT", "REAL", "BOOL", "DINT":
 		return true
 	default:
 		return false
@@ -543,54 +543,6 @@ func (h *TagsHandler) Update(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, tag)
-// ReorderTagsRequest represents the request body for reordering tags
-type ReorderTagsRequest struct {
-	Tags []struct {
-		ID        int     `json:"id" binding:"required"`
-		SortOrder float64 `json:"sort_order" binding:"required"`
-	} `json:"tags" binding:"required"`
-}
-
-// ReorderTags handles PUT /api/tags/reorder
-// @Summary Reorder tags
-// @Description Update the sort order for multiple tags
-// @Tags tags
-// @Accept json
-// @Produce json
-// @Param X-Organization-ID header int true "Organization ID"
-// @Param request body ReorderTagsRequest true "Reorder tags request"
-// @Success 204 "Tags reordered"
-// @Failure 400 {object} map[string]string "Invalid request"
-// @Failure 500 {object} map[string]string "Server error"
-// @Router /api/tags/reorder [put]
-func (h *TagsHandler) ReorderTags(c *gin.Context) {
-	var req ReorderTagsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	tx, err := h.db.Begin()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
-		return
-	}
-	defer tx.Rollback()
-
-	for _, t := range req.Tags {
-		_, err := tx.Exec("UPDATE tags SET sort_order = $1 WHERE id = $2", t.SortOrder, t.ID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update tag order"})
-			return
-		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
-		return
-	}
-
-	c.Status(http.StatusNoContent)
 }
 
 // CurrentValueResponse represents the response for current value endpoint
@@ -666,4 +618,83 @@ func (h *TagsHandler) GetCurrentValue(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// WriteTagRequest represents the request body for writing a tag value
+type WriteTagRequest struct {
+	Value interface{} `json:"value" binding:"required"`
+}
+
+// Write handles POST /api/tags/{id}/write
+// @Summary Write tag value
+// @Description Send a write command to the gateway for the specified tag
+// @Tags tags
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param id path int true "Tag ID"
+// @Param request body WriteTagRequest true "Write request"
+// @Success 200 {object} map[string]string "Write command sent"
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 404 {object} map[string]string "Tag not found"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/tags/{id}/write [post]
+func (h *TagsHandler) Write(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tag ID"})
+		return
+	}
+
+	var req WriteTagRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 1. Get Tag details (specifically gateway_id and code)
+	var tag struct {
+		ID        int
+		GatewayID int
+		Code      string
+		DataType  string
+	}
+	err = h.db.QueryRow("SELECT id, gateway_id, code, data_type FROM tags WHERE id = $1", id).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.DataType)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Tag not found"})
+			return
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch tag details"})
+		return
+	}
+
+	// 2. Publish write command to MQTT
+	if h.mqttClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MQTT client not available"})
+		return
+	}
+
+	cmd := struct {
+		TagID    int         `json:"tag_id"`
+		Code     string      `json:"code"`
+		Value    interface{} `json:"value"`
+		DataType string      `json:"data_type"`
+	}{
+		TagID:    tag.ID,
+		Code:     tag.Code,
+		Value:    req.Value,
+		DataType: tag.DataType,
+	}
+
+	payload, _ := json.Marshal(cmd)
+	topic := fmt.Sprintf("cmd/write/%d", tag.GatewayID)
+
+	if err := h.mqttClient.Publish(topic, string(payload)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to publish write command"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Write command sent"})
 }

@@ -75,10 +75,12 @@ const TrendPage = () => {
                 agg: aggregation,
                 interval: interval,
             };
+            const isRangeValid = startDate < endDate;
             return {
                 queryKey: ['history', params, refreshTrigger],
                 queryFn: () => historyApi.query(params),
-                enabled: shouldQuery && selectedTagIds.includes(tagId),
+                enabled: shouldQuery && selectedTagIds.includes(tagId) && isRangeValid,
+                retry: 1,
             };
         })
     });
@@ -169,6 +171,10 @@ const TrendPage = () => {
             toast.error('Please select at least one tag');
             return;
         }
+        if (startDate >= endDate) {
+            toast.error('Start date must be before end date');
+            return;
+        }
         setShouldQuery(true);
         setRefreshTrigger(prev => prev + 1);
     };
@@ -215,11 +221,12 @@ const TrendPage = () => {
     // Quick date range selectors
     const setQuickRange = (label: string) => {
         const end = new Date();
-        let start = new Date();
+        let start = new Date(Date.now() - 24 * 60 * 60 * 1000); // Default to 24h ago
 
         switch (label) {
             case '1h': start = new Date(Date.now() - 1 * 60 * 60 * 1000); setInterval('1m'); break;
             case '6h': start = new Date(Date.now() - 6 * 60 * 60 * 1000); setInterval('5m'); break;
+            case '12h': start = new Date(Date.now() - 12 * 60 * 60 * 1000); setInterval('10m'); break;
             case '24h': start = new Date(Date.now() - 24 * 60 * 60 * 1000); setInterval('15m'); break;
             case '7d': start = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); setInterval('1h'); break;
             case '30d': start = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); setInterval('1d'); break;
@@ -229,10 +236,28 @@ const TrendPage = () => {
         setEndDate(end);
     };
 
-    // Helper for input value
+    // Helper for input value - converting Date object to local datetime-local string
     const formatInputValue = (date: Date) => {
-        const tzOffset = date.getTimezoneOffset() * 60000;
-        return new Date(date.getTime() - tzOffset).toISOString().slice(0, 16);
+        try {
+            const pad = (n: number) => n.toString().padStart(2, '0');
+            const year = date.getFullYear();
+            const month = pad(date.getMonth() + 1);
+            const day = pad(date.getDate());
+            const hours = pad(date.getHours());
+            const minutes = pad(date.getMinutes());
+            return `${year}-${month}-${day}T${hours}:${minutes}`;
+        } catch (e) {
+            return '';
+        }
+    };
+
+    // Helper to parse input value back to Date object (treated as local time)
+    const handleDateChange = (value: string, setter: (d: Date) => void) => {
+        if (!value) return;
+        const newDate = new Date(value);
+        if (!isNaN(newDate.getTime())) {
+            setter(newDate);
+        }
     };
 
     return (
@@ -335,8 +360,8 @@ const TrendPage = () => {
                                     <input
                                         type="datetime-local"
                                         value={formatInputValue(startDate)}
-                                        onChange={(e) => setStartDate(new Date(e.target.value))}
-                                        className="w-full text-xs px-2 py-1 border rounded"
+                                        onChange={(e) => handleDateChange(e.target.value, setStartDate)}
+                                        className="w-full text-xs px-2 py-1 border rounded bg-background"
                                     />
                                 </div>
                                 <div className="grid gap-1">
@@ -344,8 +369,8 @@ const TrendPage = () => {
                                     <input
                                         type="datetime-local"
                                         value={formatInputValue(endDate)}
-                                        onChange={(e) => setEndDate(new Date(e.target.value))}
-                                        className="w-full text-xs px-2 py-1 border rounded"
+                                        onChange={(e) => handleDateChange(e.target.value, setEndDate)}
+                                        className="w-full text-xs px-2 py-1 border rounded bg-background"
                                     />
                                 </div>
                             </div>

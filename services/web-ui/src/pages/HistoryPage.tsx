@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Download, RefreshCw } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -28,7 +28,7 @@ const HistoryPage = () => {
     const [eventType, setEventType] = useState<string>('all');
 
     // Fetch Events Query
-    const { data: events, isLoading, refetch } = useQuery({
+    const { data: events, isLoading } = useQuery({
         queryKey: ['history', 'events', selectedOrgId, date, eventType],
         queryFn: async () => {
             if (!selectedOrgId || !date) return [];

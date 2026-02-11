@@ -187,7 +187,10 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 	}
 
 	// 1. Parse Address
-	addr, err := modbus.ParseAddress(cmd.Code)
+	d.configMu.RLock()
+	zeroBased := d.config.Gateway.ZeroBased
+	d.configMu.RUnlock()
+	addr, err := modbus.ParseAddress(cmd.Code, zeroBased)
 	if err != nil {
 		log.Printf("[DRIVER] Invalid address code '%s': %v", cmd.Code, err)
 		return
@@ -372,7 +375,7 @@ func (d *Driver) createBlocks(tags []models.Tag, zeroBased bool) []Block {
 	}
 	var parsed []TagWithAddr
 	for _, t := range tags {
-		addr, err := modbus.ParseAddress(t.Code)
+		addr, err := modbus.ParseAddress(t.Code, zeroBased)
 		if err == nil {
 			parsed = append(parsed, TagWithAddr{t, addr})
 		}

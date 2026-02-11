@@ -32,7 +32,7 @@ func TestParseAddress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			addr, err := ParseAddress(tt.input)
+			addr, err := ParseAddress(tt.input, false)
 
 			if tt.expectError {
 				if err == nil {
