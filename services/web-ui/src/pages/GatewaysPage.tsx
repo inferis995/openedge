@@ -318,6 +318,14 @@ const GatewaysPage = () => {
                                                 />
                                             </div>
                                         </div>
+                                        <div className="mt-4 p-3 bg-blue-50 text-blue-800 text-xs rounded-md border border-blue-100">
+                                            <p className="font-semibold mb-1">Modbus Addressing Note:</p>
+                                            <p>Addresses use standard +1 offset.</p>
+                                            <ul className="list-disc list-inside mt-1 space-y-0.5 opacity-90">
+                                                <li>Address <strong>0</strong> maps to <strong>1</strong></li>
+                                                <li>Address <strong>40000</strong> maps to <strong>40001</strong></li>
+                                            </ul>
+                                        </div>
                                     </div>
                                 )}
 
