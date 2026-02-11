@@ -63,7 +63,7 @@ const GatewaysPage = () => {
         slave_id: 1,
         scan_rate_ms: 1000,
         enabled: true,
-        zero_based: true, // Added zero_based
+        zero_based: false, // Default to false (Standard Modbus)
     });
     const [selectedAreaForCreate, setSelectedAreaForCreate] = useState<string>(
         selectedAreaId ? selectedAreaId.toString() : ''
@@ -107,7 +107,7 @@ const GatewaysPage = () => {
             slave_id: 1,
             scan_rate_ms: 1000,
             enabled: true,
-            zero_based: true, // Added zero_based
+            zero_based: false, // Default to false (Standard Modbus)
         });
     };
 
@@ -140,7 +140,7 @@ const GatewaysPage = () => {
             slave_id,
             scan_rate_ms: gateway.scan_rate_ms,
             enabled: gateway.enabled,
-            zero_based: gateway.zero_based !== undefined ? gateway.zero_based : true, // Added zero_based
+            zero_based: gateway.zero_based !== undefined ? gateway.zero_based : false, // Default to false (Standard Modbus)
         });
         setIsOpen(true);
     };
@@ -298,7 +298,6 @@ const GatewaysPage = () => {
                                 )}
 
                                 {formData.driver_type === 'MODBUS_TCP' && (
-                                    <div className="grid gap-4 p-4 bg-slate-50 rounded-md border">
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="grid gap-2">
                                                 <Label htmlFor="port">Port</Label>
@@ -317,30 +316,6 @@ const GatewaysPage = () => {
                                                     value={formData.slave_id}
                                                     onChange={(e) => handleInputChange('slave_id', parseInt(e.target.value))}
                                                 />
-                                            </div>
-                                        </div>
-                                        <div className="col-span-2 p-4 bg-blue-50 border border-blue-100 rounded-md">
-                                            <div className="flex items-start space-x-3">
-                                                <Switch
-                                                    id="zero-based"
-                                                    checked={formData.zero_based}
-                                                    onCheckedChange={(checked) => handleInputChange('zero_based', checked)}
-                                                    className="mt-1"
-                                                />
-                                                <div className="flex flex-col space-y-1">
-                                                    <Label htmlFor="zero-based" className="font-medium text-blue-900 cursor-pointer">
-                                                        Zero-Based Addressing
-                                                    </Label>
-                                                    <p className="text-xs text-blue-700 leading-relaxed">
-                                                        Toggle this based on your device documentation.
-                                                        <br />
-                                                        <strong>Enabled (Default):</strong> Address 40001 refers to index 0.
-                                                        <br />
-                                                        <strong>Disabled:</strong> Address 40001 refers to index 1 (Standard Modbus +1 offset).
-                                                        <br />
-                                                        <em>If tags are overlapping or reading the wrong value, try toggling this.</em>
-                                                    </p>
-                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -473,7 +448,7 @@ const GatewaysPage = () => {
                     </TableBody>
                 </Table>
             </div>
-        </div>
+        </div >
     );
 };
 
