@@ -183,6 +183,7 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 	var cmd WriteCommand
 	if err := json.Unmarshal(payload, &cmd); err != nil {
 		log.Printf("[DRIVER] Failed to unmarshal write command: %v", err)
+		d.publishWriteResult(cmd.TagID, false, "invalid command payload", nil)
 		return
 	}
 
@@ -193,115 +194,314 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 	addr, err := modbus.ParseAddress(cmd.Code, zeroBased)
 	if err != nil {
 		log.Printf("[DRIVER] Invalid address code '%s': %v", cmd.Code, err)
+		d.publishWriteResult(cmd.TagID, false, fmt.Sprintf("invalid address: %s", cmd.Code), nil)
 		return
 	}
 
-	// 2. Convert Value based on DataType
-	var val uint16
-	var val32 uint32
-	var is32Bit bool
+	// 2. Check connection
+	if d.modbusClient == nil || !d.modbusClient.IsConnected() {
+		log.Printf("[DRIVER] Cannot write: Modbus client not connected")
+		d.publishWriteResult(cmd.TagID, false, "Modbus not connected", nil)
+		return
+	}
+
+	// 3. Convert value and execute write based on DataType
+	var writeErr error
 
 	switch cmd.DataType {
 	case "BOOL":
-		// For BOOL, we need to read the register first if it's packed in a register (Holding/Input)
-		// But if it's Coil, we can write directly.
-		if addr.Type == "coil" {
-			boolVal := false
-			if v, ok := cmd.Value.(bool); ok {
-				boolVal = v
-			} else if v, ok := cmd.Value.(float64); ok { // JSON numbers are float64
-				boolVal = v != 0
-			}
-			if boolVal {
-				val = 0xFF00
-			} else {
-				val = 0x0000
-			}
-		} else {
-			// Masking write for BOOL in Register not supported yet in simple implementation
-			log.Printf("[DRIVER] Write to BOOL in Register not supported yet")
-			return
-		}
+		writeErr = d.writeBool(addr, cmd.Value)
 	case "INT":
 		if v, ok := cmd.Value.(float64); ok {
-			val = uint16(int16(v))
+			val := uint16(int16(v))
+			if addr.Type == "holding" {
+				writeErr = d.modbusClient.WriteSingleRegister(addr.Offset, val)
+			} else {
+				writeErr = fmt.Errorf("cannot write INT to %s (read-only)", addr.Type)
+			}
+		} else {
+			writeErr = fmt.Errorf("invalid value for INT: %v", cmd.Value)
 		}
 	case "UINT":
 		if v, ok := cmd.Value.(float64); ok {
-			val = uint16(v)
-		}
-	case "DINT", "REAL":
-		is32Bit = true
-		if cmd.DataType == "REAL" {
-			if v, ok := cmd.Value.(float64); ok {
-				val32 = math.Float32bits(float32(v))
+			val := uint16(v)
+			if addr.Type == "holding" {
+				writeErr = d.modbusClient.WriteSingleRegister(addr.Offset, val)
+			} else {
+				writeErr = fmt.Errorf("cannot write UINT to %s (read-only)", addr.Type)
 			}
 		} else {
-			if v, ok := cmd.Value.(float64); ok {
-				val32 = uint32(int32(v))
+			writeErr = fmt.Errorf("invalid value for UINT: %v", cmd.Value)
+		}
+	case "DINT":
+		if v, ok := cmd.Value.(float64); ok {
+			val32 := uint32(int32(v))
+			if addr.Type == "holding" {
+				b := make([]byte, 4)
+				binary.BigEndian.PutUint32(b, val32)
+				writeErr = d.modbusClient.WriteMultipleRegisters(addr.Offset, 2, b)
+			} else {
+				writeErr = fmt.Errorf("cannot write DINT to %s (read-only)", addr.Type)
 			}
+		} else {
+			writeErr = fmt.Errorf("invalid value for DINT: %v", cmd.Value)
+		}
+	case "REAL":
+		if v, ok := cmd.Value.(float64); ok {
+			val32 := math.Float32bits(float32(v))
+			if addr.Type == "holding" {
+				b := make([]byte, 4)
+				binary.BigEndian.PutUint32(b, val32)
+				writeErr = d.modbusClient.WriteMultipleRegisters(addr.Offset, 2, b)
+			} else {
+				writeErr = fmt.Errorf("cannot write REAL to %s (read-only)", addr.Type)
+			}
+		} else {
+			writeErr = fmt.Errorf("invalid value for REAL: %v", cmd.Value)
 		}
 	default:
 		log.Printf("[DRIVER] Unsupported write data type: %s", cmd.DataType)
-		return
-	}
-
-	// 3. Execute Write
-	if d.modbusClient == nil || !d.modbusClient.IsConnected() {
-		log.Printf("[DRIVER] Cannot write: Modbus client not connected")
-		return
-	}
-
-	var writeErr error
-	if addr.Type == "coil" {
-		writeErr = d.modbusClient.WriteSingleCoil(addr.Offset, val)
-	} else if addr.Type == "holding" {
-		if is32Bit {
-			// Write 2 registers
-			b := make([]byte, 4)
-			binary.BigEndian.PutUint32(b, val32)
-			writeErr = d.modbusClient.WriteMultipleRegisters(addr.Offset, 2, b)
-		} else {
-			writeErr = d.modbusClient.WriteSingleRegister(addr.Offset, val)
-		}
-	} else {
-		log.Printf("[DRIVER] Cannot write to %s (Read-only)", addr.Type)
+		d.publishWriteResult(cmd.TagID, false, fmt.Sprintf("unsupported data type: %s", cmd.DataType), nil)
 		return
 	}
 
 	if writeErr != nil {
-		log.Printf("[DRIVER] Write failed: %v", writeErr)
+		log.Printf("[DRIVER] Write failed for tag %d: %v", cmd.TagID, writeErr)
+		d.publishWriteResult(cmd.TagID, false, writeErr.Error(), nil)
+		return
+	}
+
+	log.Printf("[DRIVER] Write successful to %s (Value: %v), performing read-back verification...", cmd.Code, cmd.Value)
+
+	// 4. Read-back verification: read the value back from PLC and compare
+	readBackValue, readBackErr := d.readBackValue(addr, cmd.DataType)
+	if readBackErr != nil {
+		log.Printf("[DRIVER] Read-back failed for tag %d: %v (write was successful)", cmd.TagID, readBackErr)
+		// Write succeeded but read-back failed — still consider it a success with warning
+		d.publishWriteResult(cmd.TagID, true, "write OK, read-back failed: "+readBackErr.Error(), cmd.Value)
 	} else {
-		log.Printf("[DRIVER] Write successful to %s (Value: %v)", cmd.Code, cmd.Value)
-		// Optimistic update of local state
-		d.updateState(cmd.TagID, cmd.Value, 0)
+		verified := d.verifyReadBack(cmd.Value, readBackValue, cmd.DataType)
+		if verified {
+			log.Printf("[DRIVER] Read-back verified for tag %d: written=%v, read=%v ✓", cmd.TagID, cmd.Value, readBackValue)
+			d.publishWriteResult(cmd.TagID, true, "verified", readBackValue)
+		} else {
+			log.Printf("[DRIVER] Read-back MISMATCH for tag %d: written=%v, read=%v ✗", cmd.TagID, cmd.Value, readBackValue)
+			d.publishWriteResult(cmd.TagID, false, fmt.Sprintf("read-back mismatch: sent=%v, got=%v", cmd.Value, readBackValue), readBackValue)
+		}
+	}
 
-		// Set Cooldown
-		d.cooldownMu.Lock()
-		d.writeCooldowns[cmd.TagID] = time.Now().Add(2 * time.Second)
-		d.cooldownMu.Unlock()
+	// 5. Update local state and publish feedback
+	d.updateState(cmd.TagID, cmd.Value, 0)
 
-		// Force publish feedback immediately
-		// We need to find the alias for the tag to build the topic
-		d.configMu.RLock()
-		cfg := d.config
-		d.configMu.RUnlock()
+	// Set Cooldown to prevent cyclic read from overwriting immediately
+	d.cooldownMu.Lock()
+	d.writeCooldowns[cmd.TagID] = time.Now().Add(2 * time.Second)
+	d.cooldownMu.Unlock()
 
-		if cfg != nil {
-			var alias string
-			for _, t := range cfg.Tags {
-				if t.ID == cmd.TagID {
-					alias = t.Alias
-					break
-				}
-			}
+	// Force publish feedback immediately
+	d.configMu.RLock()
+	cfg := d.config
+	d.configMu.RUnlock()
 
-			if alias != "" {
-				topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name), slugify(alias))
-				payload, _ := json.Marshal(TagPayload{cmd.TagID, cfg.OrgID, cmd.Value, time.Now().UnixMilli(), 0})
-				d.mqttClient.PublishWithQoS(topic, string(payload), 1, false)
+	if cfg != nil {
+		var alias string
+		for _, t := range cfg.Tags {
+			if t.ID == cmd.TagID {
+				alias = t.Alias
+				break
 			}
 		}
+
+		if alias != "" {
+			topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name), slugify(alias))
+			payload, _ := json.Marshal(TagPayload{cmd.TagID, cfg.OrgID, cmd.Value, time.Now().UnixMilli(), 0})
+			d.mqttClient.PublishWithQoS(topic, string(payload), 1, false)
+		}
+	}
+}
+
+// writeBool handles writing BOOL values to both Coils and Holding Registers (bit masking)
+func (d *Driver) writeBool(addr modbus.Address, value interface{}) error {
+	boolVal := false
+	if v, ok := value.(bool); ok {
+		boolVal = v
+	} else if v, ok := value.(float64); ok {
+		boolVal = v != 0
+	}
+
+	if addr.Type == "coil" {
+		// Direct coil write
+		var coilVal uint16
+		if boolVal {
+			coilVal = 0xFF00
+		}
+		return d.modbusClient.WriteSingleCoil(addr.Offset, coilVal)
+	}
+
+	if addr.Type == "holding" {
+		if addr.BitOffset == nil {
+			return fmt.Errorf("BOOL write to holding register requires bit offset (e.g., 40001.0)")
+		}
+		// Read-Modify-Write: read current register, modify the specific bit, write back
+		currentVal, err := d.modbusClient.ReadHoldingRegister(addr.Offset)
+		if err != nil {
+			return fmt.Errorf("read-modify-write: failed to read register %d: %w", addr.Offset, err)
+		}
+
+		bitMask := uint16(1 << uint(*addr.BitOffset))
+		var newVal uint16
+		if boolVal {
+			newVal = currentVal | bitMask // Set bit
+		} else {
+			newVal = currentVal & ^bitMask // Clear bit
+		}
+
+		log.Printf("[DRIVER] BOOL write to HR%d.%d: register %d -> %d (bit %d = %v)",
+			addr.Offset, *addr.BitOffset, currentVal, newVal, *addr.BitOffset, boolVal)
+
+		return d.modbusClient.WriteSingleRegister(addr.Offset, newVal)
+	}
+
+	return fmt.Errorf("cannot write BOOL to %s (read-only)", addr.Type)
+}
+
+// readBackValue reads a value back from the PLC after a write for verification
+func (d *Driver) readBackValue(addr modbus.Address, dataType string) (interface{}, error) {
+	// Small delay to allow PLC to process the write
+	time.Sleep(50 * time.Millisecond)
+
+	switch dataType {
+	case "BOOL":
+		if addr.Type == "coil" {
+			data, err := d.modbusClient.ReadCoils(addr.Offset, 1)
+			if err != nil {
+				return nil, err
+			}
+			if len(data) == 0 {
+				return nil, fmt.Errorf("empty coil response")
+			}
+			return (data[0] & 0x01) == 1, nil
+		}
+		if addr.Type == "holding" && addr.BitOffset != nil {
+			val, err := d.modbusClient.ReadHoldingRegister(addr.Offset)
+			if err != nil {
+				return nil, err
+			}
+			return (val>>uint(*addr.BitOffset))&1 == 1, nil
+		}
+		return nil, fmt.Errorf("unsupported BOOL address type for read-back")
+
+	case "INT":
+		val, err := d.modbusClient.ReadHoldingRegister(addr.Offset)
+		if err != nil {
+			return nil, err
+		}
+		return float64(int16(val)), nil
+
+	case "UINT":
+		val, err := d.modbusClient.ReadHoldingRegister(addr.Offset)
+		if err != nil {
+			return nil, err
+		}
+		return float64(val), nil
+
+	case "DINT":
+		data, err := d.modbusClient.ReadHoldingRegisters(addr.Offset, 2)
+		if err != nil {
+			return nil, err
+		}
+		if len(data) < 4 {
+			return nil, fmt.Errorf("insufficient data for DINT read-back")
+		}
+		val := int32(binary.BigEndian.Uint32(data))
+		return float64(val), nil
+
+	case "REAL":
+		data, err := d.modbusClient.ReadHoldingRegisters(addr.Offset, 2)
+		if err != nil {
+			return nil, err
+		}
+		if len(data) < 4 {
+			return nil, fmt.Errorf("insufficient data for REAL read-back")
+		}
+		bits := binary.BigEndian.Uint32(data)
+		val := math.Float32frombits(bits)
+		return float64(val), nil
+
+	default:
+		return nil, fmt.Errorf("unsupported data type for read-back: %s", dataType)
+	}
+}
+
+// verifyReadBack compares the written value with the read-back value
+func (d *Driver) verifyReadBack(written, readBack interface{}, dataType string) bool {
+	switch dataType {
+	case "BOOL":
+		// Compare booleans
+		wBool := false
+		if v, ok := written.(bool); ok {
+			wBool = v
+		} else if v, ok := written.(float64); ok {
+			wBool = v != 0
+		}
+		rBool, ok := readBack.(bool)
+		if !ok {
+			return false
+		}
+		return wBool == rBool
+
+	case "INT", "UINT", "DINT":
+		// Compare as integers (within tolerance of 0)
+		wFloat, ok1 := written.(float64)
+		rFloat, ok2 := readBack.(float64)
+		if !ok1 || !ok2 {
+			return false
+		}
+		return int64(wFloat) == int64(rFloat)
+
+	case "REAL":
+		// Compare as float32 (with small epsilon for floating point precision)
+		wFloat, ok1 := written.(float64)
+		rFloat, ok2 := readBack.(float64)
+		if !ok1 || !ok2 {
+			return false
+		}
+		// Compare at float32 precision
+		diff := math.Abs(wFloat - rFloat)
+		return diff < 0.01 || (wFloat != 0 && diff/math.Abs(wFloat) < 0.001)
+
+	default:
+		return false
+	}
+}
+
+// WriteResult is published to MQTT to confirm write success/failure
+type WriteResult struct {
+	TagID     int         `json:"tag_id"`
+	Success   bool        `json:"success"`
+	Message   string      `json:"message"`
+	ReadBack  interface{} `json:"read_back,omitempty"`
+	Timestamp int64       `json:"ts"`
+}
+
+// publishWriteResult publishes the write result to MQTT for feedback
+func (d *Driver) publishWriteResult(tagID int, success bool, message string, readBack interface{}) {
+	result := WriteResult{
+		TagID:     tagID,
+		Success:   success,
+		Message:   message,
+		ReadBack:  readBack,
+		Timestamp: time.Now().UnixMilli(),
+	}
+
+	payload, _ := json.Marshal(result)
+	resultTopic := fmt.Sprintf("cmd/write/result/%d", d.gatewayID)
+	d.mqttClient.PublishWithQoS(resultTopic, string(payload), 1, false)
+
+	if success {
+		log.Printf("[DRIVER] Write result: tag=%d ✓ %s", tagID, message)
+	} else {
+		log.Printf("[DRIVER] Write result: tag=%d ✗ %s", tagID, message)
 	}
 }
 
