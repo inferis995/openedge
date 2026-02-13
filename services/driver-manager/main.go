@@ -279,19 +279,30 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 	containerName := fmt.Sprintf("%s-%d", containerNamePrefix, gateway.ID)
 
 	// Resolve DB_HOST to IP to avoid DNS issues in child containers
+	// (hostname resolution inside child containers seems flaky, resolving to 127.0.0.1 in some cases)
 	dbHost := getEnv("DB_HOST", "postgres")
-	if ips, err := net.LookupHost(dbHost); err == nil && len(ips) > 0 {
-		log.Printf("Resolved DB_HOST %s to IP %s", dbHost, ips[0])
-		dbHost = ips[0]
+	if ips, err := net.LookupHost(dbHost); err == nil {
+		for _, ip := range ips {
+			if ip != "127.0.0.1" && ip != "::1" {
+				log.Printf("Resolved DB_HOST %s to IP %s", dbHost, ip)
+				dbHost = ip
+				break
+			}
+		}
 	} else {
 		log.Printf("Warning: Failed to resolve DB_HOST %s: %v", dbHost, err)
 	}
 
 	// Resolve MQTT_HOST to IP
 	mqttHost := getEnv("MQTT_HOST", "mosquitto")
-	if ips, err := net.LookupHost(mqttHost); err == nil && len(ips) > 0 {
-		log.Printf("Resolved MQTT_HOST %s to IP %s", mqttHost, ips[0])
-		mqttHost = ips[0]
+	if ips, err := net.LookupHost(mqttHost); err == nil {
+		for _, ip := range ips {
+			if ip != "127.0.0.1" && ip != "::1" {
+				log.Printf("Resolved MQTT_HOST %s to IP %s", mqttHost, ip)
+				mqttHost = ip
+				break
+			}
+		}
 	} else {
 		log.Printf("Warning: Failed to resolve MQTT_HOST %s: %v", mqttHost, err)
 	}

@@ -377,6 +377,26 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	log.Printf("[HISTORIAN] Storing data point for tag %d: value=%v, ts=%d",
 		tagInfo.ID, mqttPayload.V, mqttPayload.Ts)
 
+	// Convert value to float64 to avoid InfluxDB field type conflicts
+	var floatValue float64
+	switch v := mqttPayload.V.(type) {
+	case bool:
+		if v {
+			floatValue = 1.0
+		} else {
+			floatValue = 0.0
+		}
+	case float64:
+		floatValue = v
+	case int:
+		floatValue = float64(v)
+	default:
+		// Attempt numeric conversion for other types
+		if val, err := strconv.ParseFloat(fmt.Sprintf("%v", v), 64); err == nil {
+			floatValue = val
+		}
+	}
+
 	// Create data point
 	dp := &DataPoint{
 		Measurement: "tag_data",
@@ -389,7 +409,7 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 			"alias":        alias,
 		},
 		Fields: map[string]interface{}{
-			"value":   mqttPayload.V,
+			"value":   floatValue,
 			"quality": mqttPayload.Q,
 		},
 		Timestamp: mqttPayload.Ts,
@@ -537,9 +557,9 @@ func (s *HistorianService) getTagInfo(org, site, area, gateway, alias string) (*
 	log.Printf("[HISTORIAN] Found tag: ID=%d, historize=%v, deadband=%.2f",
 		tagInfo.ID, tagInfo.Historize, tagInfo.HistorizeDeadband)
 
-	// Cache in Redis for 1 hour (3600 seconds)
+	// Cache in Redis for 1 minute (60 seconds)
 	tagInfoJSON, _ := json.Marshal(tagInfo)
-	s.redisClient.Set(cacheKey, string(tagInfoJSON), 3600)
+	s.redisClient.Set(cacheKey, string(tagInfoJSON), 60*time.Second)
 
 	return &tagInfo, nil
 }
@@ -579,40 +599,16 @@ func (s *HistorianService) getGatewayInfo(gatewayID int) (*GatewayInfo, error) {
 
 	// Cache
 	gwInfoJSON, _ := json.Marshal(gwInfo)
-	s.redisClient.Set(cacheKey, string(gwInfoJSON), 3600)
+	s.redisClient.Set(cacheKey, string(gwInfoJSON), 60*time.Second)
 
 	return &gwInfo, nil
 }
 
 // shouldStoreValue checks if the value should be stored based on deadband filtering
 func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface{}, newQuality int) bool {
-	// If deadband is 0 or negative, always store (no filtering)
-	if tagInfo.HistorizeDeadband <= 0 {
-		return true
-	}
-
-	// Get previous value from Redis
-	prevValueKey := fmt.Sprintf("prev_value:%d", tagInfo.ID)
-	cached, err := s.redisClient.Get(prevValueKey)
-	if err != nil || cached == "" {
-		// No previous value, always store first value
-		return true
-	}
-
-	// Parse previous value
-	var prevValue PreviousValue
-	if err := json.Unmarshal([]byte(cached), &prevValue); err != nil {
-		// Failed to parse, store the value
-		return true
-	}
-
-	// CHECK QUALITY CHANGE: If quality changed, ALWAYS store, regardless of value deadband
-	if prevValue.Quality != newQuality {
-		return true
-	}
-
-	// Compare values based on type
-	return s.exceedsDeadband(prevValue.Value, newValue, tagInfo.HistorizeDeadband)
+	// USER REQUEST: Live trend for all tags moment by moment.
+	// Disable deadband filtering globally to store EVERY data point received.
+	return true
 }
 
 // exceedsDeadband checks if the new value exceeds the deadband from the previous value

@@ -182,15 +182,15 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 
 // buildFluxQuery constructs a Flux query for InfluxDB
 func (h *HistoryHandler) buildFluxQuery(tagID int, orgName, dataType string, start, end time.Time, agg, interval string) string {
-	// Base query to fetch data for the tag with organization filter
+	// Base query: tag_id is unique, ownership already verified in getTagDetails()
+	// No need for organization filter in Flux (it causes slow full-scans)
 	baseQuery := fmt.Sprintf(`
 		from(bucket: "%s")
 			|> range(start: %s, stop: %s)
 			|> filter(fn: (r) => r._measurement == "tag_data")
 			|> filter(fn: (r) => r.tag_id == "%d")
-			|> filter(fn: (r) => r.organization =~ /(?i)^%s$/)
 			|> filter(fn: (r) => r._field == "value")
-	`, h.influxBucket, start.Format(time.RFC3339), end.Format(time.RFC3339), tagID, orgName)
+	`, h.influxBucket, start.Format(time.RFC3339), end.Format(time.RFC3339), tagID)
 
 	// Add aggregation if specified
 	if agg != "" && interval != "" {
@@ -330,14 +330,12 @@ func (h *HistoryHandler) QueryEvents(c *gin.Context) {
 	}
 
 	// Build Flux query for events
-	// Filter by measurement "system_events" and organization tag
 	query := fmt.Sprintf(`
 		from(bucket: "%s")
 			|> range(start: %s, stop: %s)
 			|> filter(fn: (r) => r._measurement == "system_events")
-			|> filter(fn: (r) => r.organization =~ /(?i)^%s$/)
 			|> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
-	`, h.influxBucket, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339), orgName)
+	`, h.influxBucket, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 
 	log.Printf("[HISTORY] Querying events for org=%q, start=%s, end=%s", orgName, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 

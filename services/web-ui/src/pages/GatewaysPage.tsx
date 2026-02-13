@@ -298,6 +298,7 @@ const GatewaysPage = () => {
                                 )}
 
                                 {formData.driver_type === 'MODBUS_TCP' && (
+                                    <>
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="grid gap-2">
                                                 <Label htmlFor="port">Port</Label>
@@ -326,7 +327,7 @@ const GatewaysPage = () => {
                                                 <li>Address <strong>40000</strong> maps to <strong>40001</strong></li>
                                             </ul>
                                         </div>
-                                    </div>
+                                    </>
                                 )}
 
                                 <div className="flex items-center space-x-2">
