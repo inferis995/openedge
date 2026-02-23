@@ -168,6 +168,15 @@ services:
     networks:
       - industrial-network
 
+  driver-mqtt:
+    build:
+      context: .
+      dockerfile: services/driver-mqtt/Dockerfile
+    image: industrial-driver-mqtt:latest
+    profiles: [ "drivers" ] # Don't start automatically
+    networks:
+      - industrial-network
+
   driver-manager:
     build:
       context: .

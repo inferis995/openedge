@@ -74,7 +74,10 @@ const GatewaysPage = () => {
     };
 
     const handleCreate = async () => {
-        if (!formData.name || !selectedAreaForCreate || !formData.ip_address) return;
+        if (!formData.name || !selectedAreaForCreate) return;
+        // IP is required for S7 and MODBUS_TCP, not for MQTT
+        if (formData.driver_type !== 'MQTT' && !formData.ip_address) return;
+
         try {
             const payload: ExtendedCreateGatewayDto = {
                 ...formData,
@@ -238,6 +241,7 @@ const GatewaysPage = () => {
                                             <SelectContent>
                                                 <SelectItem value="S7">Siemens S7</SelectItem>
                                                 <SelectItem value="MODBUS_TCP">Modbus TCP</SelectItem>
+                                                <SelectItem value="MQTT">MQTT Native</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -253,26 +257,28 @@ const GatewaysPage = () => {
                                     />
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="ip">IP Address</Label>
-                                        <Input
-                                            id="ip"
-                                            value={formData.ip_address}
-                                            onChange={(e) => handleInputChange('ip_address', e.target.value)}
-                                            placeholder="192.168.1.10"
-                                        />
+                                {formData.driver_type !== 'MQTT' && (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="ip">IP Address</Label>
+                                            <Input
+                                                id="ip"
+                                                value={formData.ip_address}
+                                                onChange={(e) => handleInputChange('ip_address', e.target.value)}
+                                                placeholder="192.168.1.10"
+                                            />
+                                        </div>
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="scan">Scan Rate (ms)</Label>
+                                            <Input
+                                                id="scan"
+                                                type="number"
+                                                value={formData.scan_rate_ms}
+                                                onChange={(e) => handleInputChange('scan_rate_ms', parseInt(e.target.value))}
+                                            />
+                                        </div>
                                     </div>
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="scan">Scan Rate (ms)</Label>
-                                        <Input
-                                            id="scan"
-                                            type="number"
-                                            value={formData.scan_rate_ms}
-                                            onChange={(e) => handleInputChange('scan_rate_ms', parseInt(e.target.value))}
-                                        />
-                                    </div>
-                                </div>
+                                )}
 
                                 {formData.driver_type === 'S7' && (
                                     <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-md border">
@@ -319,15 +325,60 @@ const GatewaysPage = () => {
                                                 />
                                             </div>
                                         </div>
-                                        <div className="mt-4 p-3 bg-blue-50 text-blue-800 text-xs rounded-md border border-blue-100">
-                                            <p className="font-semibold mb-1">Modbus Addressing Note:</p>
-                                            <p>Addresses use standard +1 offset.</p>
-                                            <ul className="list-disc list-inside mt-1 space-y-0.5 opacity-90">
-                                                <li>Address <strong>0</strong> maps to <strong>1</strong></li>
-                                                <li>Address <strong>40000</strong> maps to <strong>40001</strong></li>
-                                            </ul>
+
+                                        {/* Zero-Based Addressing Toggle */}
+                                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-md border">
+                                            <div>
+                                                <Label htmlFor="zero_based" className="text-sm font-semibold">Zero-Based Addressing</Label>
+                                                <p className="text-xs text-muted-foreground mt-0.5">
+                                                    Enable if your PLC documentation starts addresses from 0
+                                                </p>
+                                            </div>
+                                            <Switch
+                                                id="zero_based"
+                                                checked={formData.zero_based}
+                                                onCheckedChange={(checked) => handleInputChange('zero_based', checked)}
+                                            />
+                                        </div>
+
+                                        {/* Dynamic Addressing Note */}
+                                        <div className={`p-3 text-xs rounded-md border ${formData.zero_based ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-blue-50 text-blue-800 border-blue-100'}`}>
+                                            <p className="font-semibold mb-1">Modbus Addressing:</p>
+                                            {formData.zero_based ? (
+                                                <>
+                                                    <p>Addresses map <strong>directly</strong> to PLC registers (no offset).</p>
+                                                    <ul className="list-disc list-inside mt-1 space-y-0.5 opacity-90">
+                                                        <li>Address <strong>40000</strong> → Register <strong>0</strong> (Holding)</li>
+                                                        <li>Address <strong>40001</strong> → Register <strong>1</strong> (Holding)</li>
+                                                        <li>Address <strong>30000</strong> → Register <strong>0</strong> (Input)</li>
+                                                    </ul>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <p>Addresses use standard Modbus convention (1-based).</p>
+                                                    <ul className="list-disc list-inside mt-1 space-y-0.5 opacity-90">
+                                                        <li>Address <strong>40001</strong> → Register <strong>0</strong> (Holding)</li>
+                                                        <li>Address <strong>40002</strong> → Register <strong>1</strong> (Holding)</li>
+                                                        <li>Address <strong>30001</strong> → Register <strong>0</strong> (Input)</li>
+                                                    </ul>
+                                                </>
+                                            )}
                                         </div>
                                     </>
+                                )}
+
+                                {formData.driver_type === 'MQTT' && (
+                                    <div className="p-4 bg-emerald-50 rounded-md border border-emerald-200">
+                                        <p className="font-semibold text-emerald-800 mb-2">MQTT Native Driver</p>
+                                        <p className="text-sm text-emerald-700 mb-2">
+                                            The PLC publishes data directly to this system's MQTT broker.
+                                        </p>
+                                        <ul className="list-disc list-inside text-xs text-emerald-600 space-y-1">
+                                            <li>No IP address needed — the PLC connects to your broker</li>
+                                            <li>Tag <strong>Code</strong> = the PLC's MQTT topic (e.g. <code>wago/sensori/T1</code>)</li>
+                                            <li>Data is automatically bridged to the system format</li>
+                                        </ul>
+                                    </div>
                                 )}
 
                                 <div className="flex items-center space-x-2">
@@ -387,10 +438,12 @@ const GatewaysPage = () => {
                                     <TableCell className="text-xs text-muted-foreground">
                                         {gw.driver_type === 'S7'
                                             ? `Rack: ${gw.connection_config?.rack || 0}, Slot: ${gw.connection_config?.slot || 0}`
-                                            : `Port: ${gw.connection_config?.port || 502}, ID: ${gw.connection_config?.slave_id || 1}`
+                                            : gw.driver_type === 'MQTT'
+                                                ? 'PLC → Broker (event-driven)'
+                                                : `Port: ${gw.connection_config?.port || 502}, ID: ${gw.connection_config?.slave_id || 1}`
                                         }
                                         <br />
-                                        Scan: {gw.scan_rate_ms}ms
+                                        {gw.driver_type !== 'MQTT' && <>Scan: {gw.scan_rate_ms}ms</>}
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">

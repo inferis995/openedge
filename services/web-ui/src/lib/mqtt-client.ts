@@ -13,12 +13,8 @@ class MQTTClientService {
     connect(): Promise<void> {
         return new Promise((resolve, reject) => {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const env = (import.meta as any).env;
-            const host = env.VITE_MQTT_HOST || window.location.hostname;
-            const port = env.VITE_MQTT_PORT || 9001;
-            const path = env.VITE_MQTT_PATH || '/mqtt';
-
-            const wsUrl = `${protocol}//${host}:${port}${path}`;
+            // Connect through Nginx proxy (same host/port as the web UI)
+            const wsUrl = `${protocol}//${window.location.host}/mqtt`;
 
             console.log('Connecting to MQTT broker:', wsUrl.replace(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/, 'xxx.xxx.xxx.xxx'));
 

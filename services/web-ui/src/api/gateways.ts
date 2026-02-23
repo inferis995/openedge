@@ -20,20 +20,25 @@ export const gatewaysApi = {
         } : undefined;
 
         // Transform flat DTO to nested backend structure
-        const payload = {
+        const payload: any = {
             area_id: data.area_id,
             name: data.name,
             driver_type: data.driver_type,
             scan_rate_ms: data.scan_rate_ms,
             enabled: data.enabled,
-            connection_config: {
+        };
+
+        if (data.driver_type === 'MQTT') {
+            payload.connection_config = {};
+        } else {
+            payload.connection_config = {
                 ip_address: data.ip_address,
                 port: data.port,
                 rack: data.rack,
                 slot: data.slot,
                 slave_id: data.slave_id,
-            }
-        };
+            };
+        }
 
         const response = await api.post('/gateways', payload, config);
         return response.data;

@@ -244,6 +244,11 @@ func main() {
 		system.Use(middleware.RequireAuth)
 		{
 			system.POST("/reload", middleware.RequireRole(models.RoleAdmin), systemHandler.Reload)
+
+			// Backup & Restore
+			backupHandler := handlers.NewBackupHandler(database, influxURL, influxToken, influxOrg)
+			system.GET("/backup", middleware.RequireRole(models.RoleAdmin), backupHandler.ExportBackup)
+			system.POST("/restore", middleware.RequireRole(models.RoleAdmin), backupHandler.ImportRestore)
 		}
 
 		config := api.Group("/config")

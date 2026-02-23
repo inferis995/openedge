@@ -17,12 +17,14 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/s7"
+	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 )
 
 // GatewayConfig holds the loaded gateway configuration
 type GatewayConfig struct {
 	Gateway models.Gateway
 	Tags    []models.Tag
+	OrgID   int
 	OrgName string
 	Site    string
 	Area    string
@@ -30,6 +32,8 @@ type GatewayConfig struct {
 
 // TagPayload represents the MQTT message payload for tag values
 type TagPayload struct {
+	TagID     int         `json:"tag_id"`
+	OrgID     int         `json:"org_id"`
 	Value     interface{} `json:"v"`
 	Timestamp int64       `json:"ts"`
 	Quality   int         `json:"q"`
@@ -52,6 +56,11 @@ type Driver struct {
 	// Write Cooldown: prevent read-after-write flickering
 	writeCooldowns map[int]time.Time
 	cooldownMu     sync.RWMutex
+
+	// Sparkplug B support
+	sparkplugClient *sparkplug.SparkplugClient
+	dualPublisher   *sparkplug.DualPublisher
+	sparkplugMu     sync.RWMutex
 }
 
 func main() {
@@ -119,6 +128,11 @@ func main() {
 		writeCooldowns: make(map[int]time.Time),
 	}
 
+	// Initialize Sparkplug B client (optional - for dual publishing)
+	if getEnv("SPARKPLUG_ENABLED", "false") == "true" {
+		log.Println("[DRIVER-S7] Sparkplug B dual publishing enabled")
+	}
+
 	// Load initial configuration
 	if err := driver.loadConfig(); err != nil {
 		log.Fatalf("Failed to load gateway configuration: %v", err)
@@ -163,7 +177,7 @@ func (d *Driver) loadConfig() error {
 	// Load gateway with hierarchy info
 	query := `
 		SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled,
-		       o.name as org_name, s.name as site_name, a.name as area_name
+		       o.id as org_id, o.name as org_name, s.name as site_name, a.name as area_name
 		FROM gateways g
 		JOIN areas a ON g.area_id = a.id
 		JOIN sites s ON a.site_id = s.id
@@ -173,6 +187,7 @@ func (d *Driver) loadConfig() error {
 
 	var gateway models.Gateway
 	var connConfigBytes []byte
+	var orgID int
 	var orgName, siteName, areaName string
 
 	err := d.database.QueryRow(query, d.gatewayID).Scan(
@@ -183,6 +198,7 @@ func (d *Driver) loadConfig() error {
 		&connConfigBytes,
 		&gateway.ScanRateMs,
 		&gateway.Enabled,
+		&orgID,
 		&orgName,
 		&siteName,
 		&areaName,
@@ -235,15 +251,97 @@ func (d *Driver) loadConfig() error {
 	d.config = &GatewayConfig{
 		Gateway: gateway,
 		Tags:    tags,
+		OrgID:   orgID,
 		OrgName: slugify(orgName),
 		Site:    slugify(siteName),
 		Area:    slugify(areaName),
+	}
+
+	// Initialize or update Sparkplug B client
+	if getEnv("SPARKPLUG_ENABLED", "false") == "true" {
+		d.initSparkplugClientLocked(slugify(orgName), slugify(siteName), slugify(areaName), slugify(gateway.Name), orgID)
+	}
+
+	// Subscribe to legacy format write commands: cmd/{org}/{site}/{area}/{gateway}/+
+	legacyWriteTopic := fmt.Sprintf("cmd/%s/%s/%s/%s/+",
+		slugify(orgName), slugify(siteName), slugify(areaName), slugify(gateway.Name))
+	d.mqttClient.Subscribe(legacyWriteTopic, d.handleLegacyWriteCommand)
+	log.Printf("[DRIVER-S7] Subscribed to legacy write topic: %s", legacyWriteTopic)
+
+	// Subscribe to Sparkplug B DCMD (Device Command) if enabled
+	if getEnv("SPARKPLUG_ENABLED", "false") == "true" {
+		groupID := sparkplug.BuildGroupID(slugify(orgName), slugify(siteName))
+		edgeNodeID := sparkplug.BuildEdgeNodeID(slugify(areaName), slugify(gateway.Name))
+		dcmdTopic := fmt.Sprintf("spBv1.0/%s/DCMD/%s/+", groupID, edgeNodeID)
+		d.mqttClient.Subscribe(dcmdTopic, d.handleSparkplugDCMD)
+		log.Printf("[DRIVER-S7] Subscribed to Sparkplug B DCMD topic: %s", dcmdTopic)
 	}
 
 	log.Printf("Loaded gateway config: %s (ID: %d) with %d tags", gateway.Name, gateway.ID, len(tags))
 	log.Printf("Topic prefix: data/%s/%s/%s/%s", d.config.OrgName, d.config.Site, d.config.Area, slugify(gateway.Name))
 
 	return nil
+}
+
+// initSparkplugClientLocked initializes Sparkplug client while holding configMu lock
+func (d *Driver) initSparkplugClientLocked(orgName, siteName, areaName, gatewayName string, orgID int) {
+	d.sparkplugMu.Lock()
+	defer d.sparkplugMu.Unlock()
+
+	// Build Sparkplug B identifiers
+	groupID := sparkplug.BuildGroupID(orgName, siteName)
+	edgeNodeID := sparkplug.BuildEdgeNodeID(areaName, gatewayName)
+
+	config := sparkplug.Config{
+		MQTTHost:     getEnv("MQTT_HOST", "localhost"),
+		MQTTPort:     getEnvInt("MQTT_PORT", 1883),
+		MQTTClientID: fmt.Sprintf("sparkplug-s7-%d", d.gatewayID),
+		GroupID:      groupID,
+		EdgeNodeID:   edgeNodeID,
+		EnableLegacy: true,
+	}
+
+	if d.sparkplugClient == nil {
+		d.sparkplugClient = sparkplug.NewClient(config, d.mqttClient)
+		d.sparkplugClient.SetConnected(true)
+	}
+
+	// Create or update dual publisher
+	d.dualPublisher = sparkplug.NewDualPublisher(
+		d.sparkplugClient,
+		orgName,
+		siteName,
+		areaName,
+		gatewayName,
+		orgID,
+	)
+
+	log.Printf("[DRIVER-S7] Sparkplug B client initialized: group=%s, node=%s", groupID, edgeNodeID)
+}
+
+// publishDual publishes a tag value in both legacy and Sparkplug B formats
+func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataType string, quality int, timestamp int64) {
+	d.sparkplugMu.RLock()
+	dualPublisher := d.dualPublisher
+	d.sparkplugMu.RUnlock()
+
+	if dualPublisher != nil {
+		// Use dual publisher
+		if err := dualPublisher.Publish(tagID, alias, value, dataType, quality, timestamp, d.mqttClient); err != nil {
+			log.Printf("[DRIVER-S7] Dual publish error for %s: %v", alias, err)
+		}
+	} else {
+		// Legacy-only publish
+		d.configMu.RLock()
+		cfg := d.config
+		d.configMu.RUnlock()
+
+		if cfg != nil {
+			topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name), slugify(alias))
+			payload, _ := json.Marshal(TagPayload{tagID, cfg.OrgID, value, timestamp, quality})
+			d.mqttClient.PublishWithQoS(topic, string(payload), 1, false)
+		}
+	}
 }
 
 // handleReloadCommand handles the reload command from MQTT
@@ -347,8 +445,147 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 			// Publish success feedback
 			tag := models.Tag{Alias: tagAlias, ID: cmd.TagID} // Minimal tag struct for publish
 			// Use 0 for "Good" quality on successful write
-			d.publishTagValue(topicPrefix, tag, cmd.Value, time.Now().UnixMilli(), 0)
+			d.publishTagValue(topicPrefix, tag, cmd.Value, time.Now().UnixMilli(), 0, config.OrgID)
 		}
+	}
+}
+
+// handleLegacyWriteCommand handles write commands in legacy MQTT format
+// Topic format: cmd/{org}/{site}/{area}/{gateway}/{alias}
+// Payload: {"value": <value>} or just <value>
+func (d *Driver) handleLegacyWriteCommand(topic string, payload []byte) {
+	log.Printf("[DRIVER-S7] Received legacy write command: %s", topic)
+
+	// Extract alias from topic
+	parts := strings.Split(topic, "/")
+	if len(parts) < 6 {
+		log.Printf("[DRIVER-S7] Invalid legacy write topic format: %s", topic)
+		return
+	}
+	alias := parts[5]
+
+	// Find tag by alias
+	d.configMu.RLock()
+	cfg := d.config
+	d.configMu.RUnlock()
+
+	if cfg == nil {
+		log.Printf("[DRIVER-S7] No config loaded, cannot process write")
+		return
+	}
+
+	var targetTag *models.Tag
+	for i := range cfg.Tags {
+		if strings.EqualFold(cfg.Tags[i].Alias, alias) || strings.EqualFold(slugify(cfg.Tags[i].Alias), alias) {
+			targetTag = &cfg.Tags[i]
+			break
+		}
+	}
+
+	if targetTag == nil {
+		log.Printf("[DRIVER-S7] Tag with alias '%s' not found", alias)
+		return
+	}
+
+	// Parse value from payload
+	var value interface{}
+	var cmd WriteCommand
+
+	// Try to parse as full command first
+	if err := json.Unmarshal(payload, &cmd); err == nil && cmd.Value != nil {
+		value = cmd.Value
+	} else {
+		// Try to parse as direct value
+		if err := json.Unmarshal(payload, &value); err != nil {
+			log.Printf("[DRIVER-S7] Failed to parse value from payload: %v", err)
+			return
+		}
+	}
+
+	// Create WriteCommand and process it
+	writeCmd := WriteCommand{
+		TagID:    targetTag.ID,
+		Code:     targetTag.Code,
+		Value:    value,
+		DataType: targetTag.DataType,
+	}
+
+	// Marshal and process through existing handler
+	cmdBytes, _ := json.Marshal(writeCmd)
+	d.handleWriteCommand(fmt.Sprintf("cmd/write/%d", d.gatewayID), cmdBytes)
+}
+
+// handleSparkplugDCMD handles Sparkplug B Device Commands
+// Topic format: spBv1.0/{group}/DCMD/{node}/{device}
+// Payload: Sparkplug B payload with metrics
+func (d *Driver) handleSparkplugDCMD(topic string, payload []byte) {
+	log.Printf("[DRIVER-S7] Received Sparkplug B DCMD: %s", topic)
+
+	// Parse Sparkplug B topic
+	_, err := sparkplug.ParseTopic(topic)
+	if err != nil {
+		log.Printf("[DRIVER-S7] Invalid Sparkplug DCMD topic: %v", err)
+		return
+	}
+
+	// Parse Sparkplug B payload (simplified JSON format)
+	var spPayload struct {
+		Timestamp int64 `json:"timestamp"`
+		Seq       int   `json:"seq"`
+		Metrics   []struct {
+			Name      string      `json:"name"`
+			DataType  int         `json:"dataType"`
+			Value     interface{} `json:"value"`
+			Timestamp int64       `json:"timestamp"`
+		} `json:"metrics"`
+	}
+
+	if err := json.Unmarshal(payload, &spPayload); err != nil {
+		log.Printf("[DRIVER-S7] Failed to parse Sparkplug DCMD payload: %v", err)
+		return
+	}
+
+	// Find config
+	d.configMu.RLock()
+	cfg := d.config
+	d.configMu.RUnlock()
+
+	if cfg == nil {
+		log.Printf("[DRIVER-S7] No config loaded, cannot process DCMD")
+		return
+	}
+
+	// Process each metric
+	for _, metric := range spPayload.Metrics {
+		// Find tag by alias (metric name)
+		var targetTag *models.Tag
+		for i := range cfg.Tags {
+			alias := cfg.Tags[i].Alias
+			// Match with underscores (Sparkplug format) or original alias
+			if strings.EqualFold(alias, metric.Name) ||
+			   strings.EqualFold(strings.ReplaceAll(alias, "-", "_"), metric.Name) {
+				targetTag = &cfg.Tags[i]
+				break
+			}
+		}
+
+		if targetTag == nil {
+			log.Printf("[DRIVER-S7] DCMD: Tag '%s' not found", metric.Name)
+			continue
+		}
+
+		// Create WriteCommand and process
+		writeCmd := WriteCommand{
+			TagID:    targetTag.ID,
+			Code:     targetTag.Code,
+			Value:    metric.Value,
+			DataType: targetTag.DataType,
+		}
+
+		log.Printf("[DRIVER-S7] DCMD: Writing to tag %d (%s) = %v", targetTag.ID, targetTag.Alias, metric.Value)
+
+		cmdBytes, _ := json.Marshal(writeCmd)
+		d.handleWriteCommand(fmt.Sprintf("cmd/write/%d", d.gatewayID), cmdBytes)
 	}
 }
 
@@ -433,15 +670,6 @@ func (d *Driver) poll() {
 		return
 	}
 
-	// Ensure S7 connection is established
-	if d.s7Client == nil || !d.s7Client.IsConnected() {
-		log.Printf("S7 not connected, attempting reconnection...")
-		if err := d.connectS7(); err != nil {
-			log.Printf("S7 reconnection failed: %v", err)
-			return
-		}
-	}
-
 	// Build topic prefix: data/{org}/{site}/{area}/{gateway}
 	topicPrefix := fmt.Sprintf("data/%s/%s/%s/%s",
 		config.OrgName,
@@ -452,6 +680,29 @@ func (d *Driver) poll() {
 
 	timestamp := time.Now().UnixMilli()
 
+	// Ensure S7 connection is established
+	if d.s7Client == nil || !d.s7Client.IsConnected() {
+		log.Printf("S7 not connected, attempting reconnection...")
+		if err := d.connectS7(); err != nil {
+			log.Printf("S7 reconnection failed: %v", err)
+
+			// Publish BAD quality for all tags
+			for _, tag := range config.Tags {
+				d.prevValuesMu.RLock()
+				val, exists := d.previousValues[tag.ID]
+				d.prevValuesMu.RUnlock()
+				if !exists {
+					val = 0
+				}
+				d.publishTagValue(topicPrefix, tag, val, timestamp, 2, config.OrgID)
+
+				// Update previous value
+				d.updatePreviousValue(tag.ID, val)
+			}
+			return
+		}
+	}
+
 	// Read and publish each tag
 	for _, tag := range config.Tags {
 		// Read value from PLC
@@ -461,8 +712,18 @@ func (d *Driver) poll() {
 		// Check for read error
 		if result.Error != nil {
 			log.Printf("Error reading tag %s (ID:%d): %v", tag.Alias, tag.ID, result.Error)
+
 			// Publish with bad quality
-			d.publishTagValue(topicPrefix, tag, nil, timestamp, 1)
+			d.prevValuesMu.RLock()
+			val, exists := d.previousValues[tag.ID]
+			d.prevValuesMu.RUnlock()
+			if !exists {
+				val = 0
+			}
+			d.publishTagValue(topicPrefix, tag, val, timestamp, 2, config.OrgID)
+
+			// Update previous value
+			d.updatePreviousValue(tag.ID, val)
 			continue
 		}
 
@@ -486,7 +747,6 @@ func (d *Driver) poll() {
 					log.Printf("Write confirmed for tag %s (PLC matches optimistic value)", tag.Alias)
 				} else {
 					// PLC still shows old value (or different). Ignore to prevent flicker.
-					// log.Printf("Ignoring old value for tag %s during cooldown", tag.Alias)
 					continue
 				}
 			} else {
@@ -497,41 +757,19 @@ func (d *Driver) poll() {
 			}
 		}
 
-		// Report by Exception: check if value has changed
-		if !d.hasValueChanged(tag.ID, result.Value) {
-			continue // Skip publish - value hasn't changed
-		}
-
+		// ALWAYS publish (no Report by Exception) - matches Modbus and OPC UA behavior
 		// Update previous value
 		d.updatePreviousValue(tag.ID, result.Value)
 
 		// Publish to MQTT
-		d.publishTagValue(topicPrefix, tag, result.Value, timestamp, result.Quality)
+		d.publishTagValue(topicPrefix, tag, result.Value, timestamp, result.Quality, config.OrgID)
 	}
 }
 
-// publishTagValue publishes a tag value to MQTT
-func (d *Driver) publishTagValue(topicPrefix string, tag models.Tag, value interface{}, timestamp int64, quality int) {
-	// Build topic: data/{org}/{site}/{area}/{gateway}/{alias}
-	topic := fmt.Sprintf("%s/%s", topicPrefix, slugify(tag.Alias))
-
-	// Build payload
-	payload := TagPayload{
-		Value:     value,
-		Timestamp: timestamp,
-		Quality:   quality,
-	}
-
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("Error marshaling payload for tag %s: %v", tag.Alias, err)
-		return
-	}
-
-	// Publish to MQTT (QoS 1 for reliability)
-	if err := d.mqttClient.PublishWithQoS(topic, string(payloadBytes), 1, false); err != nil {
-		log.Printf("Error publishing tag %s to %s: %v", tag.Alias, topic, err)
-	}
+// publishTagValue publishes a tag value to MQTT (with Sparkplug B dual support)
+func (d *Driver) publishTagValue(topicPrefix string, tag models.Tag, value interface{}, timestamp int64, quality int, orgID int) {
+	// Use dual publishing if available
+	d.publishDual(tag.ID, tag.Alias, value, tag.DataType, quality, timestamp)
 }
 
 // hasValueChanged checks if a value has changed from its previous value (Report by Exception)

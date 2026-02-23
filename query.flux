@@ -1,6 +1,0 @@
-from(bucket: "historical_data")
-  |> range(start: -10m)
-  |> filter(fn: (r) => r["_measurement"] == "tag_data")
-  |> filter(fn: (r) => r["tag_id"] == "757")
-  |> filter(fn: (r) => r["_field"] == "value")
-  |> limit(n: 5)

@@ -11,6 +11,7 @@ export default defineConfig({
         },
     },
     server: {
+        host: '0.0.0.0', // Ensure binding to all interfaces for external access
         port: 3000,
         proxy: {
             '/api': {
@@ -19,4 +20,8 @@ export default defineConfig({
             },
         },
     },
+    build: {
+        target: 'es2015',
+        minify: 'esbuild', // Faster and usually safe
+    }
 })

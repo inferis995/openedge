@@ -54,10 +54,8 @@ const MqttMonitorPage = () => {
     // Connect to MQTT broker directly
     useEffect(() => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = window.location.hostname;
-        const port = 9001;
-        const path = '/mqtt';
-        const wsUrl = `${protocol}//${host}:${port}${path}`;
+        // Connect through Nginx proxy (same host/port as the web UI)
+        const wsUrl = `${protocol}//${window.location.host}/mqtt`;
 
         console.log('[MQTT Monitor] Connecting to:', wsUrl);
 

@@ -41,7 +41,7 @@ type CreateGatewayRequest struct {
 	AreaID           int                     `json:"area_id" binding:"required"`
 	Name             string                  `json:"name" binding:"required"`
 	DriverType       string                  `json:"driver_type" binding:"required"`
-	ConnectionConfig models.ConnectionConfig `json:"connection_config" binding:"required"`
+	ConnectionConfig models.ConnectionConfig `json:"connection_config"` // Optional for MQTT
 	ScanRateMs       int                     `json:"scan_rate_ms"`
 	ZeroBased        *bool                   `json:"zero_based"` // Optional, default should be true
 }
@@ -146,9 +146,20 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 	}
 
 	// Validate driver_type
-	if req.DriverType != "S7" && req.DriverType != "MODBUS_TCP" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7' or 'MODBUS_TCP'"})
+	if req.DriverType != "S7" && req.DriverType != "MODBUS_TCP" && req.DriverType != "MQTT" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7', 'MODBUS_TCP', or 'MQTT'"})
 		return
+	}
+
+	// For non-MQTT drivers, connection_config is required
+	if req.DriverType != "MQTT" && len(req.ConnectionConfig) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "connection_config is required for this driver type"})
+		return
+	}
+
+	// For MQTT, ensure connection_config is at least an empty object
+	if req.ConnectionConfig == nil {
+		req.ConnectionConfig = models.ConnectionConfig{}
 	}
 
 	// Verify the area_id belongs to the authorized organization (multi-tenant isolation)
@@ -550,8 +561,8 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 	}
 
 	// Validate driver_type if provided
-	if req.DriverType != nil && *req.DriverType != "S7" && *req.DriverType != "MODBUS_TCP" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7' or 'MODBUS_TCP'"})
+	if req.DriverType != nil && *req.DriverType != "S7" && *req.DriverType != "MODBUS_TCP" && *req.DriverType != "MQTT" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7', 'MODBUS_TCP', or 'MQTT'"})
 		return
 	}
 
@@ -699,6 +710,10 @@ func (h *GatewaysHandler) TestConnection(c *gin.Context) {
 		} else {
 			port = 502
 		}
+	} else if driverType == "MQTT" {
+		// MQTT driver doesn't need TCP test to PLC IP - the PLC connects to our broker
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "MQTT driver: PLC publishes to the system broker. No direct connection to test."})
+		return
 	}
 
 	if port == 0 {

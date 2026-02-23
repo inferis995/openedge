@@ -702,10 +702,10 @@ const TagsPage = () => {
                                                             <Input
                                                                 id="mb-addr"
                                                                 type="number"
-                                                                min="1"
+                                                                min="0"
                                                                 value={modbusAddress}
                                                                 onChange={(e) => handleModbusAddressChange(parseInt(e.target.value) || 0)}
-                                                                placeholder="1"
+                                                                placeholder="0"
                                                             />
                                                         </div>
                                                         {/* Bit offset for registers to BOOL */}
@@ -727,16 +727,21 @@ const TagsPage = () => {
                                             )}
 
                                             <div className="grid gap-2">
-                                                <Label htmlFor="code">Tag Code / Address</Label>
+                                                <Label htmlFor="code">
+                                                    {selectedGatewayDriverType === 'MQTT' ? 'MQTT Topic' : 'Tag Code / Address'}
+                                                </Label>
                                                 <Input
                                                     id="code"
                                                     value={formData.code}
                                                     onChange={(e) => handleInputChange('code', e.target.value)}
-                                                    placeholder="e.g. %MW100 or 40001"
+                                                    placeholder={selectedGatewayDriverType === 'MQTT' ? 'e.g. machine/line1/temp' : 'e.g. %MW100 or 40001'}
                                                 // Removed readOnly to allow manual override
                                                 />
                                                 {selectedGatewayDriverType === 'MODBUS_TCP' && (
                                                     <p className="text-[10px] text-muted-foreground">Auto-generated from builder above, or type manually</p>
+                                                )}
+                                                {selectedGatewayDriverType === 'MQTT' && (
+                                                    <p className="text-[10px] text-emerald-600">Enter the exact MQTT topic the PLC publishes to.</p>
                                                 )}
                                             </div>
                                             <div className="grid gap-2">

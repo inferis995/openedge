@@ -65,7 +65,6 @@ const Sidebar = () => {
                         <img src="/logo.png" alt="OpenEdge" className="h-10 w-10 object-contain rounded-md" />
                         <div>
                             <h1 className="text-lg font-bold tracking-tight text-white">OpenEdge</h1>
-                            <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">Professional</p>
                         </div>
                     </div>
                 )}

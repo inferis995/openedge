@@ -18,5 +18,20 @@ export const systemApi = {
                 'Content-Type': 'multipart/form-data',
             },
         });
+    },
+
+    exportBackup: async (): Promise<Blob> => {
+        const response = await api.get('/system/backup', { responseType: 'blob' });
+        return response.data;
+    },
+
+    restoreBackup: async (file: File): Promise<void> => {
+        const formData = new FormData();
+        formData.append('file', file);
+        await api.post('/system/restore', formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data',
+            },
+        });
     }
 };

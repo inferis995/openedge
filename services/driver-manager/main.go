@@ -272,6 +272,9 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 	case "REDIS":
 		imageName = "industrial-driver-redis:latest"
 		containerNamePrefix = "driver-redis"
+	case "MQTT":
+		imageName = "industrial-driver-mqtt:latest"
+		containerNamePrefix = "driver-mqtt"
 	default:
 		return fmt.Errorf("unsupported driver type: %s", gateway.DriverType)
 	}

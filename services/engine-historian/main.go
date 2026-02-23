@@ -21,10 +21,12 @@ import (
 
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
+	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 )
 
 const (
 	mqttTopicData       = "data/#"
+	mqttTopicSparkplug  = "spBv1.0/#" // Sparkplug B topic
 	mqttTopicHealth     = "sys/health/+"
 	bufferFlushSize     = 1000
 	bufferFlushInterval = 1 * time.Second
@@ -207,6 +209,14 @@ func main() {
 	}
 	log.Println("Successfully subscribed to data topics")
 
+	// Subscribe to Sparkplug B topics (dual format support)
+	log.Printf("Subscribing to MQTT topic: %s", mqttTopicSparkplug)
+	if err := mqttClient.Subscribe(mqttTopicSparkplug, service.handleSparkplugMessage); err != nil {
+		log.Printf("Warning: Failed to subscribe to Sparkplug topic: %v", err)
+	} else {
+		log.Println("Successfully subscribed to Sparkplug B topics")
+	}
+
 	// Subscribe to health topics (gateway connection events)
 	log.Printf("Subscribing to MQTT topic: %s", mqttTopicHealth)
 	if err := mqttClient.Subscribe(mqttTopicHealth, service.handleHealthMessage); err != nil {
@@ -328,12 +338,14 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	gateway := parts[4]
 	alias := parts[5]
 
-	// Unslugify: convert hyphens back to spaces for DB lookup (except alias, which can contain hyphens)
-	org = strings.ReplaceAll(org, "-", " ")
-	site = strings.ReplaceAll(site, "-", " ")
-	area = strings.ReplaceAll(area, "-", " ")
-	gateway = strings.ReplaceAll(gateway, "-", " ")
-	// Note: alias is NOT unslugified because tag aliases can legitimately contain hyphens (e.g., "test-1")
+	// Note: We DON'T unslugify org/site/area/gateway because:
+	// 1. The SQL query uses LOWER() for case-insensitive matching
+	// 2. Names like "opc-ua1" should keep their hyphens (not become "opc ua1")
+	// 3. The slugify function only replaces spaces with hyphens, so names without spaces stay the same
+
+	// For alias: convert hyphens to underscores to match DB naming convention
+	// MQTT topic uses "tag-name" but DB stores "Tag_Name"
+	alias = strings.ReplaceAll(alias, "-", "_")
 
 	// Parse JSON payload: {"v": value, "ts": timestamp_ms, "q": quality}
 	var mqttPayload MQTTPayload
@@ -422,6 +434,159 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 
 	// Add to buffer
 	s.addToBuffer(dp)
+}
+
+// handleSparkplugMessage handles incoming Sparkplug B messages
+// Topic format: spBv1.0/{group_id}/{message_type}/{edge_node_id}/{device_id}
+func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) {
+	select {
+	case <-s.shutdown:
+		return
+	default:
+	}
+
+	// Parse Sparkplug B topic
+	topicInfo, err := sparkplug.ParseTopic(topic)
+	if err != nil {
+		// Not a valid Sparkplug topic, ignore
+		return
+	}
+
+	// Only process DDATA (data) messages
+	if topicInfo.MessageType != sparkplug.MessageTypeDDATA {
+		return
+	}
+
+	log.Printf("[HISTORIAN] Received Sparkplug B message: group=%s, node=%s, device=%s",
+		topicInfo.GroupID, topicInfo.EdgeNodeID, topicInfo.DeviceID)
+
+	// Parse the group_id and edge_node_id to extract org, site, area, gateway
+	// Format: group_id = {org}-{site}, edge_node_id = {area}-{gateway}
+	groupParts := strings.SplitN(topicInfo.GroupID, "-", 2)
+	if len(groupParts) < 2 {
+		log.Printf("[HISTORIAN] Invalid Sparkplug group_id format: %s", topicInfo.GroupID)
+		return
+	}
+
+	nodeParts := strings.SplitN(topicInfo.EdgeNodeID, "-", 2)
+	if len(nodeParts) < 2 {
+		log.Printf("[HISTORIAN] Invalid Sparkplug edge_node_id format: %s", topicInfo.EdgeNodeID)
+		return
+	}
+
+	// Parse names from group_id and edge_node_id (already in correct format)
+	// Note: Don't unslugify - keep hyphens as they are in the database
+	org := groupParts[0]
+	site := groupParts[1]
+	area := nodeParts[0]
+	gateway := nodeParts[1]
+	alias := topicInfo.DeviceID
+
+	// Try to parse as JSON payload (simplified Sparkplug B format)
+	// For full Protobuf support, use github.com/eclipse/sparkplugb
+	var sparkplugPayload struct {
+		Timestamp int64 `json:"timestamp"`
+		Seq       int   `json:"seq"`
+		Metrics   []struct {
+			Name      string      `json:"name"`
+			DataType  int         `json:"data_type"`
+			Value     interface{} `json:"value"`
+			Timestamp int64       `json:"timestamp"`
+			Quality   int         `json:"quality"`
+		} `json:"metrics"`
+	}
+
+	if err := json.Unmarshal(payload, &sparkplugPayload); err != nil {
+		log.Printf("[HISTORIAN] Failed to parse Sparkplug payload: %v", err)
+		return
+	}
+
+	// Process each metric
+	for _, metric := range sparkplugPayload.Metrics {
+		metricAlias := metric.Name
+		if metricAlias == "" {
+			metricAlias = alias
+		}
+
+		// Convert quality from Sparkplug to legacy format
+		legacyQuality := sparkplug.ConvertSparkplugToLegacyQuality(int32(metric.Quality))
+
+		// Get tag info
+		tagInfo, err := s.getTagInfo(org, site, area, gateway, metricAlias)
+		if err != nil {
+			log.Printf("[HISTORIAN] Sparkplug tag lookup failed for alias '%s': %v", metricAlias, err)
+			continue
+		}
+
+		// Use metric timestamp or payload timestamp
+		timestamp := metric.Timestamp
+		if timestamp == 0 {
+			timestamp = sparkplugPayload.Timestamp
+		}
+		if timestamp == 0 {
+			timestamp = time.Now().UnixMilli()
+		}
+
+		// Store in Redis for real-time queries
+		mqttPayload := MQTTPayload{
+			V:  metric.Value,
+			Ts: timestamp,
+			Q:  legacyQuality,
+		}
+		s.storeRealtimeValue(tagInfo.ID, mqttPayload)
+		s.broadcastRealtimeUpdate(tagInfo.OrganizationID, tagInfo.ID, mqttPayload)
+
+		// Skip if historize is disabled
+		if !tagInfo.Historize {
+			continue
+		}
+
+		// Convert value to float64 for InfluxDB
+		var floatValue float64
+		switch v := metric.Value.(type) {
+		case bool:
+			if v {
+				floatValue = 1.0
+			} else {
+				floatValue = 0.0
+			}
+		case float64:
+			floatValue = v
+		case int:
+			floatValue = float64(v)
+		default:
+			if val, err := strconv.ParseFloat(fmt.Sprintf("%v", v), 64); err == nil {
+				floatValue = val
+			}
+		}
+
+		// Create data point
+		dp := &DataPoint{
+			Measurement: "tag_data",
+			Tags: map[string]string{
+				"tag_id":       strconv.Itoa(tagInfo.ID),
+				"organization": org,
+				"site":         site,
+				"area":         area,
+				"gateway":      gateway,
+				"alias":        metricAlias,
+				"source":       "sparkplug_b",
+			},
+			Fields: map[string]interface{}{
+				"value":   floatValue,
+				"quality": legacyQuality,
+			},
+			Timestamp: timestamp,
+			Org:       org,
+			Site:      site,
+			Area:      area,
+			Gateway:   gateway,
+			Alias:     metricAlias,
+		}
+
+		s.addToBuffer(dp)
+		log.Printf("[HISTORIAN] Sparkplug B data stored: %s = %v", metricAlias, metric.Value)
+	}
 }
 
 func (s *HistorianService) handleInfluxErrors() {
@@ -527,6 +692,8 @@ func (s *HistorianService) getTagInfo(org, site, area, gateway, alias string) (*
 	}
 
 	// Not in cache, query from PostgreSQL
+	// The query checks both the exact name and the slugified version (hyphens vs spaces)
+	// This handles both "cella 1" (DB) vs "cella-1" (topic) AND "opc-ua1" (DB) vs "opc-ua1" (topic)
 	query := `
 		SELECT t.id, s.org_id, t.historize, t.historize_deadband
 		FROM tags t
@@ -535,10 +702,10 @@ func (s *HistorianService) getTagInfo(org, site, area, gateway, alias string) (*
 		JOIN sites s ON a.site_id = s.id
 		JOIN organizations o ON s.org_id = o.id
 		WHERE TRIM(LOWER(o.name)) = TRIM(LOWER($1))
-		  AND TRIM(LOWER(s.name)) = TRIM(LOWER($2))
-		  AND TRIM(LOWER(a.name)) = TRIM(LOWER($3))
-		  AND TRIM(LOWER(g.name)) = TRIM(LOWER($4))
-		  AND TRIM(LOWER(t.alias)) = TRIM(LOWER($5))
+		  AND (TRIM(LOWER(s.name)) = TRIM(LOWER($2)) OR REPLACE(TRIM(LOWER(s.name)), ' ', '-') = TRIM(LOWER($2)))
+		  AND (TRIM(LOWER(a.name)) = TRIM(LOWER($3)) OR REPLACE(TRIM(LOWER(a.name)), ' ', '-') = TRIM(LOWER($3)))
+		  AND (TRIM(LOWER(g.name)) = TRIM(LOWER($4)) OR REPLACE(TRIM(LOWER(g.name)), ' ', '-') = TRIM(LOWER($4)))
+		  AND (TRIM(LOWER(t.alias)) = TRIM(LOWER($5)) OR REPLACE(TRIM(LOWER(t.alias)), ' ', '-') = TRIM(LOWER($5)) OR REPLACE(TRIM(LOWER(t.alias)), '_', '-') = TRIM(LOWER($5)))
 	`
 
 	var tagInfo TagInfo

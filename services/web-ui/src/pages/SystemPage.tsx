@@ -4,7 +4,7 @@ import { systemApi } from '@/api/system';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
-import { RefreshCw, Download, AlertTriangle, CheckCircle } from 'lucide-react';
+import { Download, AlertTriangle, CheckCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
@@ -13,63 +13,56 @@ const SystemPage = () => {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
-
-    const handleReload = async () => {
+    const handleFullBackup = async () => {
         setLoading(true);
-        setMessage(null);
+        setMessage({ type: 'success', text: 'Generating backup... please wait.' });
         try {
-            await systemApi.reload();
-            setMessage({ type: 'success', text: 'System configuration reloaded and published to MQTT.' });
+            const blob = await systemApi.exportBackup();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `system-full-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            setMessage({ type: 'success', text: 'System backup created and downloaded.' });
         } catch (error) {
-            setMessage({ type: 'error', text: 'Failed to reload configuration.' });
+            console.error(error);
+            setMessage({ type: 'error', text: 'Failed to create system backup.' });
         } finally {
             setLoading(false);
         }
     };
 
-    const handleExport = async () => {
-        try {
-            const blob = await systemApi.exportConfig();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `edge-config-${new Date().toISOString().split('T')[0]}.json`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-        } catch (error) {
-            setMessage({ type: 'error', text: 'Failed to export configuration.' });
-        }
-    };
-
-    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFullRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || !e.target.files[0]) return;
         const file = e.target.files[0];
 
-        if (confirm('Importing configuration will replace or update current settings. Continue?')) {
+        if (confirm('CRITICAL WARNING: Restoring a full backup will OVERWRITE the current configuration and merge historical data. This cannot be undone. Are you sure?')) {
             setLoading(true);
-            setMessage(null);
+            setMessage({ type: 'success', text: 'Restoring backup... this may take a moment.' });
             try {
-                await systemApi.importConfig(file);
-                setMessage({ type: 'success', text: 'Configuration imported successfully.' });
-                // Optionally reload page to reflect changes
+                await systemApi.restoreBackup(file);
+                setMessage({ type: 'success', text: 'System restored successfully. Reloading...' });
+                setTimeout(() => window.location.reload(), 2000);
             } catch (error) {
-                setMessage({ type: 'error', text: 'Failed to import configuration.' });
+                console.error(error);
+                setMessage({ type: 'error', text: 'Failed to restore system backup.' });
             } finally {
                 setLoading(false);
             }
+        } else {
+            e.target.value = ''; // Reset input
         }
     };
-
-    // Sound handlers removed
 
     return (
         <div className="space-y-6">
             <div>
                 <h2 className="text-2xl font-bold tracking-tight">System Manager</h2>
                 <p className="text-muted-foreground">
-                    Maintenance tasks, configuration backup, and system control.
+                    Perform full system backups and restoration.
                 </p>
             </div>
 
@@ -80,57 +73,45 @@ const SystemPage = () => {
                 </div>
             )}
 
-            <div className="grid gap-6 md:grid-cols-2">
-                {/* Configuration Reload */}
-                <Card>
+            <div className="max-w-2xl">
+                {/* Full System Backup */}
+                <Card className="border-purple-200 shadow-sm">
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
-                            <RefreshCw className="h-5 w-5 text-blue-500" />
-                            Configuration Reload
+                            <Download className="h-5 w-5 text-purple-600" />
+                            Full System Backup
                         </CardTitle>
                         <CardDescription>
-                            Apply pending changes to the runtime engine. This will publish the new configuration via MQTT to all drivers.
+                            Download a complete snapshot including SQL Configuration and InfluxDB History. System remains online.
                         </CardDescription>
                     </CardHeader>
-                    <CardContent>
-                        <Button onClick={handleReload} disabled={loading} className="w-full sm:w-auto">
-                            {loading ? 'Reloading...' : 'Reload Configuration'}
-                        </Button>
-                    </CardContent>
-                </Card>
-
-                {/* Backup & Restore */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                            <Download className="h-5 w-5 text-indigo-500" />
-                            Backup & Restore
-                        </CardTitle>
-                        <CardDescription>
-                            Export current configuration to JSON or restore from a backup file.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <Button variant="outline" onClick={handleExport} className="w-full sm:w-auto gap-2">
-                            <Download size={16} /> Export Configuration
+                    <CardContent className="space-y-6">
+                        <Button onClick={handleFullBackup} disabled={loading} className="w-full sm:w-auto gap-2 bg-purple-600 hover:bg-purple-700 text-white">
+                            <Download size={16} /> Download Full Backup (.zip)
                         </Button>
 
-                        <div className="pt-4 border-t">
-                            <Label htmlFor="import-file" className="block mb-2 text-sm text-slate-600">Import Configuration File</Label>
-                            <div className="flex gap-2">
+                        <div className="pt-6 border-t border-purple-100">
+                            <Label htmlFor="restore-file" className="block mb-3 text-lg font-medium text-purple-900">Restore Full System</Label>
+                            <CardDescription className="mb-4">
+                                Upload a previously downloaded .zip backup file to restore configuration and history.
+                            </CardDescription>
+                            <div className="space-y-3">
                                 <Input
-                                    id="import-file"
+                                    id="restore-file"
                                     type="file"
-                                    accept=".json"
-                                    onChange={handleImport}
+                                    accept=".zip"
+                                    onChange={handleFullRestore}
                                     disabled={loading}
+                                    className="file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer"
                                 />
+                                <p className="text-xs text-red-500 font-medium flex items-center gap-1">
+                                    <AlertTriangle size={12} />
+                                    Warning: Restore overwrites configuration and merges history.
+                                </p>
                             </div>
                         </div>
                     </CardContent>
                 </Card>
-
-
             </div>
         </div>
     );

@@ -48,31 +48,46 @@ func ParseAddress(c string, zeroBased bool) (Address, error) {
 	}
 
 	// Standard Modbus mapping
-	if val >= 40001 && val <= 49999 {
-		offset := uint16(val - 40001)
-		if zeroBased {
+	// Standard Modbus mapping
+	if val >= 40000 && val <= 49999 {
+		var offset uint16
+		if val == 40000 {
+			offset = 0
+		} else if zeroBased {
 			offset = uint16(val - 40000)
+		} else {
+			offset = uint16(val - 40001)
 		}
 		return Address{Type: "holding", Offset: offset, BitOffset: bitOffset}, nil
 	}
-	if val >= 30001 && val <= 39999 {
-		offset := uint16(val - 30001)
-		if zeroBased {
+	if val >= 30000 && val <= 39999 {
+		var offset uint16
+		if val == 30000 {
+			offset = 0
+		} else if zeroBased {
 			offset = uint16(val - 30000)
+		} else {
+			offset = uint16(val - 30001)
 		}
 		return Address{Type: "input", Offset: offset, BitOffset: bitOffset}, nil
 	}
-	if val >= 10001 && val <= 19999 {
-		offset := uint16(val - 10001)
-		if zeroBased {
+	if val >= 10000 && val <= 19999 {
+		var offset uint16
+		if val == 10000 {
+			offset = 0
+		} else if zeroBased {
 			offset = uint16(val - 10000)
+		} else {
+			offset = uint16(val - 10001)
 		}
 		return Address{Type: "discrete", Offset: offset}, nil
 	}
-	if val >= 1 && val <= 9999 {
-		offset := uint16(val - 1)
-		if zeroBased {
-			offset = uint16(val)
+	if val >= 0 && val <= 9999 {
+		offset := uint16(val)
+		// Standard Modbus starts at 1. If not zero-based, 1 -> 0.
+		// If user explicitly types 0, we treat it as offset 0 regardless of zero-based setting.
+		if val > 0 && !zeroBased {
+			offset = uint16(val - 1)
 		}
 		return Address{Type: "coil", Offset: offset}, nil
 	}

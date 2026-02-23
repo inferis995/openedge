@@ -209,19 +209,8 @@ func (h *OrganizationsHandler) Delete(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	// 1. Delete Alarms (via tags -> gateways -> areas -> sites)
-	_, err = tx.Exec(`
-		DELETE FROM alarms WHERE tag_id IN (
-			SELECT t.id FROM tags t
-			JOIN gateways g ON t.gateway_id = g.id
-			JOIN areas a ON g.area_id = a.id
-			JOIN sites s ON a.site_id = s.id
-			WHERE s.org_id = $1
-		)`, id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related alarms"})
-		return
-	}
+	// 1. Alarms table was removed in migration 004, so skipping relevant deletion step if code wasn't updated.
+	// We proceed directly to deleting dependent entities in order.
 
 	// 2. Delete Tags
 	_, err = tx.Exec(`

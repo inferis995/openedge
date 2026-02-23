@@ -22,7 +22,7 @@ export interface Gateway {
     id: number;
     area_id: number;
     name: string;
-    driver_type: 'S7' | 'MODBUS_TCP';
+    driver_type: 'S7' | 'MODBUS_TCP' | 'MQTT';
     connection_config: any; // Nested config
     scan_rate_ms: number;
     enabled: boolean;
@@ -66,7 +66,7 @@ export interface CreateAreaDto {
 export interface CreateGatewayDto {
     area_id: number;
     name: string;
-    driver_type: 'S7' | 'MODBUS_TCP';
+    driver_type: 'S7' | 'MODBUS_TCP' | 'MQTT';
     ip_address: string;
     rack?: number;
     slot?: number;
