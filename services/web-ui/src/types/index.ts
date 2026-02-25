@@ -22,7 +22,7 @@ export interface Gateway {
     id: number;
     area_id: number;
     name: string;
-    driver_type: 'S7' | 'MODBUS_TCP' | 'MQTT';
+    driver_type: 'S7' | 'MODBUS_TCP' | 'MQTT' | 'OPC_UA';
     connection_config: any; // Nested config
     scan_rate_ms: number;
     enabled: boolean;
@@ -66,12 +66,18 @@ export interface CreateAreaDto {
 export interface CreateGatewayDto {
     area_id: number;
     name: string;
-    driver_type: 'S7' | 'MODBUS_TCP' | 'MQTT';
+    driver_type: 'S7' | 'MODBUS_TCP' | 'MQTT' | 'OPC_UA';
     ip_address: string;
     rack?: number;
     slot?: number;
     port?: number;
     slave_id?: number;
+    endpoint?: string; // OPC UA endpoint URL (e.g. opc.tcp://192.168.1.10:4840)
+    auth_mode?: string;
+    username?: string;
+    password?: string;
+    cert_file?: string;
+    key_file?: string;
     scan_rate_ms: number;
     enabled: boolean;
     org_id?: number; // Helper for passing context to API layer
@@ -84,6 +90,15 @@ export interface CreateTagDto {
     data_type: 'BOOL' | 'INT' | 'REAL' | 'DINT' | 'STRING';
     historize: boolean;
     deadband_value?: number;
+}
+
+export interface OpcUaNode {
+    node_id: string;
+    name: string;
+    display_name: string;
+    node_class: string; // "Object" | "Variable" | "Method"
+    data_type: string;  // "Int32", "Float", "Boolean", "Double", "String"
+    children_count: number;
 }
 
 export interface HistoryDataPoint {

@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
+	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 )
 
 // Site represents a site in the system
@@ -21,12 +22,16 @@ type Site struct {
 
 // SitesHandler handles site-related HTTP requests
 type SitesHandler struct {
-	db *sql.DB
+	db         *sql.DB
+	mqttClient *mqtt.Client
 }
 
 // NewSitesHandler creates a new sites handler
-func NewSitesHandler(db *sql.DB) *SitesHandler {
-	return &SitesHandler{db: db}
+func NewSitesHandler(db *sql.DB, mqttClient *mqtt.Client) *SitesHandler {
+	return &SitesHandler{
+		db:         db,
+		mqttClient: mqttClient,
+	}
 }
 
 // CreateSiteRequest represents the request body for creating a site
@@ -357,5 +362,40 @@ func (h *SitesHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// Trigger reload for all gateways in this site to update topic names
+	if h.mqttClient != nil {
+		gatewayIDs, err := h.getGatewayIDsForSite(site.ID)
+		if err == nil {
+			for _, gwID := range gatewayIDs {
+				topic := fmt.Sprintf("sys/command/reload/%d", gwID)
+				h.mqttClient.Publish(topic, "reload")
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, site)
+}
+
+// Helper to get all gateway IDs for a site
+func (h *SitesHandler) getGatewayIDsForSite(siteID int) ([]int, error) {
+	query := `
+		SELECT g.id 
+		FROM gateways g
+		JOIN areas a ON g.area_id = a.id
+		WHERE a.site_id = $1
+	`
+	rows, err := h.db.Query(query, siteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }

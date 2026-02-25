@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
@@ -58,7 +59,7 @@ type UpdateTagRequest struct {
 // validateDataType checks if the data_type is valid
 func validateDataType(dataType string) bool {
 	switch dataType {
-	case "INT", "REAL", "BOOL", "DINT":
+	case "INT", "REAL", "BOOL", "DINT", "STRING":
 		return true
 	default:
 		return false
@@ -146,7 +147,8 @@ func (h *TagsHandler) Create(c *gin.Context) {
 	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.CreatedAt)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create tag"})
+		log.Printf("[API] Tag Creation DB Error: %v (gateway_id=%d, code=%s, alias=%s, data_type=%s)", err, req.GatewayID, req.Code, req.Alias, req.DataType)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create tag: %v", err)})
 		return
 	}
 
@@ -381,6 +383,37 @@ func (h *TagsHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	// 0. MQTT Retained Message Cleanup (Must be done BEFORE deletion to get topic names)
+	if h.mqttClient != nil {
+		var org, site, area, gateway, tagAlias string
+		err := h.db.QueryRow(`
+			SELECT 
+				o.name, s.name, a.name, g.name, t.alias
+			FROM tags t
+			JOIN gateways g ON t.gateway_id = g.id
+			JOIN areas a ON g.area_id = a.id
+			JOIN sites s ON a.site_id = s.id
+			JOIN organizations o ON s.org_id = o.id
+			WHERE t.id = $1`, id).Scan(&org, &site, &area, &gateway, &tagAlias)
+
+		if err == nil {
+			// Helper to create slug (simple version matching typical driver logic)
+			slug := func(s string) string {
+				return strings.ToLower(strings.ReplaceAll(s, " ", "-"))
+			}
+
+			// 1. Try Raw Format (just in case)
+			topic1 := fmt.Sprintf("data/%s/%s/%s/%s/%s", org, site, area, gateway, tagAlias)
+			h.mqttClient.PublishWithQoS(topic1, "", 1, true)
+
+			// 2. Try Slugified Format (Standard)
+			topic2 := fmt.Sprintf("data/%s/%s/%s/%s/%s", slug(org), slug(site), slug(area), slug(gateway), slug(tagAlias))
+			if topic2 != topic1 {
+				h.mqttClient.PublishWithQoS(topic2, "", 1, true)
+			}
+		}
+	}
+
 	// Delete Tag
 	_, err = h.db.Exec("DELETE FROM tags WHERE id = $1", id)
 	if err != nil {
@@ -388,13 +421,8 @@ func (h *TagsHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Publish reload command to MQTT AND clear retained message for this tag
+	// Publish reload command to driver (after deletion)
 	if h.mqttClient != nil {
-		// 1. Clear retained message for this tag by publishing empty retained message
-		dataTopic := fmt.Sprintf("data/%d", id)
-		h.mqttClient.PublishWithQoS(dataTopic, "", 1, true) // Empty retained = clears old data
-
-		// 2. Send reload command to driver
 		reloadTopic := fmt.Sprintf("sys/command/reload/%d", gatewayID)
 		h.mqttClient.Publish(reloadTopic, "reload")
 	}
@@ -697,4 +725,361 @@ func (h *TagsHandler) Write(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Write command sent"})
+}
+
+// TagWithHierarchy represents a tag with full hierarchy information
+type TagWithHierarchy struct {
+	ID            int     `json:"id"`
+	GatewayID     int     `json:"gateway_id"`
+	Code          string  `json:"code"`
+	Alias         string  `json:"alias"`
+	DataType      string  `json:"data_type"`
+	Historize     bool    `json:"historize"`
+	GatewayName   string  `json:"gateway_name,omitempty"`
+	DriverType    string  `json:"driver_type,omitempty"`
+	AreaID        int     `json:"area_id,omitempty"`
+	AreaName      string  `json:"area_name,omitempty"`
+	SiteID        int     `json:"site_id,omitempty"`
+	SiteName      string  `json:"site_name,omitempty"`
+	OrgID         int     `json:"org_id,omitempty"`
+	OrgName       string  `json:"org_name,omitempty"`
+}
+
+// ListWithHierarchy handles GET /api/tags/with-hierarchy
+// Returns all tags with full hierarchy information for the tag browser
+func (h *TagsHandler) ListWithHierarchy(c *gin.Context) {
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	query := `
+		SELECT
+			t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize,
+			g.name as gateway_name, g.driver_type,
+			a.id as area_id, a.name as area_name,
+			s.id as site_id, s.name as site_name,
+			o.id as org_id, o.name as org_name
+		FROM tags t
+		JOIN gateways g ON t.gateway_id = g.id
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id
+		JOIN organizations o ON s.org_id = o.id
+		WHERE o.id = $1
+		ORDER BY o.name, s.name, a.name, g.name, t.alias
+	`
+
+	rows, err := h.db.Query(query, orgID)
+	if err != nil {
+		log.Printf("[API] Query error in ListWithHierarchy: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query tags with hierarchy"})
+		return
+	}
+	defer rows.Close()
+
+	var tags []TagWithHierarchy
+	for rows.Next() {
+		var tag TagWithHierarchy
+		var gatewayName, driverType, areaName, siteName, orgName sql.NullString
+		var areaID, siteID, orgIDVal sql.NullInt64
+
+		err := rows.Scan(
+			&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize,
+			&gatewayName, &driverType,
+			&areaID, &areaName,
+			&siteID, &siteName,
+			&orgIDVal, &orgName,
+		)
+		if err != nil {
+			log.Printf("[API] Scan error in ListWithHierarchy: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan tag"})
+			return
+		}
+
+		tag.GatewayName = gatewayName.String
+		tag.DriverType = driverType.String
+		if areaID.Valid {
+			tag.AreaID = int(areaID.Int64)
+		}
+		tag.AreaName = areaName.String
+		if siteID.Valid {
+			tag.SiteID = int(siteID.Int64)
+		}
+		tag.SiteName = siteName.String
+		if orgIDVal.Valid {
+			tag.OrgID = int(orgIDVal.Int64)
+		}
+		tag.OrgName = orgName.String
+
+		tags = append(tags, tag)
+	}
+
+	if tags == nil {
+		tags = []TagWithHierarchy{}
+	}
+
+	c.JSON(http.StatusOK, tags)
+}
+
+// GatewayHierarchy represents a gateway in the hierarchy
+type GatewayHierarchy struct {
+	ID         int                `json:"id"`
+	Name       string             `json:"name"`
+	DriverType string             `json:"driver_type"`
+	Tags       []TagWithHierarchy `json:"tags"`
+}
+
+// AreaHierarchy represents an area in the hierarchy
+type AreaHierarchy struct {
+	ID       int                `json:"id"`
+	Name     string             `json:"name"`
+	Gateways []GatewayHierarchy `json:"gateways"`
+}
+
+// SiteHierarchy represents a site in the hierarchy
+type SiteHierarchy struct {
+	ID    int            `json:"id"`
+	Name  string         `json:"name"`
+	Areas []AreaHierarchy `json:"areas"`
+}
+
+// OrganizationHierarchy represents an organization in the hierarchy
+type OrganizationHierarchy struct {
+	ID    int            `json:"id"`
+	Name  string         `json:"name"`
+	Sites []SiteHierarchy `json:"sites"`
+}
+
+// TagHierarchyResponse represents the response for the hierarchy endpoint
+type TagHierarchyResponse struct {
+	Organizations []OrganizationHierarchy `json:"organizations"`
+}
+
+// GetHierarchy handles GET /api/tags/hierarchy
+// Returns the full tag hierarchy structure for the tag browser
+func (h *TagsHandler) GetHierarchy(c *gin.Context) {
+	// Get organization ID from context
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	// Get all tags with hierarchy for this organization
+	tags, err := h.getTagsWithHierarchy(orgID)
+	if err != nil {
+		log.Printf("[API] Error getting tags with hierarchy: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get tag hierarchy"})
+		return
+	}
+
+	// Build hierarchy structure
+	hierarchy := buildTagHierarchy(tags)
+
+	c.JSON(http.StatusOK, TagHierarchyResponse{Organizations: hierarchy})
+}
+
+func (h *TagsHandler) getTagsWithHierarchy(orgID int) ([]TagWithHierarchy, error) {
+	query := `
+		SELECT
+			t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize,
+			g.name as gateway_name, g.driver_type,
+			a.id as area_id, a.name as area_name,
+			s.id as site_id, s.name as site_name,
+			o.id as org_id, o.name as org_name
+		FROM tags t
+		JOIN gateways g ON t.gateway_id = g.id
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id
+		JOIN organizations o ON s.org_id = o.id
+		WHERE o.id = $1
+		ORDER BY o.name, s.name, a.name, g.name, t.alias
+	`
+
+	rows, err := h.db.Query(query, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tags []TagWithHierarchy
+	for rows.Next() {
+		var tag TagWithHierarchy
+		var gatewayName, driverType, areaName, siteName, orgName sql.NullString
+		var areaID, siteID, orgIDVal sql.NullInt64
+
+		err := rows.Scan(
+			&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize,
+			&gatewayName, &driverType,
+			&areaID, &areaName,
+			&siteID, &siteName,
+			&orgIDVal, &orgName,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		tag.GatewayName = gatewayName.String
+		tag.DriverType = driverType.String
+		if areaID.Valid {
+			tag.AreaID = int(areaID.Int64)
+		}
+		tag.AreaName = areaName.String
+		if siteID.Valid {
+			tag.SiteID = int(siteID.Int64)
+		}
+		tag.SiteName = siteName.String
+		if orgIDVal.Valid {
+			tag.OrgID = int(orgIDVal.Int64)
+		}
+		tag.OrgName = orgName.String
+
+		tags = append(tags, tag)
+	}
+
+	return tags, nil
+}
+
+func buildTagHierarchy(tags []TagWithHierarchy) []OrganizationHierarchy {
+	if len(tags) == 0 {
+		return []OrganizationHierarchy{}
+	}
+
+	// Maps to store unique entities
+	orgMap := make(map[int]*OrganizationHierarchy)
+	siteMap := make(map[int]*SiteHierarchy)
+	areaMap := make(map[int]*AreaHierarchy)
+	gatewayMap := make(map[int]*GatewayHierarchy)
+
+	// Gateway to area mapping (we need this because gateway doesn't store area_id)
+	gatewayToArea := make(map[int]int)
+
+	// First pass: create all entities and add tags to gateways
+	for _, tag := range tags {
+		// Create organization if needed
+		if tag.OrgID > 0 {
+			if _, exists := orgMap[tag.OrgID]; !exists {
+				orgMap[tag.OrgID] = &OrganizationHierarchy{
+					ID:    tag.OrgID,
+					Name:  tag.OrgName,
+					Sites: []SiteHierarchy{},
+				}
+			}
+		}
+
+		// Create site if needed
+		if tag.SiteID > 0 {
+			if _, exists := siteMap[tag.SiteID]; !exists {
+				siteMap[tag.SiteID] = &SiteHierarchy{
+					ID:    tag.SiteID,
+					Name:  tag.SiteName,
+					Areas: []AreaHierarchy{},
+				}
+			}
+		}
+
+		// Create area if needed
+		if tag.AreaID > 0 {
+			if _, exists := areaMap[tag.AreaID]; !exists {
+				areaMap[tag.AreaID] = &AreaHierarchy{
+					ID:       tag.AreaID,
+					Name:     tag.AreaName,
+					Gateways: []GatewayHierarchy{},
+				}
+			}
+		}
+
+		// Create gateway if needed
+		if tag.GatewayID > 0 {
+			if _, exists := gatewayMap[tag.GatewayID]; !exists {
+				gatewayMap[tag.GatewayID] = &GatewayHierarchy{
+					ID:         tag.GatewayID,
+					Name:       tag.GatewayName,
+					DriverType: tag.DriverType,
+					Tags:       []TagWithHierarchy{},
+				}
+			}
+			// Track which area this gateway belongs to
+			gatewayToArea[tag.GatewayID] = tag.AreaID
+			// Add tag to gateway
+			gatewayMap[tag.GatewayID].Tags = append(gatewayMap[tag.GatewayID].Tags, tag)
+		}
+	}
+
+	// Second pass: link gateways to areas
+	for gatewayID, areaID := range gatewayToArea {
+		gateway := gatewayMap[gatewayID]
+		area := areaMap[areaID]
+		if gateway != nil && area != nil {
+			// Check if already linked
+			found := false
+			for _, g := range area.Gateways {
+				if g.ID == gatewayID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				area.Gateways = append(area.Gateways, *gateway)
+			}
+		}
+	}
+
+	// Third pass: link areas to sites
+	areaToSite := make(map[int]int)
+	for _, tag := range tags {
+		if tag.AreaID > 0 && tag.SiteID > 0 {
+			areaToSite[tag.AreaID] = tag.SiteID
+		}
+	}
+	for areaID, siteID := range areaToSite {
+		area := areaMap[areaID]
+		site := siteMap[siteID]
+		if area != nil && site != nil {
+			found := false
+			for _, a := range site.Areas {
+				if a.ID == areaID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				site.Areas = append(site.Areas, *area)
+			}
+		}
+	}
+
+	// Fourth pass: link sites to orgs
+	siteToOrg := make(map[int]int)
+	for _, tag := range tags {
+		if tag.SiteID > 0 && tag.OrgID > 0 {
+			siteToOrg[tag.SiteID] = tag.OrgID
+		}
+	}
+	for siteID, orgID := range siteToOrg {
+		site := siteMap[siteID]
+		org := orgMap[orgID]
+		if site != nil && org != nil {
+			found := false
+			for _, s := range org.Sites {
+				if s.ID == siteID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				org.Sites = append(org.Sites, *site)
+			}
+		}
+	}
+
+	// Convert map to slice
+	result := make([]OrganizationHierarchy, 0, len(orgMap))
+	for _, org := range orgMap {
+		result = append(result, *org)
+	}
+
+	return result
 }

@@ -19,6 +19,7 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
+    DialogDescription,
     DialogFooter,
     DialogTrigger,
 } from '@/components/ui/dialog';
@@ -118,6 +119,9 @@ const SitesPage = () => {
                             <DialogContent>
                                 <DialogHeader>
                                     <DialogTitle>Create Site</DialogTitle>
+                                    <DialogDescription>
+                                        Enter the details for the new site.
+                                    </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
                                     <div className="grid gap-2">
@@ -158,6 +162,9 @@ const SitesPage = () => {
                             <DialogContent>
                                 <DialogHeader>
                                     <DialogTitle>Edit Site</DialogTitle>
+                                    <DialogDescription>
+                                        Update the name of the site.
+                                    </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
                                     <div className="grid gap-2">

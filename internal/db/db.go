@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log"
 
 	_ "github.com/lib/pq"
 )
@@ -27,6 +28,11 @@ func Connect(cfg Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
+	// Run auto-migrations
+	if err := runAutoMigrations(db); err != nil {
+		log.Printf("Warning: Auto-migration failed: %v", err)
+	}
+
 	return db, nil
 }
 
@@ -36,4 +42,41 @@ func Close(db *sql.DB) error {
 		return nil
 	}
 	return db.Close()
+}
+
+// runAutoMigrations executes pending migrations
+func runAutoMigrations(db *sql.DB) error {
+	// Migration 008: audit_logs table
+	auditLogsTable := `
+	CREATE TABLE IF NOT EXISTS audit_logs (
+		id SERIAL PRIMARY KEY,
+		user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+		username VARCHAR(255),
+		action VARCHAR(50) NOT NULL,
+		ip_address VARCHAR(45),
+		user_agent TEXT,
+		details JSONB,
+		success BOOLEAN DEFAULT true,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	);`
+
+	if _, err := db.Exec(auditLogsTable); err != nil {
+		return fmt.Errorf("failed to create audit_logs table: %w", err)
+	}
+
+	// Create indexes if they don't exist
+	indexes := []string{
+		"CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id)",
+		"CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at DESC)",
+		"CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action)",
+	}
+
+	for _, idx := range indexes {
+		if _, err := db.Exec(idx); err != nil {
+			log.Printf("Warning: Failed to create index: %v", err)
+		}
+	}
+
+	log.Println("[DB] Auto-migrations completed successfully")
+	return nil
 }

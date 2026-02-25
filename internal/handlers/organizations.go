@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
+	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 )
 
 // Organization represents an organization in the system
@@ -17,12 +19,16 @@ type Organization struct {
 
 // OrganizationsHandler handles organization-related HTTP requests
 type OrganizationsHandler struct {
-	db *sql.DB
+	db         *sql.DB
+	mqttClient *mqtt.Client
 }
 
 // NewOrganizationsHandler creates a new organizations handler
-func NewOrganizationsHandler(db *sql.DB) *OrganizationsHandler {
-	return &OrganizationsHandler{db: db}
+func NewOrganizationsHandler(db *sql.DB, mqttClient *mqtt.Client) *OrganizationsHandler {
+	return &OrganizationsHandler{
+		db:         db,
+		mqttClient: mqttClient,
+	}
 }
 
 // CreateOrganizationRequest represents the request body for creating an organization
@@ -171,7 +177,43 @@ func (h *OrganizationsHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// Trigger reload for all gateways in this organization to update topic names
+	if h.mqttClient != nil {
+		gatewayIDs, err := h.getGatewayIDsForOrg(org.ID)
+		if err == nil {
+			for _, gwID := range gatewayIDs {
+				topic := fmt.Sprintf("sys/command/reload/%d", gwID)
+				h.mqttClient.Publish(topic, "reload")
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, org)
+}
+
+// Helper to get all gateway IDs for an organization
+func (h *OrganizationsHandler) getGatewayIDsForOrg(orgID int) ([]int, error) {
+	query := `
+		SELECT g.id 
+		FROM gateways g
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id
+		WHERE s.org_id = $1
+	`
+	rows, err := h.db.Query(query, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 // Delete handles DELETE /api/organizations/{id}

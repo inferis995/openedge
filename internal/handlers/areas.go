@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
+	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 )
 
 // Area represents an area in the system
@@ -21,12 +22,16 @@ type Area struct {
 
 // AreasHandler handles area-related HTTP requests
 type AreasHandler struct {
-	db *sql.DB
+	db         *sql.DB
+	mqttClient *mqtt.Client
 }
 
 // NewAreasHandler creates a new areas handler
-func NewAreasHandler(db *sql.DB) *AreasHandler {
-	return &AreasHandler{db: db}
+func NewAreasHandler(db *sql.DB, mqttClient *mqtt.Client) *AreasHandler {
+	return &AreasHandler{
+		db:         db,
+		mqttClient: mqttClient,
+	}
 }
 
 // CreateAreaRequest represents the request body for creating an area
@@ -292,19 +297,7 @@ func (h *AreasHandler) Delete(c *gin.Context) {
 	}
 	defer tx.Rollback()
 
-	// 1. Delete Alarms (via tags -> gateways)
-	_, err = tx.Exec(`
-		DELETE FROM alarms WHERE tag_id IN (
-			SELECT t.id FROM tags t
-			JOIN gateways g ON t.gateway_id = g.id
-			WHERE g.area_id = $1
-		)`, id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related alarms"})
-		return
-	}
-
-	// 2. Delete Tags
+	// 1. Delete Tags (cascade delete handled manually)
 	_, err = tx.Exec(`
 		DELETE FROM tags WHERE gateway_id IN (
 			SELECT id FROM gateways WHERE area_id = $1
@@ -314,14 +307,14 @@ func (h *AreasHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// 3. Delete Gateways
+	// 2. Delete Gateways
 	_, err = tx.Exec("DELETE FROM gateways WHERE area_id = $1", id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete related gateways"})
 		return
 	}
 
-	// 4. Delete Area
+	// 3. Delete Area
 	_, err = tx.Exec("DELETE FROM areas WHERE id = $1", id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete area"})
@@ -412,5 +405,35 @@ func (h *AreasHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// Trigger reload for all gateways in this area to update topic names
+	if h.mqttClient != nil {
+		gatewayIDs, err := h.getGatewayIDsForArea(area.ID)
+		if err == nil {
+			for _, gwID := range gatewayIDs {
+				topic := fmt.Sprintf("sys/command/reload/%d", gwID)
+				h.mqttClient.Publish(topic, "reload")
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, area)
+}
+
+// Helper to get all gateway IDs for an area
+func (h *AreasHandler) getGatewayIDsForArea(areaID int) ([]int, error) {
+	query := `SELECT id FROM gateways WHERE area_id = $1`
+	rows, err := h.db.Query(query, areaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }

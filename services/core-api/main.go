@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -20,6 +21,8 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
+	"github.com/ralph/industrial-edge-middleware/internal/settings"
+	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -127,6 +130,15 @@ func main() {
 		} else {
 			log.Println("Subscribed to data updates")
 		}
+
+		// Subscribe to Sparkplug B topics (dual format support)
+		if err := mqttClient.Subscribe("spBv1.0/#", func(topic string, payload []byte) {
+			handleSparkplugUpdate(topic, payload, redisClient, database)
+		}); err != nil {
+			log.Printf("Warning: Failed to subscribe to Sparkplug topic: %v", err)
+		} else {
+			log.Println("Subscribed to Sparkplug B updates")
+		}
 	}
 
 	log.Println("Industrial Edge Middleware - core-api starting...")
@@ -136,7 +148,7 @@ func main() {
 
 	// CORS Configuration
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3004", "http://127.0.0.1:3004", "http://localhost:4000", "http://127.0.0.1:4000"},
+		AllowOrigins:     []string{"http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3004", "http://127.0.0.1:3004", "http://localhost:4000", "http://127.0.0.1:4000", "http://localhost:9090", "http://127.0.0.1:9090", "http://100.97.150.10:9090", "http://100.97.150.10:8081"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Organization-ID"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -145,13 +157,16 @@ func main() {
 	}))
 
 	// Create handlers with MQTT client and Redis client
-	orgsHandler := handlers.NewOrganizationsHandler(database)
-	sitesHandler := handlers.NewSitesHandler(database)
-	areasHandler := handlers.NewAreasHandler(database)
+	orgsHandler := handlers.NewOrganizationsHandler(database, mqttClient)
+	sitesHandler := handlers.NewSitesHandler(database, mqttClient)
+	areasHandler := handlers.NewAreasHandler(database, mqttClient)
 	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient, redisClient)
 	tagsHandler := handlers.NewTagsHandler(database, mqttClient, redisClient)
-	systemHandler := handlers.NewSystemHandler(database, mqttClient)
 	realtimeHandler := handlers.NewRealtimeHandler(redisClient)
+
+	// Create settings manager for publish mode configuration
+	settingsMgr := settings.NewManager(database)
+	systemHandler := handlers.NewSystemHandler(database, mqttClient, settingsMgr)
 
 	// Create history handler with InfluxDB client (optional)
 	var historyHandler *handlers.HistoryHandler
@@ -165,6 +180,9 @@ func main() {
 
 	// Create users handler
 	usersHandler := handlers.NewUsersHandler(database)
+
+	// Create audit handler
+	auditHandler := handlers.NewAuditHandler(database)
 
 	// Register routes
 	api := router.Group("/api")
@@ -218,6 +236,7 @@ func main() {
 			gateways.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.Delete)
 			gateways.PUT("/:id", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.Update)
 			gateways.POST("/:id/test", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.TestConnection)
+			gateways.POST("/:id/browse", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.BrowseNodes)
 		}
 
 		// Tags endpoints
@@ -229,6 +248,10 @@ func main() {
 			tags.POST("/import", middleware.RequireRole(models.RoleAdmin), tagsHandler.ImportTags)
 			tags.GET("/export", tagsHandler.ExportTags)
 			tags.PUT("/reorder", middleware.RequireRole(models.RoleAdmin), tagsHandler.ReorderTags)
+
+			// Tag hierarchy endpoints for trend page
+			tags.GET("/hierarchy", tagsHandler.GetHierarchy)
+			tags.GET("/with-hierarchy", tagsHandler.ListWithHierarchy)
 
 			tags.POST("", middleware.RequireRole(models.RoleAdmin), tagsHandler.Create)
 			tags.GET("", tagsHandler.List)
@@ -244,6 +267,9 @@ func main() {
 		system.Use(middleware.RequireAuth)
 		{
 			system.POST("/reload", middleware.RequireRole(models.RoleAdmin), systemHandler.Reload)
+			system.GET("/settings", systemHandler.GetSettings)
+			system.PUT("/settings", middleware.RequireRole(models.RoleAdmin), systemHandler.UpdateSettings)
+			system.GET("/metrics", systemHandler.GetMetrics)
 
 			// Backup & Restore
 			backupHandler := handlers.NewBackupHandler(database, influxURL, influxToken, influxOrg)
@@ -276,6 +302,14 @@ func main() {
 				history.GET("", historyHandler.Query)
 				history.GET("/events", historyHandler.QueryEvents)
 			}
+		}
+
+		// Audit endpoints
+		audit := api.Group("/audit")
+		audit.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			audit.GET("/logs", auditHandler.GetAuditLogs)
+			audit.GET("/actions", auditHandler.GetAuditActions)
 		}
 
 		// WebSocket endpoints
@@ -408,4 +442,176 @@ func handleDataUpdate(topic string, payload []byte, redisClient *redis.Client) {
 			log.Printf("Error publishing realtime update for org %d: %v", update.OrgID, err)
 		}
 	}
+}
+
+// handleSparkplugUpdate processes Sparkplug B updates from MQTT
+// Topic format: spBv1.0/{group_id}/{message_type}/{edge_node_id}/{device_id}
+func handleSparkplugUpdate(topic string, payload []byte, redisClient *redis.Client, db *sql.DB) {
+	log.Printf("[SPARKPLUG] Received topic: %s", topic)
+	if redisClient == nil {
+		log.Printf("[SPARKPLUG] Redis client is nil, returning")
+		return
+	}
+
+	// Check if this is a Sparkplug B topic
+	if !sparkplug.IsSparkplugTopic(topic) {
+		log.Printf("[SPARKPLUG] Not a Sparkplug topic: %s", topic)
+		return
+	}
+
+	// Parse Sparkplug B topic
+	topicInfo, err := sparkplug.ParseTopic(topic)
+	if err != nil {
+		log.Printf("[SPARKPLUG] Failed to parse topic: %v", err)
+		return
+	}
+
+	log.Printf("[SPARKPLUG] Parsed topic - Group: %s, Type: %s, Node: %s, Device: %s",
+		topicInfo.GroupID, topicInfo.MessageType, topicInfo.EdgeNodeID, topicInfo.DeviceID)
+
+	// Only process DDATA (data) messages
+	if topicInfo.MessageType != sparkplug.MessageTypeDDATA {
+		log.Printf("[SPARKPLUG] Not a DDATA message (type=%s), skipping", topicInfo.MessageType)
+		return
+	}
+
+	// Try to parse as JSON payload (simplified Sparkplug B format)
+	var sparkplugPayload struct {
+		Timestamp int64 `json:"Timestamp"`
+		Seq       int   `json:"Seq"`
+		Metrics   []struct {
+			Name      string      `json:"Name"`
+			DataType  int         `json:"DataType"`
+			Value     interface{} `json:"Value"`
+			Timestamp int64       `json:"Timestamp"`
+			Quality   int         `json:"Quality"`
+		} `json:"Metrics"`
+	}
+
+	if err := json.Unmarshal(payload, &sparkplugPayload); err != nil {
+		log.Printf("[SPARKPLUG] Failed to parse JSON payload: %v", err)
+		return
+	}
+
+	log.Printf("[SPARKPLUG] Parsed payload with %d metrics", len(sparkplugPayload.Metrics))
+
+	// Process each metric
+	for _, metric := range sparkplugPayload.Metrics {
+		// Convert quality from Sparkplug to legacy format
+		legacyQuality := sparkplug.ConvertSparkplugToLegacyQuality(int32(metric.Quality))
+
+		// Use metric timestamp or payload timestamp
+		timestamp := metric.Timestamp
+		if timestamp == 0 {
+			timestamp = sparkplugPayload.Timestamp
+		}
+		if timestamp == 0 {
+			timestamp = time.Now().UnixMilli()
+		}
+
+		log.Printf("[SPARKPLUG] Processing metric: %s (value: %v, quality: %d)",
+			metric.Name, metric.Value, metric.Quality)
+
+		// Try to find tag by alias
+		tagID, orgID := findTagBySparkplugPath(topicInfo, metric.Name, redisClient, db)
+		if tagID == 0 {
+			log.Printf("[SPARKPLUG] Tag not found for alias: %s", metric.Name)
+			continue
+		}
+
+		log.Printf("[SPARKPLUG] Found tag ID: %d, org ID: %d", tagID, orgID)
+
+		// Build the legacy payload format
+		legacyPayload := map[string]interface{}{
+			"tag_id": tagID,
+			"org_id": orgID,
+			"v":      metric.Value,
+			"ts":     timestamp,
+			"q":      legacyQuality,
+		}
+		payloadBytes, _ := json.Marshal(legacyPayload)
+
+		// Store current value in Redis for real-time queries
+		realtimeKey := fmt.Sprintf("realtime:%d", tagID)
+		redisClient.Set(realtimeKey, string(payloadBytes), 0)
+
+		// Broadcast real-time update via Redis Pub/Sub
+		channel := fmt.Sprintf("realtime_updates:%d", orgID)
+		redisClient.Publish(channel, string(payloadBytes))
+		log.Printf("[SPARKPLUG] Published realtime update for tag %d to channel %s", tagID, channel)
+	}
+}
+
+// findTagBySparkplugPath attempts to find a tag ID from Sparkplug path
+// Returns (tagID, orgID) or (0, 0) if not found
+func findTagBySparkplugPath(topicInfo *sparkplug.TopicInfo, metricName string, redisClient *redis.Client, db *sql.DB) (int, int) {
+	// Use metric name as tag alias (it's the unslugified version)
+	alias := metricName
+	if alias == "" {
+		// Fallback to device_id, unslugify it
+		alias = strings.ReplaceAll(topicInfo.DeviceID, "-", " ")
+	}
+
+	// Try to get from cache first using just the alias
+	cacheKey := fmt.Sprintf("tag_by_alias:%s", alias)
+	cached, err := redisClient.Get(cacheKey)
+	if err == nil && cached != "" {
+		var tagInfo struct {
+			ID             int `json:"ID"`
+			OrganizationID int `json:"OrganizationID"`
+		}
+		if err := json.Unmarshal([]byte(cached), &tagInfo); err == nil {
+			return tagInfo.ID, tagInfo.OrganizationID
+		}
+	}
+
+	// Also try the slugified version as cache key
+	slugAlias := strings.ReplaceAll(strings.ToLower(alias), " ", "-")
+	cacheKeySlug := fmt.Sprintf("tag_by_alias:%s", slugAlias)
+	cached, err = redisClient.Get(cacheKeySlug)
+	if err == nil && cached != "" {
+		var tagInfo struct {
+			ID             int `json:"ID"`
+			OrganizationID int `json:"OrganizationID"`
+		}
+		if err := json.Unmarshal([]byte(cached), &tagInfo); err == nil {
+			return tagInfo.ID, tagInfo.OrganizationID
+		}
+	}
+
+	// Not found in cache - query database
+	if db != nil {
+		var tagID, orgID int
+		query := `
+			SELECT t.id, o.id
+			FROM tags t
+			JOIN gateways g ON t.gateway_id = g.id
+			JOIN areas a ON g.area_id = a.id
+			JOIN sites s ON a.site_id = s.id
+			JOIN organizations o ON s.org_id = o.id
+			WHERE LOWER(t.alias) = LOWER($1)
+		`
+		err := db.QueryRow(query, alias).Scan(&tagID, &orgID)
+		if err == nil {
+			// Cache the result for future lookups
+			tagInfo := struct {
+				ID             int `json:"ID"`
+				OrganizationID int `json:"OrganizationID"`
+			}{
+				ID:             tagID,
+				OrganizationID: orgID,
+			}
+			if cachedBytes, err := json.Marshal(tagInfo); err == nil {
+				redisClient.Set(cacheKey, string(cachedBytes), 5*time.Minute)
+			}
+			return tagID, orgID
+		}
+		// Also try with slugified alias
+		err = db.QueryRow(query, slugAlias).Scan(&tagID, &orgID)
+		if err == nil {
+			return tagID, orgID
+		}
+	}
+
+	return 0, 0
 }

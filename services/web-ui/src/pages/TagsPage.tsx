@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useTags } from '@/hooks/useTags';
 import { tagsApi } from '@/api/tags';
+import { gatewaysApi } from '@/api/gateways';
 import { useGateways } from '@/hooks/useGateways';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -34,7 +35,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Plus, Trash2, Edit2, Database, Upload, Download, ArrowUp, ArrowDown, CheckSquare, Square, X } from 'lucide-react';
-import { CreateTagDto } from '@/types';
+import { CreateTagDto, OpcUaNode } from '@/types';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 
@@ -89,6 +90,13 @@ const TagsPage = () => {
 
     // Batch Selection State
     const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+
+    // OPC UA Browse State
+    const [isBrowseOpen, setIsBrowseOpen] = useState(false);
+    const [browseNodes, setBrowseNodes] = useState<OpcUaNode[]>([]);
+    const [browsePath, setBrowsePath] = useState<{ nodeId: string; name: string }[]>([{ nodeId: 'i=84', name: 'Root' }]);
+    const [isBrowsing, setIsBrowsing] = useState(false);
+    const [browseError, setBrowseError] = useState<string | null>(null);
 
     // Import/Export handlers
     const handleImport = async () => {
@@ -169,6 +177,68 @@ const TagsPage = () => {
     const handleModbusTypeChange = (val: string) => setModbusType(val);
     const handleModbusAddressChange = (val: number) => setModbusAddress(val);
     const handleModbusBitChange = (val: number) => setModbusBit(val);
+
+    // OPC UA Browse handlers
+    const handleBrowseOpen = async () => {
+        setIsBrowseOpen(true);
+        setBrowsePath([{ nodeId: 'i=84', name: 'Root' }]);
+        setBrowseError(null);
+        await loadBrowseNodes('i=84');
+    };
+
+    const loadBrowseNodes = async (nodeId: string) => {
+        if (!selectedGatewayId || selectedGatewayId === 'all') return;
+        setIsBrowsing(true);
+        setBrowseError(null);
+        try {
+            const result = await gatewaysApi.browseNodes(parseInt(selectedGatewayId), nodeId);
+            setBrowseNodes(result.nodes || []);
+            if (result.error) setBrowseError(result.error);
+        } catch (err: any) {
+            setBrowseError(err.message || 'Browse failed');
+            setBrowseNodes([]);
+        }
+        setIsBrowsing(false);
+    };
+
+    const handleBrowseNavigate = async (node: OpcUaNode) => {
+        if (node.node_class === 'Object' && node.children_count > 0) {
+            setBrowsePath(prev => [...prev, { nodeId: node.node_id, name: node.display_name || node.name }]);
+            await loadBrowseNodes(node.node_id);
+        }
+    };
+
+    const handleBrowseBack = async (index: number) => {
+        const newPath = browsePath.slice(0, index + 1);
+        setBrowsePath(newPath);
+        await loadBrowseNodes(newPath[newPath.length - 1].nodeId);
+    };
+
+    const mapOpcUaDataType = (opcuaType: string): 'BOOL' | 'INT' | 'REAL' | 'DINT' | 'STRING' => {
+        switch (opcuaType) {
+            case 'Boolean': return 'BOOL';
+            case 'Int16': case 'UInt16': case 'SByte': case 'Byte': return 'INT';
+            case 'Int32': case 'UInt32': return 'DINT';
+            case 'Float': return 'REAL';
+            case 'Double': return 'REAL';
+            case 'String': case 'ByteString': case 'DateTime': return 'STRING';
+            default: return 'REAL';
+        }
+    };
+
+    const handleAddNodeAsTag = (node: OpcUaNode) => {
+        setFormData({
+            code: node.node_id,
+            alias: node.display_name || node.name,
+            data_type: mapOpcUaDataType(node.data_type),
+            historize: false,
+            deadband_value: 0.1,
+            gateway_id: parseInt(selectedGatewayId!),
+        });
+        setIsBrowseOpen(false);
+        setUpdatingTagId(null);
+        setIsOpen(true);
+    };
 
     // Real-time value integration
     const [currentValues, setCurrentValues] = useState<Map<number, CurrentValue>>(new Map());
@@ -659,6 +729,18 @@ const TagsPage = () => {
                                 </DialogContent>
                             </Dialog>
 
+                            {/* OPC UA Browse Button */}
+                            {selectedGatewayDriverType === 'OPC_UA' && (
+                                <Button
+                                    variant="outline"
+                                    className="gap-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                                    onClick={handleBrowseOpen}
+                                    disabled={!selectedGatewayId || selectedGatewayId === 'all'}
+                                >
+                                    <Database size={16} /> Browse Server
+                                </Button>
+                            )}
+
                             {/* Add Tag Dialog */}
                             <Dialog open={isOpen} onOpenChange={setIsOpen}>
                                 <DialogTrigger asChild disabled={!selectedGatewayId || selectedGatewayId === 'all'}>
@@ -995,6 +1077,101 @@ const TagsPage = () => {
                     </TableBody>
                 </Table>
             </div>
+
+            {/* OPC UA Browse Dialog */}
+            <Dialog open={isBrowseOpen} onOpenChange={setIsBrowseOpen}>
+                <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
+                    <DialogHeader>
+                        <DialogTitle>Browse OPC UA Server</DialogTitle>
+                        <DialogDescription>
+                            Navigate the OPC UA address space. Click on Object nodes to expand, or click "Add as Tag" on Variable nodes to create a tag.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {/* Breadcrumb Navigation */}
+                    <div className="flex items-center gap-1 text-sm flex-wrap">
+                        {browsePath.map((item, index) => (
+                            <div key={index} className="flex items-center">
+                                {index > 0 && <span className="mx-1 text-muted-foreground">/</span>}
+                                <button
+                                    className={`hover:underline ${index === browsePath.length - 1 ? 'font-semibold text-indigo-700' : 'text-muted-foreground'}`}
+                                    onClick={() => handleBrowseBack(index)}
+                                    disabled={isBrowsing}
+                                >
+                                    {item.name}
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Error message */}
+                    {browseError && (
+                        <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+                            {browseError}
+                        </div>
+                    )}
+
+                    {/* Node List */}
+                    <div className="flex-1 overflow-auto border rounded-md min-h-[300px]">
+                        {isBrowsing ? (
+                            <div className="flex items-center justify-center h-full text-muted-foreground">
+                                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600 mr-2"></div>
+                                Browsing nodes...
+                            </div>
+                        ) : browseNodes.length === 0 ? (
+                            <div className="flex items-center justify-center h-full text-muted-foreground">
+                                No nodes found at this level.
+                            </div>
+                        ) : (
+                            <div className="divide-y">
+                                {browseNodes.map((node, index) => (
+                                    <div
+                                        key={index}
+                                        className={`flex items-center justify-between p-3 hover:bg-slate-50 ${node.node_class === 'Object' && node.children_count > 0 ? 'cursor-pointer' : ''}`}
+                                        onClick={() => handleBrowseNavigate(node)}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className={`w-8 h-8 rounded flex items-center justify-center text-xs font-mono ${node.node_class === 'Object'
+                                                    ? 'bg-blue-100 text-blue-700'
+                                                    : node.node_class === 'Variable'
+                                                        ? 'bg-emerald-100 text-emerald-700'
+                                                        : 'bg-gray-100 text-gray-600'
+                                                }`}>
+                                                {node.node_class === 'Object' ? '📁' : node.node_class === 'Variable' ? '📊' : '⚡'}
+                                            </div>
+                                            <div>
+                                                <p className="font-medium text-sm">{node.display_name || node.name}</p>
+                                                <p className="text-xs text-muted-foreground font-mono">{node.node_id}</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            {node.node_class === 'Variable' && (
+                                                <>
+                                                    <Badge variant="outline" className="text-xs">{node.data_type}</Badge>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        className="text-xs border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleAddNodeAsTag(node);
+                                                        }}
+                                                    >
+                                                        <Plus size={14} className="mr-1" /> Add as Tag
+                                                    </Button>
+                                                </>
+                                            )}
+                                            {node.node_class === 'Object' && node.children_count > 0 && (
+                                                <span className="text-xs text-muted-foreground">{node.children_count} children →</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div >
     );
 };

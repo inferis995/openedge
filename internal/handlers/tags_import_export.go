@@ -51,7 +51,9 @@ func parseTagLine(line string) (*ParsedTag, error) {
 
 	// Pattern: Alias : DataType AT Address
 	// Example: HMI_CFG_HBeg_1 : DINT AT 42095
-	pattern := regexp.MustCompile(`^(\S+)\s*:\s*(\w+)\s+AT\s+(\d+)$`)
+	// Example: MyBool : BOOL AT 40001.0
+	// Example: SiemensVal : INT AT %MW100
+	pattern := regexp.MustCompile(`^(\S+)\s*:\s*(\w+)\s+AT\s+(.+)$`)
 	matches := pattern.FindStringSubmatch(line)
 
 	if matches == nil {

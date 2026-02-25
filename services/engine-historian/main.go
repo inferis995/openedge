@@ -29,7 +29,7 @@ const (
 	mqttTopicSparkplug  = "spBv1.0/#" // Sparkplug B topic
 	mqttTopicHealth     = "sys/health/+"
 	bufferFlushSize     = 1000
-	bufferFlushInterval = 1 * time.Second
+	bufferFlushInterval = 200 * time.Millisecond
 )
 
 type HistorianService struct {
@@ -771,11 +771,80 @@ func (s *HistorianService) getGatewayInfo(gatewayID int) (*GatewayInfo, error) {
 	return &gwInfo, nil
 }
 
-// shouldStoreValue checks if the value should be stored based on deadband filtering
+// shouldStoreValue checks if the value should be stored based on quality and deadband filtering.
+// Quality codes: 0 = GOOD, 1 = UNCERTAIN, 2 = BAD
+// Logic: always store on BAD quality, quality change, or value change exceeding deadband.
 func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface{}, newQuality int) bool {
-	// USER REQUEST: Live trend for all tags moment by moment.
-	// Disable deadband filtering globally to store EVERY data point received.
-	return true
+	// Always store BAD/UNCERTAIN quality to create visible gaps in charts
+	if newQuality > 0 {
+		log.Printf("[HISTORIAN] Tag %d quality=%d (BAD/UNCERTAIN), storing for gap visualization",
+			tagInfo.ID, newQuality)
+		return true
+	}
+
+	// Retrieve previous value from Redis for comparison
+	prevValueKey := fmt.Sprintf("prev_value:%d", tagInfo.ID)
+	cached, err := s.redisClient.Get(prevValueKey)
+	if err != nil || cached == "" {
+		// No previous value recorded yet — always store the first occurrence
+		return true
+	}
+
+	var prevValue PreviousValue
+	if err := json.Unmarshal([]byte(cached), &prevValue); err != nil {
+		return true
+	}
+
+	// Always store when quality transitions (e.g., BAD → GOOD recovery)
+	if prevValue.Quality != newQuality {
+		return true
+	}
+
+	// If deadband is not configured (≤ 0), store only on actual value change (on-change storage)
+	if tagInfo.HistorizeDeadband <= 0 {
+		changed := s.hasValueChanged(prevValue.Value, newValue)
+		if changed {
+			log.Printf("[HISTORIAN] Tag %d value changed, storing", tagInfo.ID)
+		}
+		return changed
+	}
+
+	// Apply configured numeric deadband
+	exceeded := s.exceedsDeadband(prevValue.Value, newValue, tagInfo.HistorizeDeadband)
+	if exceeded {
+		log.Printf("[HISTORIAN] Tag %d deadband exceeded (%.4f), storing", tagInfo.ID, tagInfo.HistorizeDeadband)
+	}
+	return exceeded
+}
+
+// hasValueChanged returns true if the new value differs from the previous value.
+func (s *HistorianService) hasValueChanged(prev, new interface{}) bool {
+	switch prevVal := prev.(type) {
+	case float64:
+		switch nv := new.(type) {
+		case float64:
+			return nv != prevVal
+		case bool:
+			boolAsFloat := 0.0
+			if nv {
+				boolAsFloat = 1.0
+			}
+			return boolAsFloat != prevVal
+		default:
+			return true
+		}
+	case bool:
+		switch nv := new.(type) {
+		case bool:
+			return nv != prevVal
+		case float64:
+			return (nv >= 0.5) != prevVal
+		default:
+			return true
+		}
+	default:
+		return fmt.Sprintf("%v", prev) != fmt.Sprintf("%v", new)
+	}
 }
 
 // exceedsDeadband checks if the new value exceeds the deadband from the previous value

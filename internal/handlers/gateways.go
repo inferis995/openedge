@@ -4,14 +4,17 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
+	opcuaclient "github.com/ralph/industrial-edge-middleware/internal/opcua"
 )
 
 // MQTTClient interface for publishing reload commands
@@ -146,13 +149,14 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 	}
 
 	// Validate driver_type
-	if req.DriverType != "S7" && req.DriverType != "MODBUS_TCP" && req.DriverType != "MQTT" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7', 'MODBUS_TCP', or 'MQTT'"})
+	if req.DriverType != "S7" && req.DriverType != "MODBUS_TCP" && req.DriverType != "MQTT" && req.DriverType != "OPC_UA" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7', 'MODBUS_TCP', 'MQTT', or 'OPC_UA'"})
 		return
 	}
 
-	// For non-MQTT drivers, connection_config is required
-	if req.DriverType != "MQTT" && len(req.ConnectionConfig) == 0 {
+	// For non-MQTT/non-OPC_UA drivers, connection_config with IP is required
+	// OPC_UA uses endpoint URL in connection_config instead of ip_address
+	if req.DriverType != "MQTT" && req.DriverType != "OPC_UA" && len(req.ConnectionConfig) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "connection_config is required for this driver type"})
 		return
 	}
@@ -212,7 +216,8 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create gateway"})
+		log.Printf("Failed to insert new gateway: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create gateway", "details": err.Error()})
 		return
 	}
 
@@ -446,14 +451,22 @@ func (h *GatewaysHandler) Delete(c *gin.Context) {
 		for rows.Next() {
 			var org, site, area, gateway, tagAlias string
 			if err := rows.Scan(&org, &site, &area, &gateway, &tagAlias); err == nil {
-				// Topic format: data/{org}/{site}/{area}/{gateway}/{tag_alias}
-				topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", org, site, area, gateway, tagAlias)
+				// Helper to create slug (simple version matching typical driver logic)
+				slug := func(s string) string {
+					return strings.ToLower(strings.ReplaceAll(s, " ", "-"))
+				}
 
 				// Publish empty retained message to clear it
 				if h.mqttClient != nil {
-					// Publish with QoS 1 and Retained=true to clear the message from broker
-					// Empty payload ("") or nil deletes the retained message
-					h.mqttClient.PublishWithQoS(topic, "", 1, true)
+					// 1. Try Raw Format
+					topic1 := fmt.Sprintf("data/%s/%s/%s/%s/%s", org, site, area, gateway, tagAlias)
+					h.mqttClient.PublishWithQoS(topic1, "", 1, true)
+
+					// 2. Try Slugified Format (Standard)
+					topic2 := fmt.Sprintf("data/%s/%s/%s/%s/%s", slug(org), slug(site), slug(area), slug(gateway), slug(tagAlias))
+					if topic2 != topic1 { // Only publish if the slugified topic is different
+						h.mqttClient.PublishWithQoS(topic2, "", 1, true)
+					}
 				}
 			}
 		}
@@ -486,10 +499,13 @@ func (h *GatewaysHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Publish reload command
+	// Publish reload command and clear health status
 	if h.mqttClient != nil {
-		// Also publish health unknown/offline
-		h.mqttClient.Publish(fmt.Sprintf("sys/health/%s", id), "offline")
+		// Clear retained health status message by sending empty payload with retained=true
+		// This prevents "ghost" gateways from appearing in logs after deletion
+		h.mqttClient.PublishWithQoS(fmt.Sprintf("sys/health/%s", id), "", 1, true)
+
+		// Send final reload command (optional, mostly for driver manager if it's still listening)
 		h.mqttClient.Publish(fmt.Sprintf("sys/command/reload/%s", id), "deleted")
 	}
 
@@ -561,8 +577,8 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 	}
 
 	// Validate driver_type if provided
-	if req.DriverType != nil && *req.DriverType != "S7" && *req.DriverType != "MODBUS_TCP" && *req.DriverType != "MQTT" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7', 'MODBUS_TCP', or 'MQTT'"})
+	if req.DriverType != nil && *req.DriverType != "S7" && *req.DriverType != "MODBUS_TCP" && *req.DriverType != "MQTT" && *req.DriverType != "OPC_UA" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7', 'MODBUS_TCP', 'MQTT', or 'OPC_UA'"})
 		return
 	}
 
@@ -583,7 +599,13 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 	}
 	if req.ConnectionConfig != nil {
 		updates = append(updates, "connection_config = $"+strconv.Itoa(argPos))
-		args = append(args, *req.ConnectionConfig)
+		// Convert to JSON to ensure proper serialization for PostgreSQL JSONB
+		configJSON, err := json.Marshal(*req.ConnectionConfig)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to serialize connection config"})
+			return
+		}
+		args = append(args, configJSON)
 		argPos++
 	}
 	if req.ScanRateMs != nil {
@@ -689,11 +711,39 @@ func (h *GatewaysHandler) TestConnection(c *gin.Context) {
 		return
 	}
 
-	// Basic TCP dial simulation or real check
-	// For now, we simulate success if IP is present, normally we would net.DialTimeout
-	// But let's implementing a real check if possible
-
+	// Basic TCP dial check
 	target := ""
+
+	// Handle OPC_UA separately — uses endpoint URL, not ip_address
+	if driverType == "OPC_UA" {
+		endpoint, _ := config["endpoint"].(string)
+		if endpoint == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "No OPC UA endpoint configured"})
+			return
+		}
+		// Parse host:port from opc.tcp://host:port/path
+		clean := strings.TrimPrefix(endpoint, "opc.tcp://")
+		parts := strings.SplitN(clean, "/", 2)
+		hostPort := parts[0]
+		if !strings.Contains(hostPort, ":") {
+			hostPort += ":4840" // default OPC UA port
+		}
+		conn, err := net.DialTimeout("tcp", hostPort, 2*time.Second)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("OPC UA connection failed to %s: %v", hostPort, err)})
+			return
+		}
+		conn.Close()
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Successfully connected to OPC UA server at %s", hostPort)})
+		return
+	}
+
+	if driverType == "MQTT" {
+		// MQTT driver doesn't need TCP test to PLC IP - the PLC connects to our broker
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "MQTT driver: PLC publishes to the system broker. No direct connection to test."})
+		return
+	}
+
 	if val, ok := config["ip_address"].(string); ok {
 		ipAddress = val
 	} else {
@@ -710,10 +760,6 @@ func (h *GatewaysHandler) TestConnection(c *gin.Context) {
 		} else {
 			port = 502
 		}
-	} else if driverType == "MQTT" {
-		// MQTT driver doesn't need TCP test to PLC IP - the PLC connects to our broker
-		c.JSON(http.StatusOK, gin.H{"success": true, "message": "MQTT driver: PLC publishes to the system broker. No direct connection to test."})
-		return
 	}
 
 	if port == 0 {
@@ -732,4 +778,78 @@ func (h *GatewaysHandler) TestConnection(c *gin.Context) {
 	conn.Close()
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("Successfully connected to %s", target)})
+}
+
+// BrowseNodes handles POST /api/gateways/{id}/browse
+// Connects to an OPC UA server and browses child nodes from a given parent
+func (h *GatewaysHandler) BrowseNodes(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid gateway ID"})
+		return
+	}
+
+	// Parse request body
+	var req struct {
+		NodeID string `json:"node_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		req.NodeID = "i=84" // Default: Root Objects folder
+	}
+	if req.NodeID == "" {
+		req.NodeID = "i=84"
+	}
+
+	// Fetch gateway config
+	var driverType string
+	var connectionConfig []byte
+
+	err = h.db.QueryRow(
+		"SELECT driver_type, connection_config FROM gateways WHERE id = $1",
+		id,
+	).Scan(&driverType, &connectionConfig)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
+		return
+	}
+
+	if driverType != "OPC_UA" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Browse is only supported for OPC_UA gateways"})
+		return
+	}
+
+	// Parse connection config
+	var config map[string]interface{}
+	if err := json.Unmarshal(connectionConfig, &config); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid connection config"})
+		return
+	}
+
+	endpoint, _ := config["endpoint"].(string)
+	if endpoint == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No OPC UA endpoint configured"})
+		return
+	}
+
+	// Create temporary OPC UA client for browsing
+	client := opcuaclient.NewClient(opcuaclient.Config{
+		Endpoint: endpoint,
+		Timeout:  10 * time.Second,
+	})
+
+	if err := client.Connect(); err != nil {
+		c.JSON(http.StatusOK, gin.H{"error": fmt.Sprintf("Failed to connect to OPC UA server: %v", err), "nodes": []interface{}{}})
+		return
+	}
+	defer client.Disconnect()
+
+	nodes, err := client.Browse(req.NodeID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"error": fmt.Sprintf("Browse failed: %v", err), "nodes": []interface{}{}})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"nodes": nodes})
 }

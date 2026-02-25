@@ -39,6 +39,11 @@ import { CreateGatewayDto, Gateway } from '@/types';
 interface ExtendedCreateGatewayDto extends Omit<CreateGatewayDto, 'connection_config'> {
     zero_based: boolean;
     connection_config: any;
+    auth_mode?: string;
+    username?: string;
+    password?: string;
+    cert_file?: string;
+    key_file?: string;
 }
 
 const GatewaysPage = () => {
@@ -57,6 +62,7 @@ const GatewaysPage = () => {
         name: '',
         driver_type: 'S7',
         ip_address: '',
+        endpoint: '',
         rack: 0,
         slot: 2,
         port: 502,
@@ -64,6 +70,11 @@ const GatewaysPage = () => {
         scan_rate_ms: 1000,
         enabled: true,
         zero_based: false, // Default to false (Standard Modbus)
+        auth_mode: 'Anonymous', // Default OPC UA auth
+        username: '',
+        password: '',
+        cert_file: '',
+        key_file: '',
     });
     const [selectedAreaForCreate, setSelectedAreaForCreate] = useState<string>(
         selectedAreaId ? selectedAreaId.toString() : ''
@@ -73,14 +84,40 @@ const GatewaysPage = () => {
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
+    const buildConnectionConfig = () => {
+        let connection_config: any = {};
+        if (formData.driver_type === 'S7') {
+            connection_config = { ip_address: formData.ip_address, rack: formData.rack, slot: formData.slot };
+        } else if (formData.driver_type === 'MODBUS_TCP') {
+            connection_config = { ip_address: formData.ip_address, port: formData.port, slave_id: formData.slave_id };
+        } else if (formData.driver_type === 'OPC_UA') {
+            connection_config = {
+                endpoint: formData.endpoint,
+                auth_mode: formData.auth_mode,
+                username: formData.username,
+                password: formData.password,
+                cert_file: formData.cert_file,
+                key_file: formData.key_file,
+            };
+        } else if (formData.driver_type === 'MQTT') {
+            connection_config = {};
+        }
+        return connection_config;
+    };
+
     const handleCreate = async () => {
         if (!formData.name || !selectedAreaForCreate) return;
-        // IP is required for S7 and MODBUS_TCP, not for MQTT
-        if (formData.driver_type !== 'MQTT' && !formData.ip_address) return;
+        // IP is required for S7 and MODBUS_TCP, not for MQTT or OPC_UA
+        if (formData.driver_type !== 'MQTT' && formData.driver_type !== 'OPC_UA' && !formData.ip_address) return;
+        // Endpoint is required for OPC_UA
+        if (formData.driver_type === 'OPC_UA' && !formData.endpoint) return;
 
         try {
+            const connection_config = buildConnectionConfig();
+
             const payload: ExtendedCreateGatewayDto = {
                 ...formData,
+                connection_config,
                 area_id: parseInt(selectedAreaForCreate),
                 org_id: useNavigationStore.getState().selectedOrgId || undefined
             } as ExtendedCreateGatewayDto; // Cast to ExtendedCreateGatewayDto
@@ -104,6 +141,7 @@ const GatewaysPage = () => {
             name: '',
             driver_type: 'S7',
             ip_address: '',
+            endpoint: '',
             rack: 0,
             slot: 2,
             port: 502,
@@ -111,6 +149,11 @@ const GatewaysPage = () => {
             scan_rate_ms: 1000,
             enabled: true,
             zero_based: false, // Default to false (Standard Modbus)
+            auth_mode: 'Anonymous',
+            username: '',
+            password: '',
+            cert_file: '',
+            key_file: '',
         });
     };
 
@@ -120,6 +163,8 @@ const GatewaysPage = () => {
 
         // Parse connection config based on driver type
         let rack = 0, slot = 2, port = 502, slave_id = 1, ip_address = '';
+        let auth_mode = 'Anonymous', username = '', password = '', cert_file = '', key_file = '';
+        let endpoint = '';
 
         if (gateway.connection_config) {
             const config = gateway.connection_config;
@@ -130,6 +175,13 @@ const GatewaysPage = () => {
             } else if (gateway.driver_type === 'MODBUS_TCP') {
                 port = config.port || 502;
                 slave_id = config.slave_id || 1;
+            } else if (gateway.driver_type === 'OPC_UA') {
+                endpoint = config.endpoint || '';
+                auth_mode = config.auth_mode || 'Anonymous';
+                username = config.username || '';
+                password = config.password || '';
+                cert_file = config.cert_file || '';
+                key_file = config.key_file || '';
             }
         }
 
@@ -137,13 +189,19 @@ const GatewaysPage = () => {
             name: gateway.name,
             driver_type: gateway.driver_type,
             ip_address: ip_address,
+            endpoint,
             rack,
             slot,
             port,
             slave_id,
             scan_rate_ms: gateway.scan_rate_ms,
             enabled: gateway.enabled,
-            zero_based: gateway.zero_based !== undefined ? gateway.zero_based : false, // Default to false (Standard Modbus)
+            zero_based: gateway.zero_based !== undefined ? gateway.zero_based : false,
+            auth_mode,
+            username,
+            password,
+            cert_file,
+            key_file,
         });
         setIsOpen(true);
     };
@@ -242,6 +300,7 @@ const GatewaysPage = () => {
                                                 <SelectItem value="S7">Siemens S7</SelectItem>
                                                 <SelectItem value="MODBUS_TCP">Modbus TCP</SelectItem>
                                                 <SelectItem value="MQTT">MQTT Native</SelectItem>
+                                                <SelectItem value="OPC_UA">OPC UA</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -257,7 +316,7 @@ const GatewaysPage = () => {
                                     />
                                 </div>
 
-                                {formData.driver_type !== 'MQTT' && (
+                                {formData.driver_type !== 'MQTT' && formData.driver_type !== 'OPC_UA' && (
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="grid gap-2">
                                             <Label htmlFor="ip">IP Address</Label>
@@ -381,6 +440,108 @@ const GatewaysPage = () => {
                                     </div>
                                 )}
 
+                                {formData.driver_type === 'OPC_UA' && (
+                                    <div className="space-y-4">
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="endpoint">Endpoint URL</Label>
+                                            <Input
+                                                id="endpoint"
+                                                value={formData.endpoint}
+                                                onChange={(e) => handleInputChange('endpoint', e.target.value)}
+                                                placeholder="opc.tcp://192.168.1.10:4840"
+                                            />
+                                        </div>
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="scan">Scan Rate (ms)</Label>
+                                            <Input
+                                                id="scan"
+                                                type="number"
+                                                value={formData.scan_rate_ms}
+                                                onChange={(e) => handleInputChange('scan_rate_ms', parseInt(e.target.value))}
+                                            />
+                                        </div>
+
+                                        <div className="grid gap-2 border-t pt-4">
+                                            <Label htmlFor="auth_mode">Authentication Mode</Label>
+                                            <Select
+                                                value={formData.auth_mode || 'Anonymous'}
+                                                onValueChange={(val) => handleInputChange('auth_mode', val)}
+                                            >
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select Auth Mode" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="Anonymous">Anonymous</SelectItem>
+                                                    <SelectItem value="Username">Username / Password</SelectItem>
+                                                    <SelectItem value="Certificate">Certificate</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        {formData.auth_mode === 'Username' && (
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="username">Username</Label>
+                                                    <Input
+                                                        id="username"
+                                                        value={formData.username}
+                                                        onChange={(e) => handleInputChange('username', e.target.value)}
+                                                        placeholder="admin"
+                                                    />
+                                                </div>
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="password">Password</Label>
+                                                    <Input
+                                                        id="password"
+                                                        type="password"
+                                                        value={formData.password}
+                                                        onChange={(e) => handleInputChange('password', e.target.value)}
+                                                        placeholder="••••••••"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {formData.auth_mode === 'Certificate' && (
+                                            <div className="grid gap-4 bg-slate-50 p-3 rounded-md border">
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="cert_file">Certificate File Path (Server-side)</Label>
+                                                    <Input
+                                                        id="cert_file"
+                                                        value={formData.cert_file}
+                                                        onChange={(e) => handleInputChange('cert_file', e.target.value)}
+                                                        placeholder="/app/certs/client.pem"
+                                                    />
+                                                </div>
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="key_file">Private Key File Path (Server-side)</Label>
+                                                    <Input
+                                                        id="key_file"
+                                                        value={formData.key_file}
+                                                        onChange={(e) => handleInputChange('key_file', e.target.value)}
+                                                        placeholder="/app/certs/client.key"
+                                                    />
+                                                </div>
+                                                <div className="text-xs text-muted-foreground mt-1">
+                                                    Paths must be valid inside the <span className="font-semibold">driver-opcua</span> container.
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="p-4 bg-indigo-50 rounded-md border border-indigo-200 mt-2">
+                                            <p className="font-semibold text-indigo-800 mb-2">OPC UA Driver</p>
+                                            <p className="text-sm text-indigo-700 mb-2">
+                                                Connects to an OPC UA server and reads selected nodes at the configured scan rate.
+                                            </p>
+                                            <ul className="list-disc list-inside text-xs text-indigo-600 space-y-1">
+                                                <li>Enter the server's OPC UA endpoint URL</li>
+                                                <li>After creating the gateway, use <strong>Browse Server</strong> in the Tags page to discover and add nodes</li>
+                                                <li>Tag <strong>Code</strong> = OPC UA Node ID (e.g. <code>ns=2;s=Temperature</code>)</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="flex items-center space-x-2">
                                     <Switch
                                         id="enabled"
@@ -440,10 +601,12 @@ const GatewaysPage = () => {
                                             ? `Rack: ${gw.connection_config?.rack || 0}, Slot: ${gw.connection_config?.slot || 0}`
                                             : gw.driver_type === 'MQTT'
                                                 ? 'PLC → Broker (event-driven)'
-                                                : `Port: ${gw.connection_config?.port || 502}, ID: ${gw.connection_config?.slave_id || 1}`
+                                                : gw.driver_type === 'OPC_UA'
+                                                    ? `${gw.connection_config?.endpoint || 'No endpoint'}`
+                                                    : `Port: ${gw.connection_config?.port || 502}, ID: ${gw.connection_config?.slave_id || 1}`
                                         }
                                         <br />
-                                        {gw.driver_type !== 'MQTT' && <>Scan: {gw.scan_rate_ms}ms</>}
+                                        {gw.driver_type !== 'MQTT' && <>{gw.driver_type === 'OPC_UA' ? `Scan: ${gw.scan_rate_ms}ms` : `Scan: ${gw.scan_rate_ms}ms`}</>}
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">

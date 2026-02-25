@@ -12,35 +12,57 @@ import {
     TableRow
 } from '@/components/ui/table';
 import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue
+} from '@/components/ui/select';
+import {
     Play,
     Pause,
     Trash2,
     Radio,
     Filter,
     ArrowDown,
-    Wifi
+    Wifi,
+    Zap
 } from 'lucide-react';
 import mqtt, { type MqttClient } from 'mqtt';
+
+type MessageFormat = 'all' | 'legacy' | 'sparkplug';
 
 interface MqttMessage {
     id: string;
     topic: string;
     tagId: number;
+    tagAlias: string;
     value: number | boolean | string;
     timestamp: number;
     quality: number;
     receivedAt: Date;
+    format: 'legacy' | 'sparkplug';
 }
 
 const MAX_MESSAGES = 500;
+
+// Sparkplug B quality conversion
+const convertSparkplugQuality = (quality: number): number => {
+    if (quality >= 192) return 0; // Good
+    if (quality >= 64) return 1;  // Uncertain
+    return 2; // Bad
+};
 
 const MqttMonitorPage = () => {
     const [messages, setMessages] = useState<MqttMessage[]>([]);
     const [isConnected, setIsConnected] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
     const [filter, setFilter] = useState('');
+    const [formatFilter, setFormatFilter] = useState<MessageFormat>('all');
     const [autoScroll, setAutoScroll] = useState(true);
     const [messageCount, setMessageCount] = useState(0);
+    const [legacyCount, setLegacyCount] = useState(0);
+    const [sparkplugCount, setSparkplugCount] = useState(0);
     const clientRef = useRef<MqttClient | null>(null);
     const tableEndRef = useRef<HTMLDivElement>(null);
     const pausedMessagesRef = useRef<MqttMessage[]>([]);
@@ -54,7 +76,6 @@ const MqttMonitorPage = () => {
     // Connect to MQTT broker directly
     useEffect(() => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // Connect through Nginx proxy (same host/port as the web UI)
         const wsUrl = `${protocol}//${window.location.host}/mqtt`;
 
         console.log('[MQTT Monitor] Connecting to:', wsUrl);
@@ -73,12 +94,21 @@ const MqttMonitorPage = () => {
             setIsConnected(true);
             console.log('[MQTT Monitor] Connected to MQTT broker');
 
-            // Subscribe to all data topics
+            // Subscribe to legacy data topics
             client.subscribe('data/#', { qos: 0 }, (err) => {
                 if (err) {
-                    console.error('[MQTT Monitor] Subscribe error:', err);
+                    console.error('[MQTT Monitor] Subscribe error (data/#):', err);
                 } else {
-                    console.log('[MQTT Monitor] Subscribed to data/#');
+                    console.log('[MQTT Monitor] Subscribed to data/# (Legacy)');
+                }
+            });
+
+            // Subscribe to Sparkplug B topics
+            client.subscribe('spBv1.0/#', { qos: 0 }, (err) => {
+                if (err) {
+                    console.error('[MQTT Monitor] Subscribe error (spBv1.0/#):', err);
+                } else {
+                    console.log('[MQTT Monitor] Subscribed to spBv1.0/# (Sparkplug B)');
                 }
             });
         });
@@ -91,19 +121,77 @@ const MqttMonitorPage = () => {
                 try {
                     data = JSON.parse(message);
                 } catch {
-                    // If not valid JSON, use raw message as value
                     data = { v: message, ts: Date.now(), q: 0 };
                 }
 
-                const msg: MqttMessage = {
-                    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                    topic: topic,
-                    tagId: data.tag_id || 0,
-                    value: data.v ?? data.value ?? '-',
-                    timestamp: data.ts || data.timestamp || Date.now(),
-                    quality: data.q ?? data.quality ?? 0,
-                    receivedAt: new Date()
-                };
+                // Determine format based on topic
+                const isSparkplug = topic.startsWith('spBv1.0/');
+
+                let msg: MqttMessage;
+
+                if (isSparkplug) {
+                    // Parse Sparkplug B format
+                    // Topic structure: spBv1.0/{groupId}/{msgType}/{nodeId}[/{deviceId}]
+                    const topicParts = topic.split('/');
+                    const msgType = topicParts[2] || '';   // NBIRTH, DBIRTH, DDEATH, NDEATH, DDATA, NDATA
+                    const nodeId = topicParts[3] || '';
+                    const deviceId = topicParts[4] || '';
+
+                    const metrics = data.Metrics || data.metrics || [];
+                    const metric = Array.isArray(metrics) ? metrics[0] : metrics;
+
+                    let tagAlias: string;
+                    let value: number | boolean | string;
+                    let quality: number;
+
+                    if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
+                        // Device/Node birth — lifecycle event, not a tag value
+                        const label = deviceId || nodeId;
+                        const count = Array.isArray(metrics) ? metrics.length : 1;
+                        tagAlias = `[${msgType}] ${label}`;
+                        value = `${count} metric${count !== 1 ? 's' : ''}`;
+                        quality = 0;
+                    } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
+                        // Device/Node death — offline event
+                        const label = deviceId || nodeId;
+                        tagAlias = `[${msgType}] ${label}`;
+                        value = 'offline';
+                        quality = 2; // BAD
+                    } else {
+                        // DDATA / NDATA — actual metric values
+                        const sparkplugQuality = metric?.Quality ?? data.Quality ?? 192;
+                        tagAlias = metric?.Name || metric?.name || extractAliasFromTopic(topic);
+                        value = metric?.Value ?? metric?.value ?? data.v ?? '-';
+                        quality = convertSparkplugQuality(sparkplugQuality);
+                    }
+
+                    msg = {
+                        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        topic: topic,
+                        tagId: 0,
+                        tagAlias,
+                        value,
+                        timestamp: data.Timestamp || data.timestamp || Date.now(),
+                        quality,
+                        receivedAt: new Date(),
+                        format: 'sparkplug'
+                    };
+                    setSparkplugCount(prev => prev + 1);
+                } else {
+                    // Parse Legacy format
+                    msg = {
+                        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        topic: topic,
+                        tagId: data.tag_id || 0,
+                        tagAlias: extractAliasFromTopic(topic),
+                        value: data.v ?? data.value ?? '-',
+                        timestamp: data.ts || data.timestamp || Date.now(),
+                        quality: data.q ?? data.quality ?? 0,
+                        receivedAt: new Date(),
+                        format: 'legacy'
+                    };
+                    setLegacyCount(prev => prev + 1);
+                }
 
                 setMessageCount(prev => prev + 1);
 
@@ -143,6 +231,12 @@ const MqttMonitorPage = () => {
         };
     }, []);
 
+    // Extract alias from topic path
+    const extractAliasFromTopic = (topic: string): string => {
+        const parts = topic.split('/');
+        return parts[parts.length - 1] || topic;
+    };
+
     // Auto-scroll to bottom
     useEffect(() => {
         if (autoScroll && tableEndRef.current) {
@@ -168,6 +262,9 @@ const MqttMonitorPage = () => {
     const handleClear = () => {
         setMessages([]);
         pausedMessagesRef.current = [];
+        setLegacyCount(0);
+        setSparkplugCount(0);
+        setMessageCount(0);
     };
 
     const getQualityBadge = (quality: number) => {
@@ -178,6 +275,13 @@ const MqttMonitorPage = () => {
         } else {
             return <Badge className="bg-red-500 text-white">BAD</Badge>;
         }
+    };
+
+    const getFormatBadge = (format: 'legacy' | 'sparkplug') => {
+        if (format === 'sparkplug') {
+            return <Badge className="bg-purple-500 text-white gap-1"><Zap className="h-3 w-3" />SPB</Badge>;
+        }
+        return <Badge className="bg-slate-500 text-white">LEG</Badge>;
     };
 
     const formatValue = (value: number | boolean | string) => {
@@ -200,13 +304,20 @@ const MqttMonitorPage = () => {
         return `${time}.${ms}`;
     };
 
-    // Filter messages
-    const filteredMessages = filter
-        ? messages.filter(m =>
-            m.topic.toLowerCase().includes(filter.toLowerCase()) ||
-            m.tagId.toString().includes(filter)
-        )
-        : messages;
+    // Filter messages by format and text
+    const filteredMessages = messages.filter(m => {
+        // Format filter
+        if (formatFilter === 'legacy' && m.format !== 'legacy') return false;
+        if (formatFilter === 'sparkplug' && m.format !== 'sparkplug') return false;
+
+        // Text filter
+        if (filter) {
+            return m.topic.toLowerCase().includes(filter.toLowerCase()) ||
+                   m.tagAlias.toLowerCase().includes(filter.toLowerCase()) ||
+                   m.tagId.toString().includes(filter);
+        }
+        return true;
+    });
 
     return (
         <div className="space-y-4 h-full flex flex-col">
@@ -217,7 +328,8 @@ const MqttMonitorPage = () => {
                     <div>
                         <h2 className="text-2xl font-bold tracking-tight">MQTT Live Monitor</h2>
                         <p className="text-muted-foreground text-sm">
-                            Real-time message stream • {messageCount.toLocaleString()} messages received
+                            Real-time message stream • {messageCount.toLocaleString()} total
+                            <span className="ml-2 text-slate-500">(Legacy: {legacyCount}, Sparkplug: {sparkplugCount})</span>
                         </p>
                     </div>
                 </div>
@@ -268,11 +380,26 @@ const MqttMonitorPage = () => {
                             Auto-scroll
                         </Button>
 
+                        {/* Format Filter */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">Format:</span>
+                            <Select value={formatFilter} onValueChange={(v) => setFormatFilter(v as MessageFormat)}>
+                                <SelectTrigger className="w-[140px]">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="all">All Messages</SelectItem>
+                                    <SelectItem value="legacy">Legacy (data/#)</SelectItem>
+                                    <SelectItem value="sparkplug">Sparkplug B</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+
                         {/* Filter */}
                         <div className="flex-1 flex items-center gap-2 ml-4">
                             <Filter className="h-4 w-4 text-muted-foreground" />
                             <Input
-                                placeholder="Filter by topic or tag ID..."
+                                placeholder="Filter by topic or alias..."
                                 value={filter}
                                 onChange={(e) => setFilter(e.target.value)}
                                 className="max-w-sm"
@@ -292,7 +419,7 @@ const MqttMonitorPage = () => {
                 <CardHeader className="py-3">
                     <CardTitle className="text-base">Message Stream</CardTitle>
                     <CardDescription>
-                        Latest MQTT messages (max {MAX_MESSAGES})
+                        Latest MQTT messages (max {MAX_MESSAGES}) • Topics: data/# (Legacy) + spBv1.0/# (Sparkplug B)
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -300,49 +427,39 @@ const MqttMonitorPage = () => {
                         <Table>
                             <TableHeader className="sticky top-0 bg-white z-10">
                                 <TableRow>
-                                    <TableHead className="w-[120px]">Time</TableHead>
+                                    <TableHead className="w-[100px]">Time</TableHead>
+                                    <TableHead className="w-[70px]">Format</TableHead>
                                     <TableHead className="w-[80px]">Tag ID</TableHead>
-                                    <TableHead>Topic</TableHead>
-                                    <TableHead className="w-[150px] text-right">Value</TableHead>
+                                    <TableHead>Topic / Alias</TableHead>
+                                    <TableHead className="w-[120px] text-right">Value</TableHead>
                                     <TableHead className="w-[100px] text-center">Quality</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {filteredMessages.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="h-32 text-center text-muted-foreground">
+                                        <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
                                             {isPaused ? 'Stream paused...' : 'Waiting for messages...'}
                                         </TableCell>
                                     </TableRow>
                                 ) : (
                                     filteredMessages.map((msg) => (
-                                        <TableRow key={msg.id} className="font-mono text-sm">
+                                        <TableRow key={msg.id} className={`font-mono text-sm ${msg.format === 'sparkplug' ? 'bg-purple-50/30' : ''}`}>
                                             <TableCell className="text-muted-foreground">
                                                 {formatTime(msg.receivedAt)}
                                             </TableCell>
                                             <TableCell>
-                                                <Badge variant="outline">{msg.tagId}</Badge>
+                                                {getFormatBadge(msg.format)}
                                             </TableCell>
-                                            <TableCell className="text-xs truncate max-w-[400px]" title={msg.topic}>
-                                                {msg.topic}
+                                            <TableCell>
+                                                {msg.tagId > 0 ? (
+                                                    <Badge variant="outline">{msg.tagId}</Badge>
+                                                ) : (
+                                                    <span className="text-muted-foreground">-</span>
+                                                )}
                                             </TableCell>
-                                            <TableCell className="text-right font-semibold text-blue-600">
-                                                {formatValue(msg.value)}
-                                            </TableCell>
-                                            <TableCell className="text-center">
-                                                {getQualityBadge(msg.quality)}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                )}
-                            </TableBody>
-                        </Table>
-                        <div ref={tableEndRef} />
-                    </div>
-                </CardContent>
-            </Card>
-        </div>
-    );
-};
-
-export default MqttMonitorPage;
+                                            <TableCell className="text-xs">
+                                                <div className="truncate max-w-[350px]" title={msg.topic}>
+                                                    {msg.tagAlias && msg.tagAlias !== msg.topic.split('/').pop() ? (
+                                                        <span>
+      

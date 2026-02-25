@@ -18,6 +18,7 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
+    DialogDescription,
     DialogFooter,
     DialogTrigger,
 } from '@/components/ui/dialog';
@@ -103,6 +104,9 @@ const OrganizationsPage = () => {
                             <DialogContent>
                                 <DialogHeader>
                                     <DialogTitle>Create Organization</DialogTitle>
+                                    <DialogDescription>
+                                        Enter the details for the new organization.
+                                    </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
                                     <div className="grid grid-cols-4 items-center gap-4">
@@ -128,6 +132,9 @@ const OrganizationsPage = () => {
                             <DialogContent>
                                 <DialogHeader>
                                     <DialogTitle>Edit Organization</DialogTitle>
+                                    <DialogDescription>
+                                        Update the details of the organization.
+                                    </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
                                     <div className="grid grid-cols-4 items-center gap-4">

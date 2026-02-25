@@ -18,6 +18,12 @@ const api = axios.create({
     timeout: 10000,
 });
 
+// Endpoints that require organization context
+const ORG_REQUIRED_ENDPOINTS = [
+    '/sites', '/areas', '/gateways', '/tags', '/history', '/audit',
+    '/config/import', '/config/export'
+];
+
 // Request interceptor to add X-Organization-ID header
 api.interceptors.request.use(
     (config: CustomAxiosRequestConfig) => {
@@ -28,8 +34,15 @@ api.interceptors.request.use(
             config.headers['Authorization'] = `Bearer ${token}`;
         }
 
-        if (selectedOrgId && !config.headers['X-Organization-ID']) {
+        // Check if this endpoint requires organization context
+        const url = config.url || '';
+        const requiresOrg = ORG_REQUIRED_ENDPOINTS.some(ep => url.startsWith(ep));
+
+        if (selectedOrgId) {
             config.headers['X-Organization-ID'] = selectedOrgId.toString();
+        } else if (requiresOrg) {
+            // Log warning for endpoints that require org context
+            console.warn(`[API] Warning: Organization ID not set for ${url}. This request may fail with 403.`);
         }
         // Add request metadata for loading states
         config.metadata = { startTime: Date.now() };

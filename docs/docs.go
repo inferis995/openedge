@@ -15,72 +15,6 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/api/alarms/{id}/acknowledge": {
-            "post": {
-                "description": "Acknowledge an active alarm",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "alarms"
-                ],
-                "summary": "Acknowledge an alarm",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Organization ID",
-                        "name": "X-Organization-ID",
-                        "in": "header",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "Alarm ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handlers.AcknowledgeResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Invalid request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Alarm not found",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "500": {
-                        "description": "Server error",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/api/areas": {
             "get": {
                 "description": "Get a list of areas for the specified site",
@@ -215,6 +149,333 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "Site not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/areas/{id}": {
+            "get": {
+                "description": "Get a single area by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "areas"
+                ],
+                "summary": "Get an area",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Area ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.Area"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Area not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Update an area by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "areas"
+                ],
+                "summary": "Update an area",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Area ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Area update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.UpdateAreaRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.Area"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Area not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete an area by ID (cascades to gateways, tags)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "areas"
+                ],
+                "summary": "Delete an area",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Area ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Area deleted"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Area not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/audit/actions": {
+            "get": {
+                "description": "Get list of distinct audit action types",
+                "tags": [
+                    "audit"
+                ],
+                "summary": "Get available audit actions",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/audit/logs": {
+            "get": {
+                "description": "Get audit logs with optional filters",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "audit"
+                ],
+                "summary": "Get audit logs",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (ISO 8601)",
+                        "name": "start",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (ISO 8601)",
+                        "name": "end",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by action type",
+                        "name": "action",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Filter by user ID",
+                        "name": "user_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Filter by success status",
+                        "name": "success",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limit results (default 100, max 500)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_handlers.AuditLog"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -423,15 +684,6 @@ const docTemplate = `{
                             "$ref": "#/definitions/internal_handlers.GatewayWithHealth"
                         }
                     },
-                    "400": {
-                        "description": "Invalid request",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
-                        }
-                    },
                     "403": {
                         "description": "Forbidden",
                         "schema": {
@@ -542,6 +794,116 @@ const docTemplate = `{
                         }
                     }
                 }
+            },
+            "delete": {
+                "description": "Delete a gateway by ID (cascades to tags)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "gateways"
+                ],
+                "summary": "Delete a gateway",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Gateway ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Gateway deleted"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Gateway not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/gateways/{id}/test": {
+            "post": {
+                "description": "Test TCP connection to the gateway",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "gateways"
+                ],
+                "summary": "Test gateway connection",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Gateway ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Gateway not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
             }
         },
         "/api/history": {
@@ -606,6 +968,82 @@ const docTemplate = `{
                             "type": "array",
                             "items": {
                                 "$ref": "#/definitions/internal_handlers.HistoryDataPoint"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/history/events": {
+            "get": {
+                "description": "Query system events (connections, etc.) from InfluxDB - only for existing gateways",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "history"
+                ],
+                "summary": "Query historical events",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start time (ISO 8601)",
+                        "name": "start",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "End time (ISO 8601)",
+                        "name": "end",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/internal_handlers.HistoryEvent"
                             }
                         }
                     },
@@ -705,6 +1143,167 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/organizations/{id}": {
+            "get": {
+                "description": "Get a single organization by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Get an organization",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.Organization"
+                        }
+                    },
+                    "404": {
+                        "description": "Organization not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Update an organization's name by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Update an organization",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Organization update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.UpdateOrganizationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.Organization"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Organization not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete an organization by ID (cascades to sites, areas, gateways, tags)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "organizations"
+                ],
+                "summary": "Delete an organization",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Organization deleted"
+                    },
+                    "404": {
+                        "description": "Organization not found",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -843,6 +1442,215 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/sites/{id}": {
+            "get": {
+                "description": "Get a single site by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sites"
+                ],
+                "summary": "Get a site",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Site ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.Site"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Site not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "Update a site by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sites"
+                ],
+                "summary": "Update a site",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Site ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Site update request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.UpdateSiteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.Site"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Site not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete a site by ID (cascades to areas, gateways, tags)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "sites"
+                ],
+                "summary": "Delete a site",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Site ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Site deleted"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Site not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/api/tags": {
             "get": {
                 "description": "Get a list of tags for the specified gateway",
@@ -921,17 +1729,6 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Create a new tag for the specified gateway",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "tags"
-                ],
-                "summary": "Create a new tag",
                 "parameters": [
                     {
                         "type": "integer",
@@ -997,6 +1794,70 @@ const docTemplate = `{
             }
         },
         "/api/tags/{id}": {
+            "get": {
+                "description": "Get a single tag by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tags"
+                ],
+                "summary": "Get a tag",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Tag ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.Tag"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Tag not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
             "put": {
                 "description": "Update a tag by ID",
                 "consumes": [
@@ -1049,6 +1910,67 @@ const docTemplate = `{
                                 "type": "string"
                             }
                         }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Tag not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "Delete a tag by ID",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tags"
+                ],
+                "summary": "Delete a tag",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Tag ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Tag deleted"
                     },
                     "403": {
                         "description": "Forbidden",
@@ -1154,9 +2076,825 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/api/tags/{id}/write": {
+            "post": {
+                "description": "Send a write command to the gateway for the specified tag",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "tags"
+                ],
+                "summary": "Write tag value",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Organization ID",
+                        "name": "X-Organization-ID",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Tag ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Write request",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.WriteTagRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Write command sent",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Tag not found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Server error",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "Releases_IndustrialEdge_v1_0_internal_handlers.Area": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2024-01-24T10:00:00Z"
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Production Line"
+                },
+                "site_id": {
+                    "type": "integer",
+                    "example": 1
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.AuditLog": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "ip_address": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "user_agent": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.CreateAreaRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "site_id"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "site_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.CreateGatewayRequest": {
+            "type": "object",
+            "required": [
+                "area_id",
+                "driver_type",
+                "name"
+            ],
+            "properties": {
+                "area_id": {
+                    "type": "integer"
+                },
+                "connection_config": {
+                    "description": "Optional for MQTT",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig"
+                        }
+                    ]
+                },
+                "driver_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "scan_rate_ms": {
+                    "type": "integer"
+                },
+                "zero_based": {
+                    "description": "Optional, default should be true",
+                    "type": "boolean"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.CreateOrganizationRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.CreateSiteRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "org_id"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "org_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.CreateTagRequest": {
+            "type": "object",
+            "required": [
+                "alias",
+                "code",
+                "data_type",
+                "gateway_id"
+            ],
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "code": {
+                    "type": "string"
+                },
+                "data_type": {
+                    "type": "string"
+                },
+                "gateway_id": {
+                    "type": "integer"
+                },
+                "historize": {
+                    "type": "boolean"
+                },
+                "historize_deadband": {
+                    "type": "number"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.CurrentValueResponse": {
+            "type": "object",
+            "properties": {
+                "q": {
+                    "type": "integer"
+                },
+                "ts": {
+                    "type": "integer"
+                },
+                "v": {}
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.GatewayWithHealth": {
+            "type": "object",
+            "properties": {
+                "area_id": {
+                    "type": "integer"
+                },
+                "connection_config": {
+                    "$ref": "#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig"
+                },
+                "connection_status": {
+                    "description": "\"online\" or \"offline\"",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "driver_type": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "last_seen": {
+                    "description": "Unix timestamp in milliseconds",
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "scan_rate_ms": {
+                    "type": "integer"
+                },
+                "zero_based": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.HistoryDataPoint": {
+            "type": "object",
+            "properties": {
+                "quality": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "integer"
+                },
+                "value": {}
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.HistoryEvent": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "source": {
+                    "description": "gateway name or id",
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "integer"
+                },
+                "type": {
+                    "description": "connection, alert",
+                    "type": "string"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.Organization": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2024-01-24T10:00:00Z"
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Acme Corp"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.Site": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2024-01-24T10:00:00Z"
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Factory 1"
+                },
+                "org_id": {
+                    "type": "integer",
+                    "example": 1
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.UpdateAreaRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.UpdateGatewayRequest": {
+            "type": "object",
+            "properties": {
+                "connection_config": {
+                    "$ref": "#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig"
+                },
+                "driver_type": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "scan_rate_ms": {
+                    "type": "integer"
+                },
+                "zero_based": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.UpdateOrganizationRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.UpdateSiteRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.UpdateTagRequest": {
+            "type": "object",
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "code": {
+                    "type": "string"
+                },
+                "data_type": {
+                    "type": "string"
+                },
+                "historize": {
+                    "type": "boolean"
+                },
+                "historize_deadband": {
+                    "type": "number"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_0_internal_handlers.WriteTagRequest": {
+            "type": "object",
+            "required": [
+                "value"
+            ],
+            "properties": {
+                "value": {}
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.Area": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2024-01-24T10:00:00Z"
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Production Line"
+                },
+                "site_id": {
+                    "type": "integer",
+                    "example": 1
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.AuditLog": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "ip_address": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "user_agent": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.CreateAreaRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "site_id"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "site_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.CreateGatewayRequest": {
+            "type": "object",
+            "required": [
+                "area_id",
+                "driver_type",
+                "name"
+            ],
+            "properties": {
+                "area_id": {
+                    "type": "integer"
+                },
+                "connection_config": {
+                    "description": "Optional for MQTT",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig"
+                        }
+                    ]
+                },
+                "driver_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "scan_rate_ms": {
+                    "type": "integer"
+                },
+                "zero_based": {
+                    "description": "Optional, default should be true",
+                    "type": "boolean"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.CreateOrganizationRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.CreateSiteRequest": {
+            "type": "object",
+            "required": [
+                "name",
+                "org_id"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "org_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.CreateTagRequest": {
+            "type": "object",
+            "required": [
+                "alias",
+                "code",
+                "data_type",
+                "gateway_id"
+            ],
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "code": {
+                    "type": "string"
+                },
+                "data_type": {
+                    "type": "string"
+                },
+                "gateway_id": {
+                    "type": "integer"
+                },
+                "historize": {
+                    "type": "boolean"
+                },
+                "historize_deadband": {
+                    "type": "number"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.CurrentValueResponse": {
+            "type": "object",
+            "properties": {
+                "q": {
+                    "type": "integer"
+                },
+                "ts": {
+                    "type": "integer"
+                },
+                "v": {}
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.GatewayWithHealth": {
+            "type": "object",
+            "properties": {
+                "area_id": {
+                    "type": "integer"
+                },
+                "connection_config": {
+                    "$ref": "#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig"
+                },
+                "connection_status": {
+                    "description": "\"online\" or \"offline\"",
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "driver_type": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "last_seen": {
+                    "description": "Unix timestamp in milliseconds",
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "scan_rate_ms": {
+                    "type": "integer"
+                },
+                "zero_based": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.HistoryDataPoint": {
+            "type": "object",
+            "properties": {
+                "quality": {
+                    "type": "integer"
+                },
+                "timestamp": {
+                    "type": "integer"
+                },
+                "value": {}
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.HistoryEvent": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "source": {
+                    "description": "gateway name or id",
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "integer"
+                },
+                "type": {
+                    "description": "connection, alert",
+                    "type": "string"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.Organization": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2024-01-24T10:00:00Z"
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Acme Corp"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.Site": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string",
+                    "example": "2024-01-24T10:00:00Z"
+                },
+                "id": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Factory 1"
+                },
+                "org_id": {
+                    "type": "integer",
+                    "example": 1
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.UpdateAreaRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.UpdateGatewayRequest": {
+            "type": "object",
+            "properties": {
+                "connection_config": {
+                    "$ref": "#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig"
+                },
+                "driver_type": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "scan_rate_ms": {
+                    "type": "integer"
+                },
+                "zero_based": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.UpdateOrganizationRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.UpdateSiteRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.UpdateTagRequest": {
+            "type": "object",
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "code": {
+                    "type": "string"
+                },
+                "data_type": {
+                    "type": "string"
+                },
+                "historize": {
+                    "type": "boolean"
+                },
+                "historize_deadband": {
+                    "type": "number"
+                }
+            }
+        },
+        "Releases_IndustrialEdge_v1_1_internal_handlers.WriteTagRequest": {
+            "type": "object",
+            "required": [
+                "value"
+            ],
+            "properties": {
+                "value": {}
+            }
+        },
         "github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig": {
             "type": "object",
             "additionalProperties": true
@@ -1187,24 +2925,15 @@ const docTemplate = `{
                 },
                 "scan_rate_ms": {
                     "type": "integer"
+                },
+                "zero_based": {
+                    "type": "boolean"
                 }
             }
         },
         "github_com_ralph_industrial-edge-middleware_internal_models.Tag": {
             "type": "object",
             "properties": {
-                "alarm_enabled": {
-                    "type": "boolean"
-                },
-                "alarm_operator": {
-                    "type": "string"
-                },
-                "alarm_priority": {
-                    "type": "integer"
-                },
-                "alarm_threshold": {
-                    "type": "number"
-                },
                 "alias": {
                     "type": "string"
                 },
@@ -1228,32 +2957,9 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "integer"
-                }
-            }
-        },
-        "internal_handlers.AcknowledgeResponse": {
-            "type": "object",
-            "properties": {
-                "acknowledged_at": {
-                    "type": "string"
                 },
-                "cleared_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "message": {
-                    "type": "string"
-                },
-                "state": {
-                    "type": "string"
-                },
-                "tag_id": {
-                    "type": "integer"
-                },
-                "triggered_at": {
-                    "type": "string"
+                "sort_order": {
+                    "type": "number"
                 }
             }
         },
@@ -1278,6 +2984,41 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_handlers.AuditLog": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "details": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "ip_address": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "user_agent": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "integer"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_handlers.CreateAreaRequest": {
             "type": "object",
             "required": [
@@ -1297,7 +3038,6 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "area_id",
-                "connection_config",
                 "driver_type",
                 "name"
             ],
@@ -1306,7 +3046,12 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "connection_config": {
-                    "$ref": "#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig"
+                    "description": "Optional for MQTT",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_ralph_industrial-edge-middleware_internal_models.ConnectionConfig"
+                        }
+                    ]
                 },
                 "driver_type": {
                     "type": "string"
@@ -1316,6 +3061,10 @@ const docTemplate = `{
                 },
                 "scan_rate_ms": {
                     "type": "integer"
+                },
+                "zero_based": {
+                    "description": "Optional, default should be true",
+                    "type": "boolean"
                 }
             }
         },
@@ -1354,18 +3103,6 @@ const docTemplate = `{
                 "gateway_id"
             ],
             "properties": {
-                "alarm_enabled": {
-                    "type": "boolean"
-                },
-                "alarm_operator": {
-                    "type": "string"
-                },
-                "alarm_priority": {
-                    "type": "integer"
-                },
-                "alarm_threshold": {
-                    "type": "number"
-                },
                 "alias": {
                     "type": "string"
                 },
@@ -1432,6 +3169,9 @@ const docTemplate = `{
                 },
                 "scan_rate_ms": {
                     "type": "integer"
+                },
+                "zero_based": {
+                    "type": "boolean"
                 }
             }
         },
@@ -1445,6 +3185,28 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "value": {}
+            }
+        },
+        "internal_handlers.HistoryEvent": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string"
+                },
+                "source": {
+                    "description": "gateway name or id",
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "integer"
+                },
+                "type": {
+                    "description": "connection, alert",
+                    "type": "string"
+                }
             }
         },
         "internal_handlers.Organization": {
@@ -1485,6 +3247,17 @@ const docTemplate = `{
                 }
             }
         },
+        "internal_handlers.UpdateAreaRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_handlers.UpdateGatewayRequest": {
             "type": "object",
             "properties": {
@@ -1502,24 +3275,37 @@ const docTemplate = `{
                 },
                 "scan_rate_ms": {
                     "type": "integer"
+                },
+                "zero_based": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "internal_handlers.UpdateOrganizationRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handlers.UpdateSiteRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string"
                 }
             }
         },
         "internal_handlers.UpdateTagRequest": {
             "type": "object",
             "properties": {
-                "alarm_enabled": {
-                    "type": "boolean"
-                },
-                "alarm_operator": {
-                    "type": "string"
-                },
-                "alarm_priority": {
-                    "type": "integer"
-                },
-                "alarm_threshold": {
-                    "type": "number"
-                },
                 "alias": {
                     "type": "string"
                 },
@@ -1535,6 +3321,15 @@ const docTemplate = `{
                 "historize_deadband": {
                     "type": "number"
                 }
+            }
+        },
+        "internal_handlers.WriteTagRequest": {
+            "type": "object",
+            "required": [
+                "value"
+            ],
+            "properties": {
+                "value": {}
             }
         }
     }

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -21,8 +22,20 @@ func NewService(db *sql.DB) *Service {
 	return &Service{db: db}
 }
 
+// LoginRequestWithMeta extends LoginRequest with metadata for audit logging
+type LoginRequestWithMeta struct {
+	models.LoginRequest
+	IPAddress string
+	UserAgent string
+}
+
 // Login verifies credentials and returns a JWT token and user info
 func (s *Service) Login(ctx context.Context, req models.LoginRequest) (*models.LoginResponse, error) {
+	return s.LoginWithMeta(ctx, req, "", "")
+}
+
+// LoginWithMeta verifies credentials and returns a JWT token and user info with audit logging
+func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ipAddress, userAgent string) (*models.LoginResponse, error) {
 	var user models.User
 	var passwordHash string
 
@@ -32,6 +45,10 @@ func (s *Service) Login(ctx context.Context, req models.LoginRequest) (*models.L
 	)
 
 	if err == sql.ErrNoRows {
+		// Log failed login attempt (user not found)
+		s.logAudit(nil, req.Username, "login", ipAddress, userAgent, map[string]interface{}{
+			"reason": "user_not_found",
+		}, false)
 		return nil, errors.New("invalid credentials")
 	}
 	if err != nil {
@@ -40,6 +57,10 @@ func (s *Service) Login(ctx context.Context, req models.LoginRequest) (*models.L
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
+		// Log failed login attempt (wrong password)
+		s.logAudit(&user.ID, user.Username, "login", ipAddress, userAgent, map[string]interface{}{
+			"reason": "invalid_password",
+		}, false)
 		return nil, errors.New("invalid credentials")
 	}
 
@@ -49,8 +70,10 @@ func (s *Service) Login(ctx context.Context, req models.LoginRequest) (*models.L
 		return nil, err
 	}
 
-	// Log access
-	s.logAccess(user.ID, user.Username, "LOGIN_SUCCESS", "")
+	// Log successful login
+	s.logAudit(&user.ID, user.Username, "login", ipAddress, userAgent, map[string]interface{}{
+		"role": user.Role,
+	}, true)
 
 	return &models.LoginResponse{
 		Token: token,
@@ -70,16 +93,29 @@ func (s *Service) generateToken(user models.User) (string, error) {
 	return token.SignedString(SecretKey)
 }
 
-func (s *Service) logAccess(userID int, username, eventType, ipAddress string) {
+// logAudit writes an audit log entry to the database
+func (s *Service) logAudit(userID *int, username, action, ipAddress, userAgent string, details map[string]interface{}, success bool) {
 	if ipAddress == "" {
 		ipAddress = "0.0.0.0"
 	}
-	query := `INSERT INTO access_logs (user_id, username, event_type, ip_address) VALUES ($1, $2, $3, $4)`
-	// Use background context for logging to ensure it completes even if request cancels
+
+	var detailsJSON []byte
+	if details != nil {
+		detailsJSON, _ = json.Marshal(details)
+	}
+
+	query := `INSERT INTO audit_logs (user_id, username, action, ip_address, user_agent, details, success)
+	          VALUES ($1, $2, $3, $4, $5, $6, $7)`
+
+	// Use background goroutine for logging to not block the request
 	go func() {
-		if _, err := s.db.Exec(query, userID, username, eventType, ipAddress); err != nil {
+		if _, err := s.db.Exec(query, userID, username, action, ipAddress, userAgent, detailsJSON, success); err != nil {
 			// Log error but don't crash
-			// fmt.Printf("Failed to log access: %v\n", err)
 		}
 	}()
+}
+
+// Logout logs the logout event
+func (s *Service) Logout(userID int, username, ipAddress, userAgent string) {
+	s.logAudit(&userID, username, "logout", ipAddress, userAgent, nil, true)
 }

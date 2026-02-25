@@ -20,6 +20,7 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
+    DialogDescription,
     DialogFooter,
     DialogTrigger,
 } from '@/components/ui/dialog';
@@ -136,6 +137,9 @@ const AreasPage = () => {
                             <DialogContent>
                                 <DialogHeader>
                                     <DialogTitle>Create Area</DialogTitle>
+                                    <DialogDescription>
+                                        Enter the details for the new area.
+                                    </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
                                     <div className="grid gap-2">
@@ -176,6 +180,9 @@ const AreasPage = () => {
                             <DialogContent>
                                 <DialogHeader>
                                     <DialogTitle>Edit Area</DialogTitle>
+                                    <DialogDescription>
+                                        Update the name of the area.
+                                    </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
                                     <div className="grid gap-2">

@@ -1,5 +1,6 @@
 import api from './client';
 import { Tag, CreateTagDto } from '@/types';
+import { TagWithHierarchy, TagHierarchyResponse } from '@/types/trend';
 
 export const tagsApi = {
     getAll: async (gatewayId?: number | null): Promise<Tag[]> => {
@@ -11,6 +12,18 @@ export const tagsApi = {
     // Get all tags without filtering by gateway
     getAllTags: async (): Promise<Tag[]> => {
         const response = await api.get('/tags');
+        return response.data;
+    },
+
+    // Get tags with full hierarchy information for tag browser
+    getHierarchy: async (): Promise<TagHierarchyResponse> => {
+        const response = await api.get('/tags/hierarchy');
+        return response.data;
+    },
+
+    // Get all tags with hierarchy info (flat list with hierarchy fields)
+    getAllWithHierarchy: async (): Promise<TagWithHierarchy[]> => {
+        const response = await api.get('/tags/with-hierarchy');
         return response.data;
     },
 
@@ -47,10 +60,16 @@ export const tagsApi = {
     // Export tags to PLC-style text format
     exportTags: async (gatewayId: number): Promise<string> => {
         const response = await api.get('/tags/export', { params: { gateway_id: gatewayId } });
-        return response.data;
+        return response.data.content;
     },
 
     reorder: async (tagIds: number[]): Promise<void> => {
         await api.put('/tags/reorder', { tag_ids: tagIds });
-    }
+    },
+
+    // Batch get current values for multiple tags
+    getBatchCurrentValues: async (tagIds: number[]): Promise<{ [tagId: number]: { value: any; timestamp: number; quality: number } }> => {
+        const response = await api.post('/tags/batch-current', { tag_ids: tagIds });
+        return response.data;
+    },
 };

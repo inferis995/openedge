@@ -9,19 +9,22 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
+	"github.com/ralph/industrial-edge-middleware/internal/settings"
 )
 
 // SystemHandler handles system-level HTTP requests
 type SystemHandler struct {
-	db         *sql.DB
-	mqttClient MQTTClient // Use same interface as GatewaysHandler
+	db             *sql.DB
+	mqttClient     MQTTClient // Use same interface as GatewaysHandler
+	settingsMgr    *settings.Manager
 }
 
 // NewSystemHandler creates a new system handler
-func NewSystemHandler(db *sql.DB, mqttClient MQTTClient) *SystemHandler {
+func NewSystemHandler(db *sql.DB, mqttClient MQTTClient, settingsMgr *settings.Manager) *SystemHandler {
 	return &SystemHandler{
 		db:         db,
 		mqttClient: mqttClient,
+		settingsMgr: settingsMgr,
 	}
 }
 
@@ -168,4 +171,107 @@ func (h *SystemHandler) ImportConfig(c *gin.Context) {
 			"tags":          len(config.Tags),
 		},
 	})
+}
+
+// GetSettings returns all global settings
+func (h *SystemHandler) GetSettings(c *gin.Context) {
+	settings := make(map[string]interface{})
+
+	rows, err := h.db.Query("SELECT key, value FROM global_settings")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch settings"})
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err == nil {
+			settings[key] = value
+		}
+	}
+
+	c.JSON(http.StatusOK, settings)
+}
+
+// UpdateSettingsRequest represents the request body for updating settings
+type UpdateSettingsRequest struct {
+	PublishMode         *string  `json:"publish_mode"`
+	RBEHeartbeatSeconds *int     `json:"rbe_heartbeat_seconds"`
+	RBEDeadbandPercent  *float64 `json:"rbe_deadband_percent"`
+}
+
+// UpdateSettings updates global settings (admin only)
+func (h *SystemHandler) UpdateSettings(c *gin.Context) {
+	var req UpdateSettingsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request body"})
+		return
+	}
+
+	// Validate publish_mode if provided
+	if req.PublishMode != nil {
+		mode := models.PublishMode(*req.PublishMode)
+		if !mode.IsValid() {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "Invalid publish_mode. Must be one of: dual, sparkplug_only, legacy_only",
+			})
+			return
+		}
+	}
+
+	// Update settings in database
+	if req.PublishMode != nil {
+		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'publish_mode'", *req.PublishMode)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update publish_mode"})
+			return
+		}
+	}
+
+	if req.RBEHeartbeatSeconds != nil {
+		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'rbe_heartbeat_seconds'", *req.RBEHeartbeatSeconds)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update rbe_heartbeat_seconds"})
+			return
+		}
+	}
+
+	if req.RBEDeadbandPercent != nil {
+		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'rbe_deadband_percent'", *req.RBEDeadbandPercent)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update rbe_deadband_percent"})
+			return
+		}
+	}
+
+	// Publish settings-reload command to MQTT
+	if h.mqttClient != nil {
+		payload := map[string]interface{}{
+			"command":   "settings-reload",
+			"timestamp": time.Now().Unix(),
+		}
+		payloadBytes, _ := json.Marshal(payload)
+		h.mqttClient.Publish("sys/command/settings-reload", string(payloadBytes))
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Settings updated successfully"})
+}
+
+// GetMetrics returns publish metrics
+func (h *SystemHandler) GetMetrics(c *gin.Context) {
+	// Get metrics from settings manager if available
+	if h.settingsMgr != nil {
+		metrics := h.settingsMgr.GetMetrics()
+		c.JSON(http.StatusOK, metrics)
+		return
+	}
+
+	// Fallback: return placeholder metrics
+	metrics := models.PublishMetrics{
+		Published:    0,
+		Skipped:      0,
+		SavedPercent: 0,
+	}
+	c.JSON(http.StatusOK, metrics)
 }

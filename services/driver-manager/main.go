@@ -275,6 +275,9 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 	case "MQTT":
 		imageName = "industrial-driver-mqtt:latest"
 		containerNamePrefix = "driver-mqtt"
+	case "OPC_UA":
+		imageName = "industrial-driver-opcua:latest"
+		containerNamePrefix = "driver-opcua"
 	default:
 		return fmt.Errorf("unsupported driver type: %s", gateway.DriverType)
 	}
@@ -320,6 +323,7 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 		fmt.Sprintf("DB_NAME=%s", getEnv("DB_NAME", "industrial_edge")),
 		fmt.Sprintf("MQTT_HOST=%s", mqttHost),
 		fmt.Sprintf("MQTT_PORT=%s", getEnv("MQTT_PORT", "1883")),
+		"SPARKPLUG_ENABLED=true",
 	}
 
 	containerConfig := &container.Config{
@@ -329,7 +333,14 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 
 	hostConfig := &container.HostConfig{
 		RestartPolicy: container.RestartPolicy{
-			Name: "unless-stopped",
+			Name: "always",
+		},
+		LogConfig: container.LogConfig{
+			Type: "json-file",
+			Config: map[string]string{
+				"max-size": "10m",
+				"max-file": "3",
+			},
 		},
 		NetworkMode: container.NetworkMode(dockerNetworkName),
 		ExtraHosts:  []string{"host.docker.internal:host-gateway"},
