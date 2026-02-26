@@ -12,11 +12,7 @@ import (
 
 // UseProtobuf controls whether to use Protobuf (true) or JSON (false) encoding
 // Set to true for true Sparkplug B compliance
-// NOTE: To enable true Protobuf, you need to:
-// 1. Install protoc: https://grpc.io/docs/protoc-installation/
-// 2. Generate Go code from sparkplug_b.proto (from Eclipse Tahu)
-// 3. Replace the manual protobuf.go implementation with generated code
-var UseProtobuf = false
+var UseProtobuf = true
 
 // Client wraps the MQTT client with Sparkplug B functionality
 type SparkplugClient struct {

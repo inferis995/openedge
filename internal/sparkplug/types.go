@@ -31,26 +31,42 @@ const (
 type MetricDataType int32
 
 const (
-	DataTypeUnknown    MetricDataType = 0
-	DataTypeInt8       MetricDataType = 1
-	DataTypeInt16      MetricDataType = 2
-	DataTypeInt32      MetricDataType = 3
-	DataTypeInt64      MetricDataType = 4
-	DataTypeUInt8      MetricDataType = 5
-	DataTypeUInt16     MetricDataType = 6
-	DataTypeUInt32     MetricDataType = 7
-	DataTypeUInt64     MetricDataType = 8
-	DataTypeFloat      MetricDataType = 9
-	DataTypeDouble     MetricDataType = 10
-	DataTypeBoolean    MetricDataType = 11
-	DataTypeString     MetricDataType = 12
-	DataTypeDateTime   MetricDataType = 13
-	DataTypeText       MetricDataType = 14
-	DataTypeUUID       MetricDataType = 19
-	DataTypeDataSet    MetricDataType = 20
-	DataTypeBytes      MetricDataType = 21
-	DataTypeFile       MetricDataType = 22
-	DataTypeTemplate   MetricDataType = 23
+	DataTypeUnknown         MetricDataType = 0
+	DataTypeInt8            MetricDataType = 1
+	DataTypeInt16           MetricDataType = 2
+	DataTypeInt32           MetricDataType = 3
+	DataTypeInt64           MetricDataType = 4
+	DataTypeUInt8           MetricDataType = 5
+	DataTypeUInt16          MetricDataType = 6
+	DataTypeUInt32          MetricDataType = 7
+	DataTypeUInt64          MetricDataType = 8
+	DataTypeFloat           MetricDataType = 9
+	DataTypeDouble          MetricDataType = 10
+	DataTypeBoolean         MetricDataType = 11
+	DataTypeString          MetricDataType = 12
+	DataTypeDateTime        MetricDataType = 13
+	DataTypeText            MetricDataType = 14
+	DataTypeUUID            MetricDataType = 15
+	DataTypeDataSet         MetricDataType = 16
+	DataTypeBytes           MetricDataType = 17
+	DataTypeFile            MetricDataType = 18
+	DataTypeTemplate        MetricDataType = 19
+	DataTypePropertySet     MetricDataType = 20
+	DataTypePropertySetList MetricDataType = 21
+	// Array types
+	DataTypeInt8Array     MetricDataType = 22
+	DataTypeInt16Array    MetricDataType = 23
+	DataTypeInt32Array    MetricDataType = 24
+	DataTypeInt64Array    MetricDataType = 25
+	DataTypeUInt8Array    MetricDataType = 26
+	DataTypeUInt16Array   MetricDataType = 27
+	DataTypeUInt32Array   MetricDataType = 28
+	DataTypeUInt64Array   MetricDataType = 29
+	DataTypeFloatArray    MetricDataType = 30
+	DataTypeDoubleArray   MetricDataType = 31
+	DataTypeBooleanArray  MetricDataType = 32
+	DataTypeStringArray   MetricDataType = 33
+	DataTypeDateTimeArray MetricDataType = 34
 )
 
 // Config holds Sparkplug B client configuration
