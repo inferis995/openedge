@@ -83,21 +83,21 @@ type TagData struct {
 
 // Metric represents a single Sparkplug B metric
 type Metric struct {
-	Name         string         // Metric name (alias)
-	DataType     MetricDataType // Sparkplug B data type
-	Timestamp    int64          // Unix timestamp in milliseconds
-	Quality      int32          // Quality code
-	Value        interface{}    // The actual value
-	IsHistorical bool           // Whether this is historical data
-	IsNull       bool           // Whether value is null
+	Name         string         `json:"name"`
+	DataType     MetricDataType `json:"data_type"`
+	Timestamp    int64          `json:"timestamp"`
+	Quality      int32          `json:"quality"`
+	Value        interface{}    `json:"value"`
+	IsHistorical bool           `json:"is_historical"`
+	IsNull       bool           `json:"is_null"`
 }
 
 // Payload represents a complete Sparkplug B payload
 type Payload struct {
-	Timestamp int64    // Unix timestamp in milliseconds
-	Seq       uint64   // Sequence number (rolls over at 256)
-	UUID      string   // Optional UUID
-	Metrics   []Metric // List of metrics
+	Timestamp int64    `json:"timestamp"`
+	Seq       uint64   `json:"seq"`
+	UUID      string   `json:"uuid"`
+	Metrics   []Metric `json:"metrics"`
 }
 
 // TopicInfo contains parsed Sparkplug B topic information
