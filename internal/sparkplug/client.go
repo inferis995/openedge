@@ -10,6 +10,14 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 )
 
+// UseProtobuf controls whether to use Protobuf (true) or JSON (false) encoding
+// Set to true for true Sparkplug B compliance
+// NOTE: To enable true Protobuf, you need to:
+// 1. Install protoc: https://grpc.io/docs/protoc-installation/
+// 2. Generate Go code from sparkplug_b.proto (from Eclipse Tahu)
+// 3. Replace the manual protobuf.go implementation with generated code
+var UseProtobuf = false
+
 // Client wraps the MQTT client with Sparkplug B functionality
 type SparkplugClient struct {
 	config      Config
@@ -48,8 +56,8 @@ func (c *SparkplugClient) Connect() error {
 
 	c.connected = true
 	c.birthSent = true
-	log.Printf("[SPARKPLUG] Client connected, NBIRTH sent for group=%s, node=%s",
-		c.config.GroupID, c.config.EdgeNodeID)
+	log.Printf("[SPARKPLUG] Client connected, NBIRTH sent for group=%s, node=%s (Protobuf=%v)",
+		c.config.GroupID, c.config.EdgeNodeID, UseProtobuf)
 
 	return nil
 }
@@ -88,13 +96,22 @@ func (c *SparkplugClient) PublishDDATA(deviceID string, tags []TagData) error {
 	// Build topic: spBv1.0/{group_id}/DDATA/{edge_node_id}/{device_id}
 	topic := BuildDDATATopic(c.config.GroupID, c.config.EdgeNodeID, deviceID)
 
-	// Create payload
-	payload := CreateDDATAPayload(deviceID, tags)
+	var payloadBytes []byte
+	var err error
 
-	// Encode to JSON (simplified - production should use Protobuf)
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
+	if UseProtobuf {
+		// Use Protobuf encoding (true Sparkplug B)
+		payloadBytes, err = CreateProtoDDATAPayload(deviceID, tags)
+		if err != nil {
+			return fmt.Errorf("failed to encode protobuf DDATA: %w", err)
+		}
+	} else {
+		// Use JSON encoding (legacy compatibility)
+		payload := CreateDDATAPayload(deviceID, tags)
+		payloadBytes, err = json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("failed to marshal JSON payload: %w", err)
+		}
 	}
 
 	// Publish with QoS 0 (Sparkplug B typically uses QoS 0 for data)
@@ -102,7 +119,7 @@ func (c *SparkplugClient) PublishDDATA(deviceID string, tags []TagData) error {
 		return fmt.Errorf("failed to publish DDATA: %w", err)
 	}
 
-	log.Printf("[SPARKPLUG] Published DDATA to %s with %d metrics", topic, len(payload.Metrics))
+	log.Printf("[SPARKPLUG] Published DDATA to %s with %d metrics (Protobuf=%v)", topic, len(tags), UseProtobuf)
 
 	return nil
 }
@@ -129,13 +146,22 @@ func (c *SparkplugClient) PublishDBIRTH(deviceID string, tags []TagData) error {
 	// Build topic
 	topic := BuildDBIRTHTopic(c.config.GroupID, c.config.EdgeNodeID, deviceID)
 
-	// Create payload
-	payload := CreateDBIRTHPayload(deviceID, tags)
+	var payloadBytes []byte
+	var err error
 
-	// Encode to JSON
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal DBIRTH payload: %w", err)
+	if UseProtobuf {
+		// Use Protobuf encoding (true Sparkplug B)
+		payloadBytes, err = CreateProtoDBIRTHPayload(deviceID, tags)
+		if err != nil {
+			return fmt.Errorf("failed to encode protobuf DBIRTH: %w", err)
+		}
+	} else {
+		// Use JSON encoding (legacy compatibility)
+		payload := CreateDBIRTHPayload(deviceID, tags)
+		payloadBytes, err = json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("failed to marshal DBIRTH payload: %w", err)
+		}
 	}
 
 	// Publish with QoS 0, retained=true for birth messages
@@ -143,7 +169,7 @@ func (c *SparkplugClient) PublishDBIRTH(deviceID string, tags []TagData) error {
 		return fmt.Errorf("failed to publish DBIRTH: %w", err)
 	}
 
-	log.Printf("[SPARKPLUG] Published DBIRTH for device %s with %d metrics", deviceID, len(payload.Metrics))
+	log.Printf("[SPARKPLUG] Published DBIRTH for device %s with %d metrics (Protobuf=%v)", deviceID, len(tags), UseProtobuf)
 
 	return nil
 }
@@ -165,17 +191,26 @@ func (c *SparkplugClient) PublishDDEATH(deviceID string) error {
 	// Build topic
 	topic := BuildDDEATHTopic(c.config.GroupID, c.config.EdgeNodeID, deviceID)
 
-	// Create empty death payload with timestamp
-	payload := &Payload{
-		Timestamp: time.Now().UnixMilli(),
-		Seq:       c.nextSeq(),
-		Metrics:   []Metric{},
-	}
+	var payloadBytes []byte
+	var err error
 
-	// Encode
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal DDEATH payload: %w", err)
+	if UseProtobuf {
+		// Use Protobuf encoding (true Sparkplug B)
+		payloadBytes, err = CreateProtoDDEATHPayload(deviceID)
+		if err != nil {
+			return fmt.Errorf("failed to encode protobuf DDEATH: %w", err)
+		}
+	} else {
+		// Use JSON encoding (legacy compatibility)
+		payload := &Payload{
+			Timestamp: time.Now().UnixMilli(),
+			Seq:       c.nextSeq(),
+			Metrics:   []Metric{},
+		}
+		payloadBytes, err = json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("failed to marshal DDEATH payload: %w", err)
+		}
 	}
 
 	// Publish with QoS 0, retained=true for death messages
@@ -183,7 +218,7 @@ func (c *SparkplugClient) PublishDDEATH(deviceID string) error {
 		return fmt.Errorf("failed to publish DDEATH: %w", err)
 	}
 
-	log.Printf("[SPARKPLUG] Published DDEATH for device %s", deviceID)
+	log.Printf("[SPARKPLUG] Published DDEATH for device %s (Protobuf=%v)", deviceID, UseProtobuf)
 
 	return nil
 }
@@ -234,24 +269,45 @@ func (c *SparkplugClient) sendNBIRTH() error {
 
 	topic := BuildNBIRTHTopic(c.config.GroupID, c.config.EdgeNodeID)
 
-	// Create minimal NBIRTH payload
-	// In full implementation, this would include node metrics/capabilities
-	payload := &Payload{
-		Timestamp: time.Now().UnixMilli(),
-		Seq:       c.nextSeq(),
-		Metrics: []Metric{
-			{
-				Name:      "bdSeq",
-				DataType:  DataTypeUInt64,
-				Timestamp: time.Now().UnixMilli(),
-				Value:     0,
-			},
-		},
-	}
+	var payloadBytes []byte
+	var err error
 
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return err
+	if UseProtobuf {
+		// Create minimal NBIRTH payload with Protobuf
+		payload := &Payload{
+			Timestamp: time.Now().UnixMilli(),
+			Seq:       c.nextSeq(),
+			Metrics: []Metric{
+				{
+					Name:      "bdSeq",
+					DataType:  DataTypeUInt64,
+					Timestamp: time.Now().UnixMilli(),
+					Value:     0,
+				},
+			},
+		}
+		payloadBytes, err = EncodePayload(payload)
+		if err != nil {
+			return fmt.Errorf("failed to encode protobuf NBIRTH: %w", err)
+		}
+	} else {
+		// JSON encoding
+		payload := &Payload{
+			Timestamp: time.Now().UnixMilli(),
+			Seq:       c.nextSeq(),
+			Metrics: []Metric{
+				{
+					Name:      "bdSeq",
+					DataType:  DataTypeUInt64,
+					Timestamp: time.Now().UnixMilli(),
+					Value:     0,
+				},
+			},
+		}
+		payloadBytes, err = json.Marshal(payload)
+		if err != nil {
+			return err
+		}
 	}
 
 	// NBIRTH should be retained
@@ -267,15 +323,24 @@ func (c *SparkplugClient) sendNDEATH() error {
 
 	topic := BuildNDEATHTopic(c.config.GroupID, c.config.EdgeNodeID)
 
-	payload := &Payload{
-		Timestamp: time.Now().UnixMilli(),
-		Seq:       c.nextSeq(),
-		Metrics:   []Metric{},
-	}
+	var payloadBytes []byte
+	var err error
 
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return err
+	if UseProtobuf {
+		payloadBytes, err = CreateProtoNDEATHPayload()
+		if err != nil {
+			return fmt.Errorf("failed to encode protobuf NDEATH: %w", err)
+		}
+	} else {
+		payload := &Payload{
+			Timestamp: time.Now().UnixMilli(),
+			Seq:       c.nextSeq(),
+			Metrics:   []Metric{},
+		}
+		payloadBytes, err = json.Marshal(payload)
+		if err != nil {
+			return err
+		}
 	}
 
 	return c.mqttClient.PublishWithQoS(topic, string(payloadBytes), 0, true)

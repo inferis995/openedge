@@ -15,6 +15,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	opcuaclient "github.com/ralph/industrial-edge-middleware/internal/opcua"
+	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 )
 
 // MQTTClient interface for publishing reload commands
@@ -432,13 +433,15 @@ func (h *GatewaysHandler) Delete(c *gin.Context) {
 	// 0. MQTT Retained Message Cleanup
 	// Fetch all tags to clear their retained messages from broker
 	// We need org, site, area, gateway, tag_alias to build the topic
+	// Also fetch Sparkplug B group/node IDs for DDEATH messages
+	var gatewayName, orgName, siteName, areaName string
 	rows, err := h.db.Query(`
-		SELECT 
-			o.name as org, 
-			s.name as site, 
-			a.name as area, 
-			g.name as gateway, 
-			t.alias 
+		SELECT
+			o.name as org,
+			s.name as site,
+			a.name as area,
+			g.name as gateway,
+			t.alias
 		FROM tags t
 		JOIN gateways g ON t.gateway_id = g.id
 		JOIN areas a ON g.area_id = a.id
@@ -451,6 +454,14 @@ func (h *GatewaysHandler) Delete(c *gin.Context) {
 		for rows.Next() {
 			var org, site, area, gateway, tagAlias string
 			if err := rows.Scan(&org, &site, &area, &gateway, &tagAlias); err == nil {
+				// Store first row values for Sparkplug B DDEATH
+				if gatewayName == "" {
+					gatewayName = gateway
+					orgName = org
+					siteName = site
+					areaName = area
+				}
+
 				// Helper to create slug (simple version matching typical driver logic)
 				slug := func(s string) string {
 					return strings.ToLower(strings.ReplaceAll(s, " ", "-"))
@@ -470,6 +481,36 @@ func (h *GatewaysHandler) Delete(c *gin.Context) {
 				}
 			}
 		}
+	}
+
+	// 0.5. Sparkplug B Cleanup - Send DDEATH and clear retained messages
+	if h.mqttClient != nil && gatewayName != "" {
+		// Build Sparkplug B topic components
+		groupID := sparkplug.BuildGroupID(orgName, siteName)
+		edgeNodeID := sparkplug.BuildEdgeNodeID(areaName, gatewayName)
+
+		// Send DDEATH message for the device (gateway acts as device)
+		ddeathTopic := sparkplug.BuildDDEATHTopic(groupID, edgeNodeID, gatewayName)
+		ddeathPayload := &sparkplug.Payload{
+			Timestamp: time.Now().UnixMilli(),
+			Seq:       0,
+			Metrics:   []sparkplug.Metric{},
+		}
+
+		// Encode DDEATH payload as JSON (Protobuf requires generated code)
+		ddeathBytes, _ := json.Marshal(ddeathPayload)
+
+		// Publish DDEATH with retained=true to clear any stale birth messages
+		h.mqttClient.PublishWithQoS(ddeathTopic, string(ddeathBytes), 0, true)
+		log.Printf("[GATEWAY] Sent DDEATH for gateway %s to topic %s", gatewayName, ddeathTopic)
+
+		// Also clear DBIRTH retained message
+		dbirthTopic := sparkplug.BuildDBIRTHTopic(groupID, edgeNodeID, gatewayName)
+		h.mqttClient.PublishWithQoS(dbirthTopic, "", 0, true)
+
+		// Clear any DDATA retained messages
+		ddataTopic := sparkplug.BuildDDATATopic(groupID, edgeNodeID, gatewayName)
+		h.mqttClient.PublishWithQoS(ddataTopic, "", 0, true)
 	}
 
 	// Manual Cascade Delete Transaction

@@ -18,9 +18,9 @@ require (
 	github.com/swaggo/gin-swagger v1.6.1
 	github.com/swaggo/swag v1.16.6
 	golang.org/x/crypto v0.47.0
-	// Sparkplug B support: For full Protobuf support, add:
-	// github.com/eclipse/sparkplugb v0.5.0
-	// Note: Current implementation uses JSON encoding for Sparkplug B payloads
+// Sparkplug B support: For full Protobuf support, add:
+// github.com/eclipse/sparkplugb v0.5.0
+// Note: Current implementation uses JSON encoding for Sparkplug B payloads
 )
 
 require (
@@ -36,6 +36,8 @@ require (
 	github.com/docker/distribution v2.8.1+incompatible // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
+	github.com/eclipse/sparkplug v3.0.0+incompatible // indirect
+	github.com/eclipse/tahu v1.0.18 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.12 // indirect
 	github.com/gin-contrib/sse v1.1.0 // indirect
 	github.com/go-openapi/jsonpointer v0.22.4 // indirect

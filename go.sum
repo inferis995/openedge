@@ -38,6 +38,10 @@ github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
 github.com/eclipse/paho.mqtt.golang v1.5.0 h1:EH+bUVJNgttidWFkLLVKaQPGmkTUfQQqjOsyvMGvD6o=
 github.com/eclipse/paho.mqtt.golang v1.5.0/go.mod h1:du/2qNQVqJf/Sqs4MEL77kR8QTqANF7XU7Fk0aOTAgk=
+github.com/eclipse/sparkplug v3.0.0+incompatible h1:OOP/512d2mak1xxTdM7hrhYMNQKOcfWqXNkfa4XtvMo=
+github.com/eclipse/sparkplug v3.0.0+incompatible/go.mod h1:E4l4bm4oGQB23OJw3TgfnrRnNx0sVZq6tF+uWp+qTmU=
+github.com/eclipse/tahu v1.0.18 h1:r4yNhlsm6UVJkFcMsk2WUyksKeVWV7jLnU0sYHO6qTk=
+github.com/eclipse/tahu v1.0.18/go.mod h1:JsMPOYEYL6lX6ukzs/8LDt4M88NFNprneqrp5/5p5cI=
 github.com/gabriel-vasile/mimetype v1.4.12 h1:e9hWvmLYvtp846tLHam2o++qitpguFiYCKbn0w9jyqw=
 github.com/gabriel-vasile/mimetype v1.4.12/go.mod h1:d+9Oxyo1wTzWdyVUPMmXFvp4F9tea18J8ufA774AB3s=
 github.com/gin-contrib/cors v1.7.6 h1:3gQ8GMzs1Ylpf70y8bMw4fVpycXIeX1ZemuSQIsnQQY=
