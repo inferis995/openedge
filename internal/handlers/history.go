@@ -1,55 +1,93 @@
 package handlers
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
-	"sort"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/influxdata/influxdb-client-go/v2/api"
 	_ "github.com/lib/pq"
 
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 )
 
-// InfluxClient interface for InfluxDB operations
-type InfluxClient interface {
-	QueryAPI(org string) api.QueryAPI
-}
-
 // HistoryHandler handles historical data query requests
 type HistoryHandler struct {
-	influxClient InfluxClient
-	influxOrg    string
-	influxBucket string
-	db           *sql.DB
+	db *sql.DB
 }
 
 // NewHistoryHandler creates a new history handler
-func NewHistoryHandler(influxClient InfluxClient, influxOrg, influxBucket string, db *sql.DB) *HistoryHandler {
+func NewHistoryHandler(db *sql.DB) *HistoryHandler {
 	return &HistoryHandler{
-		influxClient: influxClient,
-		influxOrg:    influxOrg,
-		influxBucket: influxBucket,
-		db:           db,
+		db: db,
 	}
 }
 
 // HistoryDataPoint represents a single historical data point
 type HistoryDataPoint struct {
-	Timestamp int64       `json:"timestamp"`
-	Value     interface{} `json:"value"`
-	Quality   int         `json:"quality"`
+	Timestamp   int64    `json:"timestamp"`
+	Value       *float64 `json:"value"` // nil = gap in chart
+	Quality     int      `json:"quality"`
+	Source      string   `json:"source,omitempty"`      // "raw", "1m", "1h", "1d"
+	SampleCount int64    `json:"sample_count,omitempty"` // Points aggregated into this bucket
+}
+
+// HistoryResponse wraps the data points with metadata
+type HistoryResponse struct {
+	Data       []HistoryDataPoint `json:"data"`
+	Source     string             `json:"source"`      // Which aggregate level was used
+	TotalPoints int               `json:"total_points"` // Number of data points returned
+	AutoIntvl  bool               `json:"auto_interval"` // Whether interval was auto-selected
+}
+
+// TagStatsResponse contains statistics for a tag over a time range
+type TagStatsResponse struct {
+	MinValue      *float64 `json:"min_value"`
+	MaxValue      *float64 `json:"max_value"`
+	AvgValue      *float64 `json:"avg_value"`
+	StdDev        *float64 `json:"std_dev"`
+	SampleCount   int64    `json:"sample_count"`
+	FirstValue    *float64 `json:"first_value"`
+	LastValue     *float64 `json:"last_value"`
+	FirstTimestamp *int64  `json:"first_timestamp"`
+	LastTimestamp  *int64  `json:"last_timestamp"`
+}
+
+// AggregationLevel represents which aggregate to query
+type AggregationLevel struct {
+	Source   string        // "raw", "1m", "1h", "1d"
+	Interval time.Duration // Suggested interval for further downsampling
+}
+
+// determineAggregationLevel selects the optimal aggregate based on time range
+func determineAggregationLevel(start, end time.Time) AggregationLevel {
+	duration := end.Sub(start)
+
+	switch {
+	case duration <= time.Hour:
+		// Up to 1 hour: use raw data
+		return AggregationLevel{Source: "raw", Interval: 0}
+
+	case duration <= 6*time.Hour:
+		// 1-6 hours: use 1-minute aggregate
+		return AggregationLevel{Source: "1m", Interval: time.Minute}
+
+	case duration <= 7*24*time.Hour:
+		// 6 hours - 7 days: use 1-hour aggregate
+		return AggregationLevel{Source: "1h", Interval: time.Hour}
+
+	default:
+		// 7+ days: use 1-day aggregate
+		return AggregationLevel{Source: "1d", Interval: 24 * time.Hour}
+	}
 }
 
 // Query handles GET /api/history?tag_id={id}&start={iso}&end={iso}&agg={agg}&interval={interval}
 // @Summary Query historical data
-// @Description Query historical data for a tag from InfluxDB
+// @Description Query historical data for a tag from PostgreSQL with automatic aggregate selection
 // @Tags history
 // @Accept json
 // @Produce json
@@ -57,9 +95,10 @@ type HistoryDataPoint struct {
 // @Param tag_id query int true "Tag ID"
 // @Param start query string true "Start time (ISO 8601)"
 // @Param end query string true "End time (ISO 8601)"
-// @Param agg query string false "Aggregation function (mean, max, min, sum, first, last, count, median, stddev)"
+// @Param agg query string false "Aggregation function (mean, max, min, last)"
 // @Param interval query string false "Aggregation interval (e.g., 1m, 5m, 1h, 1d)"
-// @Success 200 {array} HistoryDataPoint
+// @Param stats query bool false "Include statistics in response"
+// @Success 200 {object} HistoryResponse
 // @Failure 400 {object} map[string]string "Invalid request"
 // @Failure 403 {object} map[string]string "Forbidden"
 // @Failure 500 {object} map[string]string "Server error"
@@ -84,8 +123,8 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 		return
 	}
 
-	// Verify tag ownership and get organization name and data type
-	orgName, dataType, err := h.getTagDetails(tagID, orgID)
+	// Verify tag ownership and get data type
+	dataType, err := h.getTagDetails(tagID, orgID)
 	if err != nil {
 		// Tag not found or doesn't belong to this organization
 		log.Printf("[HISTORY] Tag %d not found or access denied for org %d: %v", tagID, orgID, err)
@@ -125,502 +164,707 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 	}
 
 	// Get optional aggregation parameters
-	agg := c.Query("agg")           // e.g., "mean", "max", "min", "sum", "first", "last"
+	agg := c.Query("agg")           // e.g., "mean", "max", "min", "last"
 	interval := c.Query("interval") // e.g., "1m", "5m", "1h", "1d"
+	forceRaw := c.Query("raw") == "true" // Force raw data query
 
-	log.Printf("[HISTORY] Querying tag_id=%d, org=%q, type=%s, start=%s, end=%s, agg=%s, interval=%s",
-		tagID, orgName, dataType, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339), agg, interval)
-
-	queryAPI := h.influxClient.QueryAPI(h.influxOrg)
-
-	var dataPoints []HistoryDataPoint
-
-	if dataType == "BOOL" && agg != "" && interval != "" {
-		// BOOL with aggregation: seed + quality-aware forward-fill
-		var err error
-		dataPoints, err = h.queryBoolWithSeed(queryAPI, tagID, startTime, endTime, agg, interval)
-		if err != nil {
-			log.Printf("[HISTORY] BOOL query failed for tag %d: %v", tagID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to query BOOL history: %v", err)})
-			return
-		}
-	} else if agg != "" && interval != "" {
-		// Numeric types (INT, REAL, DINT) with aggregation: quality-aware query
-		// BAD quality windows returned as null → visible gaps in chart
-		var err error
-		dataPoints, err = h.queryNumericWithQuality(queryAPI, tagID, startTime, endTime, agg, interval)
-		if err != nil {
-			log.Printf("[HISTORY] Numeric quality query failed for tag %d: %v", tagID, err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to query history: %v", err)})
-			return
-		}
-	} else {
-		// Raw (no aggregation) — single Flux query, quality returned as-is
-		query := h.buildFluxQuery(tagID, orgName, dataType, startTime, endTime, agg, interval)
-		result, err := queryAPI.Query(context.Background(), query)
-		if err != nil {
-			log.Printf("[HISTORY] Failed to query InfluxDB: %v\nQuery was: %s", err, query)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to query InfluxDB: %v", err), "query": query})
-			return
-		}
-		defer result.Close()
-
-		for result.Next() {
-			record := result.Record()
-			dataPoints = append(dataPoints, HistoryDataPoint{
-				Timestamp: record.Time().Unix(),
-				Value:     record.Value(),
-				Quality:   0,
-			})
-		}
-		if result.Err() != nil {
-			log.Printf("[HISTORY] Query error after iteration: %v", result.Err())
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Query error: %v", result.Err())})
-			return
-		}
-	}
-
-	log.Printf("[HISTORY] Query successful: returned %d data points for tag_id=%d", len(dataPoints), tagID)
-
-	if dataPoints == nil {
-		dataPoints = []HistoryDataPoint{}
-	}
-
-	c.JSON(http.StatusOK, dataPoints)
-}
-
-// queryBoolWithSeed executes a two-phase query for BOOL tags:
-//  1. Seed: last known value in the 30-day window before rangeStart (fast indexed scan)
-//  2. Main: aggregateWindow over [rangeStart, rangeEnd] with createEmpty:true
-//  3. Go forward-fill: propagate the seed value through null windows
-//
-// This avoids the massive 30-day aggregateWindow(createEmpty:true) approach
-// that created tens of thousands of empty windows.
-func (h *HistoryHandler) queryBoolWithSeed(queryAPI api.QueryAPI, tagID int, start, end time.Time, agg, interval string) ([]HistoryDataPoint, error) {
-	startStr := start.Format(time.RFC3339)
-	endStr := end.Format(time.RFC3339)
-	seedStartStr := start.Add(-30 * 24 * time.Hour).Format(time.RFC3339)
-
-	// Resolve aggregation function (BOOL never uses mean)
-	aggFunc := "max"
-	switch agg {
-	case "max", "min", "first", "last":
-		aggFunc = agg
-	}
-
-	// ── Phase 1: Seed (last known value before rangeStart) ───────────────────
-	// Uses last() which is an indexed O(1)-ish operation — fast even over 30 days.
-	seedQuery := fmt.Sprintf(
-		`from(bucket: "%s")
-  |> range(start: %s, stop: %s)
-  |> filter(fn: (r) => r._measurement == "tag_data")
-  |> filter(fn: (r) => r.tag_id == "%d")
-  |> filter(fn: (r) => r._field == "value")
-  |> last()
-  |> toFloat()
-  |> yield(name: "seed")`,
-		h.influxBucket, seedStartStr, startStr, tagID)
-
-	var seedValue *float64
-	seedRes, err := queryAPI.Query(context.Background(), seedQuery)
-	if err == nil {
-		defer seedRes.Close()
-		for seedRes.Next() {
-			if v, ok := seedRes.Record().Value().(float64); ok {
-				seedValue = &v
-				log.Printf("[HISTORY] BOOL seed for tag %d = %.1f", tagID, v)
-			}
-		}
-		// Seed errors are non-fatal — we just start without a prior value
-		if seedRes.Err() != nil {
-			log.Printf("[HISTORY] Seed query warning for tag %d: %v", tagID, seedRes.Err())
-		}
-	} else {
-		log.Printf("[HISTORY] Seed query failed for tag %d (non-fatal): %v", tagID, err)
-	}
-
-	// ── Phase 2: Main aggregation over requested range only ───────────────────
-	mainQuery := fmt.Sprintf(
-		`from(bucket: "%s")
-  |> range(start: %s, stop: %s)
-  |> filter(fn: (r) => r._measurement == "tag_data")
-  |> filter(fn: (r) => r.tag_id == "%d")
-  |> filter(fn: (r) => r._field == "value")
-  |> toFloat()
-  |> aggregateWindow(every: %s, fn: %s, createEmpty: true)
-  |> yield(name: "aggregated")`,
-		h.influxBucket, startStr, endStr, tagID, interval, aggFunc)
-
-	mainRes, err := queryAPI.Query(context.Background(), mainQuery)
-	if err != nil {
-		return nil, fmt.Errorf("BOOL main query: %w", err)
-	}
-	defer mainRes.Close()
-
-	// ── Phase 2b: Quality aggregation — find BAD quality windows ─────────────
-	// max(quality) > 0 in a window means at least one BAD sample → show as gap.
-	badQualityWindows := make(map[int64]bool)
-	qualityQuery := fmt.Sprintf(
-		`from(bucket: "%s")
-  |> range(start: %s, stop: %s)
-  |> filter(fn: (r) => r._measurement == "tag_data")
-  |> filter(fn: (r) => r.tag_id == "%d")
-  |> filter(fn: (r) => r._field == "quality")
-  |> toFloat()
-  |> aggregateWindow(every: %s, fn: max, createEmpty: false)
-  |> yield(name: "quality")`,
-		h.influxBucket, startStr, endStr, tagID, interval)
-	if qRes, qErr := queryAPI.Query(context.Background(), qualityQuery); qErr == nil {
-		for qRes.Next() {
-			if q, ok := qRes.Record().Value().(float64); ok && q > 0 {
-				badQualityWindows[qRes.Record().Time().Unix()] = true
-			}
-		}
-		qRes.Close()
-	} else {
-		log.Printf("[HISTORY] BOOL quality query failed for tag %d (non-fatal): %v", tagID, qErr)
-	}
-
-	// ── Phase 3: Read results + Go forward-fill (skipping BAD quality) ────────
-	var points []HistoryDataPoint
-	prevValue := seedValue
-
-	for mainRes.Next() {
-		record := mainRes.Record()
-		ts := record.Time().Unix()
-
-		// BAD quality window → null point (visible gap), reset forward-fill
-		if badQualityWindows[ts] {
-			points = append(points, HistoryDataPoint{
-				Timestamp: ts,
-				Value:     nil,
-				Quality:   1,
-			})
-			prevValue = nil
-			continue
-		}
-
-		raw := record.Value()
-		var floatPtr *float64
-		if raw != nil {
-			if f, ok := raw.(float64); ok {
-				floatPtr = &f
-				prevValue = &f
-			}
-		}
-
-		// Null window (stable GOOD) → forward-fill with last known GOOD value
-		if floatPtr == nil && prevValue != nil {
-			pv := *prevValue
-			floatPtr = &pv
-		}
-
-		if floatPtr != nil {
-			points = append(points, HistoryDataPoint{
-				Timestamp: ts,
-				Value:     *floatPtr,
-				Quality:   0,
-			})
-		}
-	}
-
-	if err := mainRes.Err(); err != nil {
-		return nil, err
-	}
-
-	// Prepend the seed as the very first point so the chart starts with the
-	// correct state even when the first aggregation window has no data.
-	if seedValue != nil {
-		seedTS := start.Unix()
-		if len(points) == 0 || points[0].Timestamp > seedTS {
-			points = append([]HistoryDataPoint{{
-				Timestamp: seedTS,
-				Value:     *seedValue,
-				Quality:   0,
-			}}, points...)
-		}
-	}
-
-	if points == nil {
-		return []HistoryDataPoint{}, nil
-	}
-	return points, nil
-}
-
-// queryNumericWithQuality executes a quality-aware historical query for numeric tags (INT, REAL, DINT).
-// Uses three sub-queries:
-//  1. Seed: last known value before rangeStart (initialises forward-fill)
-//  2. Value: aggregated per window with createEmpty:true (covers stable periods)
-//  3. Quality: max quality per window (detects BAD-quality windows)
-//
-// Result per window:
-//   - BAD quality  → {Value:nil, Quality:1}  → visible gap in chart
-//   - Stable GOOD  → forward-filled with last known GOOD value
-//   - Changed GOOD → actual aggregated value
-func (h *HistoryHandler) queryNumericWithQuality(
-	queryAPI api.QueryAPI,
-	tagID int,
-	start, end time.Time,
-	agg, interval string,
-) ([]HistoryDataPoint, error) {
-	startStr := start.Format(time.RFC3339)
-	endStr := end.Format(time.RFC3339)
-	seedStartStr := start.Add(-30 * 24 * time.Hour).Format(time.RFC3339)
-
-	aggFunc := "mean"
+	// Map aggregation function
+	aggFunc := "avg"
 	switch agg {
 	case "max":
 		aggFunc = "max"
 	case "min":
 		aggFunc = "min"
-	case "sum":
-		aggFunc = "sum"
-	case "first":
-		aggFunc = "first"
 	case "last":
 		aggFunc = "last"
-	case "count":
-		aggFunc = "count"
-	case "median":
-		aggFunc = "median"
-	case "stddev":
-		aggFunc = "sd"
+	case "mean":
+		aggFunc = "avg"
 	}
 
-	// ── Phase 1: Seed ────────────────────────────────────────────────────────
-	seedQuery := fmt.Sprintf(
-		`from(bucket: "%s")
-  |> range(start: %s, stop: %s)
-  |> filter(fn: (r) => r._measurement == "tag_data")
-  |> filter(fn: (r) => r.tag_id == "%d")
-  |> filter(fn: (r) => r._field == "value")
-  |> toFloat()
-  |> last()
-  |> yield(name: "seed")`,
-		h.influxBucket, seedStartStr, startStr, tagID)
+	// Determine which aggregate level to use
+	aggLevel := determineAggregationLevel(startTime, endTime)
+	if forceRaw {
+		aggLevel.Source = "raw"
+	}
 
-	var seedValue *float64
-	if seedRes, seedErr := queryAPI.Query(context.Background(), seedQuery); seedErr == nil {
-		for seedRes.Next() {
-			if v, ok := seedRes.Record().Value().(float64); ok {
-				seedValue = &v
-			}
+	log.Printf("[HISTORY] Querying tag_id=%d, type=%s, start=%s, end=%s, agg=%s, interval=%s, source=%s",
+		tagID, dataType, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339), agg, interval, aggLevel.Source)
+
+	var dataPoints []HistoryDataPoint
+	var source string
+	var autoIntvl bool = (interval == "")
+
+	// Query based on source level
+	switch aggLevel.Source {
+	case "1m":
+		dataPoints, err = h.query1mAggregate(tagID, startTime, endTime, aggFunc)
+		source = "1m"
+	case "1h":
+		dataPoints, err = h.query1hAggregate(tagID, startTime, endTime, aggFunc)
+		source = "1h"
+	case "1d":
+		dataPoints, err = h.query1dAggregate(tagID, startTime, endTime, aggFunc)
+		source = "1d"
+	default:
+		// Raw query with optional downsampling
+		if interval != "" {
+			dataPoints, err = h.queryRawWithInterval(tagID, startTime, endTime, aggFunc, interval)
+		} else {
+			dataPoints, err = h.queryRaw(tagID, startTime, endTime)
 		}
-		seedRes.Close()
-	} else {
-		log.Printf("[HISTORY] Numeric seed query failed for tag %d (non-fatal): %v", tagID, seedErr)
+		source = "raw"
 	}
 
-	// ── Phase 2: Aggregated values (createEmpty:true → stable windows visible) ─
-	valueQuery := fmt.Sprintf(
-		`from(bucket: "%s")
-  |> range(start: %s, stop: %s)
-  |> filter(fn: (r) => r._measurement == "tag_data")
-  |> filter(fn: (r) => r.tag_id == "%d")
-  |> filter(fn: (r) => r._field == "value")
-  |> toFloat()
-  |> aggregateWindow(every: %s, fn: %s, createEmpty: true)
-  |> yield(name: "values")`,
-		h.influxBucket, startStr, endStr, tagID, interval, aggFunc)
-
-	type winState struct {
-		value        *float64
-		hasBadQuality bool
-	}
-	windows := make(map[int64]*winState)
-	var orderedTS []int64
-
-	vRes, err := queryAPI.Query(context.Background(), valueQuery)
 	if err != nil {
-		return nil, fmt.Errorf("numeric value query: %w", err)
+		log.Printf("[HISTORY] Query failed for tag %d: %v", tagID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to query history: %v", err)})
+		return
 	}
-	defer vRes.Close()
 
-	for vRes.Next() {
-		record := vRes.Record()
-		ts := record.Time().Unix()
-		ws := &winState{}
-		if record.Value() != nil {
-			if v, ok := record.Value().(float64); ok {
-				ws.value = &v
-			}
+	log.Printf("[HISTORY] Query successful: returned %d data points for tag_id=%d from source=%s", len(dataPoints), tagID, source)
+
+	if dataPoints == nil {
+		dataPoints = []HistoryDataPoint{}
+	}
+
+	// ── SEED pattern ──────────────────────────────────────────────────────
+	// For on-change (RBE) drivers like Sparkplug B, Modbus, OPC-UA, etc.
+	// the tag may not publish during the query range if its value hasn't
+	// changed.  Prepend the last known GOOD value before range start so the
+	// chart always has an initial state.
+	startMs := startTime.UnixMilli()
+	needSeed := len(dataPoints) == 0 || (dataPoints[0].Value != nil && dataPoints[0].Timestamp > startMs+500)
+	if needSeed {
+		seed, seedErr := h.getSeedValue(tagID, startTime)
+		if seedErr == nil && seed != nil {
+			dataPoints = append([]HistoryDataPoint{*seed}, dataPoints...)
+			log.Printf("[HISTORY] SEED injected for tag_id=%d at ts=%d", tagID, seed.Timestamp)
 		}
-		if _, exists := windows[ts]; !exists {
-			windows[ts] = ws
-			orderedTS = append(orderedTS, ts)
-		}
-	}
-	if err := vRes.Err(); err != nil {
-		return nil, fmt.Errorf("numeric value result error: %w", err)
 	}
 
-	// ── Phase 3: Max quality per window (createEmpty:false — only where data exists) ─
-	qualityQuery := fmt.Sprintf(
-		`from(bucket: "%s")
-  |> range(start: %s, stop: %s)
-  |> filter(fn: (r) => r._measurement == "tag_data")
-  |> filter(fn: (r) => r.tag_id == "%d")
-  |> filter(fn: (r) => r._field == "quality")
-  |> toFloat()
-  |> aggregateWindow(every: %s, fn: max, createEmpty: false)
-  |> yield(name: "quality")`,
-		h.influxBucket, startStr, endStr, tagID, interval)
+	// NOTE: fill-to-end is handled by the frontend with real-time quality
+	// awareness (BAD quality = don't extend, GOOD = extend to range end).
 
-	if qRes, qErr := queryAPI.Query(context.Background(), qualityQuery); qErr == nil {
-		for qRes.Next() {
-			record := qRes.Record()
-			ts := record.Time().Unix()
-			if record.Value() != nil {
-				if q, ok := record.Value().(float64); ok && q > 0 {
-					if ws, exists := windows[ts]; exists {
-						ws.hasBadQuality = true
-					}
-				}
-			}
-		}
-		qRes.Close()
-	} else {
-		log.Printf("[HISTORY] Numeric quality query failed for tag %d (non-fatal): %v", tagID, qErr)
+	// Check if stats are requested
+	includeStats := c.Query("stats") == "true"
+	var stats *TagStatsResponse
+	if includeStats {
+		stats, _ = h.getTagStats(tagID, startTime, endTime)
 	}
 
-	// ── Phase 4: Sort and build result ───────────────────────────────────────
-	sort.Slice(orderedTS, func(i, j int) bool { return orderedTS[i] < orderedTS[j] })
+	response := HistoryResponse{
+		Data:         dataPoints,
+		Source:       source,
+		TotalPoints:  len(dataPoints),
+		AutoIntvl:    autoIntvl,
+	}
+
+	// Add stats to response if requested
+	if includeStats && stats != nil {
+		c.JSON(http.StatusOK, gin.H{
+			"data":         response.Data,
+			"source":       response.Source,
+			"total_points": response.TotalPoints,
+			"auto_interval": response.AutoIntvl,
+			"stats":        stats,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// queryRaw returns all data points within the time range.
+// NULL-value rows (offline markers with source='offline') are included
+// with quality=1 so the frontend renders them as chart gaps.
+func (h *HistoryHandler) queryRaw(tagID int, start, end time.Time) ([]HistoryDataPoint, error) {
+	query := `
+		SELECT EXTRACT(EPOCH FROM time)::BIGINT * 1000 as ts, value
+		FROM tag_history
+		WHERE tag_id = $1 AND time >= $2 AND time <= $3
+		ORDER BY time ASC
+	`
+
+	rows, err := h.db.Query(query, tagID, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("query error: %w", err)
+	}
+	defer rows.Close()
 
 	var points []HistoryDataPoint
-	lastGoodValue := seedValue
+	for rows.Next() {
+		var ts int64
+		var value sql.NullFloat64
+		if err := rows.Scan(&ts, &value); err != nil {
+			return nil, fmt.Errorf("scan error: %w", err)
+		}
 
-	for _, ts := range orderedTS {
-		ws := windows[ts]
-		switch {
-		case ws.hasBadQuality:
-			// BAD quality → null point (visible gap), reset forward-fill
+		if value.Valid {
+			points = append(points, HistoryDataPoint{
+				Timestamp:   ts,
+				Value:       &value.Float64,
+				Quality:     0, // GOOD
+				Source:      "raw",
+				SampleCount: 1,
+			})
+		} else {
+			// NULL value = offline marker → quality BAD → frontend shows gap
+			points = append(points, HistoryDataPoint{
+				Timestamp: ts,
+				Value:     nil,
+				Quality:   1, // BAD — creates visible gap in chart
+				Source:    "raw",
+			})
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return points, nil
+}
+
+// queryRawWithInterval returns raw data points without synthetic gaps
+// For production: returns ONLY actual data points, no NULL filling
+func (h *HistoryHandler) queryRawWithInterval(tagID int, start, end time.Time, aggFunc, interval string) ([]HistoryDataPoint, error) {
+	// For short intervals (< 5 minutes), just return raw data without bucketing
+	intervalDuration, err := parseInterval(interval)
+	if err != nil {
+		return nil, fmt.Errorf("invalid interval: %w", err)
+	}
+
+	// Parse interval duration to check if it's short
+	var intervalMs int64
+	if len(interval) >= 2 {
+		val, _ := strconv.Atoi(interval[:len(interval)-1])
+		unit := interval[len(interval)-1:]
+		switch unit {
+		case "s":
+			intervalMs = int64(val * 1000)
+		case "m":
+			intervalMs = int64(val * 60 * 1000)
+		case "h":
+			intervalMs = int64(val * 60 * 60 * 1000)
+		}
+	}
+
+	// For intervals <= 1 minute, return raw data without bucketing
+	// This avoids creating synthetic NULL values for RBE data
+	if intervalMs <= 60000 {
+		return h.queryRaw(tagID, start, end)
+	}
+
+	// Map aggregation function to SQL
+	sqlAgg := "AVG"
+	switch aggFunc {
+	case "max":
+		sqlAgg = "MAX"
+	case "min":
+		sqlAgg = "MIN"
+	case "last":
+		sqlAgg = "LAST"
+	}
+
+	// For longer intervals, use bucketing.
+	// HAVING COUNT(tag_id) > 0 keeps buckets that have ANY data (including
+	// offline markers with NULL value) but discards truly empty buckets.
+	// Offline-only buckets produce val=NULL → frontend renders as gap.
+	query := fmt.Sprintf(`
+		SELECT
+			EXTRACT(EPOCH FROM bucket)::BIGINT * 1000 as ts,
+			%s(value) as val,
+			COUNT(tag_id) as cnt
+		FROM generate_series($2::timestamptz, $3::timestamptz, $4::interval) as bucket
+		LEFT JOIN tag_history ON
+			time >= bucket AND time < bucket + $4::interval AND tag_id = $1
+		GROUP BY bucket
+		HAVING COUNT(tag_id) > 0
+		ORDER BY bucket ASC
+	`, sqlAgg)
+
+	rows, err := h.db.Query(query, tagID, start, end, intervalDuration)
+	if err != nil {
+		// Fallback to simple query
+		return h.queryRaw(tagID, start, end)
+	}
+	defer rows.Close()
+
+	var points []HistoryDataPoint
+
+	for rows.Next() {
+		var ts int64
+		var value sql.NullFloat64
+		var count int64
+		if err := rows.Scan(&ts, &value, &count); err != nil {
+			return nil, fmt.Errorf("scan error: %w", err)
+		}
+
+		if value.Valid {
+			points = append(points, HistoryDataPoint{
+				Timestamp:   ts,
+				Value:       &value.Float64,
+				Quality:     0,
+				Source:      "raw",
+				SampleCount: count,
+			})
+		} else {
+			// NULL aggregate = offline period → gap in chart
 			points = append(points, HistoryDataPoint{
 				Timestamp: ts,
 				Value:     nil,
 				Quality:   1,
+				Source:    "raw",
 			})
-			lastGoodValue = nil
-
-		case ws.value != nil:
-			// GOOD quality with actual data
-			lastGoodValue = ws.value
-			points = append(points, HistoryDataPoint{
-				Timestamp: ts,
-				Value:     *ws.value,
-				Quality:   0,
-			})
-
-		default:
-			// Empty window (stable GOOD) → forward-fill
-			if lastGoodValue != nil {
-				points = append(points, HistoryDataPoint{
-					Timestamp: ts,
-					Value:     *lastGoodValue,
-					Quality:   0,
-				})
-			}
 		}
 	}
 
-	// Prepend seed as first point so chart starts at the correct value
-	if seedValue != nil {
-		seedTS := start.Unix()
-		if len(points) == 0 || points[0].Timestamp > seedTS {
-			points = append([]HistoryDataPoint{{
-				Timestamp: seedTS,
-				Value:     *seedValue,
-				Quality:   0,
-			}}, points...)
-		}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
 	}
 
-	if points == nil {
-		return []HistoryDataPoint{}, nil
-	}
 	return points, nil
 }
 
-// buildFluxQuery constructs a Flux query for InfluxDB for numeric types (INT, REAL, DINT)
-// and raw (no-aggregation) queries.
-//
-// BOOL tags with aggregation are handled separately by queryBoolWithSeed() which uses
-// a two-phase approach (fast last() seed + range aggregation + Go forward-fill).
-func (h *HistoryHandler) buildFluxQuery(tagID int, orgName, dataType string, start, end time.Time, agg, interval string) string {
-	startStr := start.Format(time.RFC3339)
-	endStr := end.Format(time.RFC3339)
-
-	tagFilters := fmt.Sprintf(
-		`  |> filter(fn: (r) => r._measurement == "tag_data")
-  |> filter(fn: (r) => r.tag_id == "%d")
-  |> filter(fn: (r) => r._field == "value")
-  |> toFloat()`,
-		tagID)
-
-	if agg != "" && interval != "" {
-		aggFunc := "mean"
-		switch agg {
-		case "mean":
-			aggFunc = "mean"
-		case "max":
-			aggFunc = "max"
-		case "min":
-			aggFunc = "min"
-		case "sum":
-			aggFunc = "sum"
-		case "first":
-			aggFunc = "first"
-		case "last":
-			aggFunc = "last"
-		case "count":
-			aggFunc = "count"
-		case "median":
-			aggFunc = "median"
-		case "stddev":
-			aggFunc = "sd"
-		}
-
-		// Numeric: sparse aggregation windows, no fill — frontend interpolates gaps
-		return fmt.Sprintf(
-			`from(bucket: "%s")
-  |> range(start: %s, stop: %s)
-%s
-  |> aggregateWindow(every: %s, fn: %s, createEmpty: false)
-  |> yield(name: "aggregated")
-`,
-			h.influxBucket, startStr, endStr, tagFilters, interval, aggFunc)
+// query1mAggregate queries the 1-minute continuous aggregate
+func (h *HistoryHandler) query1mAggregate(tagID int, start, end time.Time, aggFunc string) ([]HistoryDataPoint, error) {
+	// Map aggregation function to column
+	valueCol := "avg_value"
+	switch aggFunc {
+	case "max":
+		valueCol = "max_value"
+	case "min":
+		valueCol = "min_value"
+	case "last":
+		valueCol = "last_value"
 	}
 
-	// Raw (no aggregation): all data points within the requested range
-	return fmt.Sprintf(
-		`from(bucket: "%s")
-  |> range(start: %s, stop: %s)
-%s
-  |> yield(name: "raw")
-`,
-		h.influxBucket, startStr, endStr, tagFilters)
+	query := fmt.Sprintf(`
+		SELECT
+			EXTRACT(EPOCH FROM bucket)::BIGINT * 1000 as ts,
+			%s as val,
+			quality,
+			sample_count
+		FROM tag_history_1m
+		WHERE tag_id = $1 AND bucket >= $2 AND bucket <= $3
+		ORDER BY bucket ASC
+	`, valueCol)
+
+	rows, err := h.db.Query(query, tagID, start, end)
+	if err != nil {
+		// Fallback to raw query if aggregate doesn't exist yet
+		log.Printf("[HISTORY] 1m aggregate not available, falling back to raw: %v", err)
+		return h.queryRaw(tagID, start, end)
+	}
+	defer rows.Close()
+
+	var points []HistoryDataPoint
+	for rows.Next() {
+		var ts int64
+		var value sql.NullFloat64
+		var quality int
+		var sampleCount int64
+		if err := rows.Scan(&ts, &value, &quality, &sampleCount); err != nil {
+			return nil, fmt.Errorf("scan error: %w", err)
+		}
+
+		if value.Valid {
+			points = append(points, HistoryDataPoint{
+				Timestamp:   ts,
+				Value:       &value.Float64,
+				Quality:     quality,
+				Source:      "1m",
+				SampleCount: sampleCount,
+			})
+		} else {
+			points = append(points, HistoryDataPoint{
+				Timestamp: ts,
+				Value:     nil,
+				Quality:   quality,
+				Source:    "1m",
+			})
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return points, nil
 }
 
-// getTagDetails retrieves the organization name and data type for a tag and verifies ownership
-func (h *HistoryHandler) getTagDetails(tagID, orgID int) (string, string, error) {
-	var orgName string
+// query1hAggregate queries the 1-hour continuous aggregate
+func (h *HistoryHandler) query1hAggregate(tagID int, start, end time.Time, aggFunc string) ([]HistoryDataPoint, error) {
+	valueCol := "avg_value"
+	switch aggFunc {
+	case "max":
+		valueCol = "max_value"
+	case "min":
+		valueCol = "min_value"
+	case "last":
+		valueCol = "last_value"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			EXTRACT(EPOCH FROM bucket)::BIGINT * 1000 as ts,
+			%s as val,
+			quality,
+			sample_count
+		FROM tag_history_1h
+		WHERE tag_id = $1 AND bucket >= $2 AND bucket <= $3
+		ORDER BY bucket ASC
+	`, valueCol)
+
+	rows, err := h.db.Query(query, tagID, start, end)
+	if err != nil {
+		log.Printf("[HISTORY] 1h aggregate not available, falling back to 1m: %v", err)
+		return h.query1mAggregate(tagID, start, end, aggFunc)
+	}
+	defer rows.Close()
+
+	var points []HistoryDataPoint
+	for rows.Next() {
+		var ts int64
+		var value sql.NullFloat64
+		var quality int
+		var sampleCount int64
+		if err := rows.Scan(&ts, &value, &quality, &sampleCount); err != nil {
+			return nil, fmt.Errorf("scan error: %w", err)
+		}
+
+		if value.Valid {
+			points = append(points, HistoryDataPoint{
+				Timestamp:   ts,
+				Value:       &value.Float64,
+				Quality:     quality,
+				Source:      "1h",
+				SampleCount: sampleCount,
+			})
+		} else {
+			points = append(points, HistoryDataPoint{
+				Timestamp: ts,
+				Value:     nil,
+				Quality:   quality,
+				Source:    "1h",
+			})
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return points, nil
+}
+
+// query1dAggregate queries the 1-day continuous aggregate
+func (h *HistoryHandler) query1dAggregate(tagID int, start, end time.Time, aggFunc string) ([]HistoryDataPoint, error) {
+	valueCol := "avg_value"
+	switch aggFunc {
+	case "max":
+		valueCol = "max_value"
+	case "min":
+		valueCol = "min_value"
+	case "last":
+		valueCol = "last_value"
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+			EXTRACT(EPOCH FROM bucket)::BIGINT * 1000 as ts,
+			%s as val,
+			quality,
+			sample_count
+		FROM tag_history_1d
+		WHERE tag_id = $1 AND bucket >= $2 AND bucket <= $3
+		ORDER BY bucket ASC
+	`, valueCol)
+
+	rows, err := h.db.Query(query, tagID, start, end)
+	if err != nil {
+		log.Printf("[HISTORY] 1d aggregate not available, falling back to 1h: %v", err)
+		return h.query1hAggregate(tagID, start, end, aggFunc)
+	}
+	defer rows.Close()
+
+	var points []HistoryDataPoint
+	for rows.Next() {
+		var ts int64
+		var value sql.NullFloat64
+		var quality int
+		var sampleCount int64
+		if err := rows.Scan(&ts, &value, &quality, &sampleCount); err != nil {
+			return nil, fmt.Errorf("scan error: %w", err)
+		}
+
+		if value.Valid {
+			points = append(points, HistoryDataPoint{
+				Timestamp:   ts,
+				Value:       &value.Float64,
+				Quality:     quality,
+				Source:      "1d",
+				SampleCount: sampleCount,
+			})
+		} else {
+			points = append(points, HistoryDataPoint{
+				Timestamp: ts,
+				Value:     nil,
+				Quality:   quality,
+				Source:    "1d",
+			})
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return points, nil
+}
+
+// getTagStats retrieves statistics for a tag over a time range
+func (h *HistoryHandler) getTagStats(tagID int, start, end time.Time) (*TagStatsResponse, error) {
+	// Try using the helper function first
+	query := `
+		SELECT
+			min_value, max_value, avg_value, std_dev,
+			sample_count, first_value, last_value,
+			first_timestamp, last_timestamp
+		FROM get_tag_stats($1, $2, $3)
+	`
+
+	var stats TagStatsResponse
+	var minValue, maxValue, avgValue, stdDev, firstValue, lastValue sql.NullFloat64
+	var sampleCount sql.NullInt64
+	var firstTs, lastTs sql.NullInt64
+
+	err := h.db.QueryRow(query, tagID, start, end).Scan(
+		&minValue, &maxValue, &avgValue, &stdDev,
+		&sampleCount, &firstValue, &lastValue,
+		&firstTs, &lastTs,
+	)
+
+	if err != nil {
+		// Fallback to direct query on raw data
+		log.Printf("[HISTORY] get_tag_stats function not available, using direct query: %v", err)
+
+		fallbackQuery := `
+			SELECT
+				MIN(value) as min_value,
+				MAX(value) as max_value,
+				AVG(value) as avg_value,
+				STDDEV(value) as std_dev,
+				COUNT(*) as sample_count,
+				(SELECT value FROM tag_history WHERE tag_id = $1 AND time >= $2 AND time <= $3 ORDER BY time ASC LIMIT 1) as first_value,
+				(SELECT value FROM tag_history WHERE tag_id = $1 AND time >= $2 AND time <= $3 ORDER BY time DESC LIMIT 1) as last_value,
+				(SELECT EXTRACT(EPOCH FROM time)::BIGINT * 1000 FROM tag_history WHERE tag_id = $1 AND time >= $2 AND time <= $3 ORDER BY time ASC LIMIT 1) as first_timestamp,
+				(SELECT EXTRACT(EPOCH FROM time)::BIGINT * 1000 FROM tag_history WHERE tag_id = $1 AND time >= $2 AND time <= $3 ORDER BY time DESC LIMIT 1) as last_timestamp
+			FROM tag_history
+			WHERE tag_id = $1 AND time >= $2 AND time <= $3
+		`
+
+		err = h.db.QueryRow(fallbackQuery, tagID, start, end).Scan(
+			&minValue, &maxValue, &avgValue, &stdDev,
+			&sampleCount, &firstValue, &lastValue,
+			&firstTs, &lastTs,
+		)
+
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("stats query error: %w", err)
+		}
+	}
+
+	stats.MinValue = nullFloatToPtr(minValue)
+	stats.MaxValue = nullFloatToPtr(maxValue)
+	stats.AvgValue = nullFloatToPtr(avgValue)
+	stats.StdDev = nullFloatToPtr(stdDev)
+	if sampleCount.Valid {
+		stats.SampleCount = sampleCount.Int64
+	}
+	stats.FirstValue = nullFloatToPtr(firstValue)
+	stats.LastValue = nullFloatToPtr(lastValue)
+	if firstTs.Valid {
+		stats.FirstTimestamp = &firstTs.Int64
+	}
+	if lastTs.Valid {
+		stats.LastTimestamp = &lastTs.Int64
+	}
+
+	return &stats, nil
+}
+
+// nullFloatToPtr converts sql.NullFloat64 to *float64
+func nullFloatToPtr(nf sql.NullFloat64) *float64 {
+	if nf.Valid {
+		return &nf.Float64
+	}
+	return nil
+}
+
+// parseInterval converts interval string (e.g., "1m", "5m", "1h") to PostgreSQL interval
+func parseInterval(interval string) (string, error) {
+	if len(interval) < 2 {
+		return "", fmt.Errorf("invalid interval format")
+	}
+
+	unit := interval[len(interval)-1:]
+	value := interval[:len(interval)-1]
+
+	switch unit {
+	case "s":
+		return value + " second", nil
+	case "m":
+		return value + " minute", nil
+	case "h":
+		return value + " hour", nil
+	case "d":
+		return value + " day", nil
+	case "w":
+		return value + " week", nil
+	default:
+		return "", fmt.Errorf("unknown interval unit: %s", unit)
+	}
+}
+
+// getSeedValue returns the last known GOOD quality value before the given
+// start time.  This implements the "SEED" pattern used by SCADA historians:
+// it ensures the chart always has an initial state at the beginning of the
+// requested time range, even when data is published only on change (RBE).
+// Works for all driver types: Sparkplug B, Modbus, OPC-UA, S7, Redis, MQTT.
+func (h *HistoryHandler) getSeedValue(tagID int, start time.Time) (*HistoryDataPoint, error) {
+	// Only seed with the last GOOD value — skip offline markers (NULL values).
+	query := `
+		SELECT EXTRACT(EPOCH FROM time)::BIGINT * 1000 as ts, value
+		FROM tag_history
+		WHERE tag_id = $1 AND time < $2 AND value IS NOT NULL
+		ORDER BY time DESC
+		LIMIT 1
+	`
+
+	var ts int64
+	var value float64
+	err := h.db.QueryRow(query, tagID, start).Scan(&ts, &value)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil // No seed available — tag has no history before this range
+		}
+		return nil, fmt.Errorf("seed query error: %w", err)
+	}
+
+	// Map the seed value to the start of the requested range so the chart
+	// line begins at the left edge.
+	startMs := start.UnixMilli()
+	return &HistoryDataPoint{
+		Timestamp:   startMs,
+		Value:       &value,
+		Quality:     0,
+		Source:      "seed",
+		SampleCount: 0,
+	}, nil
+}
+
+// getTagDetails retrieves the data type for a tag and verifies ownership
+func (h *HistoryHandler) getTagDetails(tagID, orgID int) (string, error) {
 	var dataType string
 
 	query := `
-		SELECT o.name, t.data_type
+		SELECT t.data_type
 		FROM tags t
 		JOIN gateways g ON t.gateway_id = g.id
 		JOIN areas a ON g.area_id = a.id
 		JOIN sites s ON a.site_id = s.id
-		JOIN organizations o ON s.org_id = o.id
 		WHERE t.id = $1 AND s.org_id = $2
 	`
 
-	err := h.db.QueryRow(query, tagID, orgID).Scan(&orgName, &dataType)
+	err := h.db.QueryRow(query, tagID, orgID).Scan(&dataType)
 	if err != nil {
-		return "", "", fmt.Errorf("failed to verify tag ownership: %w", err)
+		return "", fmt.Errorf("failed to verify tag ownership: %w", err)
 	}
 
-	return orgName, dataType, nil
+	return dataType, nil
+}
+
+// GetTagStats handles GET /api/history/stats?tag_id={id}&start={iso}&end={iso}
+// @Summary Get tag statistics
+// @Description Get statistical summary (min, max, avg, stddev) for a tag over a time range
+// @Tags history
+// @Accept json
+// @Produce json
+// @Param X-Organization-ID header int true "Organization ID"
+// @Param tag_id query int true "Tag ID"
+// @Param start query string true "Start time (ISO 8601)"
+// @Param end query string true "End time (ISO 8601)"
+// @Success 200 {object} TagStatsResponse
+// @Failure 400 {object} map[string]string "Invalid request"
+// @Failure 403 {object} map[string]string "Forbidden"
+// @Failure 500 {object} map[string]string "Server error"
+// @Router /api/history/stats [get]
+func (h *HistoryHandler) GetTagStats(c *gin.Context) {
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	tagIDStr := c.Query("tag_id")
+	if tagIDStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tag_id query parameter is required"})
+		return
+	}
+
+	tagID, err := strconv.Atoi(tagIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tag_id parameter"})
+		return
+	}
+
+	// Verify tag ownership
+	_, err = h.getTagDetails(tagID, orgID)
+	if err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Tag not found or access denied"})
+		return
+	}
+
+	startStr := c.Query("start")
+	if startStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "start query parameter is required"})
+		return
+	}
+
+	endStr := c.Query("end")
+	if endStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "end query parameter is required"})
+		return
+	}
+
+	startTime, err := time.Parse(time.RFC3339, startStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid start parameter format"})
+		return
+	}
+
+	endTime, err := time.Parse(time.RFC3339, endStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid end parameter format"})
+		return
+	}
+
+	stats, err := h.getTagStats(tagID, startTime, endTime)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get stats: %v", err)})
+		return
+	}
+
+	if stats == nil {
+		c.JSON(http.StatusOK, TagStatsResponse{})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
 }
 
 // HistoryEvent represents a system event
@@ -634,7 +878,7 @@ type HistoryEvent struct {
 
 // QueryEvents handles GET /api/history/events?start={iso}&end={iso}
 // @Summary Query historical events
-// @Description Query system events (connections, etc.) from InfluxDB - only for existing gateways
+// @Description Query system events (connections, etc.) from PostgreSQL - only for existing gateways
 // @Tags history
 // @Accept json
 // @Produce json
@@ -651,14 +895,6 @@ func (h *HistoryHandler) QueryEvents(c *gin.Context) {
 	orgID, ok := middleware.GetOrganizationID(c)
 	if !ok {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
-		return
-	}
-
-	// Resolve Organization Name for filtering
-	orgName, err := h.getOrganizationName(orgID)
-	if err != nil {
-		log.Printf("[HISTORY] Failed to resolve organization name for ID %d: %v", orgID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to resolve organization context"})
 		return
 	}
 
@@ -700,71 +936,60 @@ func (h *HistoryHandler) QueryEvents(c *gin.Context) {
 		return
 	}
 
-	// Build Flux query for events
-	query := fmt.Sprintf(`
-		from(bucket: "%s")
-			|> range(start: %s, stop: %s)
-			|> filter(fn: (r) => r._measurement == "system_events")
-			|> pivot(rowKey:["_time"], columnKey: ["_field"], valueColumn: "_value")
-	`, h.influxBucket, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+	log.Printf("[HISTORY] Querying events for org=%d, start=%s, end=%s", orgID, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 
-	log.Printf("[HISTORY] Querying events for org=%q, start=%s, end=%s", orgName, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+	// Query system_events table
+	query := `
+		SELECT
+			EXTRACT(EPOCH FROM e.time)::BIGINT * 1000 as ts,
+			e.status,
+			e.message,
+			e.gateway_id,
+			g.name as gateway_name
+		FROM system_events e
+		JOIN gateways g ON e.gateway_id = g.id
+		WHERE e.time >= $1 AND e.time <= $2
+		ORDER BY e.time ASC
+	`
 
-	// Execute query
-	queryAPI := h.influxClient.QueryAPI(h.influxOrg)
-	result, err := queryAPI.Query(context.Background(), query)
+	rows, err := h.db.Query(query, startTime, endTime)
 	if err != nil {
-		log.Printf("[HISTORY] Failed to query InfluxDB for events: %v", err)
+		log.Printf("[HISTORY] Failed to query system_events: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to query events: %v", err)})
 		return
 	}
-	defer result.Close()
+	defer rows.Close()
 
 	// Parse results - filter to only include events from active gateways
 	var events []HistoryEvent
-	for result.Next() {
-		record := result.Record()
+	for rows.Next() {
+		var ts int64
+		var status, message string
+		var gatewayID int
+		var gatewayName string
 
-		// Get gateway_id from the record
-		gatewayIDStr, _ := record.ValueByKey("gateway_id").(string)
-
-		// Skip events from deleted gateways (gateway_id must be in active list)
-		if gatewayIDStr != "" {
-			gatewayID, convErr := strconv.Atoi(gatewayIDStr)
-			if convErr == nil {
-				// Check if this gateway still exists
-				if !activeGatewayIDs[gatewayID] {
-					continue // Skip events from deleted gateways
-				}
-			}
+		if err := rows.Scan(&ts, &status, &message, &gatewayID, &gatewayName); err != nil {
+			log.Printf("[HISTORY] Error scanning event row: %v", err)
+			continue
 		}
 
-		timestamp := record.Time().Unix()
-
-		// Pivot puts fields as columns in the record values
-		// Access them safely
-		status, _ := record.ValueByKey("status").(string)
-		message, _ := record.ValueByKey("message").(string)
-
-		// Tags are also available
-		typeTag, _ := record.ValueByKey("type").(string)
-		source, _ := record.ValueByKey("gateway").(string) // Use gateway name as source
-		if source == "" {
-			source, _ = record.ValueByKey("gateway_id").(string)
+		// Skip events from deleted gateways
+		if !activeGatewayIDs[gatewayID] {
+			continue
 		}
 
 		events = append(events, HistoryEvent{
-			Timestamp: timestamp,
-			Type:      typeTag,
-			Source:    source,
+			Timestamp: ts,
+			Type:      "connection",
+			Source:    gatewayName,
 			Status:    status,
 			Message:   message,
 		})
 	}
 
-	if result.Err() != nil {
-		log.Printf("[HISTORY] Query error after iteration: %v", result.Err())
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Query error: %v", result.Err())})
+	if err := rows.Err(); err != nil {
+		log.Printf("[HISTORY] Query error after iteration: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Query error: %v", err)})
 		return
 	}
 
@@ -801,13 +1026,4 @@ func (h *HistoryHandler) getActiveGatewayIDs(orgID int) (map[int]bool, error) {
 	}
 
 	return ids, rows.Err()
-}
-
-func (h *HistoryHandler) getOrganizationName(orgID int) (string, error) {
-	var name string
-	err := h.db.QueryRow("SELECT name FROM organizations WHERE id = $1", orgID).Scan(&name)
-	if err != nil {
-		return "", err
-	}
-	return name, nil
 }

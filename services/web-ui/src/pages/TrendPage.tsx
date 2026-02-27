@@ -10,6 +10,8 @@ import { TagBrowser } from '@/components/trend/TagBrowser';
 import { TrendDashboard } from '@/components/trend/TrendDashboard';
 import { TrendDataTable } from '@/components/trend/TrendDataTable';
 import { useTrendStore } from '@/stores/useTrendStore';
+import { useSparkplugDeviceStore } from '@/stores/useSparkplugDeviceStore';
+import { decodeSparkplugB, isProtobufData, convertSparkplugQuality } from '@/utils/sparkplugDecoder';
 import {
     TagWithHierarchy,
     TrendDataPoint,
@@ -69,7 +71,10 @@ const TrendPage = () => {
     // refreshTrigger is included so live mode shifts the window forward every 10 s.
     const { start: startDate, end: endDate } = useMemo(() => {
         if (timeRange.preset === 'custom' && timeRange.customStart && timeRange.customEnd) {
-            return { start: timeRange.customStart, end: timeRange.customEnd };
+            // Ensure custom dates are Date objects
+            const start = timeRange.customStart instanceof Date ? timeRange.customStart : new Date(timeRange.customStart);
+            const end = timeRange.customEnd instanceof Date ? timeRange.customEnd : new Date(timeRange.customEnd);
+            return { start, end };
         }
         return calculateTimeRange(timeRange.preset);
     }, [timeRange, refreshTrigger]);
@@ -194,6 +199,7 @@ const TrendPage = () => {
 
         client.on('connect', () => {
             client.subscribe('data/#');
+            client.subscribe('spBv1.0/#'); // Subscribe to Sparkplug B topics for device status
             setIsConnected(true);
         });
 
@@ -202,6 +208,65 @@ const TrendPage = () => {
 
         client.on('message', (topic, payload) => {
             try {
+                // Handle Sparkplug B messages
+                if (topic.startsWith('spBv1.0/')) {
+                    const parts = topic.split('/');
+                    const groupId = parts[1] || '';
+                    const msgType = parts[2] || '';
+                    const nodeId = parts[3] || '';
+                    const deviceId = parts[4] || '';
+
+                    const { handleBirth, handleDeath, handleData } = useSparkplugDeviceStore.getState();
+
+                    if (isProtobufData(payload)) {
+                        const decoded = decodeSparkplugB(payload);
+                        if (decoded) {
+                            if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
+                                handleBirth(groupId, nodeId, deviceId || nodeId, decoded.metrics.length);
+                            } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
+                                handleDeath(groupId, nodeId, deviceId || nodeId);
+                            } else if (msgType === 'DDATA' || msgType === 'NDATA') {
+                                handleData(groupId, nodeId, deviceId || nodeId);
+
+                                // Also update realtime values for matching tags
+                                decoded.metrics.forEach(metric => {
+                                    if (metric.name) {
+                                        const tag = tags.find(t => {
+                                            const tagAlias = t.alias?.replace(/_/g, '-').toLowerCase();
+                                            return tagAlias === metric.name?.toLowerCase() ||
+                                                t.alias?.toLowerCase() === metric.name?.toLowerCase();
+                                        });
+
+                                        if (tag && allTagIds.includes(tag.id) && metric.value !== null) {
+                                            let numValue: number;
+                                            if (typeof metric.value === 'boolean') {
+                                                numValue = metric.value ? 1 : 0;
+                                            } else if (typeof metric.value === 'number') {
+                                                numValue = metric.value;
+                                            } else {
+                                                numValue = parseFloat(String(metric.value)) || 0;
+                                            }
+
+                                            setRealtimeValues(prev => {
+                                                const next = new Map(prev);
+                                                next.set(tag.id, {
+                                                    tagId: tag.id,
+                                                    value: numValue,
+                                                    timestamp: metric.timestamp || Date.now(),
+                                                    quality: convertSparkplugQuality(metric.quality),
+                                                });
+                                                return next;
+                                            });
+                                        }
+                                    }
+                                });
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                // Handle legacy JSON messages
                 const data = JSON.parse(payload.toString());
                 const parts = topic.split('/');
                 const alias = parts[parts.length - 1];
@@ -286,7 +351,8 @@ const TrendPage = () => {
             const key = tag?.alias || tag?.code || `Tag_${tagId}`;
 
             data.forEach(point => {
-                const ts = point.timestamp * 1000;
+                // Timestamp from API is already in milliseconds - use directly
+                const ts = point.timestamp;
                 if (!timestampMap.has(ts)) {
                     const date = new Date(ts);
                     timestampMap.set(ts, {
@@ -360,18 +426,19 @@ const TrendPage = () => {
 
     // Merge realtime values into historyDataMap so the data table always shows
     // the current live state even before the historian has written it to InfluxDB.
-    // Realtime timestamps are in ms; TrendDataPoint.timestamp is in seconds.
+    // All timestamps are in milliseconds.
     const mergedDataMap = useMemo(() => {
         const merged = new Map<number, TrendDataPoint[]>(historyDataMap);
         realtimeValues.forEach((rv, tagId) => {
             if (!allTagIds.includes(tagId)) return;
             const existing = merged.get(tagId) || [];
-            const rvTsSec = Math.floor(rv.timestamp / 1000);
-            const lastTsSec = existing.length > 0 ? existing[existing.length - 1].timestamp : 0;
+            // Timestamps are already in milliseconds
+            const rvTs = rv.timestamp;
+            const lastTs = existing.length > 0 ? existing[existing.length - 1].timestamp : 0;
             // Only append if the realtime point is newer than the last historical point
-            if (rvTsSec > lastTsSec) {
+            if (rvTs > lastTs) {
                 merged.set(tagId, [...existing, {
-                    timestamp: rvTsSec,
+                    timestamp: rvTs,
                     value: rv.value,
                     quality: rv.quality,
                 }]);

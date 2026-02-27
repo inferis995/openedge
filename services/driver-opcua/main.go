@@ -13,32 +13,14 @@ import (
 	"syscall"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
 	_ "github.com/lib/pq"
+	"github.com/ralph/industrial-edge-middleware/internal/db"
+	"github.com/ralph/industrial-edge-middleware/internal/models"
+	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	opcuaclient "github.com/ralph/industrial-edge-middleware/internal/opcua"
+	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 )
-
-// Models (same as other drivers)
-type Gateway struct {
-	ID               int
-	AreaID           int
-	Name             string
-	DriverType       string
-	ConnectionConfig json.RawMessage
-	ScanRateMs       int
-	Enabled          bool
-}
-
-type Tag struct {
-	ID                int
-	GatewayID         int
-	Code              string // Node ID (e.g. "ns=2;s=Temperature")
-	Alias             string
-	DataType          string
-	Historize         bool
-	HistorizeDeadband float64
-}
 
 // TagPayload is the standard payload published to MQTT
 type TagPayload struct {
@@ -49,10 +31,10 @@ type TagPayload struct {
 	Quality   int         `json:"q"`
 }
 
-// GatewayConfig adds auth configuration fields
+// GatewayConfig holds configuration
 type GatewayConfig struct {
-	Gateway  Gateway
-	Tags     []Tag
+	Gateway  models.Gateway
+	Tags     []models.Tag
 	OrgName  string
 	OrgID    int
 	SiteName string
@@ -68,7 +50,7 @@ type GatewayConfig struct {
 type Driver struct {
 	gatewayID      int
 	database       *sql.DB
-	mqttClient     mqtt.Client
+	mqttClient     *mqtt.Client
 	opcuaClient    *opcuaclient.Client
 	config         *GatewayConfig
 	configMu       sync.RWMutex
@@ -77,10 +59,21 @@ type Driver struct {
 	previousValues map[int]interface{}
 	previousMu     sync.RWMutex
 
+	// Connection state tracking for DBIRTH/DDEATH
+	isConnected  bool
+	wasConnected bool
+	connectionMu sync.RWMutex
+
 	// Sparkplug B support
 	sparkplugClient *sparkplug.SparkplugClient
-	dualPublisher   *sparkplug.DualPublisher
 	sparkplugMu     sync.RWMutex
+
+	// Settings manager for publish mode and RBE
+	settingsManager *settings.Manager
+
+	// Previous qualities for RBE
+	previousQualities map[int]int
+	prevQualitiesMu   sync.RWMutex
 }
 
 func main() {
@@ -97,55 +90,61 @@ func main() {
 		log.Fatalf("Invalid GATEWAY_ID: %v", err)
 	}
 
-	// Connect to database
-	dbHost := getEnv("DB_HOST", "postgres")
-	dbPort := getEnv("DB_PORT", "5432")
-	dbUser := getEnv("DB_USER", "industrial_user")
-	dbPass := getEnv("DB_PASSWORD", "industrial_pass")
-	dbName := getEnv("DB_NAME", "industrial_edge")
+	// Connect to database using internal db package
+	dbCfg := db.Config{
+		Host:     getEnv("DB_HOST", "postgres"),
+		Port:     getEnvInt("DB_PORT", 5432),
+		User:     getEnv("DB_USER", "industrial_user"),
+		Password: getEnv("DB_PASSWORD", "industrial_pass"),
+		Database: getEnv("DB_NAME", "industrial_edge"),
+	}
 
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		dbHost, dbPort, dbUser, dbPass, dbName)
-
-	db, err := sql.Open("postgres", dsn)
+	database, err := db.Connect(dbCfg)
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer db.Close()
-
-	// Verify database connection
-	if err := db.Ping(); err != nil {
-		log.Fatalf("Database ping failed: %v", err)
-	}
+	defer database.Close()
 	log.Println("[OPC-UA Driver] Connected to database")
 
-	// Connect to MQTT broker
-	mqttHost := getEnv("MQTT_HOST", "mosquitto")
-	mqttPort := getEnv("MQTT_PORT", "1883")
-	clientID := fmt.Sprintf("driver-opcua-%d", gatewayID)
-
-	opts := mqtt.NewClientOptions().
-		AddBroker(fmt.Sprintf("tcp://%s:%s", mqttHost, mqttPort)).
-		SetClientID(clientID).
-		SetAutoReconnect(true).
-		SetConnectRetry(true).
-		SetConnectRetryInterval(5 * time.Second).
-		SetKeepAlive(30 * time.Second)
-
-	mqttClient := mqtt.NewClient(opts)
-	token := mqttClient.Connect()
-	if token.Wait() && token.Error() != nil {
-		log.Fatalf("Failed to connect to MQTT broker: %v", token.Error())
+	// Connect to MQTT broker using internal mqtt package
+	mqttCfg := mqtt.Config{
+		Host:          getEnv("MQTT_HOST", "mosquitto"),
+		Port:          getEnvInt("MQTT_PORT", 1883),
+		ClientID:      fmt.Sprintf("driver-opcua-%d", gatewayID),
+		CleanSession:  true,
+		AutoReconnect: true,
+		KeepAlive:     30 * time.Second,
+		LWTTopic:      fmt.Sprintf("sys/health/%d", gatewayID),
+		LWTPayload:    "offline",
+		LWTRetained:   true,
 	}
-	log.Printf("[OPC-UA Driver] Connected to MQTT broker at %s:%s", mqttHost, mqttPort)
+
+	mqttClient := mqtt.NewClient(mqttCfg)
+	if err := mqttClient.Connect(); err != nil {
+		log.Fatalf("Failed to connect to MQTT broker: %v", err)
+	}
+	defer mqttClient.Disconnect(1000)
+	log.Println("[OPC-UA Driver] Connected to MQTT broker")
+
+	// Publish online status
+	healthTopic := fmt.Sprintf("sys/health/%d", gatewayID)
+	mqttClient.PublishWithQoS(healthTopic, "online", 1, true)
+	log.Printf("[OPC-UA Driver] Published online status to %s", healthTopic)
+
+	// Initialize settings manager
+	settingsManager := settings.NewManager(database)
 
 	// Create driver instance
 	driver := &Driver{
-		gatewayID:      gatewayID,
-		database:       db,
-		mqttClient:     mqttClient,
-		stopChan:       make(chan struct{}),
-		previousValues: make(map[int]interface{}),
+		gatewayID:         gatewayID,
+		database:          database,
+		mqttClient:        mqttClient,
+		stopChan:          make(chan struct{}),
+		previousValues:    make(map[int]interface{}),
+		previousQualities: make(map[int]int),
+		settingsManager:   settingsManager,
+		isConnected:       false,
+		wasConnected:      false,
 	}
 
 	// Initialize Sparkplug B client (optional - for dual publishing)
@@ -160,18 +159,18 @@ func main() {
 
 	// Subscribe to reload commands
 	reloadTopic := fmt.Sprintf("sys/command/reload/%d", gatewayID)
-	mqttClient.Subscribe(reloadTopic, 1, func(client mqtt.Client, msg mqtt.Message) {
-		log.Printf("[OPC-UA Driver] Received reload command")
-		if err := driver.loadConfig(); err != nil {
-			log.Printf("[OPC-UA Driver] Reload failed: %v", err)
-		}
-	})
+	mqttClient.Subscribe(reloadTopic, driver.handleReloadCommand)
+	mqttClient.Subscribe("sys/command/reload/+", driver.handleReloadCommand)
+	log.Printf("[OPC-UA Driver] Subscribed to reload topic: %s", reloadTopic)
+
+	// Subscribe to settings-reload commands for hot-reload of publish mode
+	mqttClient.Subscribe("sys/command/settings-reload", driver.handleSettingsReloadCommand)
+	log.Printf("[OPC-UA Driver] Subscribed to settings-reload topic")
 
 	// Subscribe to write commands
 	writeTopic := fmt.Sprintf("sys/command/write/%d", gatewayID)
-	mqttClient.Subscribe(writeTopic, 1, func(client mqtt.Client, msg mqtt.Message) {
-		driver.handleWriteCommand(msg.Payload())
-	})
+	mqttClient.Subscribe(writeTopic, driver.handleWriteCommand)
+	log.Printf("[OPC-UA Driver] Subscribed to write topic: %s", writeTopic)
 
 	// Start polling loop
 	driver.wg.Add(1)
@@ -187,14 +186,89 @@ func main() {
 	<-sigChan
 
 	log.Println("[OPC-UA Driver] Shutting down...")
+
+	// Publish DDEATH before shutting down
+	driver.publishDDEATH()
+
 	close(driver.stopChan)
 	driver.wg.Wait()
 
 	if driver.opcuaClient != nil {
 		driver.opcuaClient.Disconnect()
 	}
-	mqttClient.Disconnect(1000)
 	log.Println("[OPC-UA Driver] Shutdown complete")
+}
+
+func (d *Driver) handleReloadCommand(topic string, payload []byte) {
+	log.Printf("[OPC-UA Driver] Received reload signal via %s", topic)
+	if err := d.loadConfig(); err != nil {
+		log.Printf("[OPC-UA Driver] Reload failed: %v", err)
+	}
+}
+
+func (d *Driver) handleSettingsReloadCommand(topic string, payload []byte) {
+	log.Printf("[OPC-UA Driver] Received settings-reload signal")
+	if d.settingsManager != nil {
+		if err := d.settingsManager.Load(); err != nil {
+			log.Printf("[OPC-UA Driver] Failed to reload settings: %v", err)
+		} else {
+			cfg := d.settingsManager.Get()
+			log.Printf("[OPC-UA Driver] Settings reloaded: publish_mode=%s", cfg.PublishMode)
+		}
+	}
+}
+
+// WriteCommand represents a write command with full tag info
+type WriteCommand struct {
+	TagID    int         `json:"tag_id"`
+	Code     string      `json:"code"`
+	Value    interface{} `json:"value"`
+	DataType string      `json:"data_type"`
+}
+
+func (d *Driver) handleWriteCommand(topic string, payload []byte) {
+	log.Printf("[OPC-UA Driver] Received write command: %s", string(payload))
+
+	var cmd WriteCommand
+	if err := json.Unmarshal(payload, &cmd); err != nil {
+		log.Printf("[OPC-UA Driver] Failed to unmarshal write command: %v", err)
+		return
+	}
+
+	d.configMu.RLock()
+	cfg := d.config
+	d.configMu.RUnlock()
+
+	if cfg == nil {
+		log.Printf("[OPC-UA Driver] Write failed: no config loaded")
+		return
+	}
+
+	// Find the tag
+	var targetTag *models.Tag
+	for i := range cfg.Tags {
+		if cfg.Tags[i].ID == cmd.TagID {
+			targetTag = &cfg.Tags[i]
+			break
+		}
+	}
+
+	if targetTag == nil {
+		log.Printf("[OPC-UA Driver] Write failed: tag %d not found", cmd.TagID)
+		return
+	}
+
+	if d.opcuaClient == nil || !d.opcuaClient.IsConnected() {
+		log.Printf("[OPC-UA Driver] Cannot write: OPC UA client not connected")
+		return
+	}
+
+	if err := d.opcuaClient.WriteValue(targetTag.Code, cmd.Value, targetTag.DataType); err != nil {
+		log.Printf("[OPC-UA Driver] Write error for tag %d (%s): %v", targetTag.ID, targetTag.Code, err)
+		return
+	}
+
+	log.Printf("[OPC-UA Driver] Write success: tag %d (%s) = %v", targetTag.ID, targetTag.Code, cmd.Value)
 }
 
 // loadConfig loads gateway and tag configuration from the database
@@ -203,49 +277,50 @@ func (d *Driver) loadConfig() error {
 	defer d.configMu.Unlock()
 
 	// Load gateway
-	var gw Gateway
-	err := d.database.QueryRow(`
-		SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled
-		FROM gateways WHERE id = $1
-	`, d.gatewayID).Scan(
-		&gw.ID, &gw.AreaID, &gw.Name, &gw.DriverType,
-		&gw.ConnectionConfig, &gw.ScanRateMs, &gw.Enabled,
+	query := `
+		SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled,
+		       o.id, o.name as org_name, s.name as site_name, a.name as area_name
+		FROM gateways g
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id
+		JOIN organizations o ON s.org_id = o.id
+		WHERE g.id = $1
+	`
+
+	var gateway models.Gateway
+	var connConfigBytes []byte
+	var orgID int
+	var orgName, siteName, areaName string
+
+	err := d.database.QueryRow(query, d.gatewayID).Scan(
+		&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType,
+		&connConfigBytes, &gateway.ScanRateMs, &gateway.Enabled,
+		&orgID, &orgName, &siteName, &areaName,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to load gateway %d: %w", d.gatewayID, err)
 	}
 
-	// Load organization/site/area names for MQTT topic and OrgID for TagPayload
-	var orgID int
-	var orgName, siteName, areaName string
-	err = d.database.QueryRow(`
-		SELECT o.id, o.name, s.name, a.name
-		FROM areas a
-		JOIN sites s ON a.site_id = s.id
-		JOIN organizations o ON s.org_id = o.id
-		WHERE a.id = $1
-	`, gw.AreaID).Scan(&orgID, &orgName, &siteName, &areaName)
-	if err != nil {
-		log.Printf("[OPC-UA Driver] Warning: could not load org/site/area names/id: %v", err)
-		orgName = "default"
-		siteName = "default"
-		areaName = "default"
+	// Parse connection config
+	if err := json.Unmarshal(connConfigBytes, &gateway.ConnectionConfig); err != nil {
+		return fmt.Errorf("failed to parse connection config: %w", err)
 	}
 
 	// Load tags
-	rows, err := d.database.Query(`
+	tagsQuery := `
 		SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband
 		FROM tags WHERE gateway_id = $1
 		ORDER BY id
-	`, d.gatewayID)
+	`
+	rows, err := d.database.Query(tagsQuery, d.gatewayID)
 	if err != nil {
 		return fmt.Errorf("failed to load tags: %w", err)
 	}
 	defer rows.Close()
 
-	var tags []Tag
+	var tags []models.Tag
 	for rows.Next() {
-		var t Tag
+		var t models.Tag
 		if err := rows.Scan(&t.ID, &t.GatewayID, &t.Code, &t.Alias, &t.DataType, &t.Historize, &t.HistorizeDeadband); err != nil {
 			return fmt.Errorf("failed to scan tag: %w", err)
 		}
@@ -253,27 +328,24 @@ func (d *Driver) loadConfig() error {
 	}
 
 	// Parse connection config to get endpoint and auth
-	var connConfig map[string]interface{}
-	if err := json.Unmarshal(gw.ConnectionConfig, &connConfig); err != nil {
-		return fmt.Errorf("failed to parse connection config: %w", err)
-	}
-
-	endpoint, _ := connConfig["endpoint"].(string)
+	endpoint, _ := gateway.ConnectionConfig["endpoint"].(string)
 	if endpoint == "" {
 		return fmt.Errorf("missing 'endpoint' in connection_config for OPC_UA gateway %d", d.gatewayID)
 	}
 
-	authMode, _ := connConfig["auth_mode"].(string)
-	username, _ := connConfig["username"].(string)
-	password, _ := connConfig["password"].(string)
-	certFile, _ := connConfig["cert_file"].(string)
-	keyFile, _ := connConfig["key_file"].(string)
+	authMode, _ := gateway.ConnectionConfig["auth_mode"].(string)
+	username, _ := gateway.ConnectionConfig["username"].(string)
+	password, _ := gateway.ConnectionConfig["password"].(string)
+	certFile, _ := gateway.ConnectionConfig["cert_file"].(string)
+	keyFile, _ := gateway.ConnectionConfig["key_file"].(string)
 
 	if authMode == "" {
 		authMode = "Anonymous"
 	}
 
 	// Create/update OPC UA client
+	wasConnected := d.opcuaClient != nil && d.opcuaClient.IsConnected()
+
 	if d.opcuaClient != nil {
 		d.opcuaClient.Disconnect()
 	}
@@ -289,7 +361,7 @@ func (d *Driver) loadConfig() error {
 	})
 
 	d.config = &GatewayConfig{
-		Gateway:  gw,
+		Gateway:  gateway,
 		Tags:     tags,
 		OrgName:  orgName,
 		OrgID:    orgID,
@@ -304,30 +376,30 @@ func (d *Driver) loadConfig() error {
 
 	// Initialize or update Sparkplug B client
 	if getEnv("SPARKPLUG_ENABLED", "false") == "true" {
-		d.initSparkplugClientLocked(slugify(orgName), slugify(siteName), slugify(areaName), slugify(gw.Name), orgID)
+		d.initSparkplugClientLocked(slugify(orgName), slugify(siteName), slugify(areaName), slugify(gateway.Name), orgID)
 	}
 
 	// Subscribe to legacy format write commands: cmd/{org}/{site}/{area}/{gateway}/+
 	legacyWriteTopic := fmt.Sprintf("cmd/%s/%s/%s/%s/+",
-		slugify(orgName), slugify(siteName), slugify(areaName), slugify(gw.Name))
-	d.mqttClient.Subscribe(legacyWriteTopic, 1, func(client mqtt.Client, msg mqtt.Message) {
-		d.handleLegacyWriteCommand(msg.Topic(), msg.Payload())
-	})
+		slugify(orgName), slugify(siteName), slugify(areaName), slugify(gateway.Name))
+	d.mqttClient.Subscribe(legacyWriteTopic, d.handleLegacyWriteCommand)
 	log.Printf("[OPC-UA Driver] Subscribed to legacy write topic: %s", legacyWriteTopic)
 
 	// Subscribe to Sparkplug B DCMD (Device Command) if enabled
 	if getEnv("SPARKPLUG_ENABLED", "false") == "true" {
 		groupID := sparkplug.BuildGroupID(slugify(orgName), slugify(siteName))
-		edgeNodeID := sparkplug.BuildEdgeNodeID(slugify(areaName), slugify(gw.Name))
+		edgeNodeID := sparkplug.BuildEdgeNodeID(slugify(areaName), slugify(gateway.Name))
 		dcmdTopic := fmt.Sprintf("spBv1.0/%s/DCMD/%s/+", groupID, edgeNodeID)
-		d.mqttClient.Subscribe(dcmdTopic, 1, func(client mqtt.Client, msg mqtt.Message) {
-			d.handleSparkplugDCMD(msg.Topic(), msg.Payload())
-		})
+		d.mqttClient.Subscribe(dcmdTopic, d.handleSparkplugDCMD)
 		log.Printf("[OPC-UA Driver] Subscribed to Sparkplug B DCMD topic: %s", dcmdTopic)
 	}
 
 	log.Printf("[OPC-UA Driver] Config loaded: gateway=%s, endpoint=%s, auth=%s, tags=%d",
-		gw.Name, endpoint, authMode, len(tags))
+		gateway.Name, endpoint, authMode, len(tags))
+
+	// Reset connection state on config reload
+	d.wasConnected = wasConnected
+	d.isConnected = false
 
 	return nil
 }
@@ -350,28 +422,23 @@ func (d *Driver) initSparkplugClientLocked(orgName, siteName, areaName, gatewayN
 		EnableLegacy: true,
 	}
 
-	if d.sparkplugClient == nil {
-		// Create a wrapper for the paho MQTT client to use with Sparkplug
-		// Since OPC UA driver uses paho directly, we need the wrapper
-		d.sparkplugClient = sparkplug.NewClient(config, nil)
-		d.sparkplugClient.SetConnected(true)
-	}
-
-	// Create or update dual publisher
-	d.dualPublisher = sparkplug.NewDualPublisher(
-		d.sparkplugClient,
-		orgName,
-		siteName,
-		areaName,
-		gatewayName,
-		orgID,
-	)
+	// Create sparkplug client with the internal mqtt wrapper
+	d.sparkplugClient = sparkplug.NewClient(config, d.mqttClient)
+	d.sparkplugClient.SetConnected(true)
 
 	log.Printf("[OPC-UA Driver] Sparkplug B client initialized: group=%s, node=%s", groupID, edgeNodeID)
 }
 
-// publishDual publishes a tag value in both legacy and Sparkplug B formats
-func (d *Driver) publishDual(tag Tag, value interface{}, quality int) {
+// getPublishMode returns the current publish mode from settings
+func (d *Driver) getPublishMode() models.PublishMode {
+	if d.settingsManager != nil {
+		return d.settingsManager.Get().PublishMode
+	}
+	return models.PublishModeDual // default
+}
+
+// publishTagValue publishes a tag value to MQTT with respect to publish mode
+func (d *Driver) publishTagValue(tag models.Tag, value interface{}, quality int) {
 	timestamp := time.Now().UnixMilli()
 	alias := tag.Alias
 	if alias == "" {
@@ -386,52 +453,154 @@ func (d *Driver) publishDual(tag Tag, value interface{}, quality int) {
 		return
 	}
 
-	// 1. Always publish legacy format
+	publishMode := d.getPublishMode()
+
+	d.sparkplugMu.RLock()
+	sparkplugClient := d.sparkplugClient
+	d.sparkplugMu.RUnlock()
+
+	switch publishMode {
+	case models.PublishModeLegacyOnly:
+		// Only legacy format
+		d.publishLegacy(tag.ID, cfg.OrgID, alias, value, timestamp, quality, cfg)
+
+	case models.PublishModeSparkplugOnly:
+		// Only Sparkplug B format (Protobuf)
+		if sparkplugClient != nil && sparkplugClient.IsConnected() {
+			tagData := sparkplug.TagData{
+				TagID:     tag.ID,
+				DeviceID:  alias,
+				Value:     value,
+				DataType:  tag.DataType,
+				Timestamp: timestamp,
+				Quality:   quality,
+				OrgID:     cfg.OrgID,
+			}
+			if err := sparkplugClient.PublishSingleTag(tagData); err != nil {
+				log.Printf("[OPC-UA Driver] Sparkplug publish error for %s: %v", alias, err)
+			}
+		} else {
+			log.Printf("[OPC-UA Driver] Sparkplug client not available, skipping publish for %s", alias)
+		}
+
+	default: // PublishModeDual
+		// Both formats - publish legacy first, then Sparkplug B
+		d.publishLegacy(tag.ID, cfg.OrgID, alias, value, timestamp, quality, cfg)
+
+		// Publish Sparkplug B format
+		if sparkplugClient != nil && sparkplugClient.IsConnected() {
+			tagData := sparkplug.TagData{
+				TagID:     tag.ID,
+				DeviceID:  alias,
+				Value:     value,
+				DataType:  tag.DataType,
+				Timestamp: timestamp,
+				Quality:   quality,
+				OrgID:     cfg.OrgID,
+			}
+			if err := sparkplugClient.PublishSingleTag(tagData); err != nil {
+				log.Printf("[OPC-UA Driver] Sparkplug publish error for %s: %v", alias, err)
+			}
+		}
+	}
+}
+
+// publishLegacy publishes a tag value in legacy JSON format only
+func (d *Driver) publishLegacy(tagID int, orgID int, alias string, value interface{}, timestamp int64, quality int, cfg *GatewayConfig) {
+	topic := fmt.Sprintf("data/%s/%s/%s/%s/%s",
+		slugify(cfg.OrgName), slugify(cfg.SiteName), slugify(cfg.AreaName),
+		slugify(cfg.Gateway.Name), slugify(alias))
 	payload := TagPayload{
-		TagID:     tag.ID,
-		OrgID:     cfg.OrgID,
+		TagID:     tagID,
+		OrgID:     orgID,
 		Value:     value,
 		Timestamp: timestamp,
 		Quality:   quality,
 	}
-	data, err := json.Marshal(payload)
-	if err == nil {
-		dataTopic := fmt.Sprintf("data/%s/%s/%s/%s/%s",
-			slugify(cfg.OrgName), slugify(cfg.SiteName), slugify(cfg.AreaName),
-			slugify(cfg.Gateway.Name), slugify(alias))
-		d.mqttClient.Publish(dataTopic, 1, false, data)
+	data, _ := json.Marshal(payload)
+	d.mqttClient.PublishWithQoS(topic, string(data), 1, false)
+}
+
+// setConnectionState updates connection state and handles DBIRTH/DDEATH
+func (d *Driver) setConnectionState(connected bool) {
+	d.connectionMu.Lock()
+	wasConnected := d.isConnected
+	d.wasConnected = wasConnected
+	d.isConnected = connected
+	d.connectionMu.Unlock()
+
+	d.handleConnectionStateChange(connected, wasConnected)
+}
+
+// handleConnectionStateChange sends DBIRTH/DDEATH based on connection state changes
+func (d *Driver) handleConnectionStateChange(connected, wasConnected bool) {
+	publishMode := d.getPublishMode()
+
+	// Only send death/birth if using Sparkplug (sparkplug_only or dual)
+	if publishMode == models.PublishModeLegacyOnly {
+		return
 	}
 
-	// 2. Publish Sparkplug B format if enabled (directly using paho client)
-	if getEnv("SPARKPLUG_ENABLED", "false") == "true" {
-		d.sparkplugMu.RLock()
-		spClient := d.sparkplugClient
-		d.sparkplugMu.RUnlock()
+	d.sparkplugMu.RLock()
+	spClient := d.sparkplugClient
+	cfg := d.config
+	d.sparkplugMu.RUnlock()
 
-		if spClient != nil {
-			// Build Sparkplug B topic and payload directly
-			groupID := sparkplug.BuildGroupID(slugify(cfg.OrgName), slugify(cfg.SiteName))
-			edgeNodeID := sparkplug.BuildEdgeNodeID(slugify(cfg.AreaName), slugify(cfg.Gateway.Name))
-			spTopic := fmt.Sprintf("spBv1.0/%s/DDATA/%s/%s", groupID, edgeNodeID, slugify(alias))
+	if spClient == nil || !spClient.IsConnected() || cfg == nil {
+		return
+	}
 
-			// Build Sparkplug B payload
-			spPayload := sparkplug.CreateDDATAPayload(slugify(alias), []sparkplug.TagData{
-				{
-					TagID:     tag.ID,
-					DeviceID:  slugify(alias),
-					Value:     value,
-					DataType:  tag.DataType,
-					Timestamp: timestamp,
-					Quality:   quality,
-					OrgID:     cfg.OrgID,
-				},
+	if connected && !wasConnected {
+		// Coming online - send DBIRTH with all current tag values
+		log.Printf("[OPC-UA Driver] Sending DBIRTH (device coming online)")
+		var tagsData []sparkplug.TagData
+		for _, t := range cfg.Tags {
+			d.previousMu.RLock()
+			val := d.previousValues[t.ID]
+			d.previousMu.RUnlock()
+			tagsData = append(tagsData, sparkplug.TagData{
+				TagID:     t.ID,
+				DeviceID:  t.Alias,
+				Value:     val,
+				DataType:  t.DataType,
+				Timestamp: time.Now().UnixMilli(),
+				Quality:   192, // GOOD
+				OrgID:     cfg.OrgID,
 			})
-
-			spData, err := json.Marshal(spPayload)
-			if err == nil {
-				d.mqttClient.Publish(spTopic, 0, false, spData)
-			}
 		}
+		if err := spClient.PublishDBIRTH(slugify(cfg.Gateway.Name), tagsData); err != nil {
+			log.Printf("[OPC-UA Driver] Failed to publish DBIRTH: %v", err)
+		}
+	} else if !connected && wasConnected {
+		// Going offline - send DDEATH
+		log.Printf("[OPC-UA Driver] Sending DDEATH (device going offline)")
+		if err := spClient.PublishDDEATH(slugify(cfg.Gateway.Name)); err != nil {
+			log.Printf("[OPC-UA Driver] Failed to publish DDEATH: %v", err)
+		}
+	}
+}
+
+// publishDDEATH sends DDEATH on shutdown
+func (d *Driver) publishDDEATH() {
+	publishMode := d.getPublishMode()
+
+	// Only send death if using Sparkplug
+	if publishMode == models.PublishModeLegacyOnly {
+		return
+	}
+
+	d.sparkplugMu.RLock()
+	spClient := d.sparkplugClient
+	cfg := d.config
+	d.sparkplugMu.RUnlock()
+
+	if spClient == nil || !spClient.IsConnected() || cfg == nil {
+		return
+	}
+
+	log.Printf("[OPC-UA Driver] Sending DDEATH (shutdown)")
+	if err := spClient.PublishDDEATH(slugify(cfg.Gateway.Name)); err != nil {
+		log.Printf("[OPC-UA Driver] Failed to publish DDEATH: %v", err)
 	}
 }
 
@@ -463,11 +632,6 @@ func (d *Driver) pollLoop() {
 		// Read all tags info needed for publishing
 		d.configMu.RLock()
 		tags := config.Tags
-		orgID := config.OrgID
-		orgName := config.OrgName
-		siteName := config.SiteName
-		areaName := config.AreaName
-		gwName := config.Gateway.Name
 		d.configMu.RUnlock()
 
 		// Ensure connected
@@ -475,9 +639,9 @@ func (d *Driver) pollLoop() {
 			log.Printf("[OPC-UA Driver] Not connected, attempting to connect to OPC UA server...")
 			if err := d.opcuaClient.ConnectWithRetry(3, 5*time.Second); err != nil {
 				log.Printf("[OPC-UA Driver] Connection failed after 3 retries: %v", err)
+				d.setConnectionState(false)
 
-				// Publish BAD quality for all tags (with updated timestamp)
-				now := time.Now().UnixMilli()
+				// Publish BAD quality for all tags (only if changed)
 				for _, tag := range tags {
 					d.previousMu.RLock()
 					val, exists := d.previousValues[tag.ID]
@@ -485,13 +649,10 @@ func (d *Driver) pollLoop() {
 					if !exists {
 						val = 0
 					}
-					d.publishTagValue(tag, val, 2, orgID, orgName, siteName, areaName, gwName)
-					log.Printf("[OPC-UA Driver] Published BAD quality for tag %d (%s) at timestamp %d", tag.ID, tag.Alias, now)
-
-					// Update previous value
-					d.previousMu.Lock()
-					d.previousValues[tag.ID] = val
-					d.previousMu.Unlock()
+					if d.shouldPublish(tag.ID, val, 2) {
+						d.publishTagValue(tag, val, 2) // BAD quality
+						d.updateState(tag.ID, val, 2)
+					}
 				}
 
 				select {
@@ -502,24 +663,24 @@ func (d *Driver) pollLoop() {
 				}
 			}
 			log.Printf("[OPC-UA Driver] Successfully connected to OPC UA server")
+			d.setConnectionState(true)
 		}
 
 		for _, tag := range tags {
 			value, quality, err := d.opcuaClient.ReadValue(tag.Code)
 			if err != nil {
 				log.Printf("[OPC-UA Driver] Read error for tag %d (NodeID: %s): %v", tag.ID, tag.Code, err)
-				// Publish bad quality
+				// Publish bad quality if changed
 				d.previousMu.RLock()
 				val, exists := d.previousValues[tag.ID]
 				d.previousMu.RUnlock()
 				if !exists {
 					val = 0
 				}
-				d.publishTagValue(tag, val, 2, orgID, orgName, siteName, areaName, gwName)
-
-				d.previousMu.Lock()
-				d.previousValues[tag.ID] = val
-				d.previousMu.Unlock()
+				if d.shouldPublish(tag.ID, val, 2) {
+					d.publishTagValue(tag, val, 2) // BAD quality
+					d.updateState(tag.ID, val, 2)
+				}
 				continue
 			}
 
@@ -529,14 +690,13 @@ func (d *Driver) pollLoop() {
 				qualityStr = "BAD"
 			}
 
-			// ALWAYS publish with updated timestamp (no Report by Exception)
-			log.Printf("[OPC-UA Driver] Tag %d (%s): value=%v, quality=%s",
-				tag.ID, tag.Alias, value, qualityStr)
-			d.publishTagValue(tag, value, quality, orgID, orgName, siteName, areaName, gwName)
-
-			d.previousMu.Lock()
-			d.previousValues[tag.ID] = value
-			d.previousMu.Unlock()
+			// Check RBE - only publish if value/quality changed
+			if d.shouldPublish(tag.ID, value, quality) {
+				log.Printf("[OPC-UA Driver] Tag %d (%s): value=%v, quality=%s - PUBLISHING",
+					tag.ID, tag.Alias, value, qualityStr)
+				d.publishTagValue(tag, value, quality)
+				d.updateState(tag.ID, value, quality)
+			}
 		}
 
 		select {
@@ -545,64 +705,6 @@ func (d *Driver) pollLoop() {
 		case <-time.After(scanRate):
 		}
 	}
-}
-
-// publishTagValue publishes a tag value to MQTT (with Sparkplug B dual support)
-func (d *Driver) publishTagValue(tag Tag, value interface{}, quality int, orgID int, orgName, siteName, areaName, gwName string) {
-	// Use dual publishing
-	d.publishDual(tag, value, quality)
-}
-
-// handleWriteCommand processes incoming write commands via MQTT
-func (d *Driver) handleWriteCommand(payload []byte) {
-	var cmd struct {
-		TagID int         `json:"tag_id"`
-		Value interface{} `json:"value"`
-	}
-
-	if err := json.Unmarshal(payload, &cmd); err != nil {
-		log.Printf("[OPC-UA Driver] Invalid write command: %v", err)
-		return
-	}
-
-	d.configMu.RLock()
-	config := d.config
-	d.configMu.RUnlock()
-
-	if config == nil {
-		log.Printf("[OPC-UA Driver] Write failed: no config loaded")
-		return
-	}
-
-	// Find the tag
-	var targetTag *Tag
-	for _, t := range config.Tags {
-		if t.ID == cmd.TagID {
-			tc := t
-			targetTag = &tc
-			break
-		}
-	}
-
-	if targetTag == nil {
-		log.Printf("[OPC-UA Driver] Write failed: tag %d not found", cmd.TagID)
-		return
-	}
-
-	if err := d.opcuaClient.WriteValue(targetTag.Code, cmd.Value, targetTag.DataType); err != nil {
-		log.Printf("[OPC-UA Driver] Write error for tag %d (%s): %v", targetTag.ID, targetTag.Code, err)
-		return
-	}
-
-	log.Printf("[OPC-UA Driver] Write success: tag %d (%s) = %v", targetTag.ID, targetTag.Code, cmd.Value)
-}
-
-// WriteCommand represents a write command with full tag info
-type WriteCommand struct {
-	TagID    int         `json:"tag_id"`
-	Code     string      `json:"code"`
-	Value    interface{} `json:"value"`
-	DataType string      `json:"data_type"`
 }
 
 // handleLegacyWriteCommand handles write commands in legacy MQTT format
@@ -629,7 +731,7 @@ func (d *Driver) handleLegacyWriteCommand(topic string, payload []byte) {
 		return
 	}
 
-	var targetTag *Tag
+	var targetTag *models.Tag
 	for i := range cfg.Tags {
 		if strings.EqualFold(cfg.Tags[i].Alias, alias) || strings.EqualFold(slugify(cfg.Tags[i].Alias), alias) {
 			targetTag = &cfg.Tags[i]
@@ -667,7 +769,7 @@ func (d *Driver) handleLegacyWriteCommand(topic string, payload []byte) {
 
 	// Marshal and process through existing handler
 	cmdBytes, _ := json.Marshal(writeCmd)
-	d.handleWriteCommand(cmdBytes)
+	d.handleWriteCommand("", cmdBytes)
 }
 
 // handleSparkplugDCMD handles Sparkplug B Device Commands
@@ -683,21 +785,65 @@ func (d *Driver) handleSparkplugDCMD(topic string, payload []byte) {
 		return
 	}
 
-	// Parse Sparkplug B payload (simplified JSON format)
-	var spPayload struct {
-		Timestamp int64 `json:"timestamp"`
-		Seq       int   `json:"seq"`
-		Metrics   []struct {
-			Name      string      `json:"name"`
-			DataType  int         `json:"dataType"`
-			Value     interface{} `json:"value"`
-			Timestamp int64       `json:"timestamp"`
-		} `json:"metrics"`
+	// Try Protobuf first, then JSON
+	var metrics []struct {
+		Name      string
+		Value     interface{}
+		DataType  int
+		Timestamp int64
 	}
 
-	if err := json.Unmarshal(payload, &spPayload); err != nil {
-		log.Printf("[OPC-UA Driver] Failed to parse Sparkplug DCMD payload: %v", err)
-		return
+	// Check if Protobuf or JSON
+	if len(payload) > 0 && payload[0] != 0x7B && payload[0] != 0x5B {
+		// Protobuf - try to decode
+		spPayload, err := sparkplug.DecodePayloadProtobuf(payload)
+		if err != nil {
+			log.Printf("[OPC-UA Driver] Failed to decode Sparkplug DCMD protobuf: %v", err)
+			return
+		}
+		for _, m := range spPayload.Metrics {
+			metrics = append(metrics, struct {
+				Name      string
+				Value     interface{}
+				DataType  int
+				Timestamp int64
+			}{
+				Name:      m.Name,
+				Value:     m.Value,
+				DataType:  int(m.DataType),
+				Timestamp: m.Timestamp,
+			})
+		}
+	} else {
+		// JSON format
+		var spPayload struct {
+			Timestamp int64 `json:"timestamp"`
+			Seq       int   `json:"seq"`
+			Metrics   []struct {
+				Name      string      `json:"name"`
+				DataType  int         `json:"dataType"`
+				Value     interface{} `json:"value"`
+				Timestamp int64       `json:"timestamp"`
+			} `json:"metrics"`
+		}
+
+		if err := json.Unmarshal(payload, &spPayload); err != nil {
+			log.Printf("[OPC-UA Driver] Failed to parse Sparkplug DCMD payload: %v", err)
+			return
+		}
+		for _, m := range spPayload.Metrics {
+			metrics = append(metrics, struct {
+				Name      string
+				Value     interface{}
+				DataType  int
+				Timestamp int64
+			}{
+				Name:      m.Name,
+				Value:     m.Value,
+				DataType:  m.DataType,
+				Timestamp: m.Timestamp,
+			})
+		}
 	}
 
 	// Find config
@@ -711,9 +857,9 @@ func (d *Driver) handleSparkplugDCMD(topic string, payload []byte) {
 	}
 
 	// Process each metric
-	for _, metric := range spPayload.Metrics {
+	for _, metric := range metrics {
 		// Find tag by alias (metric name)
-		var targetTag *Tag
+		var targetTag *models.Tag
 		for i := range cfg.Tags {
 			alias := cfg.Tags[i].Alias
 			// Match with underscores (Sparkplug format) or original alias
@@ -740,7 +886,7 @@ func (d *Driver) handleSparkplugDCMD(topic string, payload []byte) {
 		log.Printf("[OPC-UA Driver] DCMD: Writing to tag %d (%s) = %v", targetTag.ID, targetTag.Alias, metric.Value)
 
 		cmdBytes, _ := json.Marshal(writeCmd)
-		d.handleWriteCommand(cmdBytes)
+		d.handleWriteCommand("", cmdBytes)
 	}
 }
 
@@ -762,7 +908,7 @@ func (d *Driver) healthLoop() {
 			}
 
 			topic := fmt.Sprintf("sys/health/%d", d.gatewayID)
-			d.mqttClient.Publish(topic, 0, true, status)
+			d.mqttClient.PublishWithQoS(topic, status, 1, true)
 		}
 	}
 }
@@ -788,4 +934,95 @@ func slugify(s string) string {
 	s = strings.ToLower(s)
 	s = strings.ReplaceAll(s, " ", "-")
 	return s
+}
+
+// shouldPublish checks if the value should be published based on RBE settings
+func (d *Driver) shouldPublish(tagID int, value interface{}, quality int) bool {
+	// Get previous values for RBE comparison
+	d.previousMu.RLock()
+	oldValue := d.previousValues[tagID]
+	d.previousMu.RUnlock()
+
+	d.prevQualitiesMu.RLock()
+	oldQuality := d.previousQualities[tagID]
+	d.prevQualitiesMu.RUnlock()
+
+	// Use settings manager for RBE logic
+	if d.settingsManager != nil {
+		return d.settingsManager.ShouldPublish(tagID, value, oldValue, quality, oldQuality)
+	}
+
+	// Fallback: publish only on value or quality change
+	if oldValue == nil {
+		return true
+	}
+	return !valuesEqual(oldValue, value) || oldQuality != quality
+}
+
+// updateState updates the previous value and quality for RBE
+func (d *Driver) updateState(tagID int, value interface{}, quality int) {
+	d.previousMu.Lock()
+	d.previousValues[tagID] = value
+	d.previousMu.Unlock()
+
+	d.prevQualitiesMu.Lock()
+	d.previousQualities[tagID] = quality
+	d.prevQualitiesMu.Unlock()
+}
+
+// valuesEqual compares two values for equality
+func valuesEqual(a, b interface{}) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+
+	switch av := a.(type) {
+	case bool:
+		bv, ok := b.(bool)
+		return ok && av == bv
+	case int:
+		bv, ok := b.(int)
+		return ok && av == bv
+	case int8:
+		bv, ok := b.(int8)
+		return ok && av == bv
+	case int16:
+		bv, ok := b.(int16)
+		return ok && av == bv
+	case int32:
+		bv, ok := b.(int32)
+		return ok && av == bv
+	case int64:
+		bv, ok := b.(int64)
+		return ok && av == bv
+	case uint:
+		bv, ok := b.(uint)
+		return ok && av == bv
+	case uint8:
+		bv, ok := b.(uint8)
+		return ok && av == bv
+	case uint16:
+		bv, ok := b.(uint16)
+		return ok && av == bv
+	case uint32:
+		bv, ok := b.(uint32)
+		return ok && av == bv
+	case uint64:
+		bv, ok := b.(uint64)
+		return ok && av == bv
+	case float32:
+		bv, ok := b.(float32)
+		return ok && av == bv
+	case float64:
+		bv, ok := b.(float64)
+		return ok && av == bv
+	case string:
+		bv, ok := b.(string)
+		return ok && av == bv
+	default:
+		return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+	}
 }

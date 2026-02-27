@@ -17,22 +17,16 @@ import (
 )
 
 type BackupHandler struct {
-	db          *sql.DB
-	influxURL   string
-	influxToken string
-	influxOrg   string
+	db *sql.DB
 }
 
-func NewBackupHandler(db *sql.DB, influxURL, influxToken, influxOrg string) *BackupHandler {
+func NewBackupHandler(db *sql.DB) *BackupHandler {
 	return &BackupHandler{
-		db:          db,
-		influxURL:   influxURL,
-		influxToken: influxToken,
-		influxOrg:   influxOrg,
+		db: db,
 	}
 }
 
-// ExportBackup creates a full system backup (Postgres + InfluxDB) and streams it as a ZIP download
+// ExportBackup creates a full system backup (PostgreSQL config + historian) and streams it as a ZIP download
 func (h *BackupHandler) ExportBackup(c *gin.Context) {
 	// Create a temporary directory for backup artifacts
 	tempDir, err := os.MkdirTemp("", "backup-*")
@@ -45,8 +39,8 @@ func (h *BackupHandler) ExportBackup(c *gin.Context) {
 	// Files to add to zip
 	filesToZip := []string{}
 
-	// 1. PostgreSQL Backup
-	pgDumpFile := filepath.Join(tempDir, "config_dump.sql")
+	// PostgreSQL Backup (includes config + tag_history + system_events)
+	pgDumpFile := filepath.Join(tempDir, "full_backup.sql")
 	// Use environment variables or hardcoded assumptions based on docker-compose
 	pgHost := os.Getenv("DB_HOST")
 	pgUser := os.Getenv("DB_USER")
@@ -63,34 +57,7 @@ func (h *BackupHandler) ExportBackup(c *gin.Context) {
 	}
 	filesToZip = append(filesToZip, pgDumpFile)
 
-	// 2. InfluxDB Backup (if configured)
-	if h.influxURL != "" && h.influxToken != "" {
-		influxDir := filepath.Join(tempDir, "history_backup")
-		// influx backup relies on influx CLI being available
-		// Command: influx backup <dir> --host <url> -t <token>
-		influxCmd := exec.Command("influx", "backup", influxDir, "--host", h.influxURL, "-t", h.influxToken, "--org", h.influxOrg)
-
-		if output, err := influxCmd.CombinedOutput(); err != nil {
-			log.Printf("influx backup warning: %s - continuing without history", string(output))
-			// We don't fail the whole backup if metrics fail, usually config is more critical
-		} else {
-			// Add recursively
-			err = filepath.Walk(influxDir, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return err
-				}
-				if !info.IsDir() {
-					filesToZip = append(filesToZip, path)
-				}
-				return nil
-			})
-			if err != nil {
-				log.Printf("Error walking influx backup: %v", err)
-			}
-		}
-	}
-
-	// 3. Create ZIP and stream
+	// Create ZIP and stream
 	buf := new(bytes.Buffer)
 	zipWriter := zip.NewWriter(buf)
 
@@ -165,18 +132,13 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 
 	// Extract everything
 	configFound := false
-	historyFound := false
 
 	for _, f := range zipReader.File {
 		fpath := filepath.Join(tempDir, f.Name)
 
 		// Check for specific files
-		if f.Name == "config_dump.sql" {
+		if f.Name == "full_backup.sql" || f.Name == "config_dump.sql" {
 			configFound = true
-		}
-		// Check for history folder structure (starts with history_backup/)
-		if len(f.Name) > 15 && f.Name[:14] == "history_backup" {
-			historyFound = true
 		}
 
 		if f.FileInfo().IsDir() {
@@ -207,9 +169,14 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 
 	messages := []string{}
 
-	// Restore Config (Postgres)
+	// Restore PostgreSQL (config + historian)
 	if configFound {
-		pgDumpFile := filepath.Join(tempDir, "config_dump.sql")
+		// Try full_backup.sql first, then fall back to config_dump.sql
+		pgDumpFile := filepath.Join(tempDir, "full_backup.sql")
+		if _, err := os.Stat(pgDumpFile); os.IsNotExist(err) {
+			pgDumpFile = filepath.Join(tempDir, "config_dump.sql")
+		}
+
 		pgHost := os.Getenv("DB_HOST")
 		pgUser := os.Getenv("DB_USER")
 		pgPass := os.Getenv("DB_PASSWORD")
@@ -229,22 +196,9 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 		pgCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
 
 		if output, err := pgCmd.CombinedOutput(); err != nil {
-			messages = append(messages, fmt.Sprintf("Config restore failed: %s", string(output)))
+			messages = append(messages, fmt.Sprintf("Restore failed: %s", string(output)))
 		} else {
-			messages = append(messages, "Config restored successfully")
-		}
-	}
-
-	// Restore History (InfluxDB)
-	if historyFound && h.influxURL != "" {
-		influxDir := filepath.Join(tempDir, "history_backup")
-		// influx restore <dir>
-		influxCmd := exec.Command("influx", "restore", influxDir, "--host", h.influxURL, "-t", h.influxToken)
-
-		if output, err := influxCmd.CombinedOutput(); err != nil {
-			messages = append(messages, fmt.Sprintf("History restore warning: %s", string(output)))
-		} else {
-			messages = append(messages, "History restored successfully")
+			messages = append(messages, "Database restored successfully (config + historian)")
 		}
 	}
 

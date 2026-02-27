@@ -1,8 +1,6 @@
 package main
 
 import (
-	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -15,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
-	"github.com/influxdata/influxdb-client-go/v2/api"
+	"database/sql"
+
 	_ "github.com/lib/pq"
 
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
@@ -28,31 +26,28 @@ const (
 	mqttTopicData       = "data/#"
 	mqttTopicSparkplug  = "spBv1.0/#" // Sparkplug B topic
 	mqttTopicHealth     = "sys/health/+"
-	bufferFlushSize     = 1000
-	bufferFlushInterval = 200 * time.Millisecond
 )
 
 type HistorianService struct {
-	mqttClient     *mqtt.Client
-	redisClient    *redis.Client
-	influxClient   influxdb2.Client
-	influxWriteAPI api.WriteAPI
-	influxOrg      string
-	influxBucket   string
-	db             *sql.DB
-	wg             sync.WaitGroup
-	shutdown       chan struct{}
-	buffer         []*DataPoint
-	bufferMutex    sync.Mutex
-	flushTicker    *time.Ticker
+	mqttClient  *mqtt.Client
+	redisClient *redis.Client
+	db          *sql.DB
+	wg          sync.WaitGroup
+	shutdown    chan struct{}
+
+	// deviceTagMap tracks which tag IDs have been seen from each Sparkplug
+	// device.  Key = "groupID/edgeNodeID/deviceID", Value = set of tag IDs.
+	// Used to mark tags offline on DDEATH/NDEATH without a DB query.
+	deviceTagMap   map[string]map[int]bool
+	deviceTagMapMu sync.RWMutex
 }
 
 // DataPoint represents a single data point received from MQTT
 type DataPoint struct {
-	Measurement string                 `influx:"_measurement"` // Will be set to "tag_data"
-	Tags        map[string]string      `influx:"_,tag"`
-	Fields      map[string]interface{} `influx:"_,field"`
-	Timestamp   int64                  `influx:"_time"`
+	Measurement string
+	Tags        map[string]string
+	Fields      map[string]interface{}
+	Timestamp   int64
 	Org         string
 	Site        string
 	Area        string
@@ -122,16 +117,6 @@ func main() {
 	dbPassword := getEnv("DB_PASSWORD", "postgres")
 	dbName := getEnv("DB_NAME", "industrial_edge")
 
-	influxURL := getEnv("INFLUX_URL", "http://localhost:8086")
-	influxToken := getEnv("INFLUX_TOKEN", "")
-	influxOrg := getEnv("INFLUX_ORG", "industrial")
-	influxBucket := getEnv("INFLUX_BUCKET", "historian")
-
-	// Validate required configuration
-	if influxToken == "" {
-		log.Fatal("INFLUX_TOKEN environment variable is required")
-	}
-
 	// Connect to PostgreSQL
 	dbConnStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 		dbHost, dbPort, dbUser, dbPassword, dbName)
@@ -174,32 +159,13 @@ func main() {
 	}
 	log.Println("Connected to Redis")
 
-	// Create InfluxDB client
-	log.Printf("Connecting to InfluxDB at %s...", influxURL)
-	influxClient := influxdb2.NewClientWithOptions(influxURL, influxToken,
-		influxdb2.DefaultOptions().SetBatchSize(1000).SetFlushInterval(1000))
-	influxWriteAPI := influxClient.WriteAPI(influxOrg, influxBucket)
-
-	// Verify InfluxDB connection using proper context
-	ctx := context.Background()
-	_, err = influxClient.Health(ctx)
-	if err != nil {
-		log.Fatalf("Failed to connect to InfluxDB: %v", err)
-	}
-	log.Println("Connected to InfluxDB")
-
 	// Create historian service
 	service := &HistorianService{
-		mqttClient:     mqttClient,
-		redisClient:    redisClient,
-		influxClient:   influxClient,
-		influxWriteAPI: influxWriteAPI,
-		influxOrg:      influxOrg,
-		influxBucket:   influxBucket,
-		db:             database,
-		shutdown:       make(chan struct{}),
-		buffer:         make([]*DataPoint, 0, bufferFlushSize),
-		flushTicker:    time.NewTicker(bufferFlushInterval),
+		mqttClient:   mqttClient,
+		redisClient:  redisClient,
+		db:           database,
+		shutdown:     make(chan struct{}),
+		deviceTagMap: make(map[string]map[int]bool),
 	}
 
 	// Subscribe to data topics
@@ -224,14 +190,6 @@ func main() {
 	}
 	log.Println("Successfully subscribed to health topics")
 
-	// Start InfluxDB write API error handling
-	service.wg.Add(1)
-	go service.handleInfluxErrors()
-
-	// Start periodic buffer flush
-	service.wg.Add(1)
-	go service.periodicFlush()
-
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -242,10 +200,8 @@ func main() {
 
 	// Graceful shutdown
 	close(service.shutdown)
-	service.flushTicker.Stop()
 	mqttClient.Disconnect(1000)
 	redisClient.Disconnect()
-	influxClient.Close()
 	service.wg.Wait()
 
 	log.Println("Historian service stopped")
@@ -272,21 +228,6 @@ func (s *HistorianService) handleHealthMessage(topic string, payload []byte) {
 
 	// Get gateway info to populate tags (Org, Site, etc.) for filtering
 	gatewayID, _ := strconv.Atoi(gatewayIDStr)
-	gwInfo, err := s.getGatewayInfo(gatewayID)
-
-	orgName := "unknown"
-	siteName := "unknown"
-	areaName := "unknown"
-	gwName := gatewayIDStr
-
-	if err == nil && gwInfo != nil {
-		orgName = gwInfo.OrgName
-		siteName = gwInfo.SiteName
-		areaName = gwInfo.AreaName
-		gwName = gwInfo.Name
-	} else {
-		log.Printf("[HISTORIAN] Warning: Could not resolve info for Gateway ID %d: %v", gatewayID, err)
-	}
 
 	// Determine message based on status
 	var message string
@@ -296,26 +237,34 @@ func (s *HistorianService) handleHealthMessage(topic string, payload []byte) {
 		message = "Gateway disconnected"
 	}
 
-	// Create event data point
-	dp := &DataPoint{
-		Measurement: "system_events",
-		Tags: map[string]string{
-			"type":         "connection",
-			"gateway_id":   gatewayIDStr,
-			"organization": orgName,
-			"site":         siteName,
-			"area":         areaName,
-			"gateway":      gwName,
-		},
-		Fields: map[string]interface{}{
-			"status":  status,
-			"message": message,
-		},
-		Timestamp: time.Now().UnixMilli(),
+	// Store system event in PostgreSQL
+	_, err := s.db.Exec(`
+		INSERT INTO system_events (gateway_id, status, message)
+		VALUES ($1, $2, $3)
+	`, gatewayID, status, message)
+
+	if err != nil {
+		log.Printf("[HISTORIAN] ERROR inserting system event to PostgreSQL: %v", err)
+	} else {
+		log.Printf("[HISTORIAN] Saved system event: Gateway %d %s", gatewayID, status)
 	}
 
-	// Add to buffer (reusing the same buffer logic for efficiency)
-	s.addToBuffer(dp)
+	// ── OFFLINE handling ──────────────────────────────────────────────────
+	// When a gateway goes offline, mark ALL its tags as BAD quality in Redis.
+	// This works for all driver types: Modbus, OPC-UA, S7, Redis, MQTT.
+	// When the gateway comes back online, normal data messages will
+	// restore GOOD quality automatically.
+	if status == "offline" {
+		tagIDs, tagErr := s.getGatewayTagIDs(gatewayID)
+		if tagErr != nil {
+			log.Printf("[HISTORIAN] Failed to get tags for offline gateway %d: %v", gatewayID, tagErr)
+		} else {
+			log.Printf("[HISTORIAN] Marking %d tags offline for gateway %d", len(tagIDs), gatewayID)
+			for _, tagID := range tagIDs {
+				s.markTagOffline(tagID)
+			}
+		}
+	}
 }
 
 func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
@@ -371,7 +320,7 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 
 	// Skip if historize is disabled
 	if !tagInfo.Historize {
-		log.Printf("[HISTORIAN] Tag %d has historize=false, skipping InfluxDB storage", tagInfo.ID)
+		log.Printf("[HISTORIAN] Tag %d has historize=false, skipping storage", tagInfo.ID)
 		return
 	}
 
@@ -389,7 +338,7 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	log.Printf("[HISTORIAN] Storing data point for tag %d: value=%v, ts=%d",
 		tagInfo.ID, mqttPayload.V, mqttPayload.Ts)
 
-	// Convert value to float64 to avoid InfluxDB field type conflicts
+	// Convert value to float64
 	var floatValue float64
 	switch v := mqttPayload.V.(type) {
 	case bool:
@@ -409,31 +358,8 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 		}
 	}
 
-	// Create data point
-	dp := &DataPoint{
-		Measurement: "tag_data",
-		Tags: map[string]string{
-			"tag_id":       strconv.Itoa(tagInfo.ID),
-			"organization": org,
-			"site":         site,
-			"area":         area,
-			"gateway":      gateway,
-			"alias":        alias,
-		},
-		Fields: map[string]interface{}{
-			"value":   floatValue,
-			"quality": mqttPayload.Q,
-		},
-		Timestamp: mqttPayload.Ts,
-		Org:       org,
-		Site:      site,
-		Area:      area,
-		Gateway:   gateway,
-		Alias:     alias,
-	}
-
-	// Add to buffer
-	s.addToBuffer(dp)
+	// Save directly to PostgreSQL
+	s.saveToPostgreSQL(tagInfo.ID, floatValue, mqttPayload.Ts, mqttPayload.Q, "mqtt")
 }
 
 // handleSparkplugMessage handles incoming Sparkplug B messages
@@ -452,71 +378,49 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 		return
 	}
 
-	// Only process DDATA (data) messages
+	// ── Handle DEATH messages ─────────────────────────────────────────────
+	// When a device/node goes offline, mark all its known tags as BAD quality
+	// in Redis so the trend shows N/A instead of stale data.
+	if topicInfo.MessageType == sparkplug.MessageTypeDDEATH || topicInfo.MessageType == sparkplug.MessageTypeNDEATH {
+		deviceKey := fmt.Sprintf("%s/%s/%s", topicInfo.GroupID, topicInfo.EdgeNodeID, topicInfo.DeviceID)
+		log.Printf("[HISTORIAN] Sparkplug %s received for %s — marking tags offline", topicInfo.MessageType, deviceKey)
+		s.markDeviceTagsOffline(deviceKey)
+		return
+	}
+
+	// Only process DDATA (data) messages from here on
 	if topicInfo.MessageType != sparkplug.MessageTypeDDATA {
 		return
 	}
 
-	log.Printf("[HISTORIAN] Received Sparkplug B message: group=%s, node=%s, device=%s",
-		topicInfo.GroupID, topicInfo.EdgeNodeID, topicInfo.DeviceID)
-
-	// Parse the group_id and edge_node_id to extract org, site, area, gateway
-	// Format: group_id = {org}-{site}, edge_node_id = {area}-{gateway}
-	groupParts := strings.SplitN(topicInfo.GroupID, "-", 2)
-	if len(groupParts) < 2 {
-		log.Printf("[HISTORIAN] Invalid Sparkplug group_id format: %s", topicInfo.GroupID)
+	// Decode Protobuf payload (Sparkplug B official format)
+	sparkplugPayload, err := sparkplug.DecodePayloadProtobuf(payload)
+	if err != nil {
+		log.Printf("[HISTORIAN] Failed to decode Sparkplug Protobuf payload: %v", err)
 		return
 	}
 
-	nodeParts := strings.SplitN(topicInfo.EdgeNodeID, "-", 2)
-	if len(nodeParts) < 2 {
-		log.Printf("[HISTORIAN] Invalid Sparkplug edge_node_id format: %s", topicInfo.EdgeNodeID)
-		return
-	}
+	// Device key for tracking which tags belong to this device
+	deviceKey := fmt.Sprintf("%s/%s/%s", topicInfo.GroupID, topicInfo.EdgeNodeID, topicInfo.DeviceID)
 
-	// Parse names from group_id and edge_node_id (already in correct format)
-	// Note: Don't unslugify - keep hyphens as they are in the database
-	org := groupParts[0]
-	site := groupParts[1]
-	area := nodeParts[0]
-	gateway := nodeParts[1]
-	alias := topicInfo.DeviceID
-
-	// Try to parse as JSON payload (simplified Sparkplug B format)
-	// For full Protobuf support, use github.com/eclipse/sparkplugb
-	var sparkplugPayload struct {
-		Timestamp int64 `json:"timestamp"`
-		Seq       int   `json:"seq"`
-		Metrics   []struct {
-			Name      string      `json:"name"`
-			DataType  int         `json:"data_type"`
-			Value     interface{} `json:"value"`
-			Timestamp int64       `json:"timestamp"`
-			Quality   int         `json:"quality"`
-		} `json:"metrics"`
-	}
-
-	if err := json.Unmarshal(payload, &sparkplugPayload); err != nil {
-		log.Printf("[HISTORIAN] Failed to parse Sparkplug payload: %v", err)
-		return
-	}
-
-	// Process each metric
+	// Process each metric - look up tags by alias directly
 	for _, metric := range sparkplugPayload.Metrics {
-		metricAlias := metric.Name
-		if metricAlias == "" {
-			metricAlias = alias
+		if metric.Name == "" {
+			continue
 		}
 
 		// Convert quality from Sparkplug to legacy format
-		legacyQuality := sparkplug.ConvertSparkplugToLegacyQuality(int32(metric.Quality))
+		legacyQuality := sparkplug.ConvertSparkplugToLegacyQuality(metric.Quality)
 
-		// Get tag info
-		tagInfo, err := s.getTagInfo(org, site, area, gateway, metricAlias)
+		// Look up tag by alias directly (same approach as core-api)
+		tagInfo, err := s.getTagInfoByAlias(metric.Name)
 		if err != nil {
-			log.Printf("[HISTORIAN] Sparkplug tag lookup failed for alias '%s': %v", metricAlias, err)
+			// Tag not found - skip silently (reduces log noise)
 			continue
 		}
+
+		// Track this tag under its device for DEATH handling
+		s.trackDeviceTag(deviceKey, tagInfo.ID)
 
 		// Use metric timestamp or payload timestamp
 		timestamp := metric.Timestamp
@@ -541,7 +445,7 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 			continue
 		}
 
-		// Convert value to float64 for InfluxDB
+		// Convert value to float64
 		var floatValue float64
 		switch v := metric.Value.(type) {
 		case bool:
@@ -552,7 +456,13 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 			}
 		case float64:
 			floatValue = v
+		case float32:
+			floatValue = float64(v)
 		case int:
+			floatValue = float64(v)
+		case int32:
+			floatValue = float64(v)
+		case int64:
 			floatValue = float64(v)
 		default:
 			if val, err := strconv.ParseFloat(fmt.Sprintf("%v", v), 64); err == nil {
@@ -560,115 +470,32 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 			}
 		}
 
-		// Create data point
-		dp := &DataPoint{
-			Measurement: "tag_data",
-			Tags: map[string]string{
-				"tag_id":       strconv.Itoa(tagInfo.ID),
-				"organization": org,
-				"site":         site,
-				"area":         area,
-				"gateway":      gateway,
-				"alias":        metricAlias,
-				"source":       "sparkplug_b",
-			},
-			Fields: map[string]interface{}{
-				"value":   floatValue,
-				"quality": legacyQuality,
-			},
-			Timestamp: timestamp,
-			Org:       org,
-			Site:      site,
-			Area:      area,
-			Gateway:   gateway,
-			Alias:     metricAlias,
-		}
-
-		s.addToBuffer(dp)
-		log.Printf("[HISTORIAN] Sparkplug B data stored: %s = %v", metricAlias, metric.Value)
+		// Save directly to PostgreSQL
+		s.saveToPostgreSQL(tagInfo.ID, floatValue, timestamp, legacyQuality, "sparkplug_b")
 	}
 }
 
-func (s *HistorianService) handleInfluxErrors() {
-	defer s.wg.Done()
-
-	errCh := s.influxWriteAPI.Errors()
-	for {
-		select {
-		case <-s.shutdown:
-			return
-		case err, ok := <-errCh:
-			if !ok {
-				return
-			}
-			log.Printf("InfluxDB write error: %v", err)
-		}
-	}
-}
-
-// addToBuffer adds a data point to the buffer and triggers flush if needed
-func (s *HistorianService) addToBuffer(dp *DataPoint) {
-	s.bufferMutex.Lock()
-	defer s.bufferMutex.Unlock()
-
-	s.buffer = append(s.buffer, dp)
-
-	// Flush buffer if it has reached the configured size
-	if len(s.buffer) >= bufferFlushSize {
-		s.flushBuffer()
-	}
-}
-
-// periodicFlush flushes the buffer at regular intervals
-func (s *HistorianService) periodicFlush() {
-	defer s.wg.Done()
-
-	for {
-		select {
-		case <-s.shutdown:
-			// Flush remaining buffer before shutdown
-			s.bufferMutex.Lock()
-			if len(s.buffer) > 0 {
-				s.flushBufferUnsafe()
-			}
-			s.bufferMutex.Unlock()
-			return
-		case <-s.flushTicker.C:
-			s.bufferMutex.Lock()
-			if len(s.buffer) > 0 {
-				s.flushBufferUnsafe()
-			}
-			s.bufferMutex.Unlock()
-		}
-	}
-}
-
-// flushBuffer flushes the buffer (assumes mutex is held)
-func (s *HistorianService) flushBuffer() {
-	if len(s.buffer) == 0 {
+// saveToPostgreSQL saves a data point directly to PostgreSQL tag_history table
+// Simple rule: ONLY save GOOD quality (0). BAD quality = skip = GAP in chart.
+func (s *HistorianService) saveToPostgreSQL(tagID int, value float64, timestampMs int64, quality int, source string) {
+	// Skip saving if quality is BAD (>0) - this creates automatic gaps in the chart
+	if quality > 0 {
+		log.Printf("[HISTORIAN] Tag %d quality=%d (BAD), skipping storage for gap", tagID, quality)
 		return
 	}
 
-	log.Printf("Flushing %d data points to InfluxDB", len(s.buffer))
-	s.flushBufferUnsafe()
-}
+	// Insert directly into PostgreSQL
+	ts := time.UnixMilli(timestampMs)
+	_, err := s.db.Exec(`
+		INSERT INTO tag_history (time, tag_id, value, source)
+		VALUES ($1, $2, $3, $4)
+	`, ts, tagID, value, source)
 
-// flushBufferUnsafe performs the actual flush without locking
-func (s *HistorianService) flushBufferUnsafe() {
-	for _, dp := range s.buffer {
-		// Convert timestamp from milliseconds to nanoseconds for InfluxDB
-		timestamp := time.Unix(0, dp.Timestamp*1000000)
-
-		// Create InfluxDB point
-		point := influxdb2.NewPoint(dp.Measurement, dp.Tags, dp.Fields, timestamp)
-		s.influxWriteAPI.WritePoint(point)
+	if err != nil {
+		log.Printf("[HISTORIAN] ERROR inserting to PostgreSQL: %v", err)
+	} else {
+		log.Printf("[HISTORIAN] Saved tag %d value=%.2f to PostgreSQL", tagID, value)
 	}
-
-	// Force flush to InfluxDB
-	s.influxWriteAPI.Flush()
-
-	// Clear buffer
-	s.buffer = s.buffer[:0]
 }
 
 // getTagInfo retrieves tag information from PostgreSQL, with Redis caching
@@ -769,6 +596,48 @@ func (s *HistorianService) getGatewayInfo(gatewayID int) (*GatewayInfo, error) {
 	s.redisClient.Set(cacheKey, string(gwInfoJSON), 60*time.Second)
 
 	return &gwInfo, nil
+}
+
+// getTagInfoByAlias retrieves tag info by alias directly (for Sparkplug B messages)
+func (s *HistorianService) getTagInfoByAlias(alias string) (*TagInfo, error) {
+	alias = strings.TrimSpace(alias)
+
+	// Try cache first
+	cacheKey := fmt.Sprintf("tag_by_alias:%s", alias)
+	cached, err := s.redisClient.Get(cacheKey)
+	if err == nil && cached != "" {
+		var tagInfo TagInfo
+		if err := json.Unmarshal([]byte(cached), &tagInfo); err == nil {
+			return &tagInfo, nil
+		}
+	}
+
+	// Query database by alias
+	query := `
+		SELECT t.id, s.org_id, t.historize, t.historize_deadband
+		FROM tags t
+		JOIN gateways g ON t.gateway_id = g.id
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id
+		WHERE LOWER(t.alias) = LOWER($1)
+	`
+
+	var tagInfo TagInfo
+	err = s.db.QueryRow(query, alias).Scan(
+		&tagInfo.ID,
+		&tagInfo.OrganizationID,
+		&tagInfo.Historize,
+		&tagInfo.HistorizeDeadband,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("tag not found: %s", alias)
+	}
+
+	// Cache for 1 minute
+	tagInfoJSON, _ := json.Marshal(tagInfo)
+	s.redisClient.Set(cacheKey, string(tagInfoJSON), 60*time.Second)
+
+	return &tagInfo, nil
 }
 
 // shouldStoreValue checks if the value should be stored based on quality and deadband filtering.
@@ -912,6 +781,95 @@ func (s *HistorianService) broadcastRealtimeUpdate(orgID int, tagID int, payload
 	if err := s.redisClient.Publish(channel, string(messageJSON)); err != nil {
 		log.Printf("Failed to publish real-time update to Redis: %v", err)
 	}
+}
+
+// ── DEATH / OFFLINE helpers ──────────────────────────────────────────────
+
+// trackDeviceTag records that a tag ID was seen from a Sparkplug device.
+// Called during DDATA processing to build the device→tags mapping.
+func (s *HistorianService) trackDeviceTag(deviceKey string, tagID int) {
+	s.deviceTagMapMu.Lock()
+	defer s.deviceTagMapMu.Unlock()
+	if s.deviceTagMap[deviceKey] == nil {
+		s.deviceTagMap[deviceKey] = make(map[int]bool)
+	}
+	s.deviceTagMap[deviceKey][tagID] = true
+}
+
+// markDeviceTagsOffline marks all known tags of a Sparkplug device as BAD
+// quality in Redis.  Called when DDEATH/NDEATH is received.
+func (s *HistorianService) markDeviceTagsOffline(deviceKey string) {
+	s.deviceTagMapMu.RLock()
+	tagIDs := s.deviceTagMap[deviceKey]
+	s.deviceTagMapMu.RUnlock()
+
+	if len(tagIDs) == 0 {
+		log.Printf("[HISTORIAN] No tracked tags for device %s — trying DB lookup", deviceKey)
+		return
+	}
+
+	for tagID := range tagIDs {
+		s.markTagOffline(tagID)
+	}
+	log.Printf("[HISTORIAN] Marked %d tags offline for Sparkplug device %s", len(tagIDs), deviceKey)
+}
+
+// markTagOffline does two things when a tag goes offline:
+// 1. Updates Redis realtime value with BAD quality (frontend shows N/A)
+// 2. Stores a NULL-value "offline marker" in tag_history (trend shows gap)
+//
+// Duplicate protection: if the tag is already marked offline in Redis
+// (quality > 0), skip the DB marker to avoid flooding tag_history.
+func (s *HistorianService) markTagOffline(tagID int) {
+	realtimeKey := fmt.Sprintf("realtime:%d", tagID)
+	cached, err := s.redisClient.Get(realtimeKey)
+
+	alreadyOffline := false
+	if err == nil && cached != "" {
+		var rv RealtimeValue
+		if err := json.Unmarshal([]byte(cached), &rv); err == nil {
+			alreadyOffline = rv.Q > 0
+
+			// ── 1. Update Redis realtime quality ────────────────────────
+			rv.Q = 1 // BAD quality
+			rv.Ts = time.Now().UnixMilli()
+			rvJSON, _ := json.Marshal(rv)
+			s.redisClient.Set(realtimeKey, string(rvJSON), time.Duration(realtimeCacheTTL)*time.Second)
+		}
+	}
+
+	// ── 2. Store ONE offline marker in PostgreSQL (skip if already offline)
+	if !alreadyOffline {
+		_, dbErr := s.db.Exec(`
+			INSERT INTO tag_history (time, tag_id, value, source)
+			VALUES (NOW(), $1, NULL, 'offline')
+		`, tagID)
+		if dbErr != nil {
+			log.Printf("[HISTORIAN] Failed to save offline marker for tag %d: %v", tagID, dbErr)
+		}
+		log.Printf("[HISTORIAN] Tag %d marked offline: Redis quality=BAD + DB gap marker", tagID)
+	}
+}
+
+// getGatewayTagIDs returns all tag IDs belonging to a gateway.
+// Used by the health handler to mark all tags offline when a gateway disconnects.
+func (s *HistorianService) getGatewayTagIDs(gatewayID int) ([]int, error) {
+	query := `SELECT id FROM tags WHERE gateway_id = $1`
+	rows, err := s.db.Query(query, gatewayID)
+	if err != nil {
+		return nil, fmt.Errorf("query error: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan error: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 func getEnv(key, defaultValue string) string {

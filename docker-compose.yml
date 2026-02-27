@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:16
+    image: timescale/timescaledb-ha:pg16
     container_name: industrial-postgres
     environment:
       POSTGRES_DB: industrial_edge
@@ -71,35 +71,6 @@ services:
     networks:
       - industrial-network
 
-  influxdb:
-    image: influxdb:2
-    container_name: industrial-influxdb
-    environment:
-      DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: admin
-      DOCKER_INFLUXDB_INIT_PASSWORD: adminpassword
-      DOCKER_INFLUXDB_INIT_ORG: industrial_edge
-      DOCKER_INFLUXDB_INIT_BUCKET: historical_data
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: my-super-secret-auth-token
-    ports:
-      - "8086:8086"
-    volumes:
-      - influxdb_data:/var/lib/influxdb2
-      - influxdb_config:/etc/influxdb2
-    healthcheck:
-      test: [ "CMD", "influx", "ping" ]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-    restart: "unless-stopped"
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - industrial-network
-
   core-api:
     build:
       context: .
@@ -116,10 +87,6 @@ services:
       REDIS_PORT: 6379
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
-      INFLUX_URL: http://influxdb:8086
-      INFLUX_TOKEN: my-super-secret-auth-token
-      INFLUX_ORG: industrial_edge
-      INFLUX_BUCKET: historical_data
       PORT: 8081
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -132,8 +99,6 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy # Changed from service_tarted for better reliability
-      influxdb:
-        condition: service_healthy
     healthcheck:
       test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/swagger/index.html" ]
       interval: 15s
@@ -170,14 +135,13 @@ services:
       - industrial-network
 
   # Driver Images (Built for Driver Manager to spawn)
+  # These are IMAGES ONLY - driver-manager spawns containers with correct GATEWAY_ID
   driver-modbus:
     build:
       context: .
       dockerfile: services/driver-modbus/Dockerfile
     image: industrial-driver-modbus:latest
-    environment:
-      SPARKPLUG_ENABLED: "true"
-    profiles: [ "drivers" ] # Don't start automatically
+    profiles: [ "build-only" ] # Never start, only for building image
     networks:
       - industrial-network
 
@@ -186,7 +150,7 @@ services:
       context: .
       dockerfile: services/driver-redis/Dockerfile
     image: industrial-driver-redis:latest
-    profiles: [ "drivers" ] # Don't start automatically
+    profiles: [ "build-only" ] # Never start, only for building image
     networks:
       - industrial-network
 
@@ -195,9 +159,7 @@ services:
       context: .
       dockerfile: services/driver-s7/Dockerfile
     image: industrial-driver-s7:latest
-    environment:
-      SPARKPLUG_ENABLED: "true"
-    profiles: [ "drivers" ] # Don't start automatically
+    profiles: [ "build-only" ] # Never start, only for building image
     networks:
       - industrial-network
 
@@ -206,9 +168,7 @@ services:
       context: .
       dockerfile: services/driver-mqtt/Dockerfile
     image: industrial-driver-mqtt:latest
-    environment:
-      SPARKPLUG_ENABLED: "true"
-    profiles: [ "drivers" ] # Don't start automatically
+    profiles: [ "build-only" ] # Never start, only for building image
     networks:
       - industrial-network
 
@@ -217,7 +177,7 @@ services:
       context: .
       dockerfile: services/driver-opcua/Dockerfile
     image: industrial-driver-opcua:latest
-    profiles: [ "drivers" ] # Don't start automatically
+    profiles: [ "build-only" ] # Never start, only for building image
     networks:
       - industrial-network
 
@@ -268,10 +228,6 @@ services:
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
       MQTT_CLIENT_ID: engine-historian
-      INFLUX_URL: http://influxdb:8086
-      INFLUX_TOKEN: my-super-secret-auth-token
-      INFLUX_ORG: industrial_edge
-      INFLUX_BUCKET: historical_data
       SPARKPLUG_ENABLED: "true"
     depends_on:
       postgres:
@@ -279,8 +235,6 @@ services:
       redis:
         condition: service_healthy
       mosquitto:
-        condition: service_healthy
-      influxdb:
         condition: service_healthy
     restart: "unless-stopped"
     logging:
@@ -295,10 +249,6 @@ volumes:
   postgres_data:
     driver: local
   redis_data:
-    driver: local
-  influxdb_data:
-    driver: local
-  influxdb_config:
     driver: local
 
 networks:

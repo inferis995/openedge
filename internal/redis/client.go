@@ -162,3 +162,30 @@ func (c *Client) Publish(channel string, message interface{}) error {
 func (c *Client) IsConnected() bool {
 	return c.client.Ping(c.ctx).Err() == nil
 }
+
+// ScanKeys iterates over all keys matching a pattern using SCAN (production-safe)
+// This is safer than Keys() for large datasets as it doesn't block
+func (c *Client) ScanKeys(pattern string) ([]string, error) {
+	var keys []string
+	iter := c.client.Scan(c.ctx, 0, pattern, 0).Iterator()
+	for iter.Next(c.ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan keys with pattern %s: %w", pattern, err)
+	}
+	return keys, nil
+}
+
+// SetMany sets multiple key-value pairs with the same TTL (batch operation)
+func (c *Client) SetMany(keyValues map[string]string, ttl time.Duration) error {
+	pipe := c.client.Pipeline()
+	for key, value := range keyValues {
+		pipe.Set(c.ctx, key, value, ttl)
+	}
+	_, err := pipe.Exec(c.ctx)
+	if err != nil {
+		return fmt.Errorf("failed to set multiple keys: %w", err)
+	}
+	return nil
+}

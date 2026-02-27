@@ -29,6 +29,8 @@ import {
     Zap
 } from 'lucide-react';
 import mqtt, { type MqttClient } from 'mqtt';
+import { decodeSparkplugB, isProtobufData, convertSparkplugQuality } from '@/utils/sparkplugDecoder';
+import { useSparkplugDeviceStore } from '@/stores/useSparkplugDeviceStore';
 
 type MessageFormat = 'all' | 'legacy' | 'sparkplug';
 
@@ -45,13 +47,6 @@ interface MqttMessage {
 }
 
 const MAX_MESSAGES = 500;
-
-// Sparkplug B quality conversion
-const convertSparkplugQuality = (quality: number): number => {
-    if (quality >= 192) return 0; // Good
-    if (quality >= 64) return 1;  // Uncertain
-    return 2; // Bad
-};
 
 const MqttMonitorPage = () => {
     const [messages, setMessages] = useState<MqttMessage[]>([]);
@@ -115,6 +110,196 @@ const MqttMonitorPage = () => {
 
         client.on('message', (topic: string, payload: Buffer) => {
             try {
+                // Determine format based on topic
+                const isSparkplug = topic.startsWith('spBv1.0/');
+
+                if (isSparkplug) {
+                    // Try to decode as Protobuf first
+                    if (isProtobufData(payload)) {
+                        const decoded = decodeSparkplugB(payload);
+                        if (decoded && decoded.metrics.length > 0) {
+                            // Topic structure: spBv1.0/{groupId}/{msgType}/{nodeId}[/{deviceId}]
+                            const topicParts = topic.split('/');
+                            const groupId = topicParts[1] || '';
+                            const msgType = topicParts[2] || '';
+                            const nodeId = topicParts[3] || '';
+                            const deviceId = topicParts[4] || '';
+
+                            // Track device status based on message type
+                            const { handleBirth, handleDeath, handleData } = useSparkplugDeviceStore.getState();
+
+                            if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
+                                handleBirth(groupId, nodeId, deviceId || nodeId, decoded.metrics.length);
+                            } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
+                                handleDeath(groupId, nodeId, deviceId || nodeId);
+                            } else if (msgType === 'DDATA' || msgType === 'NDATA') {
+                                handleData(groupId, nodeId, deviceId || nodeId);
+                            }
+
+                            // Process each metric in the payload
+                            decoded.metrics.forEach((metric, index) => {
+                                let tagAlias: string;
+                                let value: number | boolean | string;
+                                let quality: number;
+
+                                if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
+                                    const label = deviceId || nodeId;
+                                    if (index === 0) {
+                                        // Only show one birth message
+                                        tagAlias = `[${msgType}] ${label}`;
+                                        value = `${decoded.metrics.length} metrics`;
+                                        quality = 0;
+                                    } else {
+                                        return; // Skip additional metrics for birth messages
+                                    }
+                                } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
+                                    const label = deviceId || nodeId;
+                                    tagAlias = `[${msgType}] ${label}`;
+                                    value = 'offline';
+                                    quality = 2;
+                                } else {
+                                    // DDATA / NDATA — actual metric values
+                                    tagAlias = metric.name || deviceId || extractAliasFromTopic(topic);
+                                    value = metric.value ?? '-';
+                                    quality = convertSparkplugQuality(metric.quality);
+                                }
+
+                                const msg: MqttMessage = {
+                                    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${index}`,
+                                    topic: topic,
+                                    tagId: 0,
+                                    tagAlias,
+                                    value,
+                                    timestamp: metric.timestamp || decoded.timestamp || Date.now(),
+                                    quality,
+                                    receivedAt: new Date(),
+                                    format: 'sparkplug'
+                                };
+
+                                setMessageCount(prev => prev + 1);
+                                setSparkplugCount(prev => prev + 1);
+
+                                if (isPausedRef.current) {
+                                    pausedMessagesRef.current.push(msg);
+                                } else {
+                                    setMessages(prev => {
+                                        const newMessages = [...prev, msg];
+                                        if (newMessages.length > MAX_MESSAGES) {
+                                            return newMessages.slice(-MAX_MESSAGES);
+                                        }
+                                        return newMessages;
+                                    });
+                                }
+                            });
+                            return;
+                        }
+                    }
+
+                    // Fallback: try JSON parse for older implementations
+                    try {
+                        const data = JSON.parse(payload.toString());
+                        const topicParts = topic.split('/');
+                        const groupId = topicParts[1] || '';
+                        const msgType = topicParts[2] || '';
+                        const nodeId = topicParts[3] || '';
+                        const deviceId = topicParts[4] || '';
+
+                        // Track device status
+                        const { handleBirth, handleDeath, handleData } = useSparkplugDeviceStore.getState();
+                        const metrics = data.Metrics || data.metrics || [];
+                        const metricCount = Array.isArray(metrics) ? metrics.length : 1;
+
+                        if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
+                            handleBirth(groupId, nodeId, deviceId || nodeId, metricCount);
+                        } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
+                            handleDeath(groupId, nodeId, deviceId || nodeId);
+                        } else if (msgType === 'DDATA' || msgType === 'NDATA') {
+                            handleData(groupId, nodeId, deviceId || nodeId);
+                        }
+
+                        const metric = Array.isArray(metrics) ? metrics[0] : metrics;
+
+                        let tagAlias: string;
+                        let value: number | boolean | string;
+                        let quality: number;
+
+                        if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
+                            const label = deviceId || nodeId;
+                            tagAlias = `[${msgType}] ${label}`;
+                            value = `${metricCount} metric${metricCount !== 1 ? 's' : ''}`;
+                            quality = 0;
+                        } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
+                            const label = deviceId || nodeId;
+                            tagAlias = `[${msgType}] ${label}`;
+                            value = 'offline';
+                            quality = 2;
+                        } else {
+                            const sparkplugQuality = metric?.Quality ?? metric?.quality ?? 192;
+                            tagAlias = metric?.Name || metric?.name || extractAliasFromTopic(topic);
+                            value = metric?.Value ?? metric?.value ?? '-';
+                            quality = convertSparkplugQuality(sparkplugQuality);
+                        }
+
+                        const msg: MqttMessage = {
+                            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                            topic: topic,
+                            tagId: 0,
+                            tagAlias,
+                            value,
+                            timestamp: data.Timestamp || data.timestamp || Date.now(),
+                            quality,
+                            receivedAt: new Date(),
+                            format: 'sparkplug'
+                        };
+
+                        setMessageCount(prev => prev + 1);
+                        setSparkplugCount(prev => prev + 1);
+
+                        if (isPausedRef.current) {
+                            pausedMessagesRef.current.push(msg);
+                        } else {
+                            setMessages(prev => {
+                                const newMessages = [...prev, msg];
+                                if (newMessages.length > MAX_MESSAGES) {
+                                    return newMessages.slice(-MAX_MESSAGES);
+                                }
+                                return newMessages;
+                            });
+                        }
+                        return;
+                    } catch {
+                        // Not JSON, show as binary
+                        const msg: MqttMessage = {
+                            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                            topic: topic,
+                            tagId: 0,
+                            tagAlias: `[BINARY] ${extractAliasFromTopic(topic)}`,
+                            value: `<${payload.length} bytes>`,
+                            timestamp: Date.now(),
+                            quality: 0,
+                            receivedAt: new Date(),
+                            format: 'sparkplug'
+                        };
+
+                        setMessageCount(prev => prev + 1);
+                        setSparkplugCount(prev => prev + 1);
+
+                        if (isPausedRef.current) {
+                            pausedMessagesRef.current.push(msg);
+                        } else {
+                            setMessages(prev => {
+                                const newMessages = [...prev, msg];
+                                if (newMessages.length > MAX_MESSAGES) {
+                                    return newMessages.slice(-MAX_MESSAGES);
+                                }
+                                return newMessages;
+                            });
+                        }
+                        return;
+                    }
+                }
+
+                // Legacy format (JSON)
                 const message = payload.toString();
                 let data: any;
 
@@ -124,76 +309,20 @@ const MqttMonitorPage = () => {
                     data = { v: message, ts: Date.now(), q: 0 };
                 }
 
-                // Determine format based on topic
-                const isSparkplug = topic.startsWith('spBv1.0/');
-
-                let msg: MqttMessage;
-
-                if (isSparkplug) {
-                    // Parse Sparkplug B format
-                    // Topic structure: spBv1.0/{groupId}/{msgType}/{nodeId}[/{deviceId}]
-                    const topicParts = topic.split('/');
-                    const msgType = topicParts[2] || '';   // NBIRTH, DBIRTH, DDEATH, NDEATH, DDATA, NDATA
-                    const nodeId = topicParts[3] || '';
-                    const deviceId = topicParts[4] || '';
-
-                    const metrics = data.Metrics || data.metrics || [];
-                    const metric = Array.isArray(metrics) ? metrics[0] : metrics;
-
-                    let tagAlias: string;
-                    let value: number | boolean | string;
-                    let quality: number;
-
-                    if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
-                        // Device/Node birth — lifecycle event, not a tag value
-                        const label = deviceId || nodeId;
-                        const count = Array.isArray(metrics) ? metrics.length : 1;
-                        tagAlias = `[${msgType}] ${label}`;
-                        value = `${count} metric${count !== 1 ? 's' : ''}`;
-                        quality = 0;
-                    } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
-                        // Device/Node death — offline event
-                        const label = deviceId || nodeId;
-                        tagAlias = `[${msgType}] ${label}`;
-                        value = 'offline';
-                        quality = 2; // BAD
-                    } else {
-                        // DDATA / NDATA — actual metric values
-                        const sparkplugQuality = metric?.Quality ?? data.Quality ?? 192;
-                        tagAlias = metric?.Name || metric?.name || extractAliasFromTopic(topic);
-                        value = metric?.Value ?? metric?.value ?? data.v ?? '-';
-                        quality = convertSparkplugQuality(sparkplugQuality);
-                    }
-
-                    msg = {
-                        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                        topic: topic,
-                        tagId: 0,
-                        tagAlias,
-                        value,
-                        timestamp: data.Timestamp || data.timestamp || Date.now(),
-                        quality,
-                        receivedAt: new Date(),
-                        format: 'sparkplug'
-                    };
-                    setSparkplugCount(prev => prev + 1);
-                } else {
-                    // Parse Legacy format
-                    msg = {
-                        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                        topic: topic,
-                        tagId: data.tag_id || 0,
-                        tagAlias: extractAliasFromTopic(topic),
-                        value: data.v ?? data.value ?? '-',
-                        timestamp: data.ts || data.timestamp || Date.now(),
-                        quality: data.q ?? data.quality ?? 0,
-                        receivedAt: new Date(),
-                        format: 'legacy'
-                    };
-                    setLegacyCount(prev => prev + 1);
-                }
+                const msg: MqttMessage = {
+                    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    topic: topic,
+                    tagId: data.tag_id || 0,
+                    tagAlias: extractAliasFromTopic(topic),
+                    value: data.v ?? data.value ?? '-',
+                    timestamp: data.ts || data.timestamp || Date.now(),
+                    quality: data.q ?? data.quality ?? 0,
+                    receivedAt: new Date(),
+                    format: 'legacy'
+                };
 
                 setMessageCount(prev => prev + 1);
+                setLegacyCount(prev => prev + 1);
 
                 if (isPausedRef.current) {
                     pausedMessagesRef.current.push(msg);
@@ -443,8 +572,27 @@ const MqttMonitorPage = () => {
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    filteredMessages.map((msg) => (
-                                        <TableRow key={msg.id} className={`font-mono text-sm ${msg.format === 'sparkplug' ? 'bg-purple-50/30' : ''}`}>
+                                    filteredMessages.map((msg) => {
+                                        const isLifecycle = msg.format === 'sparkplug' &&
+                                            (msg.tagAlias.startsWith('[DBIRTH]') ||
+                                             msg.tagAlias.startsWith('[NBIRTH]') ||
+                                             msg.tagAlias.startsWith('[DDEATH]') ||
+                                             msg.tagAlias.startsWith('[NDEATH]'));
+                                        const isDeath = isLifecycle && (msg.tagAlias.includes('DEATH'));
+
+                                        return (
+                                        <TableRow
+                                            key={msg.id}
+                                            className={`font-mono text-sm ${
+                                                isLifecycle
+                                                    ? isDeath
+                                                        ? 'bg-red-50/60 italic'
+                                                        : 'bg-green-50/60 italic'
+                                                    : msg.format === 'sparkplug'
+                                                        ? 'bg-purple-50/30'
+                                                        : ''
+                                            }`}
+                                        >
                                             <TableCell className="text-muted-foreground">
                                                 {formatTime(msg.receivedAt)}
                                             </TableCell>
@@ -460,6 +608,41 @@ const MqttMonitorPage = () => {
                                             </TableCell>
                                             <TableCell className="text-xs">
                                                 <div className="truncate max-w-[350px]" title={msg.topic}>
-                                                    {msg.tagAlias && msg.tagAlias !== msg.topic.split('/').pop() ? (
+                                                    {isLifecycle ? (
                                                         <span>
-      
+                                                            <span className={`font-semibold ${isDeath ? 'text-red-600' : 'text-green-600'}`}>
+                                                                {msg.tagAlias}
+                                                            </span>
+                                                            <span className="text-muted-foreground ml-1 text-[10px]">({msg.topic})</span>
+                                                        </span>
+                                                    ) : msg.tagAlias && msg.tagAlias !== msg.topic.split('/').pop() ? (
+                                                        <span>
+                                                            <span className="font-medium text-blue-600">{msg.tagAlias}</span>
+                                                            <span className="text-muted-foreground ml-1">({msg.topic})</span>
+                                                        </span>
+                                                    ) : (
+                                                        <span>{msg.topic}</span>
+                                                    )}
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className={`text-right font-semibold ${isLifecycle ? (isDeath ? 'text-red-500' : 'text-green-600') : 'text-blue-600'}`}>
+                                                {formatValue(msg.value)}
+                                            </TableCell>
+                                            <TableCell className="text-center">
+                                                {getQualityBadge(msg.quality)}
+                                            </TableCell>
+                                        </TableRow>
+                                        );
+                                    })
+                                )}
+                            </TableBody>
+                        </Table>
+                        <div ref={tableEndRef} />
+                    </div>
+                </CardContent>
+            </Card>
+        </div>
+    );
+};
+
+export default MqttMonitorPage;

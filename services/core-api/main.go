@@ -12,7 +12,6 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	_ "github.com/ralph/industrial-edge-middleware/docs"
 	"github.com/ralph/industrial-edge-middleware/internal/auth"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
@@ -76,20 +75,8 @@ func main() {
 		}()
 	}
 
-	// Load InfluxDB configuration
-	influxURL := getEnv("INFLUX_URL", "http://localhost:8086")
-	influxToken := getEnv("INFLUX_TOKEN", "")
-	influxOrg := getEnv("INFLUX_ORG", "industrial")
-	influxBucket := getEnv("INFLUX_BUCKET", "historian")
-
-	var influxClient influxdb2.Client
-	if influxToken == "" {
-		log.Printf("Warning: INFLUX_TOKEN not set, historical data queries will not be available")
-	} else {
-		influxClient = influxdb2.NewClientWithOptions(influxURL, influxToken,
-			influxdb2.DefaultOptions().SetBatchSize(1000).SetFlushInterval(1000))
-		log.Println("InfluxDB client configured")
-	}
+	// Historian uses PostgreSQL (tag_history table) - no InfluxDB needed
+	log.Println("Using PostgreSQL for historian storage")
 
 	// Load MQTT configuration
 	mqttHost := getEnv("MQTT_HOST", "localhost")
@@ -168,11 +155,8 @@ func main() {
 	settingsMgr := settings.NewManager(database)
 	systemHandler := handlers.NewSystemHandler(database, mqttClient, settingsMgr)
 
-	// Create history handler with InfluxDB client (optional)
-	var historyHandler *handlers.HistoryHandler
-	if influxClient != nil {
-		historyHandler = handlers.NewHistoryHandler(influxClient, influxOrg, influxBucket, database)
-	}
+	// Create history handler with PostgreSQL (no InfluxDB)
+	historyHandler := handlers.NewHistoryHandler(database)
 
 	// Create auth service and handler
 	authService := auth.NewService(database)
@@ -271,8 +255,8 @@ func main() {
 			system.PUT("/settings", middleware.RequireRole(models.RoleAdmin), systemHandler.UpdateSettings)
 			system.GET("/metrics", systemHandler.GetMetrics)
 
-			// Backup & Restore
-			backupHandler := handlers.NewBackupHandler(database, influxURL, influxToken, influxOrg)
+			// Backup & Restore (PostgreSQL only - includes historian)
+			backupHandler := handlers.NewBackupHandler(database)
 			system.GET("/backup", middleware.RequireRole(models.RoleAdmin), backupHandler.ExportBackup)
 			system.POST("/restore", middleware.RequireRole(models.RoleAdmin), backupHandler.ImportRestore)
 		}
@@ -294,14 +278,13 @@ func main() {
 			users.DELETE("/:id", usersHandler.Delete)
 		}
 
-		// History endpoint (only if InfluxDB is configured)
-		if historyHandler != nil {
-			history := api.Group("/history")
-			history.Use(middleware.RequireAuth, middleware.OrganizationContext())
-			{
-				history.GET("", historyHandler.Query)
-				history.GET("/events", historyHandler.QueryEvents)
-			}
+		// History endpoints (PostgreSQL-based)
+		history := api.Group("/history")
+		history.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			history.GET("", historyHandler.Query)
+			history.GET("/stats", historyHandler.GetTagStats)
+			history.GET("/events", historyHandler.QueryEvents)
 		}
 
 		// Audit endpoints

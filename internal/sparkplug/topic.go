@@ -52,10 +52,12 @@ func BuildNDEATHTopic(groupID, edgeNodeID string) string {
 	)
 }
 
-// ParseTopic parses a Sparkplug B topic and returns its components
+// ParseTopic parses a Sparkplug B topic and returns its components.
+// Supports both node-level (4 parts: NBIRTH, NDEATH, NDATA, NCMD)
+// and device-level (5+ parts: DBIRTH, DDEATH, DDATA, DCMD) messages.
 func ParseTopic(topic string) (*TopicInfo, error) {
 	parts := strings.Split(topic, "/")
-	if len(parts) < 5 {
+	if len(parts) < 4 {
 		return nil, fmt.Errorf("invalid Sparkplug B topic format: %s", topic)
 	}
 
@@ -70,7 +72,7 @@ func ParseTopic(topic string) (*TopicInfo, error) {
 		EdgeNodeID:  parts[3],
 	}
 
-	if len(parts) >= 6 {
+	if len(parts) >= 5 {
 		info.DeviceID = parts[4]
 	}
 

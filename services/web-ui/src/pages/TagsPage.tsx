@@ -6,6 +6,7 @@ import { useGateways } from '@/hooks/useGateways';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useStaleData, getDataStatus, getStatusClasses } from '@/hooks/useStaleData';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -60,6 +61,14 @@ const TagsPage = () => {
     }, [gatewayIdParam]);
 
     const { gateways } = useGateways(); // Get all gateways for filter
+
+    // Create a map of gateways by ID for quick lookup (for Sparkplug B device status)
+    const gatewayMap = useMemo(() => {
+        const map = new Map<number, { name: string }>();
+        gateways.forEach(g => map.set(g.id, { name: g.name }));
+        return map;
+    }, [gateways]);
+
     const { tags, isLoading, create, remove, update } = useTags(
         selectedGatewayId && selectedGatewayId !== 'all' ? parseInt(selectedGatewayId) : undefined
     );
@@ -243,6 +252,9 @@ const TagsPage = () => {
     // Real-time value integration
     const [currentValues, setCurrentValues] = useState<Map<number, CurrentValue>>(new Map());
     const realtimeValues = useRealtime(selectedOrgId || undefined);
+
+    // Data status detection hook (uses Sparkplug B BIRTH/DEATH)
+    const { isDeviceOnline } = useStaleData();
 
     // Merge real-time updates into currentValues
     useEffect(() => {
@@ -1002,39 +1014,57 @@ const TagsPage = () => {
                                         <TableCell>
                                             <div className="flex items-center gap-3">
                                                 {/* Value display with distinct styling */}
-                                                <div className={`
-                                                    font-mono font-medium px-2 py-1 rounded border min-w-[80px] text-center
-                                                    ${currentValue?.quality === 0
-                                                        ? 'bg-slate-50 border-slate-200 text-slate-900'
-                                                        : 'bg-red-50 border-red-200 text-red-700'
-                                                    }
-                                                `}>
-                                                    {currentValue ? (
-                                                        typeof currentValue.value === 'boolean'
-                                                            ? (currentValue.value ? 'TRUE' : 'FALSE')
-                                                            : (currentValue.value !== null && currentValue.value !== undefined
-                                                                ? (typeof currentValue.value === 'number'
-                                                                    ? (tag.data_type === 'DINT' || tag.data_type === 'INT'
-                                                                        ? Math.round(currentValue.value).toLocaleString()
-                                                                        : currentValue.value.toLocaleString(undefined, { maximumFractionDigits: 2 }))
-                                                                    : currentValue.value.toString())
-                                                                : '-')
-                                                    ) : '-'}
-                                                </div>
+                                                {(() => {
+                                                    // Get Sparkplug B device ID from gateway name
+                                                    const deviceName = gatewayMap.get(tag.gateway_id)?.name;
+                                                    const deviceOnline = isDeviceOnline(deviceName);
+                                                    const status = getDataStatus(currentValue?.quality, deviceOnline);
+                                                    const statusClasses = getStatusClasses(status);
 
-                                                {/* Quality indicator */}
-                                                {currentValue && (
-                                                    <Badge variant="outline" className={`text-[10px] h-5 px-1 ${currentValue.quality === 0 ? 'text-green-600 border-green-200 bg-green-50' : 'text-red-600 border-red-200 bg-red-50'}`}>
-                                                        {currentValue.quality === 0 ? 'GOOD' : 'BAD'}
-                                                    </Badge>
-                                                )}
+                                                    return (
+                                                        <>
+                                                            <div className={`
+                                                                font-mono font-medium px-2 py-1 rounded border min-w-[80px] text-center
+                                                                ${statusClasses.bg} ${statusClasses.border} ${statusClasses.text}
+                                                            `}>
+                                                                {currentValue ? (
+                                                                    typeof currentValue.value === 'boolean'
+                                                                        ? (currentValue.value ? 'TRUE' : 'FALSE')
+                                                                        : (currentValue.value !== null && currentValue.value !== undefined
+                                                                            ? (typeof currentValue.value === 'number'
+                                                                                ? (tag.data_type === 'DINT' || tag.data_type === 'INT'
+                                                                                    ? Math.round(currentValue.value).toLocaleString()
+                                                                                    : currentValue.value.toLocaleString(undefined, { maximumFractionDigits: 2 }))
+                                                                                : currentValue.value.toString())
+                                                                            : '-')
+                                                                ) : '-'}
+                                                            </div>
 
-                                                {/* Timestamp tooltip */}
-                                                {currentValue?.timestamp && (
-                                                    <span className="text-xs text-muted-foreground" title={`Last update: ${new Date(currentValue.timestamp).toLocaleString()}`}>
-                                                        {new Date(currentValue.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                                                    </span>
-                                                )}
+                                                            {/* Quality indicator */}
+                                                            {currentValue && (
+                                                                <Badge variant="outline" className={`text-[10px] h-5 px-1 ${
+                                                                    status === 'good'
+                                                                        ? 'text-green-600 border-green-200 bg-green-50'
+                                                                        : status === 'unknown'
+                                                                            ? 'text-slate-500 border-slate-200 bg-slate-50'
+                                                                            : 'text-red-600 border-red-200 bg-red-50'
+                                                                }`}>
+                                                                    {status === 'good' ? 'GOOD' : status === 'unknown' ? 'UNKNOWN' : 'BAD'}
+                                                                </Badge>
+                                                            )}
+
+                                                            {/* Timestamp tooltip */}
+                                                            {currentValue?.timestamp && (
+                                                                <span
+                                                                    className={`text-xs ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
+                                                                    title={`Last update: ${new Date(currentValue.timestamp).toLocaleString()}`}
+                                                                >
+                                                                    {new Date(currentValue.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                                </span>
+                                                            )}
+                                                        </>
+                                                    );
+                                                })()}
                                             </div>
                                         </TableCell>
                                         <TableCell>

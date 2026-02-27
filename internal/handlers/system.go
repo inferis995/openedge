@@ -196,9 +196,10 @@ func (h *SystemHandler) GetSettings(c *gin.Context) {
 
 // UpdateSettingsRequest represents the request body for updating settings
 type UpdateSettingsRequest struct {
-	PublishMode         *string  `json:"publish_mode"`
-	RBEHeartbeatSeconds *int     `json:"rbe_heartbeat_seconds"`
-	RBEDeadbandPercent  *float64 `json:"rbe_deadband_percent"`
+	PublishMode           *string  `json:"publish_mode"`
+	RBEHeartbeatSeconds   *int     `json:"rbe_heartbeat_seconds"`
+	RBEDeadbandPercent    *float64 `json:"rbe_deadband_percent"`
+	StaleThresholdSeconds *int     `json:"stale_threshold_seconds"`
 }
 
 // UpdateSettings updates global settings (admin only)
@@ -241,6 +242,19 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'rbe_deadband_percent'", *req.RBEDeadbandPercent)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update rbe_deadband_percent"})
+			return
+		}
+	}
+
+	if req.StaleThresholdSeconds != nil {
+		// Validate: must be positive and reasonable (1 second to 1 hour)
+		if *req.StaleThresholdSeconds < 1 || *req.StaleThresholdSeconds > 3600 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "stale_threshold_seconds must be between 1 and 3600"})
+			return
+		}
+		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'stale_threshold_seconds'", *req.StaleThresholdSeconds)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update stale_threshold_seconds"})
 			return
 		}
 	}

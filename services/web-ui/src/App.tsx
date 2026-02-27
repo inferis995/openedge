@@ -15,9 +15,11 @@ import HistoryPage from '@/pages/HistoryPage';
 import MqttMonitorPage from '@/pages/MqttMonitorPage';
 import UsersPage from '@/pages/UsersPage';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
+import { useTrendStore } from '@/stores/useTrendStore';
 import { organizationsApi } from '@/api/organizations';
+import { useSparkplugListener } from '@/hooks/useSparkplugListener';
 import { Loader2 } from 'lucide-react';
 
 const LayoutWrapper = () => (
@@ -28,7 +30,21 @@ const LayoutWrapper = () => (
 
 function App() {
     const { selectedOrgId, setSelectedOrgId } = useNavigationStore();
+    const { resetStore: resetTrendStore } = useTrendStore();
     const [isInitializing, setIsInitializing] = useState(true);
+    const prevOrgIdRef = useRef<number | null>(null);
+
+    // Global Sparkplug B listener - tracks device online/offline status across all pages
+    useSparkplugListener();
+
+    // Reset trend store when organization changes
+    useEffect(() => {
+        if (prevOrgIdRef.current !== null && prevOrgIdRef.current !== selectedOrgId) {
+            console.log('Organization changed, resetting trend store');
+            resetTrendStore();
+        }
+        prevOrgIdRef.current = selectedOrgId;
+    }, [selectedOrgId, resetTrendStore]);
 
     useEffect(() => {
         const initOrganization = async () => {

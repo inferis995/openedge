@@ -17,10 +17,12 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
+	"github.com/ralph/industrial-edge-middleware/internal/settings"
+	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	"github.com/redis/go-redis/v9"
 )
 
-// TagPayload represents the MQTT message payload for tag values
+// TagPayload represents the MQTT message payload for tag values (legacy format)
 type TagPayload struct {
 	Value     interface{} `json:"v"`
 	Timestamp int64       `json:"ts"`
@@ -34,6 +36,7 @@ type GatewayConfig struct {
 	OrgName string
 	Site    string
 	Area    string
+	OrgID   int
 }
 
 // Driver manages the Redis driver lifecycle
@@ -46,13 +49,27 @@ type Driver struct {
 	configMu    sync.RWMutex
 	stopChan    chan struct{}
 	reloadChan  chan struct{}
+
 	// Report by Exception
 	previousValues map[int]interface{}
 	prevValuesMu   sync.RWMutex
+
+	// Connection state tracking for DBIRTH/DDEATH
+	isConnected      bool
+	wasConnected     bool
+	connectionMu     sync.RWMutex
+
+	// Sparkplug B support
+	sparkplugClient *sparkplug.SparkplugClient
+	dualPublisher   *sparkplug.DualPublisher
+	sparkplugMu     sync.RWMutex
+
+	// Settings manager for publish mode and RBE
+	settingsManager *settings.Manager
 }
 
 func main() {
-	log.Println("Starting driver-redis...")
+	log.Println("[DRIVER-REDIS] Starting...")
 
 	gatewayIDStr := getEnv("GATEWAY_ID", "")
 	if gatewayIDStr == "" {
@@ -77,7 +94,7 @@ func main() {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 	defer database.Close()
-	log.Println("Connected to PostgreSQL")
+	log.Println("[DRIVER-REDIS] Connected to PostgreSQL")
 
 	// Connect to MQTT
 	mqttCfg := mqtt.Config{
@@ -97,24 +114,35 @@ func main() {
 		log.Fatalf("Failed to connect to MQTT broker: %v", err)
 	}
 	defer mqttClient.Disconnect(1000)
-	log.Println("Connected to MQTT broker")
+	log.Println("[DRIVER-REDIS] Connected to MQTT broker")
 
 	// Publish online status
 	if err := mqttClient.PublishWithQoS(fmt.Sprintf("sys/health/%d", gatewayID), "online", 1, true); err != nil {
-		log.Printf("Failed to publish online status: %v", err)
+		log.Printf("[DRIVER-REDIS] Failed to publish online status: %v", err)
 	}
 
+	// Initialize settings manager
+	settingsManager := settings.NewManager(database)
+
 	driver := &Driver{
-		gatewayID:      gatewayID,
-		database:       database,
-		mqttClient:     mqttClient,
-		stopChan:       make(chan struct{}),
-		reloadChan:     make(chan struct{}, 1),
-		previousValues: make(map[int]interface{}),
+		gatewayID:        gatewayID,
+		database:         database,
+		mqttClient:       mqttClient,
+		stopChan:         make(chan struct{}),
+		reloadChan:       make(chan struct{}, 1),
+		previousValues:   make(map[int]interface{}),
+		settingsManager:  settingsManager,
+		wasConnected:     false,
+		isConnected:      false,
 	}
 
 	if err := driver.loadConfig(); err != nil {
 		log.Fatalf("Failed to load gateway configuration: %v", err)
+	}
+
+	// Initialize Sparkplug B client if enabled
+	if getEnv("SPARKPLUG_ENABLED", "true") == "true" {
+		driver.initSparkplugClient()
 	}
 
 	// Subscribe to reload command
@@ -129,12 +157,16 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
 
-	log.Println("Shutting down driver-redis...")
+	log.Println("[DRIVER-REDIS] Shutting down...")
+
+	// Publish DDEATH before shutting down
+	driver.publishDDEATH()
+
 	close(driver.stopChan)
 
 	if driver.redisClient != nil {
 		if err := driver.redisClient.Close(); err != nil {
-			log.Printf("Error closing Redis client: %v", err)
+			log.Printf("[DRIVER-REDIS] Error closing Redis client: %v", err)
 		}
 	}
 }
@@ -146,7 +178,7 @@ func (d *Driver) loadConfig() error {
 	// Load gateway
 	query := `
 		SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled,
-		       o.name as org_name, s.name as site_name, a.name as area_name
+		       o.id, o.name as org_name, s.name as site_name, a.name as area_name
 		FROM gateways g
 		JOIN areas a ON g.area_id = a.id
 		JOIN sites s ON a.site_id = s.id
@@ -156,6 +188,7 @@ func (d *Driver) loadConfig() error {
 
 	var gateway models.Gateway
 	var connConfigBytes []byte
+	var orgID int
 	var orgName, siteName, areaName string
 
 	err := d.database.QueryRow(query, d.gatewayID).Scan(
@@ -166,6 +199,7 @@ func (d *Driver) loadConfig() error {
 		&connConfigBytes,
 		&gateway.ScanRateMs,
 		&gateway.Enabled,
+		&orgID,
 		&orgName,
 		&siteName,
 		&areaName,
@@ -174,14 +208,13 @@ func (d *Driver) loadConfig() error {
 		return fmt.Errorf("failed to load gateway: %w", err)
 	}
 
-	// Parse connection config (expecting host, port, etc.)
-	// We'll use a generic map for flexibility
+	// Parse connection config
 	if err := json.Unmarshal(connConfigBytes, &gateway.ConnectionConfig); err != nil {
 		return fmt.Errorf("failed to parse connection config: %w", err)
 	}
 
 	if gateway.DriverType != "REDIS" && gateway.DriverType != "GENERIC" {
-		log.Printf("Warning: Driver type is %s, expected REDIS", gateway.DriverType)
+		log.Printf("[DRIVER-REDIS] Warning: Driver type is %s, expected REDIS", gateway.DriverType)
 	}
 
 	// Load tags
@@ -203,7 +236,7 @@ func (d *Driver) loadConfig() error {
 		err := rows.Scan(
 			&tag.ID,
 			&tag.GatewayID,
-			&tag.Code, // This will be the Redis Key
+			&tag.Code,
 			&tag.Alias,
 			&tag.DataType,
 			&tag.Historize,
@@ -221,6 +254,7 @@ func (d *Driver) loadConfig() error {
 		OrgName: slugify(orgName),
 		Site:    slugify(siteName),
 		Area:    slugify(areaName),
+		OrgID:   orgID,
 	}
 
 	// Reconnect/Update Redis connection if needed
@@ -228,11 +262,55 @@ func (d *Driver) loadConfig() error {
 		_ = d.redisClient.Close()
 	}
 	if err := d.connectRedis(gateway.ConnectionConfig); err != nil {
-		log.Printf("Error connecting to Redis: %v", err)
+		log.Printf("[DRIVER-REDIS] Error connecting to Redis: %v", err)
+		d.setConnectionState(false)
+	} else {
+		d.setConnectionState(true)
 	}
 
-	log.Printf("Loaded generic/redis config: %d tags", len(tags))
+	log.Printf("[DRIVER-REDIS] Loaded config: %d tags", len(tags))
 	return nil
+}
+
+func (d *Driver) initSparkplugClient() {
+	d.configMu.RLock()
+	cfg := d.config
+	d.configMu.RUnlock()
+
+	if cfg == nil {
+		return
+	}
+
+	d.sparkplugMu.Lock()
+	defer d.sparkplugMu.Unlock()
+
+	// Build Sparkplug B identifiers
+	groupID := sparkplug.BuildGroupID(cfg.OrgName, cfg.Site)
+	edgeNodeID := sparkplug.BuildEdgeNodeID(cfg.Area, cfg.Gateway.Name)
+
+	config := sparkplug.Config{
+		MQTTHost:     getEnv("MQTT_HOST", "localhost"),
+		MQTTPort:     getEnvInt("MQTT_PORT", 1883),
+		MQTTClientID: fmt.Sprintf("sparkplug-redis-%d", d.gatewayID),
+		GroupID:      groupID,
+		EdgeNodeID:   edgeNodeID,
+		EnableLegacy: true,
+	}
+
+	d.sparkplugClient = sparkplug.NewClient(config, d.mqttClient)
+	d.sparkplugClient.SetConnected(true)
+
+	// Create dual publisher
+	d.dualPublisher = sparkplug.NewDualPublisher(
+		d.sparkplugClient,
+		cfg.OrgName,
+		cfg.Site,
+		cfg.Area,
+		cfg.Gateway.Name,
+		cfg.OrgID,
+	)
+
+	log.Printf("[DRIVER-REDIS] Sparkplug B client initialized: group=%s, node=%s", groupID, edgeNodeID)
 }
 
 func (d *Driver) connectRedis(config map[string]interface{}) error {
@@ -277,6 +355,70 @@ func (d *Driver) connectRedis(config map[string]interface{}) error {
 	return d.redisClient.Ping(ctx).Err()
 }
 
+func (d *Driver) setConnectionState(connected bool) {
+	d.connectionMu.Lock()
+	wasConnected := d.isConnected
+	d.wasConnected = wasConnected
+	d.isConnected = connected
+	d.connectionMu.Unlock()
+
+	// Handle DBIRTH/DDEATH based on connection state change
+	d.handleConnectionStateChange(connected, wasConnected)
+}
+
+func (d *Driver) handleConnectionStateChange(connected, wasConnected bool) {
+	d.sparkplugMu.RLock()
+	spClient := d.sparkplugClient
+	cfg := d.config
+	d.sparkplugMu.RUnlock()
+
+	if spClient == nil || !spClient.IsConnected() || cfg == nil {
+		return
+	}
+
+	if connected && !wasConnected {
+		// Coming online - send DBIRTH with all current tag values
+		log.Printf("[DRIVER-REDIS] Sending DBIRTH (device coming online)")
+		var tagsData []sparkplug.TagData
+		for _, t := range cfg.Tags {
+			tagsData = append(tagsData, sparkplug.TagData{
+				TagID:     t.ID,
+				DeviceID:  t.Alias,
+				Value:     d.previousValues[t.ID],
+				DataType:  t.DataType,
+				Timestamp: time.Now().UnixMilli(),
+				Quality:   192, // GOOD
+				OrgID:     cfg.OrgID,
+			})
+		}
+		if err := spClient.PublishDBIRTH(slugify(cfg.Gateway.Name), tagsData); err != nil {
+			log.Printf("[DRIVER-REDIS] Failed to publish DBIRTH: %v", err)
+		}
+	} else if !connected && wasConnected {
+		// Going offline - send DDEATH
+		log.Printf("[DRIVER-REDIS] Sending DDEATH (device going offline)")
+		if err := spClient.PublishDDEATH(slugify(cfg.Gateway.Name)); err != nil {
+			log.Printf("[DRIVER-REDIS] Failed to publish DDEATH: %v", err)
+		}
+	}
+}
+
+func (d *Driver) publishDDEATH() {
+	d.sparkplugMu.RLock()
+	spClient := d.sparkplugClient
+	cfg := d.config
+	d.sparkplugMu.RUnlock()
+
+	if spClient == nil || !spClient.IsConnected() || cfg == nil {
+		return
+	}
+
+	log.Printf("[DRIVER-REDIS] Sending DDEATH (shutdown)")
+	if err := spClient.PublishDDEATH(slugify(cfg.Gateway.Name)); err != nil {
+		log.Printf("[DRIVER-REDIS] Failed to publish DDEATH: %v", err)
+	}
+}
+
 func (d *Driver) run() {
 	d.configMu.RLock()
 	scanRate := time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond
@@ -288,7 +430,10 @@ func (d *Driver) run() {
 	healthTicker := time.NewTicker(30 * time.Second)
 	defer healthTicker.Stop()
 
-	log.Printf("Starting polling loop with rate: %v", scanRate)
+	// Initial connection check
+	d.checkConnection()
+
+	log.Printf("[DRIVER-REDIS] Starting polling loop with rate: %v", scanRate)
 
 	for {
 		select {
@@ -296,16 +441,32 @@ func (d *Driver) run() {
 			return
 		case <-d.reloadChan:
 			d.loadConfig()
+			if getEnv("SPARKPLUG_ENABLED", "true") == "true" {
+				d.initSparkplugClient()
+			}
 			d.configMu.RLock()
 			ticker.Reset(time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond)
 			d.configMu.RUnlock()
 		case <-healthTicker.C:
-			// Heartbeat
 			d.mqttClient.PublishWithQoS(fmt.Sprintf("sys/health/%d", d.gatewayID), "online", 1, true)
+			d.checkConnection()
 		case <-ticker.C:
 			d.poll()
 		}
 	}
+}
+
+func (d *Driver) checkConnection() {
+	if d.redisClient == nil {
+		d.setConnectionState(false)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := d.redisClient.Ping(ctx).Err()
+	d.setConnectionState(err == nil)
 }
 
 // poll reads all tags from Redis using MGET for efficiency
@@ -334,20 +495,22 @@ func (d *Driver) poll() {
 
 	values, err := d.redisClient.MGet(ctx, keys...).Result()
 	if err != nil {
-		log.Printf("Error executing MGET: %v", err)
+		log.Printf("[DRIVER-REDIS] Error executing MGET: %v", err)
+		d.setConnectionState(false)
 		return
 	}
 
+	// Mark as connected if we got values
+	d.setConnectionState(true)
+
 	timestamp := time.Now().UnixMilli()
-	topicPrefix := fmt.Sprintf("data/%s/%s/%s/%s", config.OrgName, config.Site, config.Area, slugify(config.Gateway.Name))
 
 	for i, val := range values {
 		tag := config.Tags[i]
 
 		// Parse value
-		parsedVal := val // Default to raw interface{} (string or nil)
+		parsedVal := val
 
-		// Convert if necessary based on DataType, though Redis returns strings/nil
 		if val != nil {
 			strVal := fmt.Sprintf("%v", val)
 			switch tag.DataType {
@@ -355,7 +518,7 @@ func (d *Driver) poll() {
 				if v, err := strconv.Atoi(strVal); err == nil {
 					parsedVal = v
 				} else if v, err := strconv.ParseFloat(strVal, 64); err == nil {
-					parsedVal = int(v) // Handle "123.0"
+					parsedVal = int(v)
 				}
 			case "REAL", "FLOAT":
 				if v, err := strconv.ParseFloat(strVal, 64); err == nil {
@@ -372,28 +535,89 @@ func (d *Driver) poll() {
 			}
 		}
 
-		quality := 0
+		quality := 192 // GOOD
 		if val == nil {
-			quality = 1 // Bad quality if key missing
+			quality = 0 // BAD
 		}
 
-		if d.hasValueChanged(tag.ID, parsedVal) {
-			d.publishTagValue(topicPrefix, tag, parsedVal, timestamp, quality)
+		// Check if we should publish (RBE logic)
+		if d.shouldPublish(tag.ID, parsedVal, quality) {
+			d.publishTagValue(tag, parsedVal, timestamp, quality)
 			d.updatePreviousValue(tag.ID, parsedVal)
 		}
 	}
 }
 
+func (d *Driver) shouldPublish(tagID int, newValue interface{}, quality int) bool {
+	if d.settingsManager == nil {
+		return d.hasValueChanged(tagID, newValue)
+	}
+
+	d.prevValuesMu.RLock()
+	oldValue, _ := d.previousValues[tagID]
+	d.prevValuesMu.RUnlock()
+
+	// For Redis driver, we don't track quality separately, so use 0 for old quality
+	return d.settingsManager.ShouldPublish(tagID, newValue, oldValue, quality, 0)
+}
+
 func (d *Driver) handleReloadCommand(topic string, payload []byte) {
-	// ... (Same reuse as Modbus mostly)
 	select {
 	case d.reloadChan <- struct{}{}:
 	default:
 	}
 }
 
-func (d *Driver) publishTagValue(topicPrefix string, tag models.Tag, value interface{}, timestamp int64, quality int) {
-	topic := fmt.Sprintf("%s/%s", topicPrefix, slugify(tag.Alias))
+func (d *Driver) publishTagValue(tag models.Tag, value interface{}, timestamp int64, quality int) {
+	d.configMu.RLock()
+	cfg := d.config
+	d.configMu.RUnlock()
+
+	if cfg == nil {
+		return
+	}
+
+	// Get publish mode from settings
+	publishMode := models.PublishModeDual
+	if d.settingsManager != nil {
+		publishMode = d.settingsManager.Get().PublishMode
+	}
+
+	d.sparkplugMu.RLock()
+	dualPublisher := d.dualPublisher
+	d.sparkplugMu.RUnlock()
+
+	// Publish based on mode
+	switch publishMode {
+	case models.PublishModeLegacyOnly:
+		// Only legacy format
+		d.publishLegacy(tag, value, timestamp, quality, cfg)
+
+	case models.PublishModeSparkplugOnly:
+		// Only Sparkplug B format - use dual publisher with legacy disabled
+		if dualPublisher != nil {
+			if err := dualPublisher.Publish(tag.ID, tag.Alias, value, tag.DataType, quality, timestamp, d.mqttClient); err != nil {
+				log.Printf("[DRIVER-REDIS] Sparkplug publish error for %s: %v", tag.Alias, err)
+			}
+		}
+
+	case models.PublishModeDual:
+		fallthrough
+	default:
+		// Both formats - use dual publisher if available
+		if dualPublisher != nil {
+			if err := dualPublisher.Publish(tag.ID, tag.Alias, value, tag.DataType, quality, timestamp, d.mqttClient); err != nil {
+				log.Printf("[DRIVER-REDIS] Dual publish error for %s: %v", tag.Alias, err)
+			}
+		} else {
+			// Fallback to legacy only
+			d.publishLegacy(tag, value, timestamp, quality, cfg)
+		}
+	}
+}
+
+func (d *Driver) publishLegacy(tag models.Tag, value interface{}, timestamp int64, quality int, cfg *GatewayConfig) {
+	topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name), slugify(tag.Alias))
 	payload := TagPayload{Value: value, Timestamp: timestamp, Quality: quality}
 
 	bytes, _ := json.Marshal(payload)
@@ -408,7 +632,7 @@ func (d *Driver) hasValueChanged(tagID int, newValue interface{}) bool {
 	if !exists {
 		return true
 	}
-	return prev != newValue // Simple comparison for now
+	return prev != newValue
 }
 
 func (d *Driver) updatePreviousValue(tagID int, value interface{}) {
