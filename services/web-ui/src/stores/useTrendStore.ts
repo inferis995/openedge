@@ -5,7 +5,6 @@ import {
     ChartConfig,
     TimeRange,
     AggregationType,
-    CompareMode,
     TAG_COLORS,
 } from '@/types/trend';
 
@@ -29,9 +28,6 @@ interface TrendStore extends TrendState {
     // Aggregation actions
     setAggregation: (agg: AggregationType) => void;
 
-    // Compare mode actions
-    setCompareMode: (mode: CompareMode) => void;
-
     // UI actions
     toggleSidebar: () => void;
     toggleDataTable: () => void;
@@ -54,7 +50,6 @@ const initialState: TrendState = {
     liveMode: true,
     autoRefreshInterval: 10000,
     aggregation: 'max',
-    compareMode: 'none',
     sidebarOpen: true,
     dataTableOpen: false,
     dataTableHeight: 200,
@@ -178,10 +173,6 @@ export const useTrendStore = create<TrendStore>()(
 
             setAggregation: (agg: AggregationType) => {
                 set({ aggregation: agg });
-            },
-
-            setCompareMode: (mode: CompareMode) => {
-                set({ compareMode: mode });
             },
 
             toggleSidebar: () => {

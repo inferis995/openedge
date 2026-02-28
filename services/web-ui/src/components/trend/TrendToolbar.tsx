@@ -16,11 +16,10 @@ import {
     Table,
     PanelLeft,
     Activity,
-    Layers,
 } from 'lucide-react';
 import { TimePicker } from './TimePicker';
 import { useTrendStore } from '@/stores/useTrendStore';
-import { AggregationType, CompareMode } from '@/types/trend';
+import { AggregationType } from '@/types/trend';
 
 interface TrendToolbarProps {
     onRefresh: () => void;
@@ -40,12 +39,6 @@ const AGGREGATION_OPTIONS: { value: AggregationType; label: string }[] = [
     { value: 'last', label: 'Last' },
 ];
 
-const COMPARE_OPTIONS: { value: CompareMode; label: string }[] = [
-    { value: 'none', label: 'None' },
-    { value: 'todayVsYesterday', label: 'Today vs Yesterday' },
-    { value: 'thisShiftVsLastShift', label: 'This Shift vs Last' },
-];
-
 export const TrendToolbar: React.FC<TrendToolbarProps> = ({
     onRefresh,
     onExportCSV,
@@ -62,8 +55,6 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
         setLiveMode,
         aggregation,
         setAggregation,
-        compareMode,
-        setCompareMode,
         sidebarOpen,
         toggleSidebar,
         dataTableOpen,
@@ -103,21 +94,6 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                 </div>
 
                 <div className="flex items-center gap-1.5">
-                    {/* Compare Mode */}
-                    <Select value={compareMode} onValueChange={(v) => setCompareMode(v as CompareMode)}>
-                        <SelectTrigger className="w-40 h-7 text-xs">
-                            <Layers className="w-3 h-3 mr-1" />
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {COMPARE_OPTIONS.map((opt) => (
-                                <SelectItem key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-
                     {/* Aggregation */}
                     <Select value={aggregation} onValueChange={(v) => setAggregation(v as AggregationType)}>
                         <SelectTrigger className="w-28 h-7 text-xs">

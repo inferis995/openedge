@@ -2,7 +2,6 @@
 
 export type AggregationType = 'mean' | 'max' | 'min' | 'sum' | 'first' | 'last' | 'count' | 'median' | 'stddev';
 export type TimePreset = '15m' | '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'currentShift' | 'previousShift' | 'today' | 'yesterday' | 'custom';
-export type CompareMode = 'none' | 'todayVsYesterday' | 'thisShiftVsLastShift';
 
 export interface TrendDataPoint {
     timestamp: number;
@@ -66,9 +65,6 @@ export interface TrendState {
     // Aggregation
     aggregation: AggregationType;
 
-    // Compare mode
-    compareMode: CompareMode;
-
     // UI State
     sidebarOpen: boolean;
     dataTableOpen: boolean;
@@ -89,21 +85,6 @@ export interface BatchHistoryRequest {
 
 export interface BatchHistoryResponse {
     [tagId: number]: TrendDataPoint[];
-}
-
-export interface CompareHistoryRequest {
-    tag_ids: number[];
-    primary_start: string;
-    primary_end: string;
-    secondary_start: string;
-    secondary_end: string;
-    agg?: AggregationType;
-    interval?: string;
-}
-
-export interface CompareHistoryResponse {
-    primary: BatchHistoryResponse;
-    secondary: BatchHistoryResponse;
 }
 
 export interface TagHierarchyResponse {

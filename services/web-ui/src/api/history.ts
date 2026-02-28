@@ -2,8 +2,6 @@ import api from './client';
 import {
     BatchHistoryRequest,
     BatchHistoryResponse,
-    CompareHistoryRequest,
-    CompareHistoryResponse,
     AggregationType,
 } from '@/types/trend';
 
@@ -82,12 +80,6 @@ export const historyApi = {
     // Batch query for multiple tags - more efficient than multiple single queries
     batchQuery: async (request: BatchHistoryRequest): Promise<BatchHistoryResponse> => {
         const response = await api.post('/history/batch', request);
-        return response.data;
-    },
-
-    // Compare two time ranges (for compare mode)
-    compareQuery: async (request: CompareHistoryRequest): Promise<CompareHistoryResponse> => {
-        const response = await api.post('/history/compare', request);
         return response.data;
     },
 };
