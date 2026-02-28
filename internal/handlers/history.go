@@ -14,6 +14,16 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 )
 
+// ── Quality Codes (OPC-UA / Sparkplug B standard) ──────────────────────
+// These follow the OPC-UA quality code convention used by industrial
+// historians like OSIsoft PI, Ignition, Wonderware, etc.
+const (
+	QualityGood    = 0 // Good - data is current and reliable
+	QualityBad     = 1 // Bad - communication failure, sensor error
+	QualityStale   = 2 // Stale/Interpolated - last known value but timestamp is old
+	QualityUncert  = 3 // Uncertain - data may not be reliable
+)
+
 // HistoryHandler handles historical data query requests
 type HistoryHandler struct {
 	db *sql.DB
@@ -731,9 +741,15 @@ func parseInterval(interval string) (string, error) {
 }
 
 // getSeedValue returns the last known GOOD quality value before the given
-// start time.  This implements the "SEED" pattern used by SCADA historians:
+// start time. This implements the "SEED" pattern used by SCADA historians:
 // it ensures the chart always has an initial state at the beginning of the
 // requested time range, even when data is published only on change (RBE).
+//
+// IMPORTANT: The seed value is marked with QualityStale (not QualityGood)
+// because it represents a historical value that predates the requested range.
+// The frontend should render stale data differently (e.g., dashed line) or
+// hide it entirely when the tag is currently offline.
+//
 // Works for all driver types: Sparkplug B, Modbus, OPC-UA, S7, Redis, MQTT.
 func (h *HistoryHandler) getSeedValue(tagID int, start time.Time) (*HistoryDataPoint, error) {
 	// Only seed with the last GOOD value — skip offline markers (NULL values).
@@ -757,11 +773,12 @@ func (h *HistoryHandler) getSeedValue(tagID int, start time.Time) (*HistoryDataP
 
 	// Map the seed value to the start of the requested range so the chart
 	// line begins at the left edge.
+	// Quality is STALE because this is a cached value from before the range.
 	startMs := start.UnixMilli()
 	return &HistoryDataPoint{
 		Timestamp:   startMs,
 		Value:       &value,
-		Quality:     0,
+		Quality:     QualityStale, // STALE - not current data
 		Source:      "seed",
 		SampleCount: 0,
 	}, nil
