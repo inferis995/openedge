@@ -50,6 +50,9 @@ type GlobalSettings struct {
 	MQTTBrokerMode        MQTTBrokerMode `json:"mqtt_broker_mode"`
 	MQTTExternalHost      string         `json:"mqtt_external_host"`
 	MQTTExternalPort      int            `json:"mqtt_external_port"`
+	MQTTUsername          string         `json:"mqtt_username"`
+	MQTTPassword          string         `json:"mqtt_password"` // Note: stored as-is, consider encryption in production
+	MQTTClientID          string         `json:"mqtt_client_id"`
 }
 
 // GlobalSetting represents a single setting row in the database
@@ -77,4 +80,7 @@ type SettingsUpdateRequest struct {
 	MQTTBrokerMode        *string  `json:"mqtt_broker_mode,omitempty"`
 	MQTTExternalHost      *string  `json:"mqtt_external_host,omitempty"`
 	MQTTExternalPort      *int     `json:"mqtt_external_port,omitempty"`
+	MQTTUsername          *string  `json:"mqtt_username,omitempty"`
+	MQTTPassword          *string  `json:"mqtt_password,omitempty"`
+	MQTTClientID          *string  `json:"mqtt_client_id,omitempty"`
 }

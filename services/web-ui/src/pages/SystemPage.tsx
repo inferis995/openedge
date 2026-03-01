@@ -19,7 +19,7 @@ import {
 import {
     Download, AlertTriangle, CheckCircle, RefreshCw, Zap, ScrollText,
     ChevronDown, Settings2, Shield, Clock, Trash2, FileArchive,
-    HardDrive, Server, Network
+    HardDrive, Server, Network, Eye, EyeOff, User, Key, IdCard
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -97,6 +97,10 @@ const SystemPage = () => {
     const [mqttBrokerMode, setMqttBrokerMode] = useState<string>('internal');
     const [mqttExternalHost, setMqttExternalHost] = useState<string>('');
     const [mqttExternalPort, setMqttExternalPort] = useState<number>(1883);
+    const [mqttUsername, setMqttUsername] = useState<string>('');
+    const [mqttPassword, setMqttPassword] = useState<string>('');
+    const [mqttClientId, setMqttClientId] = useState<string>('industrial-edge');
+    const [showPassword, setShowPassword] = useState<boolean>(false);
 
     // Backup Settings
     const [backupSettings, setBackupSettings] = useState<BackupSettings>({
@@ -126,6 +130,9 @@ const SystemPage = () => {
             setMqttBrokerMode(data.mqtt_broker_mode || 'internal');
             setMqttExternalHost(data.mqtt_external_host || '');
             setMqttExternalPort(parseInt(data.mqtt_external_port || '1883') || 1883);
+            setMqttUsername(data.mqtt_username || '');
+            setMqttPassword(data.mqtt_password || '');
+            setMqttClientId(data.mqtt_client_id || 'industrial-edge');
         } catch (error) {
             console.error('Failed to load settings:', error);
         } finally {
@@ -167,6 +174,9 @@ const SystemPage = () => {
             if (mqttBrokerMode === 'external') {
                 update.mqtt_external_host = mqttExternalHost;
                 update.mqtt_external_port = mqttExternalPort;
+                update.mqtt_username = mqttUsername;
+                update.mqtt_password = mqttPassword;
+                update.mqtt_client_id = mqttClientId;
             }
             await systemApi.updateSettings(update);
             setMessage({ type: 'success', text: 'Configurazione salvata. Riavviare i servizi per applicare le modifiche al broker MQTT.' });
@@ -383,26 +393,89 @@ const SystemPage = () => {
 
                                     {/* External Broker Settings */}
                                     {mqttBrokerMode === 'external' && (
-                                        <div className="space-y-3 pt-3 border-t border-gray-100">
-                                            <div className="space-y-2">
-                                                <Label className="text-xs text-gray-500">Indirizzo Host</Label>
-                                                <Input
-                                                    value={mqttExternalHost}
-                                                    onChange={(e) => setMqttExternalHost(e.target.value)}
-                                                    placeholder="es. 192.168.1.100 o mqtt.example.com"
-                                                    className="h-9"
-                                                />
+                                        <div className="space-y-4 pt-3 border-t border-gray-100">
+                                            {/* Connection Settings */}
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs text-gray-500 flex items-center gap-1">
+                                                        <Network className="h-3 w-3" />
+                                                        Host
+                                                    </Label>
+                                                    <Input
+                                                        value={mqttExternalHost}
+                                                        onChange={(e) => setMqttExternalHost(e.target.value)}
+                                                        placeholder="192.168.1.100"
+                                                        className="h-9"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs text-gray-500">Porta</Label>
+                                                    <Input
+                                                        type="number"
+                                                        value={mqttExternalPort}
+                                                        onChange={(e) => setMqttExternalPort(parseInt(e.target.value) || 1883)}
+                                                        placeholder="1883"
+                                                        className="h-9"
+                                                    />
+                                                </div>
                                             </div>
-                                            <div className="space-y-2">
-                                                <Label className="text-xs text-gray-500">Porta</Label>
-                                                <Input
-                                                    type="number"
-                                                    value={mqttExternalPort}
-                                                    onChange={(e) => setMqttExternalPort(parseInt(e.target.value) || 1883)}
-                                                    placeholder="1883"
-                                                    className="h-9"
-                                                />
+
+                                            {/* Authentication Settings */}
+                                            <div className="bg-gray-50 rounded-lg p-3 space-y-3">
+                                                <div className="flex items-center gap-2 text-xs font-medium text-gray-600 mb-2">
+                                                    <Key className="h-3.5 w-3.5" />
+                                                    Autenticazione (opzionale)
+                                                </div>
+                                                <div className="grid grid-cols-2 gap-3">
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs text-gray-500 flex items-center gap-1">
+                                                            <User className="h-3 w-3" />
+                                                            Username
+                                                        </Label>
+                                                        <Input
+                                                            value={mqttUsername}
+                                                            onChange={(e) => setMqttUsername(e.target.value)}
+                                                            placeholder="utente"
+                                                            className="h-9"
+                                                            autoComplete="off"
+                                                        />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs text-gray-500">Password</Label>
+                                                        <div className="relative">
+                                                            <Input
+                                                                type={showPassword ? "text" : "password"}
+                                                                value={mqttPassword}
+                                                                onChange={(e) => setMqttPassword(e.target.value)}
+                                                                placeholder="••••••••"
+                                                                className="h-9 pr-9"
+                                                                autoComplete="new-password"
+                                                            />
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setShowPassword(!showPassword)}
+                                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                                            >
+                                                                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <Label className="text-xs text-gray-500 flex items-center gap-1">
+                                                        <IdCard className="h-3 w-3" />
+                                                        Client ID
+                                                    </Label>
+                                                    <Input
+                                                        value={mqttClientId}
+                                                        onChange={(e) => setMqttClientId(e.target.value)}
+                                                        placeholder="industrial-edge"
+                                                        className="h-9"
+                                                    />
+                                                    <p className="text-xs text-gray-400">Identificativo univoco per la connessione MQTT</p>
+                                                </div>
                                             </div>
+
                                             <p className="text-xs text-amber-700 flex items-center gap-1.5">
                                                 <AlertTriangle className="h-3 w-3 flex-shrink-0" />
                                                 Richiede riavvio dei servizi dopo il salvataggio.

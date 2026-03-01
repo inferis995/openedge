@@ -203,6 +203,9 @@ type UpdateSettingsRequest struct {
 	MQTTBrokerMode        *string  `json:"mqtt_broker_mode"`
 	MQTTExternalHost      *string  `json:"mqtt_external_host"`
 	MQTTExternalPort      *int     `json:"mqtt_external_port"`
+	MQTTUsername          *string  `json:"mqtt_username"`
+	MQTTPassword          *string  `json:"mqtt_password"`
+	MQTTClientID          *string  `json:"mqtt_client_id"`
 }
 
 // UpdateSettings updates global settings (admin only)
@@ -295,6 +298,38 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_external_port'", *req.MQTTExternalPort)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_external_port"})
+			return
+		}
+	}
+
+	// Handle MQTT username setting
+	if req.MQTTUsername != nil {
+		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_username'", *req.MQTTUsername)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_username"})
+			return
+		}
+	}
+
+	// Handle MQTT password setting
+	if req.MQTTPassword != nil {
+		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_password'", *req.MQTTPassword)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_password"})
+			return
+		}
+	}
+
+	// Handle MQTT client ID setting
+	if req.MQTTClientID != nil {
+		// Validate client ID length (MQTT spec allows 1-23 chars, but we allow more for flexibility)
+		if len(*req.MQTTClientID) > 127 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "mqtt_client_id must be 127 characters or less"})
+			return
+		}
+		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_client_id'", *req.MQTTClientID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_client_id"})
 			return
 		}
 	}

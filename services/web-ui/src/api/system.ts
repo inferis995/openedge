@@ -7,6 +7,9 @@ export interface GlobalSettings {
     mqtt_broker_mode?: string;
     mqtt_external_host?: string;
     mqtt_external_port?: string;
+    mqtt_username?: string;
+    mqtt_password?: string;
+    mqtt_client_id?: string;
 }
 
 export interface UpdateSettingsRequest {
@@ -16,6 +19,9 @@ export interface UpdateSettingsRequest {
     mqtt_broker_mode?: string;
     mqtt_external_host?: string;
     mqtt_external_port?: number;
+    mqtt_username?: string;
+    mqtt_password?: string;
+    mqtt_client_id?: string;
 }
 
 export interface PublishMetrics {
