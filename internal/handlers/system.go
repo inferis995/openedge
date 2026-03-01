@@ -200,6 +200,9 @@ type UpdateSettingsRequest struct {
 	RBEHeartbeatSeconds   *int     `json:"rbe_heartbeat_seconds"`
 	RBEDeadbandPercent    *float64 `json:"rbe_deadband_percent"`
 	StaleThresholdSeconds *int     `json:"stale_threshold_seconds"`
+	MQTTBrokerMode        *string  `json:"mqtt_broker_mode"`
+	MQTTExternalHost      *string  `json:"mqtt_external_host"`
+	MQTTExternalPort      *int     `json:"mqtt_external_port"`
 }
 
 // UpdateSettings updates global settings (admin only)
@@ -255,6 +258,43 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'stale_threshold_seconds'", *req.StaleThresholdSeconds)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update stale_threshold_seconds"})
+			return
+		}
+	}
+
+	// Handle MQTT broker mode setting
+	if req.MQTTBrokerMode != nil {
+		mode := models.MQTTBrokerMode(*req.MQTTBrokerMode)
+		if !mode.IsValid() {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid mqtt_broker_mode. Must be 'internal' or 'external'"})
+			return
+		}
+		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_broker_mode'", *req.MQTTBrokerMode)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_broker_mode"})
+			return
+		}
+	}
+
+	// Handle MQTT external host setting
+	if req.MQTTExternalHost != nil {
+		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_external_host'", *req.MQTTExternalHost)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_external_host"})
+			return
+		}
+	}
+
+	// Handle MQTT external port setting
+	if req.MQTTExternalPort != nil {
+		// Validate port range
+		if *req.MQTTExternalPort < 1 || *req.MQTTExternalPort > 65535 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "mqtt_external_port must be between 1 and 65535"})
+			return
+		}
+		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_external_port'", *req.MQTTExternalPort)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_external_port"})
 			return
 		}
 	}

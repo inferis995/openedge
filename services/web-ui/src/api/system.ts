@@ -4,12 +4,18 @@ export interface GlobalSettings {
     publish_mode: string;
     rbe_heartbeat_seconds: string;
     rbe_deadband_percent: string;
+    mqtt_broker_mode?: string;
+    mqtt_external_host?: string;
+    mqtt_external_port?: string;
 }
 
 export interface UpdateSettingsRequest {
     publish_mode?: string;
     rbe_heartbeat_seconds?: number;
     rbe_deadband_percent?: number;
+    mqtt_broker_mode?: string;
+    mqtt_external_host?: string;
+    mqtt_external_port?: number;
 }
 
 export interface PublishMetrics {

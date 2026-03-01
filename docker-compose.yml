@@ -52,7 +52,8 @@ services:
     image: eclipse-mosquitto:2
     container_name: industrial-mosquitto
     ports:
-      - "1883:1883"
+      - "18830:1883"     # Internal MQTT broker (non-standard port to avoid conflicts)
+      - "9001:9001"      # WebSocket port
     volumes:
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data
@@ -88,8 +89,11 @@ services:
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
       PORT: 8081
+      BACKUP_PATH: /backups
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backups:/backups
     ports:
       - "8081:8081"
     depends_on:

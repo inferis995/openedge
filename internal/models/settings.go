@@ -28,12 +28,28 @@ func (p PublishMode) IsValid() bool {
 	return false
 }
 
+// MQTTBrokerMode represents the MQTT broker selection mode
+type MQTTBrokerMode string
+
+const (
+	MQTTBrokerModeInternal MQTTBrokerMode = "internal" // Use embedded Mosquitto
+	MQTTBrokerModeExternal MQTTBrokerMode = "external" // Use custom external broker
+)
+
+// IsValid checks if the broker mode is valid
+func (m MQTTBrokerMode) IsValid() bool {
+	return m == MQTTBrokerModeInternal || m == MQTTBrokerModeExternal
+}
+
 // GlobalSettings represents the global system settings
 type GlobalSettings struct {
-	PublishMode          PublishMode `json:"publish_mode"`
-	RBEHeartbeatSeconds  int         `json:"rbe_heartbeat_seconds"`
-	RBEDeadbandPercent   float64     `json:"rbe_deadband_percent"`
-	StaleThresholdSeconds int        `json:"stale_threshold_seconds"`
+	PublishMode           PublishMode    `json:"publish_mode"`
+	RBEHeartbeatSeconds   int            `json:"rbe_heartbeat_seconds"`
+	RBEDeadbandPercent    float64        `json:"rbe_deadband_percent"`
+	StaleThresholdSeconds int            `json:"stale_threshold_seconds"`
+	MQTTBrokerMode        MQTTBrokerMode `json:"mqtt_broker_mode"`
+	MQTTExternalHost      string         `json:"mqtt_external_host"`
+	MQTTExternalPort      int            `json:"mqtt_external_port"`
 }
 
 // GlobalSetting represents a single setting row in the database
@@ -58,4 +74,7 @@ type SettingsUpdateRequest struct {
 	RBEHeartbeatSeconds   *int     `json:"rbe_heartbeat_seconds,omitempty"`
 	RBEDeadbandPercent    *float64 `json:"rbe_deadband_percent,omitempty"`
 	StaleThresholdSeconds *int     `json:"stale_threshold_seconds,omitempty"`
+	MQTTBrokerMode        *string  `json:"mqtt_broker_mode,omitempty"`
+	MQTTExternalHost      *string  `json:"mqtt_external_host,omitempty"`
+	MQTTExternalPort      *int     `json:"mqtt_external_port,omitempty"`
 }

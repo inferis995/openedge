@@ -19,7 +19,7 @@ import {
 import {
     Download, AlertTriangle, CheckCircle, RefreshCw, Zap, ScrollText,
     ChevronDown, Settings2, Shield, Clock, Trash2, FileArchive,
-    HardDrive
+    HardDrive, Server, Network
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -93,6 +93,11 @@ const SystemPage = () => {
     const [deadband, setDeadband] = useState<number>(0.5);
     const [advancedOpen, setAdvancedOpen] = useState(false);
 
+    // MQTT Broker Settings
+    const [mqttBrokerMode, setMqttBrokerMode] = useState<string>('internal');
+    const [mqttExternalHost, setMqttExternalHost] = useState<string>('');
+    const [mqttExternalPort, setMqttExternalPort] = useState<number>(1883);
+
     // Backup Settings
     const [backupSettings, setBackupSettings] = useState<BackupSettings>({
         enabled: false,
@@ -118,6 +123,9 @@ const SystemPage = () => {
             setPublishMode(data.publish_mode || 'dual');
             setHeartbeat(parseInt(data.rbe_heartbeat_seconds) || 60);
             setDeadband(parseFloat(data.rbe_deadband_percent) || 0.5);
+            setMqttBrokerMode(data.mqtt_broker_mode || 'internal');
+            setMqttExternalHost(data.mqtt_external_host || '');
+            setMqttExternalPort(parseInt(data.mqtt_external_port || '1883') || 1883);
         } catch (error) {
             console.error('Failed to load settings:', error);
         } finally {
@@ -150,13 +158,18 @@ const SystemPage = () => {
         try {
             const update: UpdateSettingsRequest = {
                 publish_mode: publishMode,
+                mqtt_broker_mode: mqttBrokerMode,
             };
             if (publishMode === 'sparkplug_only') {
                 update.rbe_heartbeat_seconds = heartbeat;
                 update.rbe_deadband_percent = deadband;
             }
+            if (mqttBrokerMode === 'external') {
+                update.mqtt_external_host = mqttExternalHost;
+                update.mqtt_external_port = mqttExternalPort;
+            }
             await systemApi.updateSettings(update);
-            setMessage({ type: 'success', text: 'Configurazione salvata e applicata automaticamente ai driver.' });
+            setMessage({ type: 'success', text: 'Configurazione salvata. Riavviare i servizi per applicare le modifiche al broker MQTT.' });
         } catch (error) {
             console.error(error);
             setMessage({ type: 'error', text: 'Errore nel salvataggio della configurazione.' });
@@ -289,213 +302,321 @@ const SystemPage = () => {
                 )}
 
                 {/* Main grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
-                    {/* MQTT Configuration — larger column */}
-                    <div className="lg:col-span-3">
-                        <Card className="border-gray-200 shadow-sm bg-white h-full">
-                            <CardHeader className="pb-4 border-b border-gray-100">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0">
-                                        <RefreshCw className="h-4 w-4 text-blue-600" />
-                                    </div>
-                                    <div>
-                                        <CardTitle className="text-base text-gray-900">Configurazione MQTT</CardTitle>
-                                        <CardDescription className="text-xs mt-0.5">
-                                            Modalità di pubblicazione per i driver industriali
-                                        </CardDescription>
-                                    </div>
+                    {/* MQTT Broker Configuration */}
+                    <Card className="border-gray-200 shadow-sm bg-white">
+                        <CardHeader className="pb-4 border-b border-gray-100">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center flex-shrink-0">
+                                    <Server className="h-4 w-4 text-indigo-600" />
                                 </div>
-                            </CardHeader>
-                            <CardContent className="pt-5 space-y-5">
-                                {settingsLoading ? (
-                                    <div className="text-sm text-gray-400 py-4 text-center">Caricamento...</div>
-                                ) : (
-                                    <>
-                                        <RadioGroup
-                                            value={publishMode}
-                                            onValueChange={setPublishMode}
-                                            className="space-y-2"
+                                <div>
+                                    <CardTitle className="text-base text-gray-900">Broker MQTT</CardTitle>
+                                    <CardDescription className="text-xs mt-0.5">
+                                        Seleziona il broker MQTT per la pubblicazione
+                                    </CardDescription>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="pt-5 space-y-5">
+                            {settingsLoading ? (
+                                <div className="text-sm text-gray-400 py-4 text-center">Caricamento...</div>
+                            ) : (
+                                <>
+                                    <RadioGroup
+                                        value={mqttBrokerMode}
+                                        onValueChange={setMqttBrokerMode}
+                                        className="space-y-2"
+                                    >
+                                        {/* Internal Broker Option */}
+                                        <label
+                                            htmlFor="broker-internal"
+                                            className={`flex items-start gap-3 p-3.5 rounded-lg border cursor-pointer transition-all ${
+                                                mqttBrokerMode === 'internal'
+                                                    ? 'border-indigo-400 bg-indigo-50/60'
+                                                    : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                                            }`}
                                         >
-                                            {PUBLISH_MODES.map((mode) => {
-                                                const Icon = mode.icon;
-                                                const isSelected = publishMode === mode.value;
-                                                return (
-                                                    <label
-                                                        key={mode.value}
-                                                        htmlFor={mode.value}
-                                                        className={`flex items-start gap-3 p-3.5 rounded-lg border cursor-pointer transition-all ${
-                                                            isSelected
-                                                                ? 'border-blue-400 bg-blue-50/60'
-                                                                : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
-                                                        }`}
-                                                    >
-                                                        <RadioGroupItem value={mode.value} id={mode.value} className="mt-0.5 flex-shrink-0" />
-                                                        <div className="flex-1 min-w-0">
-                                                            <div className="flex items-center gap-2">
-                                                                <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${isSelected ? 'text-blue-600' : 'text-gray-400'}`} />
-                                                                <span className={`text-sm font-medium ${isSelected ? 'text-blue-900' : 'text-gray-700'}`}>
-                                                                    {mode.label}
-                                                                </span>
-                                                            </div>
-                                                            <p className="text-xs text-gray-500 mt-1">{mode.description}</p>
-                                                            {isSelected && (
-                                                                <p className="text-xs text-blue-600/80 mt-1.5 italic">{mode.tooltip}</p>
-                                                            )}
-                                                        </div>
-                                                    </label>
-                                                );
-                                            })}
-                                        </RadioGroup>
+                                            <RadioGroupItem value="internal" id="broker-internal" className="mt-0.5 flex-shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                    <Network className={`h-3.5 w-3.5 flex-shrink-0 ${mqttBrokerMode === 'internal' ? 'text-indigo-600' : 'text-gray-400'}`} />
+                                                    <span className={`text-sm font-medium ${mqttBrokerMode === 'internal' ? 'text-indigo-900' : 'text-gray-700'}`}>
+                                                        Broker Interno (Mosquitto)
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    Broker embedded accessibile su porta 1883
+                                                </p>
+                                                {mqttBrokerMode === 'internal' && (
+                                                    <p className="text-xs text-indigo-600/80 mt-1.5 italic">
+                                                        Ascolta su 0.0.0.0:1883 — accessibile dalla rete locale
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </label>
 
-                                        {/* Advanced RBE options */}
-                                        {publishMode === 'sparkplug_only' && (
-                                            <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
-                                                <CollapsibleTrigger className="flex items-center gap-2 text-xs font-medium text-gray-600 hover:text-gray-900 w-full py-2 border-t border-gray-100 mt-1">
-                                                    <Settings2 className="h-3.5 w-3.5" />
-                                                    Parametri RBE avanzati
-                                                    <ChevronDown className={`h-3.5 w-3.5 ml-auto transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
-                                                </CollapsibleTrigger>
-                                                <CollapsibleContent className="space-y-5 pt-4">
-                                                    <div className="space-y-3">
-                                                        <div className="flex justify-between items-center">
-                                                            <Label className="text-sm">Heartbeat</Label>
-                                                            <span className="text-sm font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
-                                                                {heartbeat === 0 ? 'Solo cambio' : (heartbeat < 60 ? `${heartbeat}s` : `${heartbeat / 60}m`)}
+                                        {/* External Broker Option */}
+                                        <label
+                                            htmlFor="broker-external"
+                                            className={`flex items-start gap-3 p-3.5 rounded-lg border cursor-pointer transition-all ${
+                                                mqttBrokerMode === 'external'
+                                                    ? 'border-indigo-400 bg-indigo-50/60'
+                                                    : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            <RadioGroupItem value="external" id="broker-external" className="mt-0.5 flex-shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2">
+                                                    <Server className={`h-3.5 w-3.5 flex-shrink-0 ${mqttBrokerMode === 'external' ? 'text-indigo-600' : 'text-gray-400'}`} />
+                                                    <span className={`text-sm font-medium ${mqttBrokerMode === 'external' ? 'text-indigo-900' : 'text-gray-700'}`}>
+                                                        Broker Esterno
+                                                    </span>
+                                                </div>
+                                                <p className="text-xs text-gray-500 mt-1">
+                                                    Utilizza un broker MQTT esistente
+                                                </p>
+                                            </div>
+                                        </label>
+                                    </RadioGroup>
+
+                                    {/* External Broker Settings */}
+                                    {mqttBrokerMode === 'external' && (
+                                        <div className="space-y-3 pt-3 border-t border-gray-100">
+                                            <div className="space-y-2">
+                                                <Label className="text-xs text-gray-500">Indirizzo Host</Label>
+                                                <Input
+                                                    value={mqttExternalHost}
+                                                    onChange={(e) => setMqttExternalHost(e.target.value)}
+                                                    placeholder="es. 192.168.1.100 o mqtt.example.com"
+                                                    className="h-9"
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label className="text-xs text-gray-500">Porta</Label>
+                                                <Input
+                                                    type="number"
+                                                    value={mqttExternalPort}
+                                                    onChange={(e) => setMqttExternalPort(parseInt(e.target.value) || 1883)}
+                                                    placeholder="1883"
+                                                    className="h-9"
+                                                />
+                                            </div>
+                                            <p className="text-xs text-amber-700 flex items-center gap-1.5">
+                                                <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                                                Richiede riavvio dei servizi dopo il salvataggio.
+                                            </p>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* MQTT Publish Mode Configuration */}
+                    <Card className="border-gray-200 shadow-sm bg-white h-full">
+                        <CardHeader className="pb-4 border-b border-gray-100">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0">
+                                    <RefreshCw className="h-4 w-4 text-blue-600" />
+                                </div>
+                                <div>
+                                    <CardTitle className="text-base text-gray-900">Configurazione MQTT</CardTitle>
+                                    <CardDescription className="text-xs mt-0.5">
+                                        Modalità di pubblicazione per i driver industriali
+                                    </CardDescription>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="pt-5 space-y-5">
+                            {settingsLoading ? (
+                                <div className="text-sm text-gray-400 py-4 text-center">Caricamento...</div>
+                            ) : (
+                                <>
+                                    <RadioGroup
+                                        value={publishMode}
+                                        onValueChange={setPublishMode}
+                                        className="space-y-2"
+                                    >
+                                        {PUBLISH_MODES.map((mode) => {
+                                            const Icon = mode.icon;
+                                            const isSelected = publishMode === mode.value;
+                                            return (
+                                                <label
+                                                    key={mode.value}
+                                                    htmlFor={mode.value}
+                                                    className={`flex items-start gap-3 p-3.5 rounded-lg border cursor-pointer transition-all ${
+                                                        isSelected
+                                                            ? 'border-blue-400 bg-blue-50/60'
+                                                            : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                                                    }`}
+                                                >
+                                                    <RadioGroupItem value={mode.value} id={mode.value} className="mt-0.5 flex-shrink-0" />
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="flex items-center gap-2">
+                                                            <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${isSelected ? 'text-blue-600' : 'text-gray-400'}`} />
+                                                            <span className={`text-sm font-medium ${isSelected ? 'text-blue-900' : 'text-gray-700'}`}>
+                                                                {mode.label}
                                                             </span>
                                                         </div>
-                                                        <div className="flex gap-1.5 flex-wrap">
+                                                        <p className="text-xs text-gray-500 mt-1">{mode.description}</p>
+                                                        {isSelected && (
+                                                            <p className="text-xs text-blue-600/80 mt-1.5 italic">{mode.tooltip}</p>
+                                                        )}
+                                                    </div>
+                                                </label>
+                                            );
+                                        })}
+                                    </RadioGroup>
+
+                                    {/* Advanced RBE options */}
+                                    {publishMode === 'sparkplug_only' && (
+                                        <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                                            <CollapsibleTrigger className="flex items-center gap-2 text-xs font-medium text-gray-600 hover:text-gray-900 w-full py-2 border-t border-gray-100 mt-1">
+                                                <Settings2 className="h-3.5 w-3.5" />
+                                                Parametri RBE avanzati
+                                                <ChevronDown className={`h-3.5 w-3.5 ml-auto transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
+                                            </CollapsibleTrigger>
+                                            <CollapsibleContent className="space-y-5 pt-4">
+                                                <div className="space-y-3">
+                                                    <div className="flex justify-between items-center">
+                                                        <Label className="text-sm">Heartbeat</Label>
+                                                        <span className="text-sm font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
+                                                            {heartbeat === 0 ? 'Solo cambio' : (heartbeat < 60 ? `${heartbeat}s` : `${heartbeat / 60}m`)}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex gap-1.5 flex-wrap">
+                                                        <Button
+                                                            type="button"
+                                                            variant={heartbeat === 0 ? 'default' : 'outline'}
+                                                            size="sm"
+                                                            className={`h-7 min-w-[44px] text-xs ${heartbeat === 0 ? 'bg-green-600 hover:bg-green-700' : ''}`}
+                                                            onClick={() => setHeartbeat(0)}
+                                                        >
+                                                            Solo cambio
+                                                        </Button>
+                                                        {[10, 30, 60, 120, 300].map((val) => (
                                                             <Button
+                                                                key={val}
                                                                 type="button"
-                                                                variant={heartbeat === 0 ? 'default' : 'outline'}
+                                                                variant={heartbeat === val ? 'default' : 'outline'}
                                                                 size="sm"
-                                                                className={`h-7 min-w-[44px] text-xs ${heartbeat === 0 ? 'bg-green-600 hover:bg-green-700' : ''}`}
-                                                                onClick={() => setHeartbeat(0)}
+                                                                className={`h-7 min-w-[44px] text-xs ${heartbeat === val ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
+                                                                onClick={() => setHeartbeat(val)}
                                                             >
-                                                                Solo cambio
+                                                                {val < 60 ? `${val}s` : `${val / 60}m`}
                                                             </Button>
-                                                            {[10, 30, 60, 120, 300].map((val) => (
-                                                                <Button
-                                                                    key={val}
-                                                                    type="button"
-                                                                    variant={heartbeat === val ? 'default' : 'outline'}
-                                                                    size="sm"
-                                                                    className={`h-7 min-w-[44px] text-xs ${heartbeat === val ? 'bg-blue-600 hover:bg-blue-700' : ''}`}
-                                                                    onClick={() => setHeartbeat(val)}
-                                                                >
-                                                                    {val < 60 ? `${val}s` : `${val / 60}m`}
-                                                                </Button>
-                                                            ))}
-                                                        </div>
-                                                        <p className="text-xs text-gray-400">
-                                                            {heartbeat === 0
-                                                                ? 'Pubblica SOLO quando il valore cambia (massima ottimizzazione banda).'
-                                                                : 'Intervallo di pubblicazione periodico anche se il valore non cambia.'}
-                                                        </p>
+                                                        ))}
                                                     </div>
+                                                    <p className="text-xs text-gray-400">
+                                                        {heartbeat === 0
+                                                            ? 'Pubblica SOLO quando il valore cambia (massima ottimizzazione banda).'
+                                                            : 'Intervallo di pubblicazione periodico anche se il valore non cambia.'}
+                                                    </p>
+                                                </div>
 
-                                                    <div className="space-y-3">
-                                                        <div className="flex justify-between items-center">
-                                                            <Label className="text-sm">Deadband</Label>
-                                                            <span className="text-sm font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{deadband.toFixed(1)}%</span>
-                                                        </div>
-                                                        <Slider
-                                                            value={[deadband * 10]}
-                                                            onValueChange={(v) => setDeadband(v[0] / 10)}
-                                                            min={0}
-                                                            max={50}
-                                                            step={1}
-                                                            className="w-full"
-                                                        />
-                                                        <p className="text-xs text-gray-400">Soglia minima di variazione per pubblicare valori analogici.</p>
+                                                <div className="space-y-3">
+                                                    <div className="flex justify-between items-center">
+                                                        <Label className="text-sm">Deadband</Label>
+                                                        <span className="text-sm font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded">{deadband.toFixed(1)}%</span>
                                                     </div>
-                                                </CollapsibleContent>
-                                            </Collapsible>
+                                                    <Slider
+                                                        value={[deadband * 10]}
+                                                        onValueChange={(v) => setDeadband(v[0] / 10)}
+                                                        min={0}
+                                                        max={50}
+                                                        step={1}
+                                                        className="w-full"
+                                                    />
+                                                    <p className="text-xs text-gray-400">Soglia minima di variazione per pubblicare valori analogici.</p>
+                                                </div>
+                                            </CollapsibleContent>
+                                        </Collapsible>
+                                    )}
+
+                                    <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
+                                        <Button
+                                            onClick={handleSaveSettings}
+                                            disabled={loading}
+                                            className="gap-2 bg-blue-600 hover:bg-blue-700 text-white h-9 px-5"
+                                        >
+                                            <CheckCircle className="h-4 w-4" />
+                                            Salva configurazione
+                                        </Button>
+                                        {settings && settings.publish_mode === publishMode && !loading && (
+                                            <span className="text-xs text-green-600 flex items-center gap-1">
+                                                <CheckCircle className="h-3 w-3" />
+                                                Configurazione attiva
+                                            </span>
                                         )}
-
-                                        <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
-                                            <Button
-                                                onClick={handleSaveSettings}
-                                                disabled={loading}
-                                                className="gap-2 bg-blue-600 hover:bg-blue-700 text-white h-9 px-5"
-                                            >
-                                                <CheckCircle className="h-4 w-4" />
-                                                Salva configurazione
-                                            </Button>
-                                            {settings && settings.publish_mode === publishMode && !loading && (
-                                                <span className="text-xs text-green-600 flex items-center gap-1">
-                                                    <CheckCircle className="h-3 w-3" />
-                                                    Configurazione attiva
-                                                </span>
-                                            )}
-                                        </div>
-                                    </>
-                                )}
-                            </CardContent>
-                        </Card>
-                    </div>
-
-                    {/* Right column — Backup */}
-                    <div className="lg:col-span-2 space-y-6">
-                        {/* Manual Backup */}
-                        <Card className="border-gray-200 shadow-sm bg-white">
-                            <CardHeader className="pb-4 border-b border-gray-100">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
-                                        <Download className="h-4 w-4 text-emerald-600" />
                                     </div>
-                                    <div>
-                                        <CardTitle className="text-base text-gray-900">Backup Manuale</CardTitle>
-                                        <CardDescription className="text-xs mt-0.5">
-                                            Scarica immediatamente un backup
-                                        </CardDescription>
-                                    </div>
+                                </>
+                            )}
+                        </CardContent>
+                    </Card>
+                </div>
+
+                {/* Second row — Backup section */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Manual Backup */}
+                    <Card className="border-gray-200 shadow-sm bg-white">
+                        <CardHeader className="pb-4 border-b border-gray-100">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
+                                    <Download className="h-4 w-4 text-emerald-600" />
                                 </div>
-                            </CardHeader>
-                            <CardContent className="pt-5 space-y-3">
-                                <Button
-                                    onClick={() => handleBackup()}
-                                    disabled={loading}
-                                    variant="outline"
-                                    className="w-full gap-2 border-blue-300 text-blue-700 hover:bg-blue-50 h-9"
-                                >
-                                    <Download className="h-4 w-4" />
-                                    Scarica Backup
-                                </Button>
-                            </CardContent>
-                        </Card>
-
-                        {/* Restore */}
-                        <Card className="border-gray-200 shadow-sm bg-white">
-                            <CardHeader className="pb-4 border-b border-gray-100">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center flex-shrink-0">
-                                        <Shield className="h-4 w-4 text-amber-600" />
-                                    </div>
-                                    <div>
-                                        <CardTitle className="text-base text-gray-900">Ripristino</CardTitle>
-                                        <CardDescription className="text-xs mt-0.5">
-                                            Carica un backup .zip
-                                        </CardDescription>
-                                    </div>
+                                <div>
+                                    <CardTitle className="text-base text-gray-900">Backup Manuale</CardTitle>
+                                    <CardDescription className="text-xs mt-0.5">
+                                        Scarica immediatamente un backup
+                                    </CardDescription>
                                 </div>
-                            </CardHeader>
-                            <CardContent className="pt-5 space-y-3">
-                                <Input
-                                    id="restore-file"
-                                    type="file"
-                                    accept=".zip"
-                                    onChange={handleRestore}
-                                    disabled={loading}
-                                    className="text-sm file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer h-9"
-                                />
-                                <p className="text-xs text-amber-700 flex items-center gap-1.5">
-                                    <AlertTriangle className="h-3 w-3 flex-shrink-0" />
-                                    Il ripristino sovrascrive la configurazione corrente.
-                                </p>
-                            </CardContent>
-                        </Card>
-                    </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="pt-5 space-y-3">
+                            <Button
+                                onClick={() => handleBackup()}
+                                disabled={loading}
+                                variant="outline"
+                                className="w-full gap-2 border-blue-300 text-blue-700 hover:bg-blue-50 h-9"
+                            >
+                                <Download className="h-4 w-4" />
+                                Scarica Backup
+                            </Button>
+                        </CardContent>
+                    </Card>
+
+                    {/* Restore */}
+                    <Card className="border-gray-200 shadow-sm bg-white">
+                        <CardHeader className="pb-4 border-b border-gray-100">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center flex-shrink-0">
+                                    <Shield className="h-4 w-4 text-amber-600" />
+                                </div>
+                                <div>
+                                    <CardTitle className="text-base text-gray-900">Ripristino</CardTitle>
+                                    <CardDescription className="text-xs mt-0.5">
+                                        Carica un backup .zip
+                                    </CardDescription>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="pt-5 space-y-3">
+                            <Input
+                                id="restore-file"
+                                type="file"
+                                accept=".zip"
+                                onChange={handleRestore}
+                                disabled={loading}
+                                className="text-sm file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer h-9"
+                            />
+                            <p className="text-xs text-amber-700 flex items-center gap-1.5">
+                                <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                                Il ripristino sovrascrive la configurazione corrente.
+                            </p>
+                        </CardContent>
+                    </Card>
                 </div>
 
                 {/* Automatic Backup Section */}
