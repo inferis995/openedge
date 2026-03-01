@@ -126,10 +126,8 @@ func main() {
 	defer mqttClient.Disconnect(1000)
 	log.Println("[OPC-UA Driver] Connected to MQTT broker")
 
-	// Publish online status
-	healthTopic := fmt.Sprintf("sys/health/%d", gatewayID)
-	mqttClient.PublishWithQoS(healthTopic, "online", 1, true)
-	log.Printf("[OPC-UA Driver] Published online status to %s", healthTopic)
+	// NOTE: Health status will be published by setConnectionState() when PLC connection is established
+	// This ensures the status reflects actual PLC connectivity, not just driver startup
 
 	// Initialize settings manager
 	settingsManager := settings.NewManager(database)

@@ -18,6 +18,23 @@ export interface PublishMetrics {
     saved_percent: number;
 }
 
+export interface BackupSettings {
+    enabled: boolean;
+    interval: string;
+    backup_type: 'config' | 'full';
+    retention: number;
+    next_run: string;
+    last_run: string;
+    last_status: string;
+}
+
+export interface BackupFileInfo {
+    filename: string;
+    size: number;
+    created_at: string;
+    type: 'config' | 'full';
+}
+
 export const systemApi = {
     reload: async (): Promise<void> => {
         await api.post('/system/reload');
@@ -52,6 +69,7 @@ export const systemApi = {
         });
     },
 
+    // Backup download (full backup always)
     exportBackup: async (): Promise<Blob> => {
         const response = await api.get('/system/backup', { responseType: 'blob' });
         return response.data;
@@ -65,5 +83,32 @@ export const systemApi = {
                 'Content-Type': 'multipart/form-data',
             },
         });
+    },
+
+    // Automatic backup settings
+    getBackupSettings: async (): Promise<BackupSettings> => {
+        const response = await api.get('/system/backup/settings');
+        return response.data;
+    },
+
+    updateBackupSettings: async (settings: BackupSettings): Promise<void> => {
+        await api.put('/system/backup/settings', settings);
+    },
+
+    // List available backups
+    listBackups: async (): Promise<BackupFileInfo[]> => {
+        const response = await api.get('/system/backup/list');
+        return response.data;
+    },
+
+    // Download a specific backup file
+    downloadBackup: async (filename: string): Promise<Blob> => {
+        const response = await api.get(`/system/backup/files/${filename}`, { responseType: 'blob' });
+        return response.data;
+    },
+
+    // Delete a specific backup file
+    deleteBackup: async (filename: string): Promise<void> => {
+        await api.delete(`/system/backup/files/${filename}`);
     }
 };

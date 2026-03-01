@@ -84,21 +84,27 @@ type GatewayWithHealth struct {
 // getGatewayHealth retrieves the health status for a gateway from Redis
 func (h *GatewaysHandler) getGatewayHealth(gatewayID int) (string, *int64) {
 	if h.redisClient == nil {
-		return "", nil
+		log.Printf("[GATEWAY_HEALTH] Redis client is nil for gateway %d", gatewayID)
+		return "offline", nil
 	}
 
 	key := fmt.Sprintf("gateway_health:%d", gatewayID)
 	healthJSON, err := h.redisClient.Get(key)
 	if err != nil {
 		// No health status found - assume offline
+		log.Printf("[GATEWAY_HEALTH] No Redis key found for gateway %d (key: %s), error: %v", gatewayID, key, err)
 		return "offline", nil
 	}
+
+	log.Printf("[GATEWAY_HEALTH] Found Redis data for gateway %d: %s", gatewayID, healthJSON)
 
 	var health GatewayHealthStatus
 	if err := json.Unmarshal([]byte(healthJSON), &health); err != nil {
+		log.Printf("[GATEWAY_HEALTH] Failed to parse JSON for gateway %d: %v", gatewayID, err)
 		return "offline", nil
 	}
 
+	log.Printf("[GATEWAY_HEALTH] Gateway %d status: %s", gatewayID, health.Status)
 	return health.Status, &health.LastSeen
 }
 
@@ -196,9 +202,8 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 		scanRateMs = 1000
 	}
 
-	// Set default zero_based if not provided (nil check handled by defaulting logic or SQL default)
-	// Ideally, the DB defaults to TRUE.
-	zeroBased := true
+	// Set default zero_based to false (Standard Modbus is 1-based addressing)
+	zeroBased := false
 	if req.ZeroBased != nil {
 		zeroBased = *req.ZeroBased
 	}

@@ -955,16 +955,17 @@ func (h *HistoryHandler) QueryEvents(c *gin.Context) {
 
 	log.Printf("[HISTORY] Querying events for org=%d, start=%s, end=%s", orgID, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 
-	// Query system_events table
+	// Query system_events table - join with gateways to get the name
+	// This ensures we show current gateway names
 	query := `
 		SELECT
 			EXTRACT(EPOCH FROM e.time)::BIGINT * 1000 as ts,
 			e.status,
 			e.message,
 			e.gateway_id,
-			g.name as gateway_name
+			COALESCE(g.name, '[deleted gateway]') as gateway_name
 		FROM system_events e
-		JOIN gateways g ON e.gateway_id = g.id
+		LEFT JOIN gateways g ON e.gateway_id = g.id
 		WHERE e.time >= $1 AND e.time <= $2
 		ORDER BY e.time ASC
 	`

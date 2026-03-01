@@ -255,10 +255,20 @@ func main() {
 			system.PUT("/settings", middleware.RequireRole(models.RoleAdmin), systemHandler.UpdateSettings)
 			system.GET("/metrics", systemHandler.GetMetrics)
 
-			// Backup & Restore (PostgreSQL only - includes historian)
-			backupHandler := handlers.NewBackupHandler(database)
+			// Backup & Restore
+			backupHandler := handlers.NewBackupHandler(database, mqttClient)
 			system.GET("/backup", middleware.RequireRole(models.RoleAdmin), backupHandler.ExportBackup)
 			system.POST("/restore", middleware.RequireRole(models.RoleAdmin), backupHandler.ImportRestore)
+
+			// Automatic backup settings
+			system.GET("/backup/settings", backupHandler.GetBackupSettings)
+			system.PUT("/backup/settings", middleware.RequireRole(models.RoleAdmin), backupHandler.UpdateBackupSettings)
+			system.GET("/backup/list", backupHandler.ListBackups)
+			system.GET("/backup/files/:filename", middleware.RequireRole(models.RoleAdmin), backupHandler.DownloadBackup)
+			system.DELETE("/backup/files/:filename", middleware.RequireRole(models.RoleAdmin), backupHandler.DeleteBackup)
+
+			// Start backup scheduler
+			go startBackupScheduler(backupHandler)
 		}
 
 		config := api.Group("/config")
@@ -336,7 +346,10 @@ type GatewayHealthStatus struct {
 // Topics: sys/health/{gateway_id}
 // Payload: "online" or "offline"
 func handleGatewayHealthUpdate(topic string, payload []byte, redisClient *redis.Client) {
+	log.Printf("[HEALTH] Received health update - topic: %s, payload: %s", topic, string(payload))
+
 	if redisClient == nil {
+		log.Printf("[HEALTH] Redis client is nil, cannot store health status")
 		return
 	}
 
@@ -597,4 +610,17 @@ func findTagBySparkplugPath(topicInfo *sparkplug.TopicInfo, metricName string, r
 	}
 
 	return 0, 0
+}
+
+// startBackupScheduler runs a background goroutine that checks for scheduled backups
+func startBackupScheduler(backupHandler *handlers.BackupHandler) {
+	ticker := time.NewTicker(1 * time.Hour) // Check every hour
+	defer ticker.Stop()
+
+	log.Println("[BACKUP-SCHEDULER] Started - checking every hour")
+
+	for range ticker.C {
+		// Check if we need to run a backup
+		backupHandler.RunScheduledBackup()
+	}
 }

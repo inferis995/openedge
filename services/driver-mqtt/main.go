@@ -131,10 +131,8 @@ func main() {
 	defer mqttClient.Disconnect(1000)
 	log.Println("[DRIVER-MQTT] Connected to internal MQTT broker")
 
-	// Publish online status
-	healthTopic := fmt.Sprintf("sys/health/%d", gatewayID)
-	mqttClient.PublishWithQoS(healthTopic, "online", 1, true)
-	log.Printf("[DRIVER-MQTT] Published online status to %s", healthTopic)
+	// NOTE: Health status will be published by setConnectionState() when subscriptions are active
+	// This ensures the status reflects actual driver readiness, not just startup
 
 	driver := &Driver{
 		gatewayID:      gatewayID,
@@ -179,7 +177,8 @@ func main() {
 	log.Println("[DRIVER-MQTT] Shutting down...")
 	close(driver.stopChan)
 
-	// Publish offline status
+	// Publish offline status on shutdown
+	healthTopic := fmt.Sprintf("sys/health/%d", gatewayID)
 	mqttClient.PublishWithQoS(healthTopic, "offline", 1, true)
 	log.Println("[DRIVER-MQTT] Shutdown complete")
 }

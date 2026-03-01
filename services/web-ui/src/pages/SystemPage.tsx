@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { systemApi, GlobalSettings, UpdateSettingsRequest } from '@/api/system';
+import { systemApi, GlobalSettings, UpdateSettingsRequest, BackupSettings, BackupFileInfo } from '@/api/system';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,10 +7,19 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Switch } from '@/components/ui/switch';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 
 import {
     Download, AlertTriangle, CheckCircle, RefreshCw, Zap, ScrollText,
-    ChevronDown, Settings2, Shield, Database
+    ChevronDown, Settings2, Shield, Clock, Trash2, FileArchive,
+    HardDrive
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -38,10 +47,45 @@ const PUBLISH_MODES = [
     }
 ];
 
+const INTERVAL_OPTIONS = [
+    { value: '6h', label: 'Ogni 6 ore' },
+    { value: '12h', label: 'Ogni 12 ore' },
+    { value: '24h', label: 'Ogni 24 ore' },
+    { value: '7d', label: 'Ogni settimana' }
+];
+
+const RETENTION_OPTIONS = [
+    { value: 3, label: '3 giorni' },
+    { value: 7, label: '7 giorni' },
+    { value: 14, label: '14 giorni' },
+    { value: 30, label: '30 giorni' }
+];
+
+const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+};
+
+const formatDate = (dateStr: string): string => {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    return date.toLocaleString('it-IT', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+};
+
 const SystemPage = () => {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
+    // MQTT Settings
     const [settings, setSettings] = useState<GlobalSettings | null>(null);
     const [settingsLoading, setSettingsLoading] = useState(true);
     const [publishMode, setPublishMode] = useState<string>('dual');
@@ -49,8 +93,22 @@ const SystemPage = () => {
     const [deadband, setDeadband] = useState<number>(0.5);
     const [advancedOpen, setAdvancedOpen] = useState(false);
 
+    // Backup Settings
+    const [backupSettings, setBackupSettings] = useState<BackupSettings>({
+        enabled: false,
+        interval: '24h',
+        backup_type: 'config',
+        retention: 7,
+        next_run: '',
+        last_run: '',
+        last_status: ''
+    });
+    const [backupList, setBackupList] = useState<BackupFileInfo[]>([]);
+
     useEffect(() => {
         loadSettings();
+        loadBackupSettings();
+        loadBackupList();
     }, []);
 
     const loadSettings = async () => {
@@ -64,6 +122,25 @@ const SystemPage = () => {
             console.error('Failed to load settings:', error);
         } finally {
             setSettingsLoading(false);
+        }
+    };
+
+    const loadBackupSettings = async () => {
+        try {
+            const data = await systemApi.getBackupSettings();
+            setBackupSettings(data || backupSettings);
+        } catch (error) {
+            console.error('Failed to load backup settings:', error);
+        }
+    };
+
+    const loadBackupList = async () => {
+        try {
+            const data = await systemApi.listBackups();
+            setBackupList(data || []);
+        } catch (error) {
+            console.error('Failed to load backup list:', error);
+            setBackupList([]);
         }
     };
 
@@ -88,7 +165,7 @@ const SystemPage = () => {
         }
     };
 
-    const handleFullBackup = async () => {
+    const handleBackup = async () => {
         setLoading(true);
         setMessage({ type: 'success', text: 'Generazione backup in corso...' });
         try {
@@ -96,12 +173,13 @@ const SystemPage = () => {
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `system-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
+            a.download = `backup-${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
             setMessage({ type: 'success', text: 'Backup completato e scaricato.' });
+            loadBackupList();
         } catch (error) {
             console.error(error);
             setMessage({ type: 'error', text: 'Errore nella creazione del backup.' });
@@ -110,10 +188,10 @@ const SystemPage = () => {
         }
     };
 
-    const handleFullRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || !e.target.files[0]) return;
         const file = e.target.files[0];
-        if (confirm('ATTENZIONE: Il ripristino sovrascriverà la configurazione attuale e unirà i dati storici. Questa operazione non può essere annullata. Continuare?')) {
+        if (confirm('ATTENZIONE: Il ripristino sovrascriverà la configurazione attuale. Questa operazione non può essere annullata. Continuare?')) {
             setLoading(true);
             setMessage({ type: 'success', text: 'Ripristino in corso...' });
             try {
@@ -128,6 +206,50 @@ const SystemPage = () => {
             }
         } else {
             e.target.value = '';
+        }
+    };
+
+    const handleSaveBackupSettings = async () => {
+        setLoading(true);
+        setMessage(null);
+        try {
+            await systemApi.updateBackupSettings(backupSettings);
+            setMessage({ type: 'success', text: 'Impostazioni backup automatico salvate.' });
+        } catch (error) {
+            console.error(error);
+            setMessage({ type: 'error', text: 'Errore nel salvataggio delle impostazioni backup.' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDownloadBackup = async (filename: string) => {
+        try {
+            const blob = await systemApi.downloadBackup(filename);
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+        } catch (error) {
+            console.error(error);
+            setMessage({ type: 'error', text: 'Errore nel download del backup.' });
+        }
+    };
+
+    const handleDeleteBackup = async (filename: string) => {
+        if (confirm(`Eliminare il backup ${filename}?`)) {
+            try {
+                await systemApi.deleteBackup(filename);
+                setBackupList(backupList.filter(b => b.filename !== filename));
+                setMessage({ type: 'success', text: 'Backup eliminato.' });
+            } catch (error) {
+                console.error(error);
+                setMessage({ type: 'error', text: 'Errore nell\'eliminazione del backup.' });
+            }
         }
     };
 
@@ -315,33 +437,30 @@ const SystemPage = () => {
 
                     {/* Right column — Backup */}
                     <div className="lg:col-span-2 space-y-6">
-                        {/* Backup */}
+                        {/* Manual Backup */}
                         <Card className="border-gray-200 shadow-sm bg-white">
                             <CardHeader className="pb-4 border-b border-gray-100">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center flex-shrink-0">
-                                        <Database className="h-4 w-4 text-gray-600" />
+                                    <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
+                                        <Download className="h-4 w-4 text-emerald-600" />
                                     </div>
                                     <div>
-                                        <CardTitle className="text-base text-gray-900">Backup</CardTitle>
+                                        <CardTitle className="text-base text-gray-900">Backup Manuale</CardTitle>
                                         <CardDescription className="text-xs mt-0.5">
-                                            Configurazione SQL + Storico InfluxDB
+                                            Scarica immediatamente un backup
                                         </CardDescription>
                                     </div>
                                 </div>
                             </CardHeader>
-                            <CardContent className="pt-5 space-y-4">
-                                <p className="text-xs text-gray-500">
-                                    Snapshot completo del sistema. Il sistema rimane online durante l'esportazione.
-                                </p>
+                            <CardContent className="pt-5 space-y-3">
                                 <Button
-                                    onClick={handleFullBackup}
+                                    onClick={() => handleBackup()}
                                     disabled={loading}
                                     variant="outline"
-                                    className="w-full gap-2 border-gray-300 text-gray-700 hover:bg-gray-50 h-9"
+                                    className="w-full gap-2 border-blue-300 text-blue-700 hover:bg-blue-50 h-9"
                                 >
                                     <Download className="h-4 w-4" />
-                                    Scarica backup (.zip)
+                                    Scarica Backup
                                 </Button>
                             </CardContent>
                         </Card>
@@ -356,7 +475,7 @@ const SystemPage = () => {
                                     <div>
                                         <CardTitle className="text-base text-gray-900">Ripristino</CardTitle>
                                         <CardDescription className="text-xs mt-0.5">
-                                            Carica un backup .zip precedente
+                                            Carica un backup .zip
                                         </CardDescription>
                                     </div>
                                 </div>
@@ -366,7 +485,7 @@ const SystemPage = () => {
                                     id="restore-file"
                                     type="file"
                                     accept=".zip"
-                                    onChange={handleFullRestore}
+                                    onChange={handleRestore}
                                     disabled={loading}
                                     className="text-sm file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer h-9"
                                 />
@@ -378,6 +497,153 @@ const SystemPage = () => {
                         </Card>
                     </div>
                 </div>
+
+                {/* Automatic Backup Section */}
+                <Card className="border-gray-200 shadow-sm bg-white">
+                    <CardHeader className="pb-4 border-b border-gray-100">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-lg bg-violet-50 border border-violet-100 flex items-center justify-center flex-shrink-0">
+                                    <Clock className="h-4 w-4 text-violet-600" />
+                                </div>
+                                <div>
+                                    <CardTitle className="text-base text-gray-900">Backup Automatico</CardTitle>
+                                    <CardDescription className="text-xs mt-0.5">
+                                        Salvataggio programmato su disco locale
+                                    </CardDescription>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <Switch
+                                    checked={backupSettings.enabled}
+                                    onCheckedChange={(checked) => setBackupSettings({ ...backupSettings, enabled: checked })}
+                                />
+                                <span className="text-xs text-gray-600">{backupSettings.enabled ? 'Attivo' : 'Disattivo'}</span>
+                            </div>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="pt-5">
+                        <div className={`space-y-4 ${!backupSettings.enabled && 'opacity-50 pointer-events-none'}`}>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div className="space-y-2">
+                                    <Label className="text-xs text-gray-500">Frequenza</Label>
+                                    <Select
+                                        value={backupSettings.interval}
+                                        onValueChange={(value) => setBackupSettings({ ...backupSettings, interval: value })}
+                                    >
+                                        <SelectTrigger className="h-9">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {INTERVAL_OPTIONS.map(opt => (
+                                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label className="text-xs text-gray-500">Retention</Label>
+                                    <Select
+                                        value={backupSettings.retention.toString()}
+                                        onValueChange={(value) => setBackupSettings({ ...backupSettings, retention: parseInt(value) })}
+                                    >
+                                        <SelectTrigger className="h-9">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {RETENTION_OPTIONS.map(opt => (
+                                                <SelectItem key={opt.value} value={opt.value.toString()}>{opt.label}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+
+                            {/* Status info */}
+                            <div className="flex items-center gap-4 text-xs text-gray-500 pt-2 border-t border-gray-100">
+                                {backupSettings.last_run && (
+                                    <span>Ultimo: <span className={backupSettings.last_status === 'success' ? 'text-green-600' : 'text-red-600'}>{formatDate(backupSettings.last_run)}</span></span>
+                                )}
+                                {backupSettings.next_run && backupSettings.enabled && (
+                                    <span>Prossimo: <span className="text-blue-600">{formatDate(backupSettings.next_run)}</span></span>
+                                )}
+                            </div>
+
+                            <div className="flex items-center gap-3 pt-2">
+                                <Button
+                                    onClick={handleSaveBackupSettings}
+                                    disabled={loading}
+                                    size="sm"
+                                    className="gap-2 bg-violet-600 hover:bg-violet-700 text-white h-8"
+                                >
+                                    <CheckCircle className="h-3.5 w-3.5" />
+                                    Salva impostazioni
+                                </Button>
+                                <span className="text-xs text-gray-400 flex items-center gap-1">
+                                    <HardDrive className="h-3 w-3" />
+                                    Salvataggio in ./backups/
+                                </span>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Backup Files List */}
+                {backupList.length > 0 && (
+                    <Card className="border-gray-200 shadow-sm bg-white">
+                        <CardHeader className="pb-4 border-b border-gray-100">
+                            <div className="flex items-center gap-3">
+                                <div className="w-9 h-9 rounded-lg bg-gray-50 border border-gray-200 flex items-center justify-center flex-shrink-0">
+                                    <FileArchive className="h-4 w-4 text-gray-600" />
+                                </div>
+                                <div>
+                                    <CardTitle className="text-base text-gray-900">Backup Disponibili</CardTitle>
+                                    <CardDescription className="text-xs mt-0.5">
+                                        {backupList.length} file salvati su disco
+                                    </CardDescription>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="pt-4">
+                            <div className="space-y-2">
+                                {backupList.map((backup) => (
+                                    <div key={backup.filename} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                        <div className="flex items-center gap-3">
+                                            <FileArchive className="h-4 w-4 text-gray-400" />
+                                            <div>
+                                                <p className="text-sm font-medium text-gray-700">{backup.filename}</p>
+                                                <p className="text-xs text-gray-400">
+                                                    {formatBytes(backup.size)} • {formatDate(backup.created_at)} •
+                                                    <span className={`ml-1 ${backup.type === 'full' ? 'text-blue-500' : 'text-emerald-500'}`}>
+                                                        {backup.type === 'full' ? 'Completo' : 'Config'}
+                                                    </span>
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-8 w-8 p-0"
+                                                onClick={() => handleDownloadBackup(backup.filename)}
+                                            >
+                                                <Download className="h-4 w-4 text-gray-500" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="h-8 w-8 p-0"
+                                                onClick={() => handleDeleteBackup(backup.filename)}
+                                            >
+                                                <Trash2 className="h-4 w-4 text-red-400" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
 
                 {/* Footer */}
                 <div className="pt-6 border-t border-gray-200">

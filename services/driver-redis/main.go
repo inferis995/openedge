@@ -116,10 +116,8 @@ func main() {
 	defer mqttClient.Disconnect(1000)
 	log.Println("[DRIVER-REDIS] Connected to MQTT broker")
 
-	// Publish online status
-	if err := mqttClient.PublishWithQoS(fmt.Sprintf("sys/health/%d", gatewayID), "online", 1, true); err != nil {
-		log.Printf("[DRIVER-REDIS] Failed to publish online status: %v", err)
-	}
+	// NOTE: Health status will be published by setConnectionState() when Redis connection is established
+	// This ensures the status reflects actual Redis connectivity, not just driver startup
 
 	// Initialize settings manager
 	settingsManager := settings.NewManager(database)

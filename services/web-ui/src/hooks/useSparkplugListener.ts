@@ -8,16 +8,17 @@ import { decodeSparkplugB } from '@/utils/sparkplugDecoder';
  * This should be mounted once at the app root level to track device online/offline status
  * across all pages.
  *
- * PRODUCTION READY:
- * - Ignores retained messages for first 5 seconds (grace period)
- * - Only processes fresh BIRTH/DEATH messages after grace period
- * - DATA messages always update device status (indicates device is alive)
+ * OPTIMIZED: Uses throttled updates to prevent UI blocking with high-frequency messages
  */
 export function useSparkplugListener() {
     const clientRef = useRef<MqttClient | null>(null);
-    const { handleBirth, handleDeath, handleData, setListenerConnected } = useSparkplugDeviceStore();
+    const isMountedRef = useRef(true);
+    const pendingUpdatesRef = useRef<Map<string, { type: 'birth' | 'death' | 'data', groupId: string, nodeId: string, deviceId: string, metricCount?: number }>>(new Map());
+    const flushTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
+        isMountedRef.current = true;
+
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = `${protocol}//${window.location.host}/mqtt`;
 
@@ -33,11 +34,48 @@ export function useSparkplugListener() {
 
         clientRef.current = client;
 
+        // Flush pending updates in batch (throttled)
+        const flushPendingUpdates = () => {
+            if (!isMountedRef.current) return;
+
+            const pending = pendingUpdatesRef.current;
+            if (pending.size === 0) return;
+
+            pendingUpdatesRef.current = new Map();
+
+            const { handleBirth, handleDeath, handleData } = useSparkplugDeviceStore.getState();
+
+            // Process only the last update for each device
+            pending.forEach((update) => {
+                try {
+                    if (update.type === 'birth') {
+                        handleBirth(update.groupId, update.nodeId, update.deviceId, update.metricCount || 1);
+                    } else if (update.type === 'death') {
+                        handleDeath(update.groupId, update.nodeId, update.deviceId);
+                    } else if (update.type === 'data') {
+                        handleData(update.groupId, update.nodeId, update.deviceId);
+                    }
+                } catch (e) {
+                    // Ignore errors
+                }
+            });
+        };
+
+        // Schedule batch flush every 200ms
+        const scheduleFlush = () => {
+            if (flushTimeoutRef.current) return;
+            flushTimeoutRef.current = setTimeout(() => {
+                flushTimeoutRef.current = null;
+                flushPendingUpdates();
+            }, 200);
+        };
+
         client.on('connect', () => {
+            if (!isMountedRef.current) return;
             console.log('[SparkplugListener] Connected to MQTT broker - starting grace period (5s)');
 
             // Notify store that listener is connected (starts grace period)
-            setListenerConnected();
+            useSparkplugDeviceStore.getState().setListenerConnected();
 
             // Subscribe to Sparkplug B topics
             client.subscribe('spBv1.0/#', { qos: 0 }, (err) => {
@@ -50,6 +88,8 @@ export function useSparkplugListener() {
         });
 
         client.on('message', (topic: string, payload: Buffer) => {
+            if (!isMountedRef.current) return;
+
             try {
                 // Only process Sparkplug B topics
                 if (!topic.startsWith('spBv1.0/')) return;
@@ -63,38 +103,49 @@ export function useSparkplugListener() {
                 const nodeId = topicParts[3];
                 const deviceId = topicParts[4] || nodeId;
 
-                // Try to decode payload
-                let metricCount = 0;
-
-                // Check if payload is Protobuf or JSON
-                if (isProtobufData(payload)) {
-                    try {
-                        const decoded = decodeSparkplugB(payload);
-                        if (decoded && decoded.metrics) {
-                            metricCount = decoded.metrics.length;
-                        }
-                    } catch {
-                        metricCount = 1;
-                    }
-                } else {
-                    // Try JSON parse
-                    try {
-                        const data = JSON.parse(payload.toString());
-                        const metrics = data.Metrics || data.metrics || [];
-                        metricCount = Array.isArray(metrics) ? metrics.length : 1;
-                    } catch {
-                        metricCount = 1;
-                    }
-                }
-
-                // Update device status based on message type
+                // Determine update type
+                let updateType: 'birth' | 'death' | 'data';
                 if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
-                    handleBirth(groupId, nodeId, deviceId, metricCount);
+                    updateType = 'birth';
                 } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
-                    handleDeath(groupId, nodeId, deviceId);
+                    updateType = 'death';
                 } else if (msgType === 'DDATA' || msgType === 'NDATA') {
-                    handleData(groupId, nodeId, deviceId);
+                    updateType = 'data';
+                } else {
+                    return; // Unknown message type
                 }
+
+                // Get metric count for birth messages
+                let metricCount = 1;
+                if (updateType === 'birth') {
+                    if (isProtobufData(payload)) {
+                        try {
+                            const decoded = decodeSparkplugB(payload);
+                            if (decoded && decoded.metrics) {
+                                metricCount = decoded.metrics.length;
+                            }
+                        } catch {}
+                    } else {
+                        try {
+                            const data = JSON.parse(payload.toString());
+                            const metrics = data.Metrics || data.metrics || [];
+                            metricCount = Array.isArray(metrics) ? metrics.length : 1;
+                        } catch {}
+                    }
+                }
+
+                // Queue update (will overwrite previous for same device)
+                const key = `${groupId}/${nodeId}/${deviceId}`;
+                pendingUpdatesRef.current.set(key, {
+                    type: updateType,
+                    groupId,
+                    nodeId,
+                    deviceId,
+                    metricCount
+                });
+
+                // Schedule batch processing
+                scheduleFlush();
             } catch (error) {
                 // Silently ignore parse errors
             }
@@ -105,24 +156,36 @@ export function useSparkplugListener() {
         });
 
         client.on('close', () => {
+            if (!isMountedRef.current) return;
             console.log('[SparkplugListener] Disconnected from MQTT broker');
         });
 
         return () => {
+            console.log('[SparkplugListener] Cleanup');
+            isMountedRef.current = false;
+
+            // Clear pending timeout
+            if (flushTimeoutRef.current) {
+                clearTimeout(flushTimeoutRef.current);
+                flushTimeoutRef.current = null;
+            }
+
+            // Clear pending updates
+            pendingUpdatesRef.current.clear();
+
+            // Force close MQTT connection
             if (clientRef.current) {
-                console.log('[SparkplugListener] Cleaning up...');
-                clientRef.current.end();
+                clientRef.current.removeAllListeners();
+                clientRef.current.end(true);
                 clientRef.current = null;
             }
         };
-    }, [handleBirth, handleDeath, handleData, setListenerConnected]);
+    }, []);
 }
 
 // Helper to detect Protobuf data
 function isProtobufData(data: Buffer): boolean {
     if (data.length === 0) return false;
-    // Protobuf data typically starts with field tags (0x08, 0x12, 0x18, etc.)
-    // JSON starts with '{' (0x7B) or '[' (0x5B)
     const firstByte = data[0];
     return firstByte !== 0x7B && firstByte !== 0x5B;
 }

@@ -69,7 +69,7 @@ type Driver struct {
 	previousValues    map[int]interface{}
 	previousQualities map[int]int
 	prevValuesMu      sync.RWMutex
-	isConnected       bool
+	isConnected       *bool // pointer to detect uninitialized state
 
 	// Write Cooldown
 	writeCooldowns map[int]time.Time
@@ -127,10 +127,8 @@ func main() {
 	defer mqttClient.Disconnect(1000)
 	log.Println("[DRIVER] Connected to MQTT broker")
 
-	// Publish online status (matches LWT topic for health tracking)
-	healthTopic := fmt.Sprintf("sys/health/%d", gatewayID)
-	mqttClient.PublishWithQoS(healthTopic, "online", 1, true)
-	log.Printf("[DRIVER] Published online status to %s", healthTopic)
+	// NOTE: Health status will be published by setConnectionState() when PLC connection is established
+	// This ensures the status reflects actual PLC connectivity, not just driver startup
 
 	driver := &Driver{
 		gatewayID:         gatewayID,
@@ -1359,12 +1357,19 @@ func (d *Driver) setConnectionState(connected bool) {
 	d.configMu.Lock()
 	defer d.configMu.Unlock()
 
-	if d.isConnected == connected {
+	// Always publish if this is the first state (isConnected is nil/unset)
+	// or if the state has actually changed
+	if d.isConnected != nil && *d.isConnected == connected {
 		return
 	}
 
-	wasConnected := d.isConnected
-	d.isConnected = connected
+	// Initialize isConnected if nil
+	if d.isConnected == nil {
+		d.isConnected = new(bool)
+	}
+
+	wasConnected := *d.isConnected
+	*d.isConnected = connected
 	status := "offline"
 	if connected {
 		status = "online"
@@ -1373,7 +1378,7 @@ func (d *Driver) setConnectionState(connected bool) {
 	// Publish health status
 	topic := fmt.Sprintf("sys/health/%d", d.gatewayID)
 	d.mqttClient.PublishWithQoS(topic, status, 1, true)
-	log.Printf("[DRIVER] Health status changed to: %s", status)
+	log.Printf("[DRIVER] Health status changed to: %s (was: %v)", status, wasConnected)
 
 	// Handle Sparkplug B birth/death messages
 	publishMode := models.PublishModeDual

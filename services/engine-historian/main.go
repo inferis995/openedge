@@ -229,6 +229,13 @@ func (s *HistorianService) handleHealthMessage(topic string, payload []byte) {
 	// Get gateway info to populate tags (Org, Site, etc.) for filtering
 	gatewayID, _ := strconv.Atoi(gatewayIDStr)
 
+	// Get gateway name for historical record (survives gateway deletion)
+	var gatewayName string
+	err := s.db.QueryRow(`SELECT name FROM gateways WHERE id = $1`, gatewayID).Scan(&gatewayName)
+	if err != nil {
+		gatewayName = "[deleted gateway]"
+	}
+
 	// Determine message based on status
 	var message string
 	if status == "online" {
@@ -237,11 +244,11 @@ func (s *HistorianService) handleHealthMessage(topic string, payload []byte) {
 		message = "Gateway disconnected"
 	}
 
-	// Store system event in PostgreSQL
-	_, err := s.db.Exec(`
-		INSERT INTO system_events (gateway_id, status, message)
-		VALUES ($1, $2, $3)
-	`, gatewayID, status, message)
+	// Store system event in PostgreSQL with gateway name (for historical integrity)
+	_, err = s.db.Exec(`
+		INSERT INTO system_events (gateway_id, gateway_name, status, message)
+		VALUES ($1, $2, $3, $4)
+	`, gatewayID, gatewayName, status, message)
 
 	if err != nil {
 		log.Printf("[HISTORIAN] ERROR inserting system event to PostgreSQL: %v", err)

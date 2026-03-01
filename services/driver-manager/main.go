@@ -34,12 +34,14 @@ type GatewayState struct {
 // Manager manages driver container lifecycle
 type Manager struct {
 	database      *sql.DB
+	dbCfg         db.Config
 	dockerClient  *client.Client
 	gatewayStates map[int]*GatewayState
 	mu            sync.RWMutex
 	ctx           context.Context
 	cancel        context.CancelFunc
 	networkID     string
+	consecutiveErrors int
 }
 
 func main() {
@@ -75,6 +77,7 @@ func main() {
 	// Create manager instance
 	manager := &Manager{
 		database:      database,
+		dbCfg:         dbCfg,
 		dockerClient:  dockerClient,
 		gatewayStates: make(map[int]*GatewayState),
 		ctx:           ctx,
@@ -152,9 +155,38 @@ func (m *Manager) pollLoop() {
 		case <-ticker.C:
 			if err := m.syncGateways(); err != nil {
 				log.Printf("Gateway sync failed: %v", err)
+				m.consecutiveErrors++
+
+				// If we get 3 consecutive errors, try to reconnect to DB
+				// This handles the case where DB was restored from backup
+				if m.consecutiveErrors >= 3 {
+					log.Println("Too many consecutive errors, attempting DB reconnect...")
+					if err := m.reconnectDB(); err != nil {
+						log.Printf("DB reconnect failed: %v", err)
+					} else {
+						log.Println("DB reconnected successfully")
+						m.consecutiveErrors = 0
+					}
+				}
+			} else {
+				m.consecutiveErrors = 0
 			}
 		}
 	}
+}
+
+// reconnectDB closes and reopens the database connection
+func (m *Manager) reconnectDB() error {
+	// Close existing connection
+	m.database.Close()
+
+	// Reconnect
+	database, err := db.Connect(m.dbCfg)
+	if err != nil {
+		return err
+	}
+	m.database = database
+	return nil
 }
 
 // syncGateways synchronizes container states with database gateway states

@@ -112,10 +112,8 @@ func main() {
 	defer mqttClient.Disconnect(1000)
 	log.Println("Connected to MQTT broker")
 
-	// Publish online status
-	if err := mqttClient.PublishWithQoS(fmt.Sprintf("sys/health/%d", gatewayID), "online", 1, true); err != nil {
-		log.Printf("Failed to publish online status: %v", err)
-	}
+	// NOTE: Health status will be published by setConnectionState() when PLC connection is established
+	// This ensures the status reflects actual PLC connectivity, not just driver startup
 
 	// Create driver instance
 	driver := &Driver{

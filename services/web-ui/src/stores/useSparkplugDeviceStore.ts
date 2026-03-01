@@ -1,6 +1,8 @@
 // Sparkplug B Device Status Store
 // Tracks device online/offline status based on DBIRTH/DDEATH messages
 // This is the CORRECT way to determine if data is stale - not by value timestamp
+//
+// OPTIMIZED: Reduces unnecessary re-renders by only updating when status actually changes
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -44,6 +46,9 @@ const getDeviceKey = (groupId: string, nodeId: string, deviceId: string): string
 // Grace period in ms before trusting Sparkplug messages (ignores retained messages)
 const GRACE_PERIOD_MS = 5000;
 
+// Throttle interval for data updates (ms)
+const DATA_UPDATE_THROTTLE = 1000;
+
 export const useSparkplugDeviceStore = create<SparkplugDeviceState>()(
     persist(
         (set, get) => ({
@@ -75,6 +80,12 @@ export const useSparkplugDeviceStore = create<SparkplugDeviceState>()(
                 const key = getDeviceKey(groupId, nodeId, deviceId);
                 const now = Date.now();
 
+                // Only update if status actually changes
+                const existing = state.devices.get(key);
+                if (existing && existing.status === 'online' && existing.metricCount === metricCount) {
+                    return; // No change needed
+                }
+
                 set((state) => {
                     const newDevices = new Map(state.devices);
                     newDevices.set(key, {
@@ -100,6 +111,12 @@ export const useSparkplugDeviceStore = create<SparkplugDeviceState>()(
 
                 const key = getDeviceKey(groupId, nodeId, deviceId);
                 const now = Date.now();
+
+                // Only update if status actually changes
+                const existing = state.devices.get(key);
+                if (existing && existing.status === 'offline') {
+                    return; // Already offline
+                }
 
                 set((state) => {
                     const newDevices = new Map(state.devices);
@@ -128,8 +145,22 @@ export const useSparkplugDeviceStore = create<SparkplugDeviceState>()(
 
             handleData: (groupId, nodeId, deviceId) => {
                 // Always process DATA messages - they indicate device is alive
+                // BUT throttle updates to prevent excessive re-renders
                 const key = getDeviceKey(groupId, nodeId, deviceId);
                 const now = Date.now();
+
+                const state = get();
+                const existing = state.devices.get(key);
+
+                // Throttle: only update if lastData is older than DATA_UPDATE_THROTTLE
+                if (existing && existing.lastData && (now - existing.lastData) < DATA_UPDATE_THROTTLE) {
+                    return; // Throttled
+                }
+
+                // Only update if status changes or throttle expired
+                if (existing && existing.status === 'online' && (now - existing.lastData) < DATA_UPDATE_THROTTLE) {
+                    return;
+                }
 
                 set((state) => {
                     const newDevices = new Map(state.devices);
