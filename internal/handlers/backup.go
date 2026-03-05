@@ -431,14 +431,22 @@ func (h *BackupHandler) RunScheduledBackup() error {
 	var enabled bool
 	var interval, backupType string
 	var retention int
+	var lastRun sql.NullTime
 
 	err := h.db.QueryRow(`
-		SELECT enabled, interval_hours, backup_type, retention_days
+		SELECT enabled, interval_hours, backup_type, retention_days, last_run
 		FROM backup_settings WHERE id = 1
-	`).Scan(&enabled, &interval, &backupType, &retention)
+	`).Scan(&enabled, &interval, &backupType, &retention, &lastRun)
 
 	if err != nil || !enabled {
 		return nil // Not enabled or no settings
+	}
+
+	// Check if enough time has passed since last backup
+	nextBackupTime := time.Now().Add(-parseBackupInterval(interval)) // time in the past
+	if lastRun.Valid && lastRun.Time.After(nextBackupTime) {
+		// Not enough time has passed, skip this run
+		return nil
 	}
 
 	backupPath := os.Getenv("BACKUP_PATH")

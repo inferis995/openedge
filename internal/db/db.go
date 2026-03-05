@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -24,9 +25,22 @@ func Connect(cfg Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// Production-ready connection pool settings
+	// MaxOpenConns: maximum number of open connections to the database
+	db.SetMaxOpenConns(25)
+	// MaxIdleConns: maximum number of connections in the idle connection pool
+	db.SetMaxIdleConns(10)
+	// ConnMaxLifetime: maximum amount of time a connection may be reused
+	db.SetConnMaxLifetime(5 * time.Minute)
+	// ConnMaxIdleTime: maximum amount of time a connection may be idle
+	db.SetConnMaxIdleTime(10 * time.Minute)
+
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
+
+	log.Printf("[DB] Connection pool configured: MaxOpen=%d, MaxIdle=%d, MaxLifetime=%v",
+		25, 10, 5*time.Minute)
 
 	// Run auto-migrations
 	if err := runAutoMigrations(db); err != nil {

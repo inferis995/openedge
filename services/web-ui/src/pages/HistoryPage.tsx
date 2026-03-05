@@ -158,9 +158,9 @@ const HistoryPage = () => {
                                         {filteredEvents.map((event, i) => (
                                             <TableRow key={i}>
                                                 <TableCell className="font-medium whitespace-nowrap">
-                                                    {format(new Date(event.timestamp * 1000), 'HH:mm:ss')}
+                                                    {format(new Date(event.timestamp), 'HH:mm:ss')}
                                                     <span className="text-xs text-muted-foreground ml-2">
-                                                        {format(new Date(event.timestamp * 1000), 'MMM d')}
+                                                        {format(new Date(event.timestamp), 'MMM d')}
                                                     </span>
                                                 </TableCell>
                                                 <TableCell>{event.source}</TableCell>

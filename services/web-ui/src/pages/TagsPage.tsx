@@ -488,10 +488,8 @@ const TagsPage = () => {
     const handleBatchDelete = async () => {
         if (!confirm(`Delete ${selectedTagIds.length} tags?`)) return;
 
-        // Execute sequentially to avoid overwhelming the server/DB
-        for (const id of selectedTagIds) {
-            await remove(id);
-        }
+        // Execute all deletions in parallel for instant UI update
+        await Promise.all(selectedTagIds.map(id => remove(id)));
         setSelectedTagIds([]);
     };
 

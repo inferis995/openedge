@@ -1,20 +1,22 @@
 version: '3.8'
 
+# Load environment variables from .env file (copy .env.example to .env)
+# For production: use Docker secrets or external secret management
 services:
   postgres:
     image: timescale/timescaledb-ha:pg16
     container_name: industrial-postgres
     environment:
-      POSTGRES_DB: industrial_edge
-      POSTGRES_USER: industrial_user
-      POSTGRES_PASSWORD: industrial_pass
+      POSTGRES_DB: ${POSTGRES_DB:-industrial_edge}
+      POSTGRES_USER: ${POSTGRES_USER:-industrial_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U industrial_user -d industrial_edge" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge}" ]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -80,15 +82,15 @@ services:
     container_name: industrial-core-api
     environment:
       DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: industrial_user
-      DB_PASSWORD: industrial_pass
-      DB_NAME: industrial_edge
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${POSTGRES_USER:-industrial_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
+      DB_NAME: ${POSTGRES_DB:-industrial_edge}
       REDIS_HOST: redis
-      REDIS_PORT: 6379
+      REDIS_PORT: ${REDIS_PORT:-6379}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
-      PORT: 8081
+      PORT: ${PORT:-8081}
       BACKUP_PATH: /backups
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -102,9 +104,9 @@ services:
       redis:
         condition: service_healthy
       mosquitto:
-        condition: service_healthy # Changed from service_tarted for better reliability
+        condition: service_healthy
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/swagger/index.html" ]
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health" ]
       interval: 15s
       timeout: 10s
       start_period: 60s
@@ -129,6 +131,12 @@ services:
     depends_on:
       core-api:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/nginx-health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     restart: "unless-stopped"
     logging:
       driver: "json-file"
@@ -192,10 +200,10 @@ services:
     container_name: industrial-driver-manager
     environment:
       DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: industrial_user
-      DB_PASSWORD: industrial_pass
-      DB_NAME: industrial_edge
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${POSTGRES_USER:-industrial_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
+      DB_NAME: ${POSTGRES_DB:-industrial_edge}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
     volumes:
@@ -207,6 +215,12 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -h postgres -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge} || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: "unless-stopped"
     logging:
       driver: "json-file"
@@ -223,12 +237,12 @@ services:
     container_name: industrial-engine-historian
     environment:
       DB_HOST: postgres
-      DB_PORT: 5432
-      DB_USER: industrial_user
-      DB_PASSWORD: industrial_pass
-      DB_NAME: industrial_edge
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${POSTGRES_USER:-industrial_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
+      DB_NAME: ${POSTGRES_DB:-industrial_edge}
       REDIS_HOST: redis
-      REDIS_PORT: 6379
+      REDIS_PORT: ${REDIS_PORT:-6379}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
       MQTT_CLIENT_ID: engine-historian
@@ -240,6 +254,12 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -h postgres -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge} && redis-cli -h redis ping | grep -q PONG || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     restart: "unless-stopped"
     logging:
       driver: "json-file"

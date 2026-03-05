@@ -38,8 +38,8 @@ ALTER TABLE tag_history SET (
 SELECT add_compression_policy('tag_history', INTERVAL '7 days', if_not_exists => TRUE);
 
 -- Add retention policy (keep data for 1 year, then drop)
--- Uncomment if you want automatic data cleanup:
--- SELECT add_retention_policy('tag_history', INTERVAL '1 year', if_not_exists => TRUE);
+-- Automatic data cleanup to prevent disk exhaustion in production
+SELECT add_retention_policy('tag_history', INTERVAL '1 year', if_not_exists => TRUE);
 
 -- Also convert system_events to hypertable if it has data
 DO $$

@@ -21,7 +21,10 @@
       "Bash(npm install:*)",
       "Bash(npx tsc:*)",
       "Bash(node:*)",
-      "Bash(cmd:*)"
+      "Bash(cmd:*)",
+      "Bash(powershell:*)",
+      "Bash(python:*)",
+      "Bash(docker-compose down:*)"
     ]
   }
 }

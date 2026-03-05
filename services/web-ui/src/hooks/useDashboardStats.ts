@@ -26,7 +26,7 @@ export const useDashboardStats = () => {
         organizations: orgsQuery.data?.length || 0,
         sites: sitesQuery.data?.length || 0,
         gateways: gatewaysQuery.data?.length || 0,
-        gatewaysOnline: gatewaysQuery.data?.filter(g => g.status === 'online').length || 0,
+        gatewaysOnline: gatewaysQuery.data?.filter(g => g.connection_status === 'online').length || 0,
         // activeAlarms: alarmsQuery.data?.length || 0,
     };
 

@@ -505,17 +505,19 @@ func (h *GatewaysHandler) Delete(c *gin.Context) {
 		// Encode DDEATH payload as JSON (Protobuf requires generated code)
 		ddeathBytes, _ := json.Marshal(ddeathPayload)
 
-		// Publish DDEATH with retained=true to clear any stale birth messages
-		h.mqttClient.PublishWithQoS(ddeathTopic, string(ddeathBytes), 0, true)
+		// Publish DDEATH (not retained - just notify, then clear)
+		h.mqttClient.PublishWithQoS(ddeathTopic, string(ddeathBytes), 0, false)
 		log.Printf("[GATEWAY] Sent DDEATH for gateway %s to topic %s", gatewayName, ddeathTopic)
 
-		// Also clear DBIRTH retained message
+		// Clear all retained messages for this device (DBIRTH, DDATA, DDEATH)
 		dbirthTopic := sparkplug.BuildDBIRTHTopic(groupID, edgeNodeID, gatewayName)
 		h.mqttClient.PublishWithQoS(dbirthTopic, "", 0, true)
 
-		// Clear any DDATA retained messages
 		ddataTopic := sparkplug.BuildDDATATopic(groupID, edgeNodeID, gatewayName)
 		h.mqttClient.PublishWithQoS(ddataTopic, "", 0, true)
+
+		// Clear DDEATH retained message as well so it doesn't reappear on reconnect
+		h.mqttClient.PublishWithQoS(ddeathTopic, "", 0, true)
 	}
 
 	// Manual Cascade Delete Transaction

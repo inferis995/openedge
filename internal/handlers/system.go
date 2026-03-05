@@ -12,6 +12,16 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 )
 
+// upsertSetting inserts or updates a setting in global_settings table
+func (h *SystemHandler) upsertSetting(key, value string) error {
+	_, err := h.db.Exec(`
+		INSERT INTO global_settings (key, value, updated_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()
+	`, key, value)
+	return err
+}
+
 // SystemHandler handles system-level HTTP requests
 type SystemHandler struct {
 	db             *sql.DB
@@ -227,26 +237,23 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
-	// Update settings in database
+	// Update settings in database using UPSERT (insert or update)
 	if req.PublishMode != nil {
-		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'publish_mode'", *req.PublishMode)
-		if err != nil {
+		if err := h.upsertSetting("publish_mode", *req.PublishMode); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update publish_mode"})
 			return
 		}
 	}
 
 	if req.RBEHeartbeatSeconds != nil {
-		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'rbe_heartbeat_seconds'", *req.RBEHeartbeatSeconds)
-		if err != nil {
+		if err := h.upsertSetting("rbe_heartbeat_seconds", fmt.Sprintf("%d", *req.RBEHeartbeatSeconds)); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update rbe_heartbeat_seconds"})
 			return
 		}
 	}
 
 	if req.RBEDeadbandPercent != nil {
-		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'rbe_deadband_percent'", *req.RBEDeadbandPercent)
-		if err != nil {
+		if err := h.upsertSetting("rbe_deadband_percent", fmt.Sprintf("%v", *req.RBEDeadbandPercent)); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update rbe_deadband_percent"})
 			return
 		}
@@ -258,8 +265,7 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "stale_threshold_seconds must be between 1 and 3600"})
 			return
 		}
-		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'stale_threshold_seconds'", *req.StaleThresholdSeconds)
-		if err != nil {
+		if err := h.upsertSetting("stale_threshold_seconds", fmt.Sprintf("%d", *req.StaleThresholdSeconds)); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update stale_threshold_seconds"})
 			return
 		}
@@ -272,8 +278,7 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid mqtt_broker_mode. Must be 'internal' or 'external'"})
 			return
 		}
-		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_broker_mode'", *req.MQTTBrokerMode)
-		if err != nil {
+		if err := h.upsertSetting("mqtt_broker_mode", *req.MQTTBrokerMode); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_broker_mode"})
 			return
 		}
@@ -281,8 +286,7 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 
 	// Handle MQTT external host setting
 	if req.MQTTExternalHost != nil {
-		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_external_host'", *req.MQTTExternalHost)
-		if err != nil {
+		if err := h.upsertSetting("mqtt_external_host", *req.MQTTExternalHost); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_external_host"})
 			return
 		}
@@ -295,8 +299,7 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "mqtt_external_port must be between 1 and 65535"})
 			return
 		}
-		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_external_port'", *req.MQTTExternalPort)
-		if err != nil {
+		if err := h.upsertSetting("mqtt_external_port", fmt.Sprintf("%d", *req.MQTTExternalPort)); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_external_port"})
 			return
 		}
@@ -304,8 +307,7 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 
 	// Handle MQTT username setting
 	if req.MQTTUsername != nil {
-		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_username'", *req.MQTTUsername)
-		if err != nil {
+		if err := h.upsertSetting("mqtt_username", *req.MQTTUsername); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_username"})
 			return
 		}
@@ -313,8 +315,7 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 
 	// Handle MQTT password setting
 	if req.MQTTPassword != nil {
-		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_password'", *req.MQTTPassword)
-		if err != nil {
+		if err := h.upsertSetting("mqtt_password", *req.MQTTPassword); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_password"})
 			return
 		}
@@ -327,8 +328,7 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "mqtt_client_id must be 127 characters or less"})
 			return
 		}
-		_, err := h.db.Exec("UPDATE global_settings SET value = $1, updated_at = NOW() WHERE key = 'mqtt_client_id'", *req.MQTTClientID)
-		if err != nil {
+		if err := h.upsertSetting("mqtt_client_id", *req.MQTTClientID); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_client_id"})
 			return
 		}

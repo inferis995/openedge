@@ -78,3 +78,7 @@ services/driver-manager/driver-manager
 
 # Ralph temp folder
 ralph/
+
+# Backup files (keep directory, exclude content)
+backups/*.zip
+backups/*.sql

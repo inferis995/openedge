@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -312,11 +316,64 @@ func main() {
 	// Swagger documentation endpoints
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 
-	// Start server
+	// Health check endpoints (unauthenticated, for Docker/Kubernetes probes)
+	router.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
+	})
+	router.GET("/ready", func(c *gin.Context) {
+		// Check database connection
+		if err := database.Ping(); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status": "not ready",
+				"error":  "database unavailable",
+			})
+			return
+		}
+		// Check Redis connection (optional - service can run without Redis)
+		redisStatus := "available"
+		if redisClient == nil {
+			redisStatus = "unavailable"
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"status": "ready",
+			"checks": gin.H{
+				"database": "available",
+				"redis":    redisStatus,
+			},
+		})
+	})
+
+	// Start server with graceful shutdown
 	port := getEnv("PORT", "8080")
-	if err := router.Run(":" + port); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
+	srv := &http.Server{
+		Addr:    ":" + port,
+		Handler: router,
 	}
+
+	// Start server in a goroutine
+	go func() {
+		log.Printf("Starting server on port %s", port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Failed to start server: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal for graceful shutdown
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("Shutting down server...")
+
+	// Give outstanding requests 30 seconds to complete
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Printf("Server forced to shutdown: %v", err)
+	}
+
+	log.Println("Server exited")
 }
 
 func getEnv(key, defaultValue string) string {
