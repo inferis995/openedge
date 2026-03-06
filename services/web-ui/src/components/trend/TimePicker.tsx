@@ -70,8 +70,19 @@ export const TimePicker: React.FC<TimePickerProps> = ({
 
     const handleCustomApply = () => {
         if (customStart && customEnd) {
-            const start = new Date(`${customStart}T${customStartTime || '00:00'}`);
-            const end = new Date(`${customEnd}T${customEndTime || '23:59'}`);
+            let start = new Date(`${customStart}T${customStartTime || '00:00'}`);
+            let end = new Date(`${customEnd}T${customEndTime || '23:59'}`);
+
+            if (start.getTime() > end.getTime()) {
+                const temp = start;
+                start = end;
+                end = temp;
+                setCustomStart(formatDateForInput(start));
+                setCustomStartTime(formatTimeForInput(start));
+                setCustomEnd(formatDateForInput(end));
+                setCustomEndTime(formatTimeForInput(end));
+            }
+
             onChange({
                 preset: 'custom',
                 customStart: start,

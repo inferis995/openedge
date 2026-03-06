@@ -16,15 +16,15 @@ const TagNode: React.FC<TagNodeProps> = ({ tag, onSelect, isSelected, isFavorite
         <div
             className={cn(
                 'flex items-center justify-between px-2 py-1 rounded cursor-pointer group',
-                'hover:bg-blue-50',
-                isSelected && 'bg-blue-100'
+                'hover:bg-muted/50',
+                isSelected && 'bg-primary/20 text-primary'
             )}
             onClick={() => onSelect(tag)}
         >
-            <div className="flex items-center gap-1.5 min-w-0">
-                <TagIcon className="w-3 h-3 text-gray-400 flex-shrink-0" />
-                <span className="text-xs text-gray-700 truncate">{tag.alias || tag.code}</span>
-                <span className="text-[10px] text-gray-400 flex-shrink-0">{tag.data_type}</span>
+            <div className="flex items-center gap-1.5 flex-1 min-w-0 pr-2">
+                <TagIcon className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                <span className={cn("text-xs truncate", isSelected ? 'text-primary font-medium' : 'text-foreground')}>{tag.alias || tag.code}</span>
+                <span className="text-[10px] text-muted-foreground flex-shrink-0">{tag.data_type}</span>
             </div>
             <button
                 onClick={(e) => {
@@ -81,20 +81,20 @@ const GatewayNode: React.FC<GatewayNodeProps> = ({
     return (
         <div>
             <div
-                className="flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-gray-50 rounded"
+                className="flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-muted/50 rounded"
                 onClick={() => setIsOpen(!isOpen)}
             >
                 {isOpen ? (
-                    <ChevronDown className="w-3 h-3 text-gray-400" />
+                    <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0" />
                 ) : (
-                    <ChevronRight className="w-3 h-3 text-gray-400" />
+                    <ChevronRight className="w-3 h-3 text-muted-foreground flex-shrink-0" />
                 )}
-                <Server className="w-3.5 h-3.5 text-purple-500" />
-                <span className="text-xs font-medium text-gray-700">{gateway.name}</span>
-                <span className="text-[10px] text-gray-400 ml-auto">{gateway.tags.length}</span>
+                <Server className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
+                <span className="text-xs font-medium text-foreground truncate flex-1 min-w-0">{gateway.name}</span>
+                <span className="text-[10px] text-muted-foreground ml-auto flex-shrink-0">{gateway.tags.length}</span>
             </div>
             {isOpen && (
-                <div className="ml-4 border-l border-gray-100 pl-1">
+                <div className="ml-4 border-l border-border pl-1">
                     {filteredTags.map((tag) => (
                         <TagNode
                             key={tag.id}
@@ -143,22 +143,22 @@ const AreaNode: React.FC<AreaNodeProps> = ({
     return (
         <div>
             <div
-                className="flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-gray-50 rounded"
+                className="flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-muted/50 rounded"
                 onClick={() => setIsOpen(!isOpen)}
             >
                 {isOpen ? (
-                    <ChevronDown className="w-3 h-3 text-gray-400" />
+                    <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0" />
                 ) : (
-                    <ChevronRight className="w-3 h-3 text-gray-400" />
+                    <ChevronRight className="w-3 h-3 text-muted-foreground flex-shrink-0" />
                 )}
-                <MapPin className="w-3.5 h-3.5 text-green-500" />
-                <span className="text-xs font-medium text-gray-700">{area.name}</span>
-                <span className="text-[10px] text-gray-400 ml-auto">
+                <MapPin className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                <span className="text-xs font-medium text-foreground truncate flex-1 min-w-0">{area.name}</span>
+                <span className="text-[10px] text-muted-foreground ml-auto flex-shrink-0">
                     {area.gateways.reduce((sum, g) => sum + g.tags.length, 0)}
                 </span>
             </div>
             {isOpen && (
-                <div className="ml-4 border-l border-gray-100">
+                <div className="ml-4 border-l border-border">
                     {area.gateways.map((gateway) => (
                         <GatewayNode
                             key={gateway.id}
@@ -210,22 +210,22 @@ const SiteNode: React.FC<SiteNodeProps> = ({
     return (
         <div>
             <div
-                className="flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-gray-50 rounded"
+                className="flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-muted/50 rounded"
                 onClick={() => setIsOpen(!isOpen)}
             >
                 {isOpen ? (
-                    <ChevronDown className="w-3 h-3 text-gray-400" />
+                    <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0" />
                 ) : (
-                    <ChevronRight className="w-3 h-3 text-gray-400" />
+                    <ChevronRight className="w-3 h-3 text-muted-foreground flex-shrink-0" />
                 )}
-                <Building2 className="w-3.5 h-3.5 text-blue-500" />
-                <span className="text-xs font-medium text-gray-700">{site.name}</span>
-                <span className="text-[10px] text-gray-400 ml-auto">
+                <Building2 className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                <span className="text-xs font-medium text-foreground truncate flex-1 min-w-0">{site.name}</span>
+                <span className="text-[10px] text-muted-foreground ml-auto flex-shrink-0">
                     {site.areas.reduce((sum, a) => sum + a.gateways.reduce((s, g) => s + g.tags.length, 0), 0)}
                 </span>
             </div>
             {isOpen && (
-                <div className="ml-4 border-l border-gray-100">
+                <div className="ml-4 border-l border-border">
                     {site.areas.map((area) => (
                         <AreaNode
                             key={area.id}
@@ -279,22 +279,22 @@ export const OrganizationNode: React.FC<OrganizationNodeProps> = ({
     return (
         <div>
             <div
-                className="flex items-center gap-1.5 px-2 py-1.5 cursor-pointer hover:bg-gray-50 rounded"
+                className="flex items-center gap-1.5 px-2 py-1.5 cursor-pointer hover:bg-muted/50 rounded"
                 onClick={() => setIsOpen(!isOpen)}
             >
                 {isOpen ? (
-                    <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                    <ChevronDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                 ) : (
-                    <ChevronRight className="w-3.5 h-3.5 text-gray-400" />
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
                 )}
-                <Building2 className="w-4 h-4 text-indigo-500" />
-                <span className="text-sm font-semibold text-gray-800">{org.name}</span>
-                <span className="text-[10px] text-gray-400 ml-auto">
+                <Building2 className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+                <span className="text-sm font-semibold text-foreground truncate flex-1 min-w-0">{org.name}</span>
+                <span className="text-[10px] text-muted-foreground ml-auto flex-shrink-0">
                     {org.sites.reduce((sum, s) => sum + s.areas.reduce((ss, a) => ss + a.gateways.reduce((sss, g) => sss + g.tags.length, 0), 0), 0)}
                 </span>
             </div>
             {isOpen && (
-                <div className="ml-3 border-l-2 border-gray-100">
+                <div className="ml-3 border-l-2 border-border">
                     {org.sites.map((site) => (
                         <SiteNode
                             key={site.id}

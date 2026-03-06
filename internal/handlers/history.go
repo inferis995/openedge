@@ -18,10 +18,10 @@ import (
 // These follow the OPC-UA quality code convention used by industrial
 // historians like OSIsoft PI, Ignition, Wonderware, etc.
 const (
-	QualityGood    = 0 // Good - data is current and reliable
-	QualityBad     = 1 // Bad - communication failure, sensor error
-	QualityStale   = 2 // Stale/Interpolated - last known value but timestamp is old
-	QualityUncert  = 3 // Uncertain - data may not be reliable
+	QualityGood   = 0 // Good - data is current and reliable
+	QualityBad    = 1 // Bad - communication failure, sensor error
+	QualityStale  = 2 // Stale/Interpolated - last known value but timestamp is old
+	QualityUncert = 3 // Uncertain - data may not be reliable
 )
 
 // HistoryHandler handles historical data query requests
@@ -41,29 +41,29 @@ type HistoryDataPoint struct {
 	Timestamp   int64    `json:"timestamp"`
 	Value       *float64 `json:"value"` // nil = gap in chart
 	Quality     int      `json:"quality"`
-	Source      string   `json:"source,omitempty"`      // "raw", "1m", "1h", "1d"
+	Source      string   `json:"source,omitempty"`       // "raw", "1m", "1h", "1d"
 	SampleCount int64    `json:"sample_count,omitempty"` // Points aggregated into this bucket
 }
 
 // HistoryResponse wraps the data points with metadata
 type HistoryResponse struct {
-	Data       []HistoryDataPoint `json:"data"`
-	Source     string             `json:"source"`      // Which aggregate level was used
-	TotalPoints int               `json:"total_points"` // Number of data points returned
-	AutoIntvl  bool               `json:"auto_interval"` // Whether interval was auto-selected
+	Data        []HistoryDataPoint `json:"data"`
+	Source      string             `json:"source"`        // Which aggregate level was used
+	TotalPoints int                `json:"total_points"`  // Number of data points returned
+	AutoIntvl   bool               `json:"auto_interval"` // Whether interval was auto-selected
 }
 
 // TagStatsResponse contains statistics for a tag over a time range
 type TagStatsResponse struct {
-	MinValue      *float64 `json:"min_value"`
-	MaxValue      *float64 `json:"max_value"`
-	AvgValue      *float64 `json:"avg_value"`
-	StdDev        *float64 `json:"std_dev"`
-	SampleCount   int64    `json:"sample_count"`
-	FirstValue    *float64 `json:"first_value"`
-	LastValue     *float64 `json:"last_value"`
-	FirstTimestamp *int64  `json:"first_timestamp"`
-	LastTimestamp  *int64  `json:"last_timestamp"`
+	MinValue       *float64 `json:"min_value"`
+	MaxValue       *float64 `json:"max_value"`
+	AvgValue       *float64 `json:"avg_value"`
+	StdDev         *float64 `json:"std_dev"`
+	SampleCount    int64    `json:"sample_count"`
+	FirstValue     *float64 `json:"first_value"`
+	LastValue      *float64 `json:"last_value"`
+	FirstTimestamp *int64   `json:"first_timestamp"`
+	LastTimestamp  *int64   `json:"last_timestamp"`
 }
 
 // AggregationLevel represents which aggregate to query
@@ -174,8 +174,8 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 	}
 
 	// Get optional aggregation parameters
-	agg := c.Query("agg")           // e.g., "mean", "max", "min", "last"
-	interval := c.Query("interval") // e.g., "1m", "5m", "1h", "1d"
+	agg := c.Query("agg")                // e.g., "mean", "max", "min", "last"
+	interval := c.Query("interval")      // e.g., "1m", "5m", "1h", "1d"
 	forceRaw := c.Query("raw") == "true" // Force raw data query
 
 	// Map aggregation function
@@ -263,20 +263,20 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 	}
 
 	response := HistoryResponse{
-		Data:         dataPoints,
-		Source:       source,
-		TotalPoints:  len(dataPoints),
-		AutoIntvl:    autoIntvl,
+		Data:        dataPoints,
+		Source:      source,
+		TotalPoints: len(dataPoints),
+		AutoIntvl:   autoIntvl,
 	}
 
 	// Add stats to response if requested
 	if includeStats && stats != nil {
 		c.JSON(http.StatusOK, gin.H{
-			"data":         response.Data,
-			"source":       response.Source,
-			"total_points": response.TotalPoints,
+			"data":          response.Data,
+			"source":        response.Source,
+			"total_points":  response.TotalPoints,
 			"auto_interval": response.AutoIntvl,
-			"stats":        stats,
+			"stats":         stats,
 		})
 		return
 	}
@@ -389,7 +389,6 @@ func (h *HistoryHandler) queryRawWithInterval(tagID int, start, end time.Time, a
 		LEFT JOIN tag_history ON
 			time >= bucket AND time < bucket + $4::interval AND tag_id = $1
 		GROUP BY bucket
-		HAVING COUNT(tag_id) > 0
 		ORDER BY bucket ASC
 	`, sqlAgg)
 
@@ -451,13 +450,13 @@ func (h *HistoryHandler) query1mAggregate(tagID int, start, end time.Time, aggFu
 
 	query := fmt.Sprintf(`
 		SELECT
-			EXTRACT(EPOCH FROM bucket)::BIGINT * 1000 as ts,
+			EXTRACT(EPOCH FROM series.bucket)::BIGINT * 1000 as ts,
 			%s as val,
-			quality,
-			sample_count
-		FROM tag_history_1m
-		WHERE tag_id = $1 AND bucket >= $2 AND bucket <= $3
-		ORDER BY bucket ASC
+			COALESCE(quality, 1) as quality,
+			COALESCE(sample_count, 0) as sample_count
+		FROM generate_series($2::timestamptz, $3::timestamptz, '1 minute'::interval) as series(bucket)
+		LEFT JOIN tag_history_1m data ON series.bucket = data.bucket AND data.tag_id = $1
+		ORDER BY series.bucket ASC
 	`, valueCol)
 
 	rows, err := h.db.Query(query, tagID, start, end)
@@ -517,13 +516,13 @@ func (h *HistoryHandler) query1hAggregate(tagID int, start, end time.Time, aggFu
 
 	query := fmt.Sprintf(`
 		SELECT
-			EXTRACT(EPOCH FROM bucket)::BIGINT * 1000 as ts,
+			EXTRACT(EPOCH FROM series.bucket)::BIGINT * 1000 as ts,
 			%s as val,
-			quality,
-			sample_count
-		FROM tag_history_1h
-		WHERE tag_id = $1 AND bucket >= $2 AND bucket <= $3
-		ORDER BY bucket ASC
+			COALESCE(quality, 1) as quality,
+			COALESCE(sample_count, 0) as sample_count
+		FROM generate_series($2::timestamptz, $3::timestamptz, '1 hour'::interval) as series(bucket)
+		LEFT JOIN tag_history_1h data ON series.bucket = data.bucket AND data.tag_id = $1
+		ORDER BY series.bucket ASC
 	`, valueCol)
 
 	rows, err := h.db.Query(query, tagID, start, end)
@@ -582,13 +581,13 @@ func (h *HistoryHandler) query1dAggregate(tagID int, start, end time.Time, aggFu
 
 	query := fmt.Sprintf(`
 		SELECT
-			EXTRACT(EPOCH FROM bucket)::BIGINT * 1000 as ts,
+			EXTRACT(EPOCH FROM series.bucket)::BIGINT * 1000 as ts,
 			%s as val,
-			quality,
-			sample_count
-		FROM tag_history_1d
-		WHERE tag_id = $1 AND bucket >= $2 AND bucket <= $3
-		ORDER BY bucket ASC
+			COALESCE(quality, 1) as quality,
+			COALESCE(sample_count, 0) as sample_count
+		FROM generate_series($2::timestamptz, $3::timestamptz, '1 day'::interval) as series(bucket)
+		LEFT JOIN tag_history_1d data ON series.bucket = data.bucket AND data.tag_id = $1
+		ORDER BY series.bucket ASC
 	`, valueCol)
 
 	rows, err := h.db.Query(query, tagID, start, end)

@@ -81,10 +81,10 @@ const Header = () => {
 
                 {/* Context Indicator (Professional Badge) */}
                 {(selectedOrgId || selectedSiteId || selectedAreaId) && (
-                    <div className="hidden md:flex items-center bg-slate-100 dark:bg-slate-800 rounded-full px-3 py-1 border border-slate-200 dark:border-slate-700">
-                        <span className="text-xs font-medium text-slate-500 mr-2 uppercase tracking-wider">Context:</span>
+                    <div className="hidden md:flex items-center bg-secondary text-secondary-foreground clip-chamfer-sm px-4 py-1.5 border border-border">
+                        <span className="text-[10px] font-bold text-muted-foreground mr-2 uppercase tracking-wider">Context:</span>
 
-                        <div className="flex items-center gap-1 text-sm text-slate-700 dark:text-slate-300">
+                        <div className="flex items-center gap-1 text-sm font-medium">
                             {org && (
                                 <div className="flex items-center gap-1">
                                     <Building2 size={12} className="text-blue-500" />
@@ -115,7 +115,7 @@ const Header = () => {
 
                         <button
                             onClick={clearSelection}
-                            className="ml-3 p-0.5 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-red-500 transition-colors"
+                            className="ml-3 p-0.5 clip-hex hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
                             title="Clear Context Filter"
                         >
                             <X size={14} />
@@ -127,12 +127,14 @@ const Header = () => {
             <div className="flex items-center gap-4">
                 {/* MQTT Connection Status */}
                 <div className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium",
-                    isMqttConnected ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400" : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-400"
+                    "flex items-center gap-2 px-3 py-1.5 clip-chamfer-sm text-[10px] font-bold uppercase tracking-wider border",
+                    isMqttConnected
+                        ? "bg-[#10B981]/10 text-[#10B981] border-[#10B981]/20"
+                        : "bg-destructive/10 text-destructive border-destructive/20"
                 )}>
                     <span className={cn(
-                        "w-2 h-2 rounded-full",
-                        isMqttConnected ? "bg-green-500 animate-pulse" : "bg-red-500"
+                        "w-2 h-2 clip-hex",
+                        isMqttConnected ? "bg-[#10B981] animate-pulse" : "bg-destructive"
                     )}></span>
                     {isMqttConnected ? 'MQTT Connected' : 'MQTT Disconnected'}
                 </div>

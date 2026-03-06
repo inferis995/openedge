@@ -17,15 +17,19 @@ import {
     LogOut,
     User,
     Users,
+    Moon,
+    Sun,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useThemeStore } from '@/stores/useThemeStore';
 
 const Sidebar = () => {
     const location = useLocation();
     const navigate = useNavigate();
     const [collapsed, setCollapsed] = useState(false);
     const { user, logout, isAdmin } = useAuthStore();
+    const { theme, toggleTheme } = useThemeStore();
 
     const navItems = [
         { name: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -47,24 +51,24 @@ const Sidebar = () => {
     return (
         <div
             className={cn(
-                "h-screen bg-slate-950 text-white flex flex-col border-r border-slate-800 transition-all duration-300 ease-in-out relative z-20",
+                "h-screen bg-[hsl(var(--sidebar-bg))] text-[hsl(var(--sidebar-fg))] flex flex-col border-r border-[hsl(var(--sidebar-border))] transition-all duration-300 ease-in-out relative z-20",
                 collapsed ? "w-20" : "w-64"
             )}
         >
             {/* Header / Logo */}
             <div className={cn(
-                "p-4 border-b border-slate-800 flex items-center h-16 transition-all",
+                "p-4 border-b border-[hsl(var(--sidebar-border))] flex items-center h-16 transition-all",
                 collapsed ? "justify-center" : "justify-between"
             )}>
                 {collapsed ? (
-                    <div className="bg-blue-600/10 rounded-lg p-1 shadow-lg shadow-blue-900/20">
+                    <div className="bg-primary/20 clip-hex p-2">
                         <img src="/logo.png" alt="OpenEdge" className="h-8 w-8 object-contain" />
                     </div>
                 ) : (
                     <div className="flex items-center gap-3 overflow-hidden whitespace-nowrap">
-                        <img src="/logo.png" alt="OpenEdge" className="h-10 w-10 object-contain rounded-md" />
+                        <img src="/logo.png" alt="OpenEdge" className="h-10 w-10 object-contain clip-chamfer-sm" />
                         <div>
-                            <h1 className="text-lg font-bold tracking-tight text-white">OpenEdge</h1>
+                            <h1 className="text-lg font-bold tracking-tight text-[hsl(var(--sidebar-fg))]">OpenEdge</h1>
                         </div>
                     </div>
                 )}
@@ -74,14 +78,14 @@ const Sidebar = () => {
             <Button
                 variant="ghost"
                 size="icon"
-                className="absolute -right-3 top-20 h-6 w-6 rounded-full bg-slate-800 border border-slate-700 text-slate-400 hover:text-white hover:bg-slate-700 shadow-md z-30 hidden md:flex"
+                className="absolute -right-3 top-20 h-6 w-6 clip-hex bg-[hsl(var(--sidebar-accent))] border border-[hsl(var(--sidebar-border))] text-[hsl(var(--sidebar-muted))] hover:text-[hsl(var(--sidebar-fg))] hover:bg-[hsl(var(--sidebar-accent))]/80 shadow-md z-30 hidden md:flex items-center justify-center p-0"
                 onClick={() => setCollapsed(!collapsed)}
             >
                 {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
             </Button>
 
             {/* Navigation */}
-            <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-slate-800">
+            <nav className="flex-1 p-3 space-y-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-[hsl(var(--sidebar-accent))]">
                 {navItems.map((item) => {
                     const isActive = location.pathname === item.path;
 
@@ -91,26 +95,25 @@ const Sidebar = () => {
                             to={item.path}
                             title={collapsed ? item.name : undefined}
                             className={cn(
-                                "flex items-center rounded-lg text-sm font-medium transition-all group",
+                                "flex items-center clip-chamfer-sm text-sm font-medium transition-all group",
                                 collapsed ? "justify-center w-12 h-12 mx-auto px-0" : "px-4 py-3 gap-3 w-full",
                                 isActive
-                                    ? "bg-blue-600 text-white shadow-md shadow-blue-900/20"
-                                    : "text-slate-400 hover:bg-slate-800 hover:text-white hover:shadow-sm"
+                                    ? "bg-primary text-primary-foreground shadow-md"
+                                    : "text-[hsl(var(--sidebar-muted))] hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--sidebar-fg))]"
                             )}
                         >
                             <item.icon
                                 size={collapsed ? 24 : 20}
                                 className={cn(
                                     "transition-transform duration-200",
-                                    collapsed && !isActive && "group-hover:scale-110",
-                                    isActive && "animate-pulse-slow"
+                                    collapsed && !isActive && "group-hover:scale-110"
                                 )}
                             />
                             {!collapsed && (
                                 <span className="truncate">{item.name}</span>
                             )}
                             {!collapsed && isActive && (
-                                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                                <div className="ml-auto w-2 h-2 clip-hex bg-primary-foreground animate-pulse" />
                             )}
                         </Link>
                     );
@@ -120,11 +123,11 @@ const Sidebar = () => {
                 {isAdmin() && (
                     <>
                         <div className={cn(
-                            "my-3 border-t border-slate-800",
+                            "my-3 border-t border-[hsl(var(--sidebar-border))]",
                             collapsed && "mx-3"
                         )} />
                         {!collapsed && (
-                            <p className="px-4 text-[10px] text-slate-500 uppercase tracking-wider font-semibold mb-2">Admin</p>
+                            <p className="px-4 text-[10px] text-[hsl(var(--sidebar-muted))] uppercase tracking-wider font-semibold mb-2">Admin</p>
                         )}
                         {adminNavItems.map((item) => {
                             const isActive = location.pathname === item.path;
@@ -135,26 +138,25 @@ const Sidebar = () => {
                                     to={item.path}
                                     title={collapsed ? item.name : undefined}
                                     className={cn(
-                                        "flex items-center rounded-lg text-sm font-medium transition-all group",
+                                        "flex items-center clip-chamfer-sm text-sm font-medium transition-all group",
                                         collapsed ? "justify-center w-12 h-12 mx-auto px-0" : "px-4 py-3 gap-3 w-full",
                                         isActive
-                                            ? "bg-blue-600 text-white shadow-md shadow-blue-900/20"
-                                            : "text-slate-400 hover:bg-slate-800 hover:text-white hover:shadow-sm"
+                                            ? "bg-primary text-primary-foreground shadow-md"
+                                            : "text-[hsl(var(--sidebar-muted))] hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--sidebar-fg))]"
                                     )}
                                 >
                                     <item.icon
                                         size={collapsed ? 24 : 20}
                                         className={cn(
                                             "transition-transform duration-200",
-                                            collapsed && !isActive && "group-hover:scale-110",
-                                            isActive && "animate-pulse-slow"
+                                            collapsed && !isActive && "group-hover:scale-110"
                                         )}
                                     />
                                     {!collapsed && (
                                         <span className="truncate">{item.name}</span>
                                     )}
                                     {!collapsed && isActive && (
-                                        <div className="ml-auto w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                                        <div className="ml-auto w-2 h-2 clip-hex bg-primary-foreground animate-pulse" />
                                     )}
                                 </Link>
                             );
@@ -163,31 +165,47 @@ const Sidebar = () => {
                 )}
             </nav>
 
-            {/* Footer / User Profile */}
-            <div className="p-4 border-t border-slate-800 space-y-3">
+            {/* Footer / User Profile & Theme Toggle */}
+            <div className="p-4 border-t border-[hsl(var(--sidebar-border))] space-y-3">
+                {/* Theme Toggle */}
+                <Button
+                    variant="ghost"
+                    size={collapsed ? "icon" : "sm"}
+                    className={cn(
+                        "text-[hsl(var(--sidebar-muted))] hover:text-[hsl(var(--sidebar-fg))] hover:bg-[hsl(var(--sidebar-accent))] transition-colors clip-chamfer-sm",
+                        collapsed ? "w-12 h-10 mx-auto" : "w-full justify-start gap-2"
+                    )}
+                    onClick={toggleTheme}
+                >
+                    {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+                    {!collapsed && <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
+                </Button>
+
+                {/* User Profile */}
                 <div className={cn(
-                    "flex items-center transition-all bg-slate-900/50 rounded-lg",
-                    collapsed ? "justify-center p-2" : "gap-3 p-3 border border-slate-800/50"
+                    "flex items-center transition-all bg-[hsl(var(--sidebar-accent))]/50 clip-chamfer-sm",
+                    collapsed ? "justify-center p-2" : "gap-3 p-3 border border-[hsl(var(--sidebar-border))]/50"
                 )}>
-                    <div className="h-9 w-9 min-w-[36px] rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-md">
+                    <div className="h-9 w-9 min-w-[36px] clip-hex bg-primary flex items-center justify-center text-primary-foreground">
                         <User size={18} />
                     </div>
                     {!collapsed && (
                         <div className="flex-1 overflow-hidden">
                             <p className="text-sm font-bold truncate">{user?.username || 'User'}</p>
                             <div className="flex items-center gap-1.5">
-                                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                                <p className="text-xs text-slate-400 truncate">{isAdmin() ? 'Admin' : 'User'}</p>
+                                <div className="w-2 h-2 clip-hex bg-green-500 animate-pulse" />
+                                <p className="text-xs text-[hsl(var(--sidebar-muted))] truncate">{isAdmin() ? 'Admin' : 'User'}</p>
                             </div>
                         </div>
                     )}
                 </div>
+
                 {/* Logout Button */}
                 <Button
                     variant="ghost"
                     size={collapsed ? "icon" : "sm"}
                     className={cn(
-                        "text-red-400 hover:text-red-300 hover:bg-red-900/20 transition-colors",
+                        "text-destructive hover:text-destructive/80 hover:bg-destructive/10 transition-colors clip-chamfer-sm",
                         collapsed ? "w-12 h-10 mx-auto" : "w-full justify-start gap-2"
                     )}
                     onClick={() => {

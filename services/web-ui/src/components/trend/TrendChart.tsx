@@ -48,6 +48,8 @@ const formatValue = (
         } else {
             num = Number(value);
         }
+        // -0.5 is our synthetic N/A marker for booleans
+        if (num < 0) return 'N/A';
         return num >= 0.5 ? 'TRUE' : 'FALSE';
     }
 
@@ -57,9 +59,10 @@ const formatValue = (
     return n.toFixed(3);
 };
 
-// Colour for BOOL value: green = ON, red = OFF
+// Colour for BOOL value: green = ON, red = OFF, gray = N/A
 const boolColor = (value: number | null | undefined): string => {
     if (value === null || value === undefined) return '#9ca3af';
+    if (typeof value === 'number' && value < 0) return '#9ca3af'; // -0.5 = N/A
     return value >= 0.5 ? '#16a34a' : '#dc2626';
 };
 
@@ -100,7 +103,8 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                 formatter: (value: number) => {
                     if (s.isBool) {
                         if (value >= 1) return 'ON';
-                        if (value <= 0) return 'OFF';
+                        if (value === 0) return 'OFF';
+                        if (value <= -0.5) return 'N/A';
                         return '';
                     }
                     if (Math.abs(value) >= 1000) return value.toExponential(0);
@@ -111,10 +115,10 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                 show: index === 0,
                 lineStyle: { type: 'dashed' as const, color: '#e5e7eb' },
             },
-            // BOOL: fixed -0.1..1.1 so ON/OFF are clearly separated
-            min: s.isBool ? -0.1 : undefined,
+            // BOOL: fixed -0.6..1.1 so ON/OFF/NA are clearly separated
+            min: s.isBool ? -0.6 : undefined,
             max: s.isBool ? 1.1 : undefined,
-            splitNumber: s.isBool ? 1 : undefined,
+            splitNumber: s.isBool ? 2 : undefined,
         }));
 
         // ── ECharts series ────────────────────────────────────────────────────
@@ -133,15 +137,19 @@ export const TrendChart: React.FC<TrendChartProps> = ({
 
             if (s.isBool) {
                 // ── Digital (BOOL) series ──────────────────────────────────
-                // Keep this intentionally simple: step chart with a single colour.
-                // visualMap piecewise (dimension:1) + areaStyle both trigger
-                // "Cannot read properties of undefined (reading 'coord')" during
-                // ECharts coordinate resolution on step series — removed entirely.
+                // User requested 3 visible states: TRUE, FALSE, N/A
+                // We map `null` to `-0.5` to physically draw a line at the "N/A" level
+                const threeStateData = s.data.map(pt => [
+                    pt[0],
+                    pt[1] === null ? -0.5 : pt[1]
+                ]);
+
                 return {
                     ...base,
+                    data: threeStateData,
                     lineStyle: { width: 3, color: s.color },
                     step: 'end' as const,
-                    connectNulls: false,  // null = offline marker → visible gap
+                    connectNulls: false,
                 };
             }
 
@@ -168,7 +176,8 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                 if (!Array.isArray(param.data)) return;
                 const si = seriesData.find(s => s.tagName === param.seriesName);
                 const v: number | null = param.data[1];
-                const isNull = v === null || v === undefined;
+                // For booleans -0.5 is our synthetic N/A marker
+                const isNull = v === null || v === undefined || (si?.isBool && typeof v === 'number' && v < 0);
                 const displayVal = formatValue(v, si?.isBool ?? false);
                 const dotColour = si?.isBool ? boolColor(v) : param.color;
 
@@ -266,12 +275,11 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     if (seriesData.length === 0) {
         return (
             <div
-                className={`h-full flex flex-col bg-white rounded-lg border ${
-                    isActive ? 'border-blue-300 ring-2 ring-blue-100' : 'border-gray-200'
-                } min-h-[250px]`}
+                className={`h-full flex flex-col bg-card clip-chamfer border ${isActive ? 'border-primary ring-2 ring-primary/20' : 'border-border'
+                    } min-h-[250px]`}
                 onClick={onActivate}
             >
-                <div className="chart-header cursor-move flex items-center justify-between px-2 py-1.5 border-b bg-white flex-shrink-0">
+                <div className="chart-header cursor-move flex items-center justify-between px-2 py-1.5 border-b flex-shrink-0">
                     <span className="text-xs font-medium text-gray-600 truncate">{chart.title}</span>
                     {onRemove && (
                         <Button variant="ghost" size="icon" className="h-5 w-5 flex-shrink-0" onClick={e => { e.stopPropagation(); onRemove(); }}>
@@ -293,12 +301,11 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     if (!hasData) {
         return (
             <div
-                className={`h-full flex flex-col bg-white rounded-lg border ${
-                    isActive ? 'border-blue-300 ring-2 ring-blue-100' : 'border-gray-200'
-                } min-h-[250px]`}
+                className={`h-full flex flex-col bg-white rounded-lg border ${isActive ? 'border-blue-300 ring-2 ring-blue-100' : 'border-gray-200'
+                    } min-h-[250px]`}
                 onClick={onActivate}
             >
-                <div className="chart-header cursor-move flex items-center justify-between px-2 py-1.5 border-b bg-white flex-shrink-0">
+                <div className="chart-header cursor-move flex items-center justify-between px-2 py-1.5 border-b flex-shrink-0">
                     <span className="text-xs font-medium text-gray-600 truncate">{chart.title}</span>
                     {onRemove && (
                         <Button variant="ghost" size="icon" className="h-5 w-5 flex-shrink-0" onClick={e => { e.stopPropagation(); onRemove(); }}>
@@ -320,24 +327,23 @@ export const TrendChart: React.FC<TrendChartProps> = ({
 
     return (
         <div
-            className={`h-full bg-white rounded-lg border overflow-hidden flex flex-col ${
-                isActive ? 'border-blue-300 ring-2 ring-blue-100' : 'border-gray-200'
-            }`}
+            className={`h-full bg-card clip-chamfer border overflow-hidden flex flex-col ${isActive ? 'border-primary ring-2 ring-primary/20' : 'border-border'
+                }`}
             onClick={onActivate}
         >
             {/* Header — drag handle + tag legend + remove button */}
-            <div className="chart-header cursor-move flex-shrink-0 flex items-center gap-2 px-2 py-1.5 border-b bg-white">
+            <div className="chart-header cursor-move flex-shrink-0 flex items-center gap-2 px-2 py-1.5 border-b">
                 <span className="text-xs font-semibold text-gray-600 truncate flex-shrink-0">
                     {chart.title || 'Chart'}
                 </span>
                 <div className="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
                     {seriesData.map(s => (
-                        <div key={s.tagId} className="flex items-center gap-1 bg-gray-100 px-1.5 py-0.5 rounded">
+                        <div key={s.tagId} className="flex items-center gap-1 bg-muted px-1.5 py-0.5 rounded">
                             <div
                                 className="w-2 h-2 rounded-full flex-shrink-0"
                                 style={{ backgroundColor: s.color }}
                             />
-                            <span className="text-xs text-gray-800 font-medium truncate max-w-[110px]">
+                            <span className="text-xs font-medium truncate max-w-[110px]">
                                 {s.tagName}
                             </span>
                             {s.isBool && (

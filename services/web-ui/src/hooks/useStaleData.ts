@@ -101,22 +101,22 @@ export function getStatusClasses(status: DataStatus): {
     switch (status) {
         case 'good':
             return {
-                bg: 'bg-green-50',
-                border: 'border-green-200',
-                text: 'text-green-700',
+                bg: 'bg-green-50 dark:bg-green-900/20',
+                border: 'border-green-200 dark:border-green-800',
+                text: 'text-green-700 dark:text-green-400',
             };
         case 'unknown':
             return {
-                bg: 'bg-slate-50',
-                border: 'border-slate-300',
-                text: 'text-slate-500',
+                bg: 'bg-slate-50 dark:bg-slate-800/50',
+                border: 'border-slate-300 dark:border-slate-700',
+                text: 'text-slate-500 dark:text-slate-400',
             };
         case 'bad':
         default:
             return {
-                bg: 'bg-red-50',
-                border: 'border-red-200',
-                text: 'text-red-600',
+                bg: 'bg-red-50 dark:bg-red-900/20',
+                border: 'border-red-200 dark:border-red-800',
+                text: 'text-red-600 dark:text-red-400',
             };
     }
 }

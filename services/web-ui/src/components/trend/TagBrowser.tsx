@@ -171,15 +171,15 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
     }, [selectedTagIds, allTags, realtimeValues]);
 
     return (
-        <div className="h-full flex flex-col bg-white border-r">
+        <div className="h-full flex flex-col bg-card border-r">
             {/* Current Values Panel */}
             <div className="p-3 border-b">
-                <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-2">
+                <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                     <Clock className="w-3.5 h-3.5" />
                     Current Values
                 </h2>
                 {selectedTagsInfo.length === 0 ? (
-                    <p className="text-xs text-gray-400 italic py-2">No tags selected</p>
+                    <p className="text-xs text-muted-foreground italic py-2">No tags selected</p>
                 ) : (
                     <div className="space-y-1.5 max-h-48 overflow-y-auto">
                         {selectedTagsInfo.map(({ id, tag, rv, color }) => {
@@ -212,10 +212,10 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                             className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                                             style={{ backgroundColor: color }}
                                         />
-                                        <span className="text-xs font-medium text-gray-700 truncate">{tag.alias || tag.code}</span>
+                                        <span className="text-xs font-medium text-foreground truncate">{tag.alias || tag.code}</span>
                                         {deviceOnline === false && (
                                             <span title="Device is offline">
-                                                <AlertTriangle className="w-3 h-3 text-red-500 flex-shrink-0" />
+                                                <AlertTriangle className="w-3 h-3 text-destructive flex-shrink-0" />
                                             </span>
                                         )}
                                     </div>
@@ -223,8 +223,8 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                         {isBool && rv !== undefined ? (
                                             <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded ${
                                                 rv.value >= 0.5
-                                                    ? 'bg-green-100 text-green-700'
-                                                    : 'bg-red-100 text-red-700'
+                                                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                                    : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
                                             }`}>
                                                 {displayValue}
                                             </span>
@@ -234,7 +234,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                             </div>
                                         )}
                                         <div className={`text-[10px] mt-0.5 ${
-                                            deviceOnline === false ? 'text-red-500 font-medium' : 'text-gray-400'
+                                            deviceOnline === false ? 'text-destructive font-medium' : 'text-muted-foreground'
                                         }`}>
                                             {rv ? (
                                                 new Date(rv.timestamp).toLocaleTimeString('it-IT')
@@ -251,11 +251,11 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
             {/* Tag Browser */}
             <div className="flex-1 flex flex-col overflow-hidden min-h-0">
                 <div className="p-3 border-b">
-                    <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                         Tag Browser
                     </h2>
                     <div className="relative">
-                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                         <Input
                             placeholder="Search tags..."
                             value={searchQuery}
@@ -282,7 +282,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                         <ScrollArea className="h-full">
                             {isLoading ? (
                                 <div className="flex items-center justify-center py-8">
-                                    <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+                                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
                                 </div>
                             ) : hierarchy ? (
                                 <div className="p-2">
@@ -299,7 +299,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                     ))}
                                 </div>
                             ) : (
-                                <div className="text-center py-8 text-gray-400 text-xs">
+                                <div className="text-center py-8 text-muted-foreground text-xs">
                                     No tags available
                                 </div>
                             )}
@@ -309,8 +309,8 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                     <TabsContent value="favorites" className="flex-1 overflow-hidden m-0 min-h-0">
                         <ScrollArea className="h-full">
                             {favoriteTags.length === 0 ? (
-                                <div className="text-center py-8 text-gray-400 text-xs">
-                                    <Star className="w-6 h-6 mx-auto mb-2 text-gray-200" />
+                                <div className="text-center py-8 text-muted-foreground text-xs">
+                                    <Star className="w-6 h-6 mx-auto mb-2 text-muted" />
                                     <p>No favorite tags yet</p>
                                     <p className="text-[10px] mt-1">Star tags to add them here</p>
                                 </div>
@@ -319,13 +319,13 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                     {favoriteTags.map((tag) => (
                                         <div
                                             key={tag.id}
-                                            className={`flex items-center justify-between px-2 py-1.5 rounded cursor-pointer hover:bg-blue-50 ${selectedTagIds.includes(tag.id) ? 'bg-blue-100' : ''
+                                            className={`flex items-center justify-between px-2 py-1.5 rounded cursor-pointer hover:bg-primary/10 ${selectedTagIds.includes(tag.id) ? 'bg-primary/20' : ''
                                                 }`}
                                             onClick={() => handleTagSelect(tag)}
                                         >
                                             <div className="flex items-center gap-2 min-w-0">
-                                                <TagIcon className="w-3 h-3 text-gray-400" />
-                                                <span className="text-xs text-gray-700 truncate">{tag.alias || tag.code}</span>
+                                                <TagIcon className="w-3 h-3 text-muted-foreground" />
+                                                <span className="text-xs text-foreground truncate">{tag.alias || tag.code}</span>
                                                 <Badge variant="secondary" className="text-[10px] h-4">
                                                     {tag.data_type}
                                                 </Badge>

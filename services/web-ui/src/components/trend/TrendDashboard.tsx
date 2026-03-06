@@ -50,6 +50,7 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
         removeChart,
         updateChart,
         addChart,
+        liveMode,
     } = useTrendStore();
 
     const [containerWidth, setContainerWidth] = useState(1200);
@@ -74,6 +75,27 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
         const end = timeRange.end instanceof Date ? timeRange.end : new Date(timeRange.end);
         return { start, end };
     }, [timeRange.start, timeRange.end]);
+
+    // Live clock for smooth X-axis scrolling in Live Mode
+    const [now, setNow] = useState<Date>(new Date());
+    useEffect(() => {
+        if (!liveMode) return;
+        setNow(new Date()); // sync immediately
+        const intervalId = window.setInterval(() => setNow(new Date()), 1000);
+        return () => window.clearInterval(intervalId);
+    }, [liveMode]);
+
+    // Calculate the actual display range for the charts
+    const displayTimeRange = useMemo(() => {
+        if (!liveMode) return safeTimeRange;
+        // In live mode, we want the visible window to end AT THIS EXACT SECOND.
+        // The original safeTimeRange tells us the width of the window (end - start).
+        const windowWidth = safeTimeRange.end.getTime() - safeTimeRange.start.getTime();
+        return {
+            start: new Date(now.getTime() - windowWidth),
+            end: now,
+        };
+    }, [safeTimeRange, now, liveMode]);
 
     // Calculate interval based on time range
     const interval = useMemo(() => {
@@ -188,12 +210,11 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
 
             // Append current realtime value to the series so the chart always reflects
             // the live state, even when the realtime update arrived after the chart's
-            // query window was calculated.  Clamp the timestamp to timeRange.end so
-            // ECharts renders it at the right edge without going out of bounds.
+            // query window was calculated. Clamp the timestamp to displayTimeRange.end
             if (realtimeValues) {
                 const rv = realtimeValues.get(tagId);
-                if (rv && rv.timestamp >= safeTimeRange.start.getTime()) {
-                    const ts = Math.min(rv.timestamp, safeTimeRange.end.getTime());
+                if (rv && rv.timestamp >= displayTimeRange.start.getTime()) {
+                    const ts = Math.min(rv.timestamp, displayTimeRange.end.getTime());
                     const exists = data.some(d => d[0] === ts);
                     if (!exists) {
                         const value = rv.quality === 0 ? toNumber(rv.value) : null;
@@ -206,35 +227,55 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
             data.sort((a, b) => a[0] - b[0]);
 
             // ── FILL-TO-END ─────────────────────────────────────────────
-            // Extend the last known value to the end of the time range so
-            // the chart line reaches the right edge.  The backend SEED
-            // handles the left edge; this handles the right edge.
-            // Skipped when:
-            //   - the tag is currently offline (BAD quality in realtime)
-            //   - the last value is null
-            //   - the last point already sits at or near the end
+            // Extend the last known value to the end of the display time range so
+            // the chart line reaches the right edge.
+            // Determine online status from the ACTUAL realtime value if available,
+            // otherwise from the last data point.
             const rv = realtimeValues?.get(tagId);
-            const isCurrentlyOnline = !rv || rv.quality === 0;
+            // Tag is online only if we have a realtime value WITH good quality
+            const isCurrentlyOnline = rv !== undefined && rv.quality === 0;
 
-            if (data.length > 0 && isCurrentlyOnline) {
+            if (data.length > 0) {
                 const lastPoint = data[data.length - 1];
-                const endMs = safeTimeRange.end.getTime();
-                if (lastPoint[1] !== null && lastPoint[0] < endMs - 1000) {
-                    data.push([endMs, lastPoint[1]]);
+                const endMs = displayTimeRange.end.getTime();
+
+                if (lastPoint[0] < endMs - 1000) {
+                    if (isCurrentlyOnline && lastPoint[1] !== null) {
+                        // Tag is confirmed online with good quality -> draw line to end
+                        data.push([endMs, lastPoint[1]]);
+                    } else {
+                        // Tag is offline (no realtime value, or bad quality, or last value was null)
+                        // Push null to end so the X-axis scrolls and gap/N/A is visible
+                        data.push([endMs, null]);
+                    }
                 }
+            } else {
+                // No data at all — push a single null point at end so chart axis still scrolls
+                const endMs = displayTimeRange.end.getTime();
+                data.push([endMs, null]);
             }
+
+            // Remove only exact-same-timestamp duplicates, keep everything else
+            // For booleans nulls become -0.5 in TrendChart, so we need them to persist
+            const dedupedData = data.filter((pt, i, arr) => {
+                if (i === 0) return true;
+                const prev = arr[i - 1];
+                // Drop exact same timestamp duplicates
+                if (pt[0] === prev[0]) return false;
+                return true;
+            });
 
             return {
                 tagId,
                 tagName: tag?.alias || tag?.code || `Tag ${tagId}`,
-                data,
+                data: dedupedData,
                 color: yAxisConfig?.color || TAG_COLORS[index % TAG_COLORS.length],
                 yAxisIndex: index,
                 isBool,
                 quality: historyData.map(p => p.quality),
             };
         });
-    }, [charts, tags, historyDataMap, realtimeValues, timeRange]);
+    }, [charts, tags, historyDataMap, realtimeValues, displayTimeRange]);
 
     // Grid layout
     const layout: LayoutItem[] = useMemo(() => {
@@ -299,13 +340,13 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
 
     if (charts.length === 0) {
         return (
-            <div className="h-full flex flex-col items-center justify-center bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-                <div className="text-gray-300 mb-3">
+            <div className="h-full flex flex-col items-center justify-center bg-muted/30 rounded-lg border-2 border-dashed border-border">
+                <div className="text-muted-foreground/50 mb-3">
                     <svg className="w-16 h-16" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                     </svg>
                 </div>
-                <p className="text-sm text-gray-500 mb-3">No charts created</p>
+                <p className="text-sm text-muted-foreground mb-3">No charts created</p>
                 <Button onClick={handleAddChart} size="sm" className="gap-1">
                     <Plus className="w-4 h-4" />
                     Add Chart
@@ -317,7 +358,7 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
     return (
         <div ref={containerRef} className="relative" style={{ minHeight: gridHeight, width: '100%' }}>
             {isLoading && (
-                <div className="absolute top-2 right-2 z-10 bg-white/90 px-2 py-1 rounded shadow text-xs text-gray-500 flex items-center gap-1">
+                <div className="absolute top-2 right-2 z-10 bg-card/90 px-2 py-1 rounded shadow text-xs text-muted-foreground flex items-center gap-1">
                     <Loader2 className="w-3 h-3 animate-spin" />
                     Loading...
                 </div>
@@ -351,15 +392,15 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
 
             {/* Statistics Panel */}
             {allTagsWithColors.length > 0 && (
-                <div className="mt-4 border-t border-gray-200 pt-4">
+                <div className="mt-4 border-t border-border pt-4">
                     <div className="flex items-center justify-between mb-3">
                         <button
                             onClick={() => setShowStats(!showStats)}
-                            className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900 transition-colors"
+                            className="flex items-center gap-2 text-sm font-semibold text-foreground hover:text-primary transition-colors"
                         >
                             <BarChart3 className="w-4 h-4" />
                             Tag Statistics
-                            <span className="text-xs text-gray-400 font-normal">
+                            <span className="text-xs text-muted-foreground font-normal">
                                 ({allTagsWithColors.length} tags)
                             </span>
                             <svg

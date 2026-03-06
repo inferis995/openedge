@@ -10,6 +10,7 @@ import { format, startOfDay, endOfDay } from 'date-fns';
 import { cn } from '@/lib/utils';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import api from '@/api/client';
+import { Calendar } from 'lucide-react';
 
 // Event types
 interface HistoryEvent {
@@ -71,6 +72,7 @@ const HistoryPage = () => {
     // Filter events to show only state changes
     const filteredEvents = (() => {
         if (!events) return [];
+        // Sort chronologically (oldest first)
         const sorted = [...events].sort((a, b) => a.timestamp - b.timestamp);
         const result: HistoryEvent[] = [];
         const lastStatus: Record<string, string> = {};
@@ -86,7 +88,7 @@ const HistoryPage = () => {
                 lastStatus[key] = event.status;
             }
         }
-        return result.reverse(); // Most recent first
+        return result.reverse(); // Most recent first for display
     })();
 
     return (
@@ -98,13 +100,16 @@ const HistoryPage = () => {
                 </div>
 
                 <div className="flex items-center gap-2">
-                    <input
-                        type="date"
-                        className="flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        value={date ? format(date, 'yyyy-MM-dd') : ''}
-                        onChange={(e) => setDate(e.target.value ? new Date(e.target.value) : undefined)}
-                    />
-                    <Button variant="outline" size="icon">
+                    <div className="relative">
+                        <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground z-10 pointer-events-none" />
+                        <input
+                            type="date"
+                            className="flex h-10 w-full pl-10 pr-3 rounded-md border border-input bg-card text-foreground px-3 py-2 text-sm clip-chamfer-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                            value={date ? format(date, 'yyyy-MM-dd') : ''}
+                            onChange={(e) => setDate(e.target.value ? new Date(e.target.value) : undefined)}
+                        />
+                    </div>
+                    <Button variant="outline" size="icon" className="clip-chamfer-sm">
                         <Download className="h-4 w-4" />
                     </Button>
                 </div>
@@ -132,20 +137,20 @@ const HistoryPage = () => {
 
             {/* PLC Events Card */}
             {logType === 'plc' && (
-                <Card>
-                    <CardHeader>
+                <Card className="clip-chamfer border-border bg-card">
+                    <CardHeader className="border-b border-border pb-4">
                         <CardTitle>PLC Connection Events</CardTitle>
                         <CardDescription>
                             Shows only state changes (online → offline or offline → online)
                         </CardDescription>
                     </CardHeader>
-                    <CardContent>
+                    <CardContent className="pt-6">
                         {eventsLoading ? (
                             <div className="text-center py-8">Loading events...</div>
                         ) : filteredEvents.length === 0 ? (
                             <div className="text-center py-8 text-muted-foreground">No PLC events found.</div>
                         ) : (
-                            <div className="rounded-md border">
+                            <div className="rounded-md border border-border bg-card">
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
@@ -185,8 +190,8 @@ const HistoryPage = () => {
 
             {/* User Activity Card */}
             {logType === 'users' && (
-                <Card>
-                    <CardHeader>
+                <Card className="clip-chamfer border-border bg-card">
+                    <CardHeader className="border-b border-border pb-4">
                         <div className="flex items-center justify-between">
                             <div>
                                 <CardTitle>User Activity Log</CardTitle>
@@ -210,7 +215,7 @@ const HistoryPage = () => {
                         ) : !auditLogs || auditLogs.length === 0 ? (
                             <div className="text-center py-8 text-muted-foreground">No user activity found.</div>
                         ) : (
-                            <div className="rounded-md border">
+                            <div className="rounded-md border border-border bg-card">
                                 <Table>
                                     <TableHeader>
                                         <TableRow>

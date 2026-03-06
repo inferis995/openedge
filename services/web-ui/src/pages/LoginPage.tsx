@@ -41,24 +41,25 @@ const LoginPage = () => {
     };
 
     return (
-        <div className="flex min-h-screen items-center justify-center bg-slate-100">
-            <div className="w-full max-w-md space-y-8 rounded-lg border bg-white p-8 shadow-lg">
+        <div className="flex min-h-screen items-center justify-center bg-background relative overflow-hidden">
+            {/* HexOS Honeycomb/Geometric background hint could go here, for now solid background */}
+            <div className="w-full max-w-md space-y-8 clip-chamfer border bg-card p-8 shadow-2xl relative z-10">
                 <div className="text-center">
                     <div className="flex justify-center mb-4">
-                        <img src="/logo.png" alt="OpenEdge" className="h-16 w-16 object-contain rounded-lg" />
+                        <img src="/logo.png" alt="OpenEdge" className="h-16 w-16 object-contain clip-chamfer" />
                     </div>
-                    <h2 className="text-3xl font-bold tracking-tight text-slate-900">OpenEdge</h2>
-                    <p className="mt-2 text-sm text-slate-600">
-                        Sign in to your account
+                    <h2 className="text-3xl font-bold tracking-tight text-foreground uppercase">OpenEdge</h2>
+                    <p className="mt-2 text-sm text-muted-foreground font-mono tracking-widest uppercase">
+                        System_Login
                     </p>
                 </div>
 
                 <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-                    <div className="space-y-4 rounded-md shadow-sm">
+                    <div className="space-y-4">
                         <div className="grid gap-2">
-                            <Label htmlFor="username">Username</Label>
+                            <Label htmlFor="username" className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">Username</Label>
                             <div className="relative">
-                                <UserIcon className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                                <UserIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                                 <Input
                                     id="username"
                                     type="text"
@@ -71,9 +72,9 @@ const LoginPage = () => {
                             </div>
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="password">Password</Label>
+                            <Label htmlFor="password" className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">Password</Label>
                             <div className="relative">
-                                <Lock className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                                <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                                 <Input
                                     id="password"
                                     type="password"
@@ -88,18 +89,25 @@ const LoginPage = () => {
                     </div>
 
                     {error && (
-                        <div className="text-sm font-medium text-red-500 text-center">
+                        <div className="text-[10px] font-bold tracking-widest uppercase text-destructive text-center flex items-center justify-center gap-2 animate-shake">
+                            <div className="w-1.5 h-1.5 clip-hex bg-destructive" />
                             {error}
                         </div>
                     )}
 
                     <Button
                         type="submit"
-                        className="w-full"
+                        className="w-full flex items-center justify-center gap-2"
                         disabled={loading}
                     >
-                        {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        Sign in
+                        {loading ? (
+                            <Loader2 className="h-4 w-4 animate-spin-slow text-primary-foreground" />
+                        ) : (
+                            <>
+                                <span>Sign In _</span>
+                                <div className="w-1.5 h-1.5 bg-primary-foreground clip-hex" />
+                            </>
+                        )}
                     </Button>
                 </form>
             </div>

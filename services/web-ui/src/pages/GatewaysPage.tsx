@@ -240,7 +240,7 @@ const GatewaysPage = () => {
     };
 
     if (isLoading) {
-        return <div className="p-8 text-center text-slate-500">Loading gateways...</div>;
+        return <div className="p-8 text-center text-muted-foreground">Loading gateways...</div>;
     }
 
     return (
@@ -340,7 +340,7 @@ const GatewaysPage = () => {
                                 )}
 
                                 {formData.driver_type === 'S7' && (
-                                    <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 rounded-md border">
+                                    <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-md border">
                                         <div className="grid gap-2">
                                             <Label htmlFor="rack">Rack</Label>
                                             <Input
@@ -386,7 +386,7 @@ const GatewaysPage = () => {
                                         </div>
 
                                         {/* Zero-Based Addressing Toggle */}
-                                        <div className="flex items-center justify-between p-3 bg-slate-50 rounded-md border">
+                                        <div className="flex items-center justify-between p-3 bg-muted/50 rounded-md border">
                                             <div>
                                                 <Label htmlFor="zero_based" className="text-sm font-semibold">Zero-Based Addressing</Label>
                                                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -401,7 +401,7 @@ const GatewaysPage = () => {
                                         </div>
 
                                         {/* Dynamic Addressing Note */}
-                                        <div className={`p-3 text-xs rounded-md border ${formData.zero_based ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-blue-50 text-blue-800 border-blue-100'}`}>
+                                        <div className={`p-3 text-xs rounded-md border ${formData.zero_based ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800' : 'bg-primary/5 text-primary border-primary/20'}`}>
                                             <p className="font-semibold mb-1">Modbus Addressing:</p>
                                             {formData.zero_based ? (
                                                 <>
@@ -427,12 +427,12 @@ const GatewaysPage = () => {
                                 )}
 
                                 {formData.driver_type === 'MQTT' && (
-                                    <div className="p-4 bg-emerald-50 rounded-md border border-emerald-200">
-                                        <p className="font-semibold text-emerald-800 mb-2">MQTT Native Driver</p>
-                                        <p className="text-sm text-emerald-700 mb-2">
+                                    <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 rounded-md border border-emerald-200 dark:border-emerald-800">
+                                        <p className="font-semibold text-emerald-800 dark:text-emerald-300 mb-2">MQTT Native Driver</p>
+                                        <p className="text-sm text-emerald-700 dark:text-emerald-400 mb-2">
                                             The PLC publishes data directly to this system's MQTT broker.
                                         </p>
-                                        <ul className="list-disc list-inside text-xs text-emerald-600 space-y-1">
+                                        <ul className="list-disc list-inside text-xs text-emerald-600 dark:text-emerald-400 space-y-1">
                                             <li>No IP address needed — the PLC connects to your broker</li>
                                             <li>Tag <strong>Code</strong> = the PLC's MQTT topic (e.g. <code>wago/sensori/T1</code>)</li>
                                             <li>Data is automatically bridged to the system format</li>
@@ -503,7 +503,7 @@ const GatewaysPage = () => {
                                         )}
 
                                         {formData.auth_mode === 'Certificate' && (
-                                            <div className="grid gap-4 bg-slate-50 p-3 rounded-md border">
+                                            <div className="grid gap-4 bg-muted/50 p-3 rounded-md border">
                                                 <div className="grid gap-2">
                                                     <Label htmlFor="cert_file">Certificate File Path (Server-side)</Label>
                                                     <Input
@@ -528,12 +528,12 @@ const GatewaysPage = () => {
                                             </div>
                                         )}
 
-                                        <div className="p-4 bg-indigo-50 rounded-md border border-indigo-200 mt-2">
-                                            <p className="font-semibold text-indigo-800 mb-2">OPC UA Driver</p>
-                                            <p className="text-sm text-indigo-700 mb-2">
+                                        <div className="p-4 bg-indigo-50 dark:bg-indigo-950/30 rounded-md border border-indigo-200 dark:border-indigo-800 mt-2">
+                                            <p className="font-semibold text-indigo-800 dark:text-indigo-300 mb-2">OPC UA Driver</p>
+                                            <p className="text-sm text-indigo-700 dark:text-indigo-400 mb-2">
                                                 Connects to an OPC UA server and reads selected nodes at the configured scan rate.
                                             </p>
-                                            <ul className="list-disc list-inside text-xs text-indigo-600 space-y-1">
+                                            <ul className="list-disc list-inside text-xs text-indigo-600 dark:text-indigo-400 space-y-1">
                                                 <li>Enter the server's OPC UA endpoint URL</li>
                                                 <li>After creating the gateway, use <strong>Browse Server</strong> in the Tags page to discover and add nodes</li>
                                                 <li>Tag <strong>Code</strong> = OPC UA Node ID (e.g. <code>ns=2;s=Temperature</code>)</li>
@@ -559,7 +559,7 @@ const GatewaysPage = () => {
                 )}
             </div>
 
-            <div className="rounded-md border bg-white">
+            <div className="clip-chamfer border bg-card">
                 <Table>
                     <TableHeader>
                         <TableRow>
@@ -583,7 +583,7 @@ const GatewaysPage = () => {
                             gateways.map((gw) => (
                                 <TableRow
                                     key={gw.id}
-                                    className={`cursor-pointer hover:bg-slate-50 ${!gw.enabled ? 'opacity-50' : ''}`}
+                                    className={`cursor-pointer hover:bg-muted/50 ${!gw.enabled ? 'opacity-50' : ''}`}
                                     onClick={() => handleSelect(gw.id)}
                                 >
                                     <TableCell>{gw.id}</TableCell>
@@ -610,8 +610,8 @@ const GatewaysPage = () => {
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">
-                                            <div className={`h-2.5 w-2.5 rounded-full ${gw.connection_status === 'online' ? 'bg-green-500' : 'bg-red-500'}`} />
-                                            <span className="text-sm capitalize">{gw.connection_status || 'Unknown'}</span>
+                                            <div className={`h-2 w-2 clip-hex ${gw.connection_status === 'online' ? 'bg-[#10B981] animate-pulse' : 'bg-destructive'}`} />
+                                            <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">{gw.connection_status || 'Unknown'}</span>
                                         </div>
                                     </TableCell>
                                     <TableCell>
@@ -653,16 +653,16 @@ const GatewaysPage = () => {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                                    className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                                                     onClick={(e) => handleDelete(e, gw.id)}
                                                 >
                                                     <Trash2 size={16} />
                                                 </Button>
-                                                <ChevronRight size={16} className="text-slate-300" />
+                                                <ChevronRight size={16} className="text-muted-foreground" />
                                             </div>
                                         )}
                                         {testResult?.id === gw.id && (
-                                            <div className={`text-xs mt-1 ${testResult.success ? 'text-green-600' : 'text-red-600'}`}>
+                                            <div className={`text-[10px] uppercase tracking-widest font-bold mt-1 ${testResult.success ? 'text-[#10B981]' : 'text-destructive'}`}>
                                                 {testResult.message}
                                             </div>
                                         )}

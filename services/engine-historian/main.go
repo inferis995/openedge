@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	mqttTopicData       = "data/#"
-	mqttTopicSparkplug  = "spBv1.0/#" // Sparkplug B topic
-	mqttTopicHealth     = "sys/health/+"
+	mqttTopicData      = "data/#"
+	mqttTopicSparkplug = "spBv1.0/#" // Sparkplug B topic
+	mqttTopicHealth    = "sys/health/+"
 )
 
 type HistorianService struct {
@@ -244,16 +244,18 @@ func (s *HistorianService) handleHealthMessage(topic string, payload []byte) {
 		message = "Gateway disconnected"
 	}
 
-	// Store system event in PostgreSQL with gateway name (for historical integrity)
+	// Store system event in PostgreSQL
+	// Table schema: (id, time, gateway_id, status, message) — no gateway_name column
+	fullMessage := fmt.Sprintf("%s (%s)", message, gatewayName)
 	_, err = s.db.Exec(`
-		INSERT INTO system_events (gateway_id, gateway_name, status, message)
-		VALUES ($1, $2, $3, $4)
-	`, gatewayID, gatewayName, status, message)
+		INSERT INTO system_events (gateway_id, status, message)
+		VALUES ($1, $2, $3)
+	`, gatewayID, status, fullMessage)
 
 	if err != nil {
 		log.Printf("[HISTORIAN] ERROR inserting system event to PostgreSQL: %v", err)
 	} else {
-		log.Printf("[HISTORIAN] Saved system event: Gateway %d %s", gatewayID, status)
+		log.Printf("[HISTORIAN] Saved system event: Gateway %d (%s) %s", gatewayID, gatewayName, status)
 	}
 
 	// ── OFFLINE handling ──────────────────────────────────────────────────
@@ -483,16 +485,26 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 }
 
 // saveToPostgreSQL saves a data point directly to PostgreSQL tag_history table
-// Simple rule: ONLY save GOOD quality (0). BAD quality = skip = GAP in chart.
+// If quality > 0 (BAD), we insert a NULL value to guarantee a chart gap.
 func (s *HistorianService) saveToPostgreSQL(tagID int, value float64, timestampMs int64, quality int, source string) {
-	// Skip saving if quality is BAD (>0) - this creates automatic gaps in the chart
+	ts := time.UnixMilli(timestampMs)
+
+	// If quality is BAD (>0), we store an explicit NULL to create a gap in the chart
 	if quality > 0 {
-		log.Printf("[HISTORIAN] Tag %d quality=%d (BAD), skipping storage for gap", tagID, quality)
+		_, err := s.db.Exec(`
+			INSERT INTO tag_history (time, tag_id, value, source)
+			VALUES ($1, $2, NULL, 'offline')
+		`, ts, tagID)
+
+		if err != nil {
+			log.Printf("[HISTORIAN] ERROR inserting gap marker to PostgreSQL: %v", err)
+		} else {
+			log.Printf("[HISTORIAN] Tag %d quality=%d (BAD), gap marker inserted.", tagID, quality)
+		}
 		return
 	}
 
-	// Insert directly into PostgreSQL
-	ts := time.UnixMilli(timestampMs)
+	// Insert standard good value into PostgreSQL
 	_, err := s.db.Exec(`
 		INSERT INTO tag_history (time, tag_id, value, source)
 		VALUES ($1, $2, $3, $4)

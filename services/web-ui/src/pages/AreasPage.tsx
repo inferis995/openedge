@@ -97,7 +97,7 @@ const AreasPage = () => {
     };
 
     if (isLoading) {
-        return <div className="p-8 text-center text-slate-500">Loading areas...</div>;
+        return <div className="p-8 text-center text-muted-foreground">Loading areas...</div>;
     }
 
     const handleEdit = (e: React.MouseEvent, area: { id: number; name: string }) => {
@@ -204,7 +204,7 @@ const AreasPage = () => {
                 )}
             </div>
 
-            <div className="rounded-md border bg-white">
+            <div className="clip-chamfer border bg-card">
                 <Table>
                     <TableHeader>
                         <TableRow>
@@ -228,12 +228,12 @@ const AreasPage = () => {
                                 return (
                                     <TableRow
                                         key={area.id}
-                                        className="cursor-pointer hover:bg-slate-50"
+                                        className="cursor-pointer hover:bg-muted/50"
                                         onClick={() => handleSelect(area.id)}
                                     >
                                         <TableCell className="font-medium">{area.id}</TableCell>
                                         <TableCell className="flex items-center gap-2">
-                                            <MapPin size={16} className="text-slate-500" />
+                                            <MapPin size={16} className="text-muted-foreground" />
                                             <span className="font-semibold">{area.name}</span>
                                         </TableCell>
                                         <TableCell>
@@ -256,12 +256,12 @@ const AreasPage = () => {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                                        className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                                                         onClick={(e) => handleDelete(e, area.id)}
                                                     >
                                                         <Trash2 size={16} />
                                                     </Button>
-                                                    <ChevronRight size={16} className="text-slate-300" />
+                                                    <ChevronRight size={16} className="text-muted-foreground" />
                                                 </div>
                                             </TableCell>
                                         )}

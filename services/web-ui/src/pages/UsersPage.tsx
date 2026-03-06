@@ -236,7 +236,7 @@ const UsersPage = () => {
                 </div>
             )}
 
-            <div className="rounded-md border bg-white">
+            <div className="rounded-md border border-border bg-card">
                 <Table>
                     <TableHeader>
                         <TableRow>
@@ -269,8 +269,8 @@ const UsersPage = () => {
                                     <TableCell>{user.full_name || '-'}</TableCell>
                                     <TableCell>
                                         <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${user.role === 'admin'
-                                                ? 'bg-purple-100 text-purple-700'
-                                                : 'bg-slate-100 text-slate-700'
+                                            ? 'bg-purple-100 text-purple-700'
+                                            : 'bg-slate-100 text-slate-700'
                                             }`}>
                                             {user.role === 'admin' ? <Shield size={12} /> : <UserIcon size={12} />}
                                             {user.role === 'admin' ? 'Admin' : 'User'}

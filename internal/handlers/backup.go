@@ -31,13 +31,13 @@ func NewBackupHandler(db *sql.DB, mqttClient MQTTClient) *BackupHandler {
 
 // BackupSettings represents the automatic backup configuration
 type BackupSettings struct {
-	Enabled     bool   `json:"enabled"`
-	Interval    string `json:"interval"`    // "6h", "12h", "24h", "7d"
-	BackupType  string `json:"backup_type"` // "config" or "full"
-	Retention   int    `json:"retention"`   // days to keep
-	NextRun     string `json:"next_run"`
-	LastRun     string `json:"last_run"`
-	LastStatus  string `json:"last_status"`
+	Enabled    bool   `json:"enabled"`
+	Interval   string `json:"interval"`    // "6h", "12h", "24h", "7d"
+	BackupType string `json:"backup_type"` // "config" or "full"
+	Retention  int    `json:"retention"`   // days to keep
+	NextRun    string `json:"next_run"`
+	LastRun    string `json:"last_run"`
+	LastStatus string `json:"last_status"`
 }
 
 // ExportBackup creates a full backup (config + historian)
@@ -223,7 +223,7 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 
 		// Always try to ensure structures exist after restore
 		log.Println("Ensuring TimescaleDB structures exist...")
-		if err := h.ensureTimescaleDBStructures(); err != nil {
+		if err := h.EnsureTimescaleDBStructures(); err != nil {
 			log.Printf("TimescaleDB setup warning: %v", err)
 			messages = append(messages, fmt.Sprintf("TimescaleDB warning: %v", err))
 		} else {
@@ -328,6 +328,7 @@ func (h *BackupHandler) UpdateBackupSettings(c *gin.Context) {
 	`, req.Enabled, req.Interval, req.BackupType, req.Retention)
 
 	if err != nil {
+		log.Printf("ERROR updating backup settings: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -577,8 +578,8 @@ func parseBackupInterval(s string) time.Duration {
 	}
 }
 
-// ensureTimescaleDBStructures creates TimescaleDB hypertables if they don't exist
-func (h *BackupHandler) ensureTimescaleDBStructures() error {
+// EnsureTimescaleDBStructures creates TimescaleDB hypertables if they don't exist
+func (h *BackupHandler) EnsureTimescaleDBStructures() error {
 	// Enable TimescaleDB extension
 	if _, err := h.db.Exec(`CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE`); err != nil {
 		return fmt.Errorf("failed to enable timescaledb: %w", err)

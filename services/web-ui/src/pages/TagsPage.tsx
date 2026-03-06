@@ -623,7 +623,7 @@ const TagsPage = () => {
     }, [tags, searchQuery]);
 
     if (isLoading) {
-        return <div className="p-8 text-center text-slate-500">Loading tags...</div>;
+        return <div className="p-8 text-center text-muted-foreground">Loading tags...</div>;
     }
 
     return (
@@ -929,7 +929,7 @@ const TagsPage = () => {
                 )
             }
 
-            <div className="rounded-md border bg-white">
+            <div className="clip-chamfer border bg-card">
                 <Table>
                     <TableHeader>
                         <TableRow>
@@ -964,7 +964,7 @@ const TagsPage = () => {
                             tagsList.map((tag) => {
                                 const currentValue = currentValues.get(tag.id);
                                 return (
-                                    <TableRow key={tag.id} className={selectedTagIds.includes(tag.id) ? 'bg-blue-50/50' : ''}>
+                                    <TableRow key={tag.id} className={`${selectedTagIds.includes(tag.id) ? 'bg-muted/50' : 'hover:bg-muted/30'}`}>
                                         {isAdmin() && (
                                             <TableCell>
                                                 <div className="flex items-center gap-1">
@@ -1040,13 +1040,12 @@ const TagsPage = () => {
 
                                                             {/* Quality indicator */}
                                                             {currentValue && (
-                                                                <Badge variant="outline" className={`text-[10px] h-5 px-1 ${
-                                                                    status === 'good'
-                                                                        ? 'text-green-600 border-green-200 bg-green-50'
-                                                                        : status === 'unknown'
-                                                                            ? 'text-slate-500 border-slate-200 bg-slate-50'
-                                                                            : 'text-red-600 border-red-200 bg-red-50'
-                                                                }`}>
+                                                                <Badge variant="outline" className={`text-[10px] h-5 px-1 ${status === 'good'
+                                                                    ? 'text-green-600 border-green-200 bg-green-50'
+                                                                    : status === 'unknown'
+                                                                        ? 'text-slate-500 border-slate-200 bg-slate-50'
+                                                                        : 'text-red-600 border-red-200 bg-red-50'
+                                                                    }`}>
                                                                     {status === 'good' ? 'GOOD' : status === 'unknown' ? 'UNKNOWN' : 'BAD'}
                                                                 </Badge>
                                                             )}
@@ -1160,10 +1159,10 @@ const TagsPage = () => {
                                     >
                                         <div className="flex items-center gap-3">
                                             <div className={`w-8 h-8 rounded flex items-center justify-center text-xs font-mono ${node.node_class === 'Object'
-                                                    ? 'bg-blue-100 text-blue-700'
-                                                    : node.node_class === 'Variable'
-                                                        ? 'bg-emerald-100 text-emerald-700'
-                                                        : 'bg-gray-100 text-gray-600'
+                                                ? 'bg-blue-100 text-blue-700'
+                                                : node.node_class === 'Variable'
+                                                    ? 'bg-emerald-100 text-emerald-700'
+                                                    : 'bg-gray-100 text-gray-600'
                                                 }`}>
                                                 {node.node_class === 'Object' ? '📁' : node.node_class === 'Variable' ? '📊' : '⚡'}
                                             </div>

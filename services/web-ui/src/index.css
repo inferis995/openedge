@@ -1,29 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+@layer utilities {
+  .clip-hex {
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  }
+  .clip-hex-flat {
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  }
+  .clip-hex-right {
+    clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%, 15% 50%);
+  }
+  .clip-chamfer {
+    clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  }
+  .clip-chamfer-sm {
+    clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  }
+}
+
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+    /* Light Mode */
+    --background: 0 0% 98%;      /* #FAFAFA */
+    --foreground: 0 0% 2%;       /* #050505 */
+    --card: 0 0% 100%;           /* #FFFFFF */
+    --card-foreground: 0 0% 2%;  /* #050505 */
+    --popover: 0 0% 100%;        /* #FFFFFF */
+    --popover-foreground: 0 0% 2%;
+    
+    --primary: 0 0% 2%;          /* Black buttons */
+    --primary-foreground: 67 100% 50%; /* #E0FF00 text */
+    
+    --secondary: 0 0% 94%;       /* #F0F0F0 */
+    --secondary-foreground: 0 0% 2%;
+    
+    --muted: 0 0% 94%;
+    --muted-foreground: 0 0% 40%;
+    
+    --accent: 0 0% 2%;
+    --accent-foreground: 67 100% 50%;
+    
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    
+    --border: 0 0% 85%;
+    --input: 0 0% 85%;
+    --ring: 0 0% 2%;
+    --radius: 0rem;              /* Geometric system prefers 0 radius */
+    
+    --sidebar-bg: 0 0% 94%;
+    --sidebar-fg: 0 0% 2%;
+    --sidebar-muted: 0 0% 40%;
+    --sidebar-accent: 0 0% 90%;
+    --sidebar-border: 0 0% 85%;
+  }
+
+  .dark {
+    /* Dark Mode (HexOS Core) */
+    --background: 0 0% 2%;       /* #050505 Deep Black */
+    --foreground: 0 0% 90%;      /* #E5E5E5 */
+    --card: 0 0% 6%;             /* #0F0F0F Surface */
+    --card-foreground: 0 0% 90%;
+    --popover: 0 0% 6%;
+    --popover-foreground: 0 0% 90%;
+    
+    --primary: 67 100% 50%;      /* #E0FF00 Lime */
+    --primary-foreground: 0 0% 2%; /* #050505 */
+    
+    --secondary: 0 0% 11%;       /* #1B2124 Layer */
+    --secondary-foreground: 0 0% 90%;
+    
+    --muted: 0 0% 11%;
+    --muted-foreground: 0 0% 60%;
+    
+    --accent: 67 100% 50%;
+    --accent-foreground: 0 0% 2%;
+    
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+    
+    --border: 0 0% 15%;          /* white/15 */
+    --input: 0 0% 15%;
+    --ring: 67 100% 50%;
+    --radius: 0rem;
+    
+    --sidebar-bg: 0 0% 4%;       /* Extremely dark for sidebar edge */
+    --sidebar-fg: 0 0% 90%;
+    --sidebar-muted: 0 0% 50%;
+    --sidebar-accent: 0 0% 11%;
+    --sidebar-border: 0 0% 10%;
   }
 }
 
@@ -32,7 +101,49 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Custom Scrollbar - HexOS Geometric */
+  ::-webkit-scrollbar { 
+    width: 6px; 
+    height: 6px; 
+  }
+  ::-webkit-scrollbar-track { 
+    background: transparent; 
+  }
+  ::-webkit-scrollbar-thumb { 
+    background: hsl(var(--border) / 0.5); 
+    border-radius: 0px; 
+  }
+  ::-webkit-scrollbar-thumb:hover { 
+    background: hsl(var(--muted-foreground)); 
+  }
+
+  /* Fix file input button in dark mode */
+  input[type="file"]::file-selector-button {
+    background-color: hsl(var(--muted));
+    color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border));
+    padding: 4px 12px;
+    border-radius: 0;
+    cursor: pointer;
+    clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  }
+  input[type="file"]::-webkit-file-upload-button {
+    background-color: hsl(var(--muted));
+    color: hsl(var(--foreground));
+    border: 1px solid hsl(var(--border));
+    padding: 4px 12px;
+    border-radius: 0;
+    cursor: pointer;
+    margin-right: 8px;
+    clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  }
+  input[type="file"]::file-selector-button:hover,
+  input[type="file"]::-webkit-file-upload-button:hover {
+    background-color: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
   }
 }

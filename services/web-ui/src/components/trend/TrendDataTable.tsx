@@ -91,9 +91,9 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
             pointsAtTs.forEach(p => {
                 row[p.tagKey] = p.value;
                 row[`${p.tagKey}_quality`] = p.quality;
-                if (p.value !== null) {
-                    lastKnownValues[p.tagKey] = { value: p.value, quality: p.quality };
-                }
+                // Unconditionally update last known value, even if it's null (offline),
+                // so forward-fill propagates the N/A state instead of holding onto stale TRUE/FALSE
+                lastKnownValues[p.tagKey] = { value: p.value, quality: p.quality };
             });
 
             // Forward-fill missing tags
@@ -120,7 +120,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                 header: 'Date',
                 size: 80,
                 cell: ({ getValue }) => (
-                    <span className="text-xs text-gray-600">{getValue() as string}</span>
+                    <span className="text-xs text-muted-foreground">{getValue() as string}</span>
                 ),
             },
             {
@@ -128,7 +128,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                 header: 'Time',
                 size: 80,
                 cell: ({ getValue }) => (
-                    <span className="text-xs text-gray-600 font-mono">{getValue() as string}</span>
+                    <span className="text-xs text-muted-foreground font-mono">{getValue() as string}</span>
                 ),
             },
         ];
@@ -144,7 +144,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                             style={{ backgroundColor: TAG_COLORS[index % TAG_COLORS.length] }}
                         />
                         <span className="text-xs font-medium">{key}</span>
-                        <span className="text-[10px] text-gray-400">({tag.data_type})</span>
+                        <span className="text-[10px] text-muted-foreground">({tag.data_type})</span>
                     </div>
                 ),
                 accessorFn: (row) => row[key],
@@ -156,7 +156,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
 
                     if (value === null || value === undefined) {
                         return (
-                            <span className="text-xs font-mono text-red-500 bg-red-50 px-1.5 py-0.5 rounded">
+                            <span className="text-xs font-mono text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">
                                 N/A
                             </span>
                         );
@@ -180,11 +180,10 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
 
                         return (
                             <span
-                                className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${
-                                    isTrue
-                                        ? 'bg-green-100 text-green-700'
-                                        : 'bg-red-100 text-red-700'
-                                }`}
+                                className={`text-xs font-mono font-bold px-2 py-0.5 rounded ${isTrue
+                                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                                    : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                                    }`}
                             >
                                 {displayValue}
                             </span>
@@ -198,7 +197,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                     }
 
                     return (
-                        <span className={`text-xs font-mono ${isGood ? 'text-gray-900' : 'text-red-500'}`}>
+                        <span className={`text-xs font-mono ${isGood ? 'text-foreground' : 'text-destructive'}`}>
                             {displayValue}
                         </span>
                     );
@@ -249,7 +248,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
 
     if (selectedTags.length === 0) {
         return (
-            <div className="bg-white border-t p-4 text-center text-gray-400 text-sm">
+            <div className="bg-card border-t p-4 text-center text-muted-foreground text-sm">
                 No tags selected
             </div>
         );
@@ -257,14 +256,14 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
 
     return (
         <div
-            className="bg-white border-t flex flex-col"
+            className="bg-card border-t flex flex-col"
             style={{ height }}
         >
             {/* Header */}
-            <div className="flex items-center justify-between px-3 py-1.5 border-b bg-gray-50">
+            <div className="flex items-center justify-between px-3 py-1.5 border-b bg-muted/50">
                 <div className="flex items-center gap-2">
-                    <GripVertical className="w-3 h-3 text-gray-400 cursor-ns-resize" />
-                    <span className="text-xs font-semibold text-gray-600">
+                    <GripVertical className="w-3 h-3 text-muted-foreground cursor-ns-resize" />
+                    <span className="text-xs font-semibold text-foreground">
                         Data Table ({tableData.length} rows)
                     </span>
                 </div>
@@ -295,13 +294,13 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
             {/* Table */}
             <ScrollArea className="flex-1">
                 <table className="w-full text-left">
-                    <thead className="bg-gray-50 sticky top-0">
+                    <thead className="bg-muted/50 sticky top-0">
                         {table.getHeaderGroups().map(headerGroup => (
                             <tr key={headerGroup.id}>
                                 {headerGroup.headers.map(header => (
                                     <th
                                         key={header.id}
-                                        className="px-3 py-1.5 border-b font-medium text-gray-600"
+                                        className="px-3 py-1.5 border-b font-medium text-foreground"
                                         style={{ width: header.getSize() }}
                                     >
                                         {header.isPlaceholder
@@ -319,7 +318,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                         {table.getRowModel().rows.map(row => (
                             <tr
                                 key={row.id}
-                                className="hover:bg-gray-50 border-b border-gray-100"
+                                className="hover:bg-muted/30 border-b border-border"
                             >
                                 {row.getVisibleCells().map(cell => (
                                     <td key={cell.id} className="px-3 py-1">

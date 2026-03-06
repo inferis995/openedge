@@ -7,11 +7,13 @@ DROP TABLE IF EXISTS tag_history CASCADE;
 
 -- Main historian table (simple, clean)
 -- NO quality column - if it's here, it's GOOD. If not here, it's a GAP.
+// Modifying Historian table to allow explicit NULLs for gaps
 CREATE TABLE tag_history (
     id        BIGSERIAL,
     time      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     tag_id    INTEGER     NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-    value     FLOAT8      NOT NULL,          -- Actual value (no NULL - only valid data stored)
+    value     FLOAT8,                            -- NULL = explicit gap / offline marker
+
     source    VARCHAR(20) DEFAULT 'mqtt',    -- 'mqtt', 'modbus', 'opcua', 's7', 'sparkplug_b'
     PRIMARY KEY (id)
 );

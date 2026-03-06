@@ -708,6 +708,12 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 			// The MQTT connection might be down temporarily
 			// The driver will still work with old config until reconnected
 		}
+
+		// If explicitly disabled, forcefully publish offline status so historian records gap and event
+		if req.Enabled != nil && !*req.Enabled {
+			healthTopic := fmt.Sprintf("sys/health/%d", gateway.ID)
+			h.mqttClient.PublishWithQoS(healthTopic, "offline", 1, true)
+		}
 	}
 
 	// Enrich with health status from Redis

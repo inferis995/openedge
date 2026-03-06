@@ -265,6 +265,7 @@ func main() {
 			system.POST("/restore", middleware.RequireRole(models.RoleAdmin), backupHandler.ImportRestore)
 
 			// Automatic backup settings
+			backupHandler.EnsureTimescaleDBStructures()
 			system.GET("/backup/settings", backupHandler.GetBackupSettings)
 			system.PUT("/backup/settings", middleware.RequireRole(models.RoleAdmin), backupHandler.UpdateBackupSettings)
 			system.GET("/backup/list", backupHandler.ListBackups)

@@ -79,7 +79,7 @@ const SitesPage = () => {
     };
 
     if (isLoading) {
-        return <div className="p-8 text-center text-slate-500">Loading sites...</div>;
+        return <div className="p-8 text-center text-muted-foreground">Loading sites...</div>;
     }
 
     const handleEdit = (e: React.MouseEvent, site: { id: number; name: string }) => {
@@ -186,7 +186,7 @@ const SitesPage = () => {
                 )}
             </div>
 
-            <div className="rounded-md border bg-white">
+            <div className="rounded-md border bg-card">
                 <Table>
                     <TableHeader>
                         <TableRow>
@@ -210,12 +210,12 @@ const SitesPage = () => {
                                 return (
                                     <TableRow
                                         key={site.id}
-                                        className="cursor-pointer hover:bg-slate-50"
+                                        className="cursor-pointer hover:bg-muted/50"
                                         onClick={() => handleSelect(site.id)}
                                     >
                                         <TableCell className="font-medium">{site.id}</TableCell>
                                         <TableCell className="flex items-center gap-2">
-                                            <Factory size={16} className="text-slate-500" />
+                                            <Factory size={16} className="text-muted-foreground" />
                                             <span className="font-semibold">{site.name}</span>
                                         </TableCell>
                                         <TableCell>
@@ -238,12 +238,12 @@ const SitesPage = () => {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                                        className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
                                                         onClick={(e) => handleDelete(e, site.id)}
                                                     >
                                                         <Trash2 size={16} />
                                                     </Button>
-                                                    <ChevronRight size={16} className="text-slate-300" />
+                                                    <ChevronRight size={16} className="text-muted-foreground" />
                                                 </div>
                                             </TableCell>
                                         )}

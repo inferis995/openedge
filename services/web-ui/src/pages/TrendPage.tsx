@@ -10,7 +10,7 @@ import { TagBrowser } from '@/components/trend/TagBrowser';
 import { TrendDashboard } from '@/components/trend/TrendDashboard';
 import { TrendDataTable } from '@/components/trend/TrendDataTable';
 import { useTrendStore } from '@/stores/useTrendStore';
-import { useSparkplugDeviceStore } from '@/stores/useSparkplugDeviceStore';
+
 import { decodeSparkplugB, isProtobufData, convertSparkplugQuality } from '@/utils/sparkplugDecoder';
 import {
     TagWithHierarchy,
@@ -211,24 +211,16 @@ const TrendPage = () => {
                 // Handle Sparkplug B messages
                 if (topic.startsWith('spBv1.0/')) {
                     const parts = topic.split('/');
-                    const groupId = parts[1] || '';
                     const msgType = parts[2] || '';
-                    const nodeId = parts[3] || '';
-                    const deviceId = parts[4] || '';
-
-                    const { handleBirth, handleDeath, handleData } = useSparkplugDeviceStore.getState();
 
                     if (isProtobufData(payload)) {
                         const decoded = decodeSparkplugB(payload);
                         if (decoded) {
-                            if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
-                                handleBirth(groupId, nodeId, deviceId || nodeId, decoded.metrics.length);
-                            } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
-                                handleDeath(groupId, nodeId, deviceId || nodeId);
-                            } else if (msgType === 'DDATA' || msgType === 'NDATA') {
-                                handleData(groupId, nodeId, deviceId || nodeId);
-
-                                // Also update realtime values for matching tags
+                            // NOTE: DBIRTH/DDEATH/DDATA device status is handled by
+                            // the global useSparkplugListener in App.tsx.
+                            // Here we ONLY extract metric values from DDATA for chart updates.
+                            if (msgType === 'DDATA' || msgType === 'NDATA') {
+                                // Update realtime values for matching tags
                                 decoded.metrics.forEach(metric => {
                                     if (metric.name) {
                                         const tag = tags.find(t => {
@@ -459,7 +451,7 @@ const TrendPage = () => {
     const isLoading = historyQueries.some(q => q.isLoading);
 
     return (
-        <div className="h-[calc(100vh-5rem)] flex flex-col bg-gray-50">
+        <div className="h-[calc(100vh-5rem)] flex flex-col bg-background">
             {/* Toolbar */}
             <TrendToolbar
                 onRefresh={handleRefresh}
@@ -472,11 +464,11 @@ const TrendPage = () => {
             />
 
             {/* Main Content */}
-            <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 flex overflow-hidden min-h-0">
                 {/* Sidebar - Tag Browser */}
                 {sidebarOpen && (
                     <>
-                        <div style={{ width: sidebarWidth }} className="flex-shrink-0 overflow-hidden">
+                        <div style={{ width: sidebarWidth }} className="flex-shrink-0 flex flex-col overflow-hidden min-h-0">
                             <TagBrowser
                                 onAddTagToChart={handleAddTagToChart}
                                 selectedTagIds={allTagIds}
@@ -485,7 +477,7 @@ const TrendPage = () => {
                         </div>
                         {/* Resize handle */}
                         <div
-                            className="w-1.5 flex-shrink-0 hover:bg-blue-400 bg-gray-200 cursor-col-resize transition-colors"
+                            className="w-1.5 flex-shrink-0 hover:bg-primary bg-muted cursor-col-resize transition-colors"
                             onMouseDown={handleSidebarResizeStart}
                             title="Trascina per ridimensionare"
                         />
