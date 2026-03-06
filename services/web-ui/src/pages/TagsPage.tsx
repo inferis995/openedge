@@ -743,7 +743,7 @@ const TagsPage = () => {
                             {selectedGatewayDriverType === 'OPC_UA' && (
                                 <Button
                                     variant="outline"
-                                    className="gap-2 border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                                    className="gap-2 border-[#c8e600]/50 text-[#4a5500] dark:text-[#c8e600] hover:bg-[#c8e600]/10"
                                     onClick={handleBrowseOpen}
                                     disabled={!selectedGatewayId || selectedGatewayId === 'all'}
                                 >
@@ -769,7 +769,7 @@ const TagsPage = () => {
                                         <div className="grid grid-cols-2 gap-4">
                                             {/* Modbus Address Builder */}
                                             {selectedGatewayDriverType === 'MODBUS_TCP' && (
-                                                <div className="col-span-2 space-y-4 p-4 bg-slate-50 rounded-md border">
+                                                <div className="col-span-2 space-y-4 p-4 bg-muted/50 rounded-md border">
                                                     <h3 className="text-sm font-medium">Modbus Address Builder</h3>
                                                     <div className="grid grid-cols-2 gap-4">
                                                         <div className="grid gap-2">
@@ -915,14 +915,14 @@ const TagsPage = () => {
             {/* Bulk Actions Toolbar */}
             {
                 selectedTagIds.length > 0 && (
-                    <div className="flex items-center gap-2 p-2 bg-blue-50 border border-blue-200 rounded-md text-blue-800 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex items-center gap-2 p-2 bg-[#c8e600]/10 border border-[#c8e600]/30 rounded-md text-foreground animate-in fade-in slide-in-from-top-2">
                         <span className="text-sm font-medium px-2">{selectedTagIds.length} Selected</span>
-                        <div className="h-4 w-px bg-blue-200 mx-2" />
+                        <div className="h-4 w-px bg-border mx-2" />
                         <Button variant="ghost" size="sm" onClick={handleBatchDelete} className="gap-1 hover:bg-red-100 text-red-600 hover:text-red-700">
                             <Trash2 size={16} /> Delete Selected
                         </Button>
                         <div className="flex-1" />
-                        <Button variant="ghost" size="sm" onClick={() => setSelectedTagIds([])} className="gap-1 hover:bg-blue-100 text-blue-700">
+                        <Button variant="ghost" size="sm" onClick={() => setSelectedTagIds([])} className="gap-1 hover:bg-[#c8e600]/20 text-[#4a5500] dark:text-[#c8e600]">
                             <X size={16} /> Cancel
                         </Button>
                     </div>
@@ -937,7 +937,7 @@ const TagsPage = () => {
                                 <TableHead className="w-[40px]">
                                     <Button variant="ghost" size="sm" className="p-0 h-6 w-6" onClick={handleSelectAll}>
                                         {selectedTagIds.length === tagsList.length && tagsList.length > 0 ? (
-                                            <CheckSquare size={16} className="text-blue-600" />
+                                            <CheckSquare size={16} className="text-[#4a5500] dark:text-[#c8e600]" />
                                         ) : (
                                             <Square size={16} className="text-slate-300" />
                                         )}
@@ -975,7 +975,7 @@ const TagsPage = () => {
                                                         onClick={(e) => { e.stopPropagation(); toggleSelect(tag.id); }}
                                                     >
                                                         {selectedTagIds.includes(tag.id) ? (
-                                                            <CheckSquare size={16} className="text-blue-600" />
+                                                            <CheckSquare size={16} className="text-[#4a5500] dark:text-[#c8e600]" />
                                                         ) : (
                                                             <Square size={16} className="text-slate-300" />
                                                         )}
@@ -985,7 +985,7 @@ const TagsPage = () => {
                                                             <Button
                                                                 variant="ghost"
                                                                 size="icon"
-                                                                className="h-5 w-5 p-0 text-blue-600 hover:bg-blue-100"
+                                                                className="h-5 w-5 p-0 text-[#4a5500] dark:text-[#c8e600] hover:bg-[#c8e600]/20"
                                                                 onClick={(e) => { e.stopPropagation(); handleMoveSingle(tag.id, 'up'); }}
                                                             >
                                                                 <ArrowUp size={14} />
@@ -1041,10 +1041,10 @@ const TagsPage = () => {
                                                             {/* Quality indicator */}
                                                             {currentValue && (
                                                                 <Badge variant="outline" className={`text-[10px] h-5 px-1 ${status === 'good'
-                                                                    ? 'text-green-600 border-green-200 bg-green-50'
+                                                                    ? 'text-green-500 border-green-500/30 bg-green-500/10'
                                                                     : status === 'unknown'
-                                                                        ? 'text-slate-500 border-slate-200 bg-slate-50'
-                                                                        : 'text-red-600 border-red-200 bg-red-50'
+                                                                        ? 'text-muted-foreground border-border bg-muted'
+                                                                        : 'text-red-500 border-red-500/30 bg-red-500/10'
                                                                     }`}>
                                                                     {status === 'good' ? 'GOOD' : status === 'unknown' ? 'UNKNOWN' : 'BAD'}
                                                                 </Badge>
@@ -1081,7 +1081,7 @@ const TagsPage = () => {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="h-8 w-8 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
+                                                        className="h-8 w-8 text-muted-foreground hover:text-[#4a5500] dark:hover:text-[#c8e600] hover:bg-[#c8e600]/10"
                                                         onClick={() => handleEdit(tag)}
                                                     >
                                                         <Edit2 size={16} />
@@ -1089,7 +1089,7 @@ const TagsPage = () => {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                                        className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
                                                         onClick={(e) => handleDelete(e, tag.id)}
                                                     >
                                                         <Trash2 size={16} />
@@ -1121,7 +1121,7 @@ const TagsPage = () => {
                             <div key={index} className="flex items-center">
                                 {index > 0 && <span className="mx-1 text-muted-foreground">/</span>}
                                 <button
-                                    className={`hover:underline ${index === browsePath.length - 1 ? 'font-semibold text-indigo-700' : 'text-muted-foreground'}`}
+                                    className={`hover:underline ${index === browsePath.length - 1 ? 'font-semibold text-[#4a5500] dark:text-[#c8e600]' : 'text-muted-foreground'}`}
                                     onClick={() => handleBrowseBack(index)}
                                     disabled={isBrowsing}
                                 >
@@ -1154,15 +1154,15 @@ const TagsPage = () => {
                                 {browseNodes.map((node, index) => (
                                     <div
                                         key={index}
-                                        className={`flex items-center justify-between p-3 hover:bg-slate-50 ${node.node_class === 'Object' && node.children_count > 0 ? 'cursor-pointer' : ''}`}
+                                        className={`flex items-center justify-between p-3 hover:bg-muted/50 ${node.node_class === 'Object' && node.children_count > 0 ? 'cursor-pointer' : ''}`}
                                         onClick={() => handleBrowseNavigate(node)}
                                     >
                                         <div className="flex items-center gap-3">
                                             <div className={`w-8 h-8 rounded flex items-center justify-center text-xs font-mono ${node.node_class === 'Object'
-                                                ? 'bg-blue-100 text-blue-700'
+                                                ? 'bg-[#c8e600]/20 text-[#4a5500] dark:text-[#c8e600]'
                                                 : node.node_class === 'Variable'
                                                     ? 'bg-emerald-100 text-emerald-700'
-                                                    : 'bg-gray-100 text-gray-600'
+                                                    : 'bg-muted text-muted-foreground'
                                                 }`}>
                                                 {node.node_class === 'Object' ? '📁' : node.node_class === 'Variable' ? '📊' : '⚡'}
                                             </div>
@@ -1178,7 +1178,7 @@ const TagsPage = () => {
                                                     <Button
                                                         size="sm"
                                                         variant="outline"
-                                                        className="text-xs border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                                                        className="text-xs border-[#c8e600]/50 text-[#4a5500] dark:text-[#c8e600] hover:bg-[#c8e600]/10"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             handleAddNodeAsTag(node);
