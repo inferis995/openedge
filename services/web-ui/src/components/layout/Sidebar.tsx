@@ -61,15 +61,12 @@ const Sidebar = () => {
                 collapsed ? "justify-center" : "justify-between"
             )}>
                 {collapsed ? (
-                    <div className="bg-primary/20 clip-hex p-2">
-                        <img src="/logo.png" alt="OpenEdge" className="h-8 w-8 object-contain" />
+                    <div className="p-1">
+                        <img src={theme === 'dark' ? '/logo-dark.png' : '/logo-light.png'} alt="OpenEdge" className="h-10 w-auto object-contain" />
                     </div>
                 ) : (
-                    <div className="flex items-center gap-3 overflow-hidden whitespace-nowrap">
-                        <img src="/logo.png" alt="OpenEdge" className="h-10 w-10 object-contain clip-chamfer-sm" />
-                        <div>
-                            <h1 className="text-lg font-bold tracking-tight text-[hsl(var(--sidebar-fg))]">OpenEdge</h1>
-                        </div>
+                    <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap">
+                        <img src={theme === 'dark' ? '/logo-dark.png' : '/logo-light.png'} alt="OpenEdge" className="h-10 w-auto object-contain" />
                     </div>
                 )}
             </div>

@@ -29,7 +29,11 @@ const DashboardPage = () => {
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
-                <h2 className="text-3xl font-bold tracking-tight">System Overview</h2>
+                <div className="flex items-center gap-3">
+                    <img src="/logo-dark.png" alt="OpenEdge" className="h-10 w-auto object-contain hidden dark:block" />
+                    <img src="/logo-light.png" alt="OpenEdge" className="h-10 w-auto object-contain dark:hidden" />
+                    <h2 className="text-3xl font-bold tracking-tight">System Overview</h2>
+                </div>
                 <div className="flex items-center gap-2">
                     <Button onClick={() => navigate('/organizations')}>Configure Hierarchy</Button>
                     <Button variant="outline" onClick={() => navigate('/gateways')}>Manage Gateways</Button>

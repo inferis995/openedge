@@ -299,8 +299,8 @@ const SystemPage = () => {
                 {/* Alert message */}
                 {message && (
                     <div className={`flex items-center gap-3 px-4 py-3 rounded-lg border text-sm font-medium ${message.type === 'success'
-                            ? 'bg-primary/10 border-primary/20 text-primary'
-                            : 'bg-destructive/10 border-destructive/20 text-destructive'
+                        ? 'bg-primary/10 border-primary/20 text-primary'
+                        : 'bg-destructive/10 border-destructive/20 text-destructive'
                         }`}>
                         {message.type === 'success'
                             ? <CheckCircle className="h-4 w-4 flex-shrink-0" />
@@ -342,8 +342,8 @@ const SystemPage = () => {
                                         <label
                                             htmlFor="broker-internal"
                                             className={`flex items-start gap-3 p-3.5 clip-chamfer border cursor-pointer transition-all ${mqttBrokerMode === 'internal'
-                                                    ? 'border-primary bg-primary/5'
-                                                    : 'border-border bg-card hover:border-primary/30'
+                                                ? 'border-primary bg-primary/5'
+                                                : 'border-border bg-card hover:border-primary/30'
                                                 }`}
                                         >
                                             <RadioGroupItem value="internal" id="broker-internal" className="mt-0.5 flex-shrink-0" />
@@ -369,8 +369,8 @@ const SystemPage = () => {
                                         <label
                                             htmlFor="broker-external"
                                             className={`flex items-start gap-3 p-3.5 clip-chamfer border cursor-pointer transition-all ${mqttBrokerMode === 'external'
-                                                    ? 'border-primary bg-primary/5'
-                                                    : 'border-border bg-card hover:border-primary/30'
+                                                ? 'border-primary bg-primary/5'
+                                                : 'border-border bg-card hover:border-primary/30'
                                                 }`}
                                         >
                                             <RadioGroupItem value="external" id="broker-external" className="mt-0.5 flex-shrink-0" />
@@ -514,8 +514,8 @@ const SystemPage = () => {
                                                     key={mode.value}
                                                     htmlFor={mode.value}
                                                     className={`flex items-start gap-3 p-3.5 clip-chamfer border cursor-pointer transition-all ${isSelected
-                                                            ? 'border-primary bg-primary/5'
-                                                            : 'border-border bg-card hover:border-primary/30'
+                                                        ? 'border-primary bg-primary/5'
+                                                        : 'border-border bg-card hover:border-primary/30'
                                                         }`}
                                                 >
                                                     <RadioGroupItem value={mode.value} id={mode.value} className="mt-0.5 flex-shrink-0" />
@@ -833,7 +833,9 @@ const SystemPage = () => {
                 )}
 
                 {/* Footer */}
-                <div className="pt-6 border-t border-border">
+                <div className="pt-6 border-t border-border flex flex-col items-center gap-3">
+                    <img src="/logo-dark.png" alt="OpenEdge" className="h-12 w-auto object-contain hidden dark:block" />
+                    <img src="/logo-light.png" alt="OpenEdge" className="h-12 w-auto object-contain dark:hidden" />
                     <p className="text-center text-xs text-muted-foreground">
                         Sviluppato da{' '}
                         <span className="font-semibold text-foreground">Giovanni Addeo</span>
