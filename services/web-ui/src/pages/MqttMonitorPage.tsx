@@ -375,9 +375,9 @@ const MqttMonitorPage = () => {
 
     const getFormatBadge = (format: 'legacy' | 'sparkplug') => {
         if (format === 'sparkplug') {
-            return <Badge className="bg-purple-500 text-white gap-1"><Zap className="h-3 w-3" />SPB</Badge>;
+            return <Badge className="bg-[#c8e600] text-black gap-1"><Zap className="h-3 w-3" />SPB</Badge>;
         }
-        return <Badge className="bg-slate-500 text-white">LEG</Badge>;
+        return <Badge className="bg-muted text-muted-foreground">LEG</Badge>;
     };
 
     const formatValue = (value: number | boolean | string) => {
@@ -409,8 +409,8 @@ const MqttMonitorPage = () => {
         // Text filter
         if (filter) {
             return m.topic.toLowerCase().includes(filter.toLowerCase()) ||
-                   m.tagAlias.toLowerCase().includes(filter.toLowerCase()) ||
-                   m.tagId.toString().includes(filter);
+                m.tagAlias.toLowerCase().includes(filter.toLowerCase()) ||
+                m.tagId.toString().includes(filter);
         }
         return true;
     });
@@ -516,7 +516,7 @@ const MqttMonitorPage = () => {
                 <CardContent className="p-0">
                     <div className="h-[calc(100vh-380px)] overflow-auto">
                         <Table>
-                            <TableHeader className="sticky top-0 bg-white z-10">
+                            <TableHeader className="sticky top-0 bg-background z-10">
                                 <TableRow>
                                     <TableHead className="w-[100px]">Time</TableHead>
                                     <TableHead className="w-[70px]">Format</TableHead>
@@ -537,63 +537,62 @@ const MqttMonitorPage = () => {
                                     filteredMessages.map((msg) => {
                                         const isLifecycle = msg.format === 'sparkplug' &&
                                             (msg.tagAlias.startsWith('[DBIRTH]') ||
-                                             msg.tagAlias.startsWith('[NBIRTH]') ||
-                                             msg.tagAlias.startsWith('[DDEATH]') ||
-                                             msg.tagAlias.startsWith('[NDEATH]'));
+                                                msg.tagAlias.startsWith('[NBIRTH]') ||
+                                                msg.tagAlias.startsWith('[DDEATH]') ||
+                                                msg.tagAlias.startsWith('[NDEATH]'));
                                         const isDeath = isLifecycle && (msg.tagAlias.includes('DEATH'));
 
                                         return (
-                                        <TableRow
-                                            key={msg.id}
-                                            className={`font-mono text-sm ${
-                                                isLifecycle
+                                            <TableRow
+                                                key={msg.id}
+                                                className={`font-mono text-sm ${isLifecycle
                                                     ? isDeath
-                                                        ? 'bg-red-50/60 italic'
-                                                        : 'bg-green-50/60 italic'
+                                                        ? 'bg-red-500/10 italic'
+                                                        : 'bg-green-500/10 italic'
                                                     : msg.format === 'sparkplug'
-                                                        ? 'bg-purple-50/30'
+                                                        ? 'bg-[#c8e600]/5'
                                                         : ''
-                                            }`}
-                                        >
-                                            <TableCell className="text-muted-foreground">
-                                                {formatTime(msg.receivedAt)}
-                                            </TableCell>
-                                            <TableCell>
-                                                {getFormatBadge(msg.format)}
-                                            </TableCell>
-                                            <TableCell>
-                                                {msg.tagId > 0 ? (
-                                                    <Badge variant="outline">{msg.tagId}</Badge>
-                                                ) : (
-                                                    <span className="text-muted-foreground">-</span>
-                                                )}
-                                            </TableCell>
-                                            <TableCell className="text-xs">
-                                                <div className="truncate max-w-[350px]" title={msg.topic}>
-                                                    {isLifecycle ? (
-                                                        <span>
-                                                            <span className={`font-semibold ${isDeath ? 'text-red-600' : 'text-green-600'}`}>
-                                                                {msg.tagAlias}
-                                                            </span>
-                                                            <span className="text-muted-foreground ml-1 text-[10px]">({msg.topic})</span>
-                                                        </span>
-                                                    ) : msg.tagAlias && msg.tagAlias !== msg.topic.split('/').pop() ? (
-                                                        <span>
-                                                            <span className="font-medium text-blue-600">{msg.tagAlias}</span>
-                                                            <span className="text-muted-foreground ml-1">({msg.topic})</span>
-                                                        </span>
+                                                    }`}
+                                            >
+                                                <TableCell className="text-muted-foreground">
+                                                    {formatTime(msg.receivedAt)}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {getFormatBadge(msg.format)}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {msg.tagId > 0 ? (
+                                                        <Badge variant="outline">{msg.tagId}</Badge>
                                                     ) : (
-                                                        <span>{msg.topic}</span>
+                                                        <span className="text-muted-foreground">-</span>
                                                     )}
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className={`text-right font-semibold ${isLifecycle ? (isDeath ? 'text-red-500' : 'text-green-600') : 'text-blue-600'}`}>
-                                                {formatValue(msg.value)}
-                                            </TableCell>
-                                            <TableCell className="text-center">
-                                                {getQualityBadge(msg.quality)}
-                                            </TableCell>
-                                        </TableRow>
+                                                </TableCell>
+                                                <TableCell className="text-xs">
+                                                    <div className="truncate max-w-[350px]" title={msg.topic}>
+                                                        {isLifecycle ? (
+                                                            <span>
+                                                                <span className={`font-semibold ${isDeath ? 'text-red-600' : 'text-green-600'}`}>
+                                                                    {msg.tagAlias}
+                                                                </span>
+                                                                <span className="text-muted-foreground ml-1 text-[10px]">({msg.topic})</span>
+                                                            </span>
+                                                        ) : msg.tagAlias && msg.tagAlias !== msg.topic.split('/').pop() ? (
+                                                            <span>
+                                                                <span className="font-medium text-[#4a5500] dark:text-[#c8e600]">{msg.tagAlias}</span>
+                                                                <span className="text-muted-foreground ml-1">({msg.topic})</span>
+                                                            </span>
+                                                        ) : (
+                                                            <span>{msg.topic}</span>
+                                                        )}
+                                                    </div>
+                                                </TableCell>
+                                                <TableCell className={`text-right font-semibold ${isLifecycle ? (isDeath ? 'text-red-500' : 'text-green-500') : 'text-foreground'}`}>
+                                                    {formatValue(msg.value)}
+                                                </TableCell>
+                                                <TableCell className="text-center">
+                                                    {getQualityBadge(msg.quality)}
+                                                </TableCell>
+                                            </TableRow>
                                         );
                                     })
                                 )}
