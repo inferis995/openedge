@@ -82,4 +82,10 @@ export const historyApi = {
         const response = await api.post('/history/batch', request);
         return response.data;
     },
+
+    // Get data range (oldest/newest timestamps) for the organization
+    getDataRange: async (): Promise<{ oldest: string | null; newest: string | null; hasData: boolean }> => {
+        const response = await api.get('/history/data-range');
+        return response.data;
+    },
 };

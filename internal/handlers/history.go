@@ -804,6 +804,39 @@ func (h *HistoryHandler) getTagDetails(tagID, orgID int) (string, error) {
 	return dataType, nil
 }
 
+// GetDataRange returns the min/max timestamps of data in tag_history for the org
+func (h *HistoryHandler) GetDataRange(c *gin.Context) {
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	var oldest, newest sql.NullTime
+	err := h.db.QueryRowContext(c.Request.Context(), `
+		SELECT MIN(th.time), MAX(th.time)
+		FROM tag_history th
+		INNER JOIN tags t ON t.id = th.tag_id
+		INNER JOIN gateways g ON g.id = t.gateway_id
+		WHERE g.organization_id = $1
+	`, orgID).Scan(&oldest, &newest)
+
+	if err != nil || !oldest.Valid || !newest.Valid {
+		c.JSON(http.StatusOK, gin.H{
+			"oldest":  nil,
+			"newest":  nil,
+			"hasData": false,
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"oldest":  oldest.Time.Format(time.RFC3339),
+		"newest":  newest.Time.Format(time.RFC3339),
+		"hasData": true,
+	})
+}
+
 // GetTagStats handles GET /api/history/stats?tag_id={id}&start={iso}&end={iso}
 // @Summary Get tag statistics
 // @Description Get statistical summary (min, max, avg, stddev) for a tag over a time range

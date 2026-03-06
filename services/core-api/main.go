@@ -300,6 +300,7 @@ func main() {
 			history.GET("", historyHandler.Query)
 			history.GET("/stats", historyHandler.GetTagStats)
 			history.GET("/events", historyHandler.QueryEvents)
+			history.GET("/data-range", historyHandler.GetDataRange)
 		}
 
 		// Audit endpoints

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -13,8 +13,10 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Calendar, Clock, ChevronDown } from 'lucide-react';
+import { Calendar, Clock, ChevronDown, SkipForward, Loader2 } from 'lucide-react';
 import { TimePreset, TimeRange } from '@/types/trend';
+import { historyApi } from '@/api/history';
+import { toast } from 'sonner';
 
 interface TimePickerProps {
     value: TimeRange;
@@ -63,6 +65,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
     const [customEndTime, setCustomEndTime] = useState(
         value.customEnd ? formatTimeForInput(value.customEnd) : '23:59'
     );
+    const [isLoadingLastData, setIsLoadingLastData] = useState(false);
 
     const handlePresetClick = (preset: TimePreset) => {
         onChange({ preset });
@@ -91,19 +94,53 @@ export const TimePicker: React.FC<TimePickerProps> = ({
         }
     };
 
+    // "Go to Last Data" — fetch data range from API and set custom range
+    const handleGoToLastData = useCallback(async () => {
+        setIsLoadingLastData(true);
+        try {
+            const range = await historyApi.getDataRange();
+            if (!range.hasData || !range.newest) {
+                toast.info('No historical data found');
+                return;
+            }
+
+            // Center a 1-hour window around the newest data point
+            const newest = new Date(range.newest);
+            const windowStart = new Date(newest.getTime() - 30 * 60 * 1000); // 30 min before
+            const windowEnd = new Date(newest.getTime() + 30 * 60 * 1000);   // 30 min after
+
+            setCustomStart(formatDateForInput(windowStart));
+            setCustomStartTime(formatTimeForInput(windowStart));
+            setCustomEnd(formatDateForInput(windowEnd));
+            setCustomEndTime(formatTimeForInput(windowEnd));
+
+            onChange({
+                preset: 'custom',
+                customStart: windowStart,
+                customEnd: windowEnd,
+            });
+
+            toast.success(`Moved to last data: ${newest.toLocaleString('it-IT')}`);
+        } catch {
+            toast.error('Failed to fetch data range');
+        } finally {
+            setIsLoadingLastData(false);
+        }
+    }, [onChange]);
+
     const isCustom = value.preset === 'custom';
 
     return (
         <div className="flex items-center gap-2 flex-wrap">
             {/* Quick Presets */}
-            <div className="flex bg-gray-100 rounded p-0.5">
+            <div className="flex bg-muted rounded p-0.5">
                 {QUICK_PRESETS.map((preset) => (
                     <button
                         key={preset.value}
                         onClick={() => handlePresetClick(preset.value)}
                         className={`px-2.5 py-1 text-xs font-medium rounded transition-all ${value.preset === preset.value
-                            ? 'bg-white text-blue-600 shadow-sm'
-                            : 'text-gray-600 hover:text-gray-900'
+                            ? 'bg-background text-primary shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
                             }`}
                     >
                         {preset.label}
@@ -125,12 +162,29 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                         <SelectItem key={preset.value} value={preset.value}>
                             <div>
                                 <div className="font-medium">{preset.label}</div>
-                                <div className="text-[10px] text-gray-400">{preset.description}</div>
+                                <div className="text-[10px] text-muted-foreground">{preset.description}</div>
                             </div>
                         </SelectItem>
                     ))}
                 </SelectContent>
             </Select>
+
+            {/* Go to Last Data Button */}
+            <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={handleGoToLastData}
+                disabled={isLoadingLastData}
+                title="Jump to the most recent data in the database"
+            >
+                {isLoadingLastData ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                    <SkipForward className="w-3 h-3" />
+                )}
+                Last Data
+            </Button>
 
             {/* Custom Range Picker */}
             <Popover>
@@ -147,11 +201,11 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                 </PopoverTrigger>
                 <PopoverContent className="w-80" align="end">
                     <div className="space-y-3">
-                        <div className="text-sm font-medium text-gray-700">Custom Time Range</div>
+                        <div className="text-sm font-medium text-foreground">Custom Time Range</div>
 
                         {/* Start Date/Time */}
                         <div className="space-y-1.5">
-                            <label className="text-xs text-gray-500">From</label>
+                            <label className="text-xs text-muted-foreground">From</label>
                             <div className="flex gap-2">
                                 <Input
                                     type="date"
@@ -170,7 +224,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
 
                         {/* End Date/Time */}
                         <div className="space-y-1.5">
-                            <label className="text-xs text-gray-500">To</label>
+                            <label className="text-xs text-muted-foreground">To</label>
                             <div className="flex gap-2">
                                 <Input
                                     type="date"
@@ -234,6 +288,21 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                             >
                                 Last 7 Days
                             </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-6 text-[10px]"
+                                onClick={() => {
+                                    const now = new Date();
+                                    const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                                    setCustomStart(formatDateForInput(monthAgo));
+                                    setCustomStartTime('00:00');
+                                    setCustomEnd(formatDateForInput(now));
+                                    setCustomEndTime(formatTimeForInput(now));
+                                }}
+                            >
+                                Last 30 Days
+                            </Button>
                         </div>
 
                         <Button
@@ -250,7 +319,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
 
             {/* Current range display */}
             {isCustom && value.customStart && value.customEnd && (
-                <div className="text-xs text-gray-500">
+                <div className="text-xs text-muted-foreground">
                     {value.customStart.toLocaleDateString('it-IT')} {value.customStart.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
                     {' - '}
                     {value.customEnd.toLocaleDateString('it-IT')} {value.customEnd.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
