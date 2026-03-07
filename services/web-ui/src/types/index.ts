@@ -114,3 +114,14 @@ export interface HistoryQueryParams {
     agg?: 'mean' | 'max' | 'min' | 'sum' | 'first' | 'last' | 'count' | 'median' | 'stddev';
     interval?: string;
 }
+
+export interface WriteTagCommand {
+    tag_id: number;
+    value: any;
+}
+
+export interface WriteTagResult {
+    success: boolean;
+    error?: string;
+    message?: string;
+}

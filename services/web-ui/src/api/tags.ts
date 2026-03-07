@@ -1,5 +1,5 @@
 import api from './client';
-import { Tag, CreateTagDto } from '@/types';
+import { Tag, CreateTagDto, WriteTagCommand, WriteTagResult } from '@/types';
 import { TagWithHierarchy, TagHierarchyResponse } from '@/types/trend';
 
 export const tagsApi = {
@@ -29,6 +29,21 @@ export const tagsApi = {
 
     create: async (data: CreateTagDto): Promise<Tag> => {
         const response = await api.post('/tags', data);
+        return response.data;
+    },
+
+    writeTag: async (id: number, command: Omit<WriteTagCommand, 'tag_id'>): Promise<WriteTagResult> => {
+        const response = await api.post(`/tags/${id}/write`, command);
+        return response.data;
+    },
+
+    getTagAlarms: async (tagId: number): Promise<any[]> => {
+        const response = await api.get(`/tags/${tagId}/alarms`);
+        return response.data;
+    },
+
+    saveTagAlarms: async (tagId: number, alarms: any[]): Promise<void> => {
+        const response = await api.put(`/tags/${tagId}/alarms`, alarms);
         return response.data;
     },
 

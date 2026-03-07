@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ralph/industrial-edge-middleware/internal/alarms"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
@@ -69,6 +71,9 @@ type Driver struct {
 	sparkplugClient *sparkplug.SparkplugClient
 	dualPublisher   *sparkplug.DualPublisher
 	sparkplugMu     sync.RWMutex
+
+	// Alarm Manager
+	alarmManager *alarms.Manager
 }
 
 // WriteCommand represents a write command received via MQTT
@@ -172,6 +177,10 @@ func main() {
 
 	// Subscribe to all source PLC topics
 	driver.subscribeToSourceTopics()
+
+	// Initialize Alarm Manager
+	driver.alarmManager = alarms.NewManager(database, mqttClient, gatewayID)
+	go driver.alarmManager.StartTicker(context.Background())
 
 	// Start the main loop
 	go driver.run()
@@ -424,6 +433,11 @@ func (d *Driver) handleSourceMessage(mapping TagMapping, topic string, payload [
 	d.msgTimeMu.Unlock()
 
 	timestamp := time.Now().UnixMilli()
+
+	// Evaluate alarms via AlarmManager (192 = GOOD quality)
+	if d.alarmManager != nil {
+		d.alarmManager.EvaluateTag(mapping.Tag.ID, mapping.Tag.Alias, value, 192)
+	}
 
 	// Use dual publishing (legacy + Sparkplug B)
 	d.publishDual(mapping.Tag.ID, mapping.Tag.Alias, value, mapping.Tag.DataType, 0, timestamp)

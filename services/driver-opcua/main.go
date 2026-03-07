@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/ralph/industrial-edge-middleware/internal/alarms"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
@@ -74,6 +76,9 @@ type Driver struct {
 	// Previous qualities for RBE
 	previousQualities map[int]int
 	prevQualitiesMu   sync.RWMutex
+
+	// Alarm Manager
+	alarmManager *alarms.Manager
 }
 
 func main() {
@@ -174,6 +179,10 @@ func main() {
 	writeTopic := fmt.Sprintf("sys/command/write/%d", gatewayID)
 	mqttClient.Subscribe(writeTopic, driver.handleWriteCommand)
 	log.Printf("[OPC-UA Driver] Subscribed to write topic: %s", writeTopic)
+
+	// Initialize Alarm Manager
+	driver.alarmManager = alarms.NewManager(database, mqttClient, gatewayID)
+	go driver.alarmManager.StartTicker(context.Background())
 
 	// Start polling loop
 	driver.wg.Add(1)
@@ -691,6 +700,11 @@ func (d *Driver) pollLoop() {
 			qualityStr := "GOOD"
 			if quality != 0 {
 				qualityStr = "BAD"
+			}
+
+			// Evaluate alarms via AlarmManager
+			if d.alarmManager != nil {
+				d.alarmManager.EvaluateTag(tag.ID, tag.Alias, value, quality)
 			}
 
 			// Check RBE - only publish if value/quality changed

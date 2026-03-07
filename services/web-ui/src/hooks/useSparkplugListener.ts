@@ -124,13 +124,13 @@ export function useSparkplugListener() {
                             if (decoded && decoded.metrics) {
                                 metricCount = decoded.metrics.length;
                             }
-                        } catch {}
+                        } catch { }
                     } else {
                         try {
                             const data = JSON.parse(payload.toString());
                             const metrics = data.Metrics || data.metrics || [];
                             metricCount = Array.isArray(metrics) ? metrics.length : 1;
-                        } catch {}
+                        } catch { }
                     }
                 }
 
@@ -184,8 +184,8 @@ export function useSparkplugListener() {
 }
 
 // Helper to detect Protobuf data
-function isProtobufData(data: Buffer): boolean {
-    if (data.length === 0) return false;
+function isProtobufData(data: Buffer | Uint8Array | null | undefined): boolean {
+    if (!data || data.length === 0) return false;
     const firstByte = data[0];
     return firstByte !== 0x7B && firstByte !== 0x5B;
 }

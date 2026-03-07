@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ralph/industrial-edge-middleware/internal/alarms"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
@@ -50,6 +52,9 @@ type Driver struct {
 	configMu   sync.RWMutex
 	stopChan   chan struct{}
 	reloadChan chan struct{}
+
+	// Alarm Manager
+	alarmManager *alarms.Manager
 	// Report by Exception: store previous values for change detection
 	previousValues map[int]interface{}
 	prevValuesMu   sync.RWMutex
@@ -140,6 +145,10 @@ func main() {
 		log.Printf("Warning: Failed to load settings: %v", err)
 	}
 	driver.settingsManager = settingsManager
+
+	// Initialize Alarm Manager
+	driver.alarmManager = alarms.NewManager(database, mqttClient, gatewayID)
+	go driver.alarmManager.StartTicker(context.Background())
 
 	// Subscribe to settings reload command
 	settingsReloadTopic := fmt.Sprintf("sys/command/settings-reload/%d", gatewayID)
@@ -827,6 +836,11 @@ func (d *Driver) poll() {
 				delete(d.writeCooldowns, tag.ID)
 				d.cooldownMu.Unlock()
 			}
+		}
+
+		// Evaluate alarms via AlarmManager
+		if d.alarmManager != nil {
+			d.alarmManager.EvaluateTag(tag.ID, tag.Alias, result.Value, result.Quality)
 		}
 
 		// Publish to MQTT only if value changed (Report by Exception)

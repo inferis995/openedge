@@ -13,6 +13,7 @@ import SystemPage from '@/pages/SystemPage';
 import TrendPage from '@/pages/TrendPage';
 import HistoryPage from '@/pages/HistoryPage';
 import MqttMonitorPage from '@/pages/MqttMonitorPage';
+import AlarmsPage from '@/pages/AlarmsPage';
 import UsersPage from '@/pages/UsersPage';
 
 import { useEffect, useState, useRef } from 'react';
@@ -89,6 +90,7 @@ function App() {
                     <Route path="/system" element={<SystemPage />} />
                     <Route path="/trend" element={<TrendPage />} />
                     <Route path="/history" element={<HistoryPage />} />
+                    <Route path="/alarms" element={<AlarmsPage />} />
                     <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
                     <Route path="/users" element={<UsersPage />} />
                 </Route>

@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ralph/industrial-edge-middleware/internal/alarms"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/modbus"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
@@ -82,6 +83,9 @@ type Driver struct {
 
 	// Settings manager for publish mode and RBE
 	settingsManager *settings.Manager
+
+	// Alarm manager for evaluating threshold conditions
+	alarmManager *alarms.Manager
 }
 
 func main() {
@@ -140,6 +144,7 @@ func main() {
 		previousQualities: make(map[int]int),
 		writeCooldowns:    make(map[int]time.Time),
 		settingsManager:   settings.NewManager(database),
+		alarmManager:      alarms.NewManager(database, mqttClient, gatewayID),
 	}
 
 	// Initialize settings
@@ -210,6 +215,9 @@ func (d *Driver) handleSettingsReloadCommand(topic string, payload []byte) {
 			cfg := d.settingsManager.Get()
 			log.Printf("[DRIVER] Settings reloaded: publish_mode=%s", cfg.PublishMode)
 		}
+	}
+	if d.alarmManager != nil {
+		d.alarmManager.LoadDefinitions()
 	}
 }
 
@@ -1268,6 +1276,12 @@ func (d *Driver) readBlock(b Block, prefix string, ts int64) {
 			}
 		}
 
+		// 1. Evaluate alarms via AlarmManager (always evaluates, even before RBE)
+		if d.alarmManager != nil {
+			d.alarmManager.EvaluateTag(tib.Tag.ID, tib.Tag.Alias, val, 192)
+		}
+
+		// 2. Report by Exception Logic (RBE)
 		if d.shouldPublish(tib.Tag.ID, val, 0) {
 			d.publishDual(tib.Tag.ID, tib.Tag.Alias, val, tib.Tag.DataType, 0, ts)
 			d.updateState(tib.Tag.ID, val, 0)

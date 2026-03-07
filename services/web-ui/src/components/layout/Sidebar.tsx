@@ -19,6 +19,7 @@ import {
     Users,
     Moon,
     Sun,
+    Bell,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -40,6 +41,7 @@ const Sidebar = () => {
         { name: 'Tags', path: '/tags', icon: Tags },
         { name: 'Trend', path: '/trend', icon: TrendingUp },
         { name: 'Historian', path: '/history', icon: History },
+        { name: 'Alarms', path: '/alarms', icon: Bell },
         { name: 'MQTT Monitor', path: '/mqtt-monitor', icon: Radio },
     ];
 

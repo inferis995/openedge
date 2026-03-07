@@ -122,6 +122,15 @@ func main() {
 			log.Println("Subscribed to data updates")
 		}
 
+		// Subscribe to Alarm updates
+		if err := mqttClient.Subscribe("sys/alarms/#", func(topic string, payload []byte) {
+			handleAlarmEvent(topic, payload, database)
+		}); err != nil {
+			log.Printf("Warning: Failed to subscribe to alarms topic: %v", err)
+		} else {
+			log.Println("Subscribed to alarm events")
+		}
+
 		// Subscribe to Sparkplug B topics (dual format support)
 		if err := mqttClient.Subscribe("spBv1.0/#", func(topic string, payload []byte) {
 			handleSparkplugUpdate(topic, payload, redisClient, database)
@@ -153,6 +162,7 @@ func main() {
 	areasHandler := handlers.NewAreasHandler(database, mqttClient)
 	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient, redisClient)
 	tagsHandler := handlers.NewTagsHandler(database, mqttClient, redisClient)
+	alarmsHandler := handlers.NewAlarmHandler(database, mqttClient)
 	realtimeHandler := handlers.NewRealtimeHandler(redisClient)
 
 	// Create settings manager for publish mode configuration
@@ -229,6 +239,7 @@ func main() {
 			gateways.PUT("/:id", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.Update)
 			gateways.POST("/:id/test", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.TestConnection)
 			gateways.POST("/:id/browse", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.BrowseNodes)
+			gateways.GET("/:id/alarms/count", alarmsHandler.GetGatewayAlarmCounts)
 		}
 
 		// Tags endpoints
@@ -245,6 +256,10 @@ func main() {
 			tags.GET("/hierarchy", tagsHandler.GetHierarchy)
 			tags.GET("/with-hierarchy", tagsHandler.ListWithHierarchy)
 
+			// Alarm configuration per tag
+			tags.GET("/:id/alarms", alarmsHandler.GetTagAlarmConfig)
+			tags.PUT("/:id/alarms", middleware.RequireRole(models.RoleAdmin), alarmsHandler.SaveTagAlarmConfig)
+
 			tags.POST("", middleware.RequireRole(models.RoleAdmin), tagsHandler.Create)
 			tags.GET("", tagsHandler.List)
 			tags.GET("/:id", tagsHandler.Get)
@@ -252,6 +267,18 @@ func main() {
 			tags.PUT("/:id", middleware.RequireRole(models.RoleAdmin), tagsHandler.Update)
 			tags.GET("/:id/current", tagsHandler.GetCurrentValue)
 			tags.POST("/:id/write", tagsHandler.Write)
+		}
+
+		// Alarms endpoints (Global logic for viewing and acknowledging)
+		alarms := api.Group("/alarms")
+		alarms.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			alarms.GET("/active", alarmsHandler.GetActiveAlarms)
+			alarms.GET("/history", alarmsHandler.GetAlarmHistory)
+			alarms.GET("/count/all", alarmsHandler.GetAllAlarmCounts)
+			alarms.POST("/:id/ack", middleware.RequireRole(models.RoleAdmin), alarmsHandler.AcknowledgeAlarm)
+			alarms.DELETE("/history/all", middleware.RequireRole(models.RoleAdmin), alarmsHandler.DeleteAllAlarmHistory)
+			alarms.DELETE("/history/:id", middleware.RequireRole(models.RoleAdmin), alarmsHandler.DeleteAlarmHistory)
 		}
 
 		// System endpoints
@@ -499,6 +526,59 @@ func handleDataUpdate(topic string, payload []byte, redisClient *redis.Client) {
 		channel := fmt.Sprintf("realtime_updates:%d", update.OrgID)
 		if err := redisClient.Publish(channel, string(payload)); err != nil {
 			log.Printf("Error publishing realtime update for org %d: %v", update.OrgID, err)
+		}
+	}
+}
+
+// handleAlarmEvent processes alarm state changes from MQTT drivers
+func handleAlarmEvent(topic string, payload []byte, db *sql.DB) {
+	log.Printf("[ALARM] Received event - topic: %s", topic)
+
+	if db == nil {
+		log.Printf("[ALARM] Database is nil, cannot store event")
+		return
+	}
+
+	var event struct {
+		TagID          int     `json:"tag_id"`
+		DefinitionID   int     `json:"definition_id"`
+		Status         string  `json:"status"` // "ACTIVE", "CLEARED"
+		AlarmType      string  `json:"alarm_type"`
+		Severity       string  `json:"severity"`
+		Message        string  `json:"message"`
+		ValueAtTrigger float64 `json:"value_at_trigger"`
+		Timestamp      int64   `json:"timestamp"`
+	}
+
+	if err := json.Unmarshal(payload, &event); err != nil {
+		log.Printf("[ALARM] Failed to parse payload: %v", err)
+		return
+	}
+
+	eventTime := time.UnixMilli(event.Timestamp)
+
+	if event.Status == "ACTIVE" {
+		// Insert new active alarm
+		_, err := db.Exec(`
+			INSERT INTO alarm_events 
+				(tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time)
+			VALUES 
+				($1, $2, $3, $4, $5, $6, $7, $8)
+		`, event.TagID, event.DefinitionID, "ACTIVE", event.AlarmType, event.Severity, event.Message, event.ValueAtTrigger, eventTime)
+		if err != nil {
+			log.Printf("[ALARM] Failed to insert trigger event: %v", err)
+		}
+	} else if event.Status == "CLEARED" {
+		// Update the most recent ACTIVE/ACKNOWLEDGED event for this definition to CLEARED
+		_, err := db.Exec(`
+			UPDATE alarm_events 
+			SET status = 'CLEARED', clear_time = $1
+			WHERE definition_id = $2 
+			  AND tag_id = $3
+			  AND clear_time IS NULL
+		`, eventTime, event.DefinitionID, event.TagID)
+		if err != nil {
+			log.Printf("[ALARM] Failed to update clear event: %v", err)
 		}
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ralph/industrial-edge-middleware/internal/alarms"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
@@ -66,6 +67,9 @@ type Driver struct {
 
 	// Settings manager for publish mode and RBE
 	settingsManager *settings.Manager
+
+	// Alarm Manager
+	alarmManager *alarms.Manager
 }
 
 func main() {
@@ -152,6 +156,10 @@ func main() {
 	if err := mqttClient.Subscribe(reloadTopic, driver.handleReloadCommand); err != nil {
 		log.Fatalf("Failed to subscribe to reload topic: %v", err)
 	}
+
+	// Initialize Alarm Manager
+	driver.alarmManager = alarms.NewManager(database, mqttClient, gatewayID)
+	go driver.alarmManager.StartTicker(context.Background())
 
 	go driver.run()
 
@@ -540,6 +548,11 @@ func (d *Driver) poll() {
 		quality := 192 // GOOD
 		if val == nil {
 			quality = 0 // BAD
+		}
+
+		// Evaluate alarms via AlarmManager
+		if d.alarmManager != nil {
+			d.alarmManager.EvaluateTag(tag.ID, tag.Alias, parsedVal, quality)
 		}
 
 		// Check if we should publish (RBE logic)
