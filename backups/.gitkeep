@@ -1,3 +1,2 @@
-# This- [x] Add Delete functionality for Alarm History (Admin only)
-- [x] Add "Clear all history" functionality (Admin only)git
+# This file keeps the backups directory in git
 # Actual backup files are excluded via .gitignore
