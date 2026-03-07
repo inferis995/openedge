@@ -150,6 +150,11 @@ func main() {
 		log.Println("[OPC-UA Driver] Sparkplug B dual publishing enabled")
 	}
 
+	// Initialize settings manager
+	if err := driver.settingsManager.Load(); err != nil {
+		log.Printf("Warning: Failed to load settings: %v", err)
+	}
+
 	// Load initial configuration
 	if err := driver.loadConfig(); err != nil {
 		log.Fatalf("Failed to load initial config: %v", err)

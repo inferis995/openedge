@@ -30,6 +30,7 @@ const (
 
 type HistorianService struct {
 	mqttClient  *mqtt.Client
+	cloudClient *mqtt.Client // Secondary client for MQTT Sync (Forwarding)
 	redisClient *redis.Client
 	db          *sql.DB
 	wg          sync.WaitGroup
@@ -168,6 +169,9 @@ func main() {
 		deviceTagMap: make(map[string]map[int]bool),
 	}
 
+	// Initialize Cloud Sync Broker
+	service.setupCloudClient()
+
 	// Subscribe to data topics
 	log.Printf("Subscribing to MQTT topic: %s", mqttTopicData)
 	if err := mqttClient.Subscribe(mqttTopicData, service.handleDataMessage); err != nil {
@@ -189,6 +193,14 @@ func main() {
 		log.Fatalf("Failed to subscribe to health topic: %v", err)
 	}
 	log.Println("Successfully subscribed to health topics")
+
+	// Subscribe to settings reload topics (for dynamic cloud sync updates)
+	log.Println("Subscribing to MQTT topic: sys/command/settings-reload")
+	if err := mqttClient.Subscribe("sys/command/settings-reload", service.handleSystemSettingsReload); err != nil {
+		log.Printf("Warning: Failed to subscribe to settings reload topic: %v", err)
+	} else {
+		log.Println("Successfully subscribed to settings reload topic")
+	}
 
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
@@ -325,6 +337,23 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	// Broadast real-time update via Redis Pub/Sub
 	s.broadcastRealtimeUpdate(tagInfo.OrganizationID, tagInfo.ID, mqttPayload)
 
+	// Cloud Sync for Legacy Mode
+	// We forward the exact JSON payload if the cloud client is connected,
+	// REGARDLESS of Historize or Deadband settings (just like Sparkplug).
+	if s.cloudClient != nil && s.cloudClient.IsConnected() {
+		var baseTopic string
+		s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_topic'").Scan(&baseTopic)
+
+		// Ensure base topic ends with a slash if it's not empty
+		if baseTopic != "" && !strings.HasSuffix(baseTopic, "/") {
+			baseTopic += "/"
+		}
+
+		// Map `data/org/site/area/gateway/tag` to `baseTopic + legacy/org/site/area/gateway/tag`
+		cloudTopic := fmt.Sprintf("%slegacy/%s/%s/%s/%s/%s", baseTopic, org, site, area, gateway, alias)
+		s.cloudClient.Publish(cloudTopic, string(payload))
+	}
+
 	// Skip if historize is disabled
 	if !tagInfo.Historize {
 		return
@@ -361,6 +390,71 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 
 	// Save directly to PostgreSQL
 	s.saveToPostgreSQL(tagInfo.ID, floatValue, mqttPayload.Ts, mqttPayload.Q, "mqtt")
+}
+
+// handleSystemSettingsReload triggered when the web-ui publishes to sys/command/settings-reload
+// Used to reconnect/disconnect the cloud sync broker dynamically.
+func (s *HistorianService) handleSystemSettingsReload(topic string, payload []byte) {
+	log.Println("[HISTORIAN] Received settings reload command. Re-evaluating Cloud Sync connection...")
+	s.setupCloudClient()
+}
+
+// setupCloudClient reads global settings and configures the external MQTT forwarder
+func (s *HistorianService) setupCloudClient() {
+	var syncEnabledStr, host, portStr, username, password string
+
+	s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_sync_enabled'").Scan(&syncEnabledStr)
+	syncEnabled := (syncEnabledStr == "true")
+
+	// If disabled or empty, ensure disconnected
+	if !syncEnabled {
+		if s.cloudClient != nil && s.cloudClient.IsConnected() {
+			log.Println("[CLOUD SYNC] Disconnecting from Cloud Broker (Feature Disabled)")
+			s.cloudClient.Disconnect(250)
+		}
+		s.cloudClient = nil
+		return
+	}
+
+	// Read connection params
+	s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_host'").Scan(&host)
+	s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_port'").Scan(&portStr)
+	s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_username'").Scan(&username)
+	s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_password'").Scan(&password)
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port == 0 {
+		port = 1883
+	}
+
+	if host == "" {
+		log.Println("[CLOUD SYNC] Enabled, but no host configured. Skipping.")
+		return
+	}
+
+	// If already connected to the SAME host, do nothing. For simplicity, we just rebuild it.
+	if s.cloudClient != nil && s.cloudClient.IsConnected() {
+		s.cloudClient.Disconnect(250)
+	}
+
+	log.Printf("[CLOUD SYNC] Initializing connection to %s:%d...", host, port)
+
+	cloudClientID := fmt.Sprintf("edge-sync-%d", time.Now().Unix())
+	s.cloudClient = mqtt.NewClient(mqtt.Config{
+		Host:     host,
+		Port:     port,
+		Username: username,
+		Password: password,
+		ClientID: cloudClientID,
+	})
+
+	if err := s.cloudClient.Connect(); err != nil {
+		log.Printf("[CLOUD SYNC] ERROR - Failed to connect to External Cloud Broker: %v", err)
+		s.cloudClient = nil
+		return
+	}
+
+	log.Println("[CLOUD SYNC] Successfully connected to External Cloud Broker")
 }
 
 // handleSparkplugMessage handles incoming Sparkplug B messages
@@ -441,12 +535,31 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 		s.storeRealtimeValue(tagInfo.ID, mqttPayload)
 		s.broadcastRealtimeUpdate(tagInfo.OrganizationID, tagInfo.ID, mqttPayload)
 
-		// Skip if historize is disabled
-		if !tagInfo.Historize {
+		s.broadcastRealtimeUpdate(tagInfo.OrganizationID, tagInfo.ID, mqttPayload)
+
+		// SKIP HISTORIZATION if Historize flag is false or quality is bad
+		if !tagInfo.Historize || legacyQuality != 0 {
 			continue
 		}
 
-		// Check deadband filter (same logic as legacy handler)
+		// Cloud Sync: Forward the entire RAW metric payload array upwards.
+		// (We do the forwarding check *after* evaluating DEATHs but BEFORE dropping the metric due to deadband)
+		if s.cloudClient != nil && s.cloudClient.IsConnected() {
+			var baseTopic string
+			s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_topic'").Scan(&baseTopic)
+
+			// Ensure base topic ends with a slash if it's not empty
+			if baseTopic != "" && !strings.HasSuffix(baseTopic, "/") {
+				baseTopic += "/"
+			}
+
+			// Always append the standard Sparkplug B structure to whatever custom prefix the user provided
+			// Topic example: <UserPrefix/>spBv1.0/DDATA/Area1/Inverter1
+			cloudTopic := fmt.Sprintf("%sspBv1.0/%s/%s/%s/%s", baseTopic, topicInfo.MessageType, topicInfo.GroupID, topicInfo.EdgeNodeID, topicInfo.DeviceID)
+			s.cloudClient.Publish(cloudTopic, string(payload))
+		}
+
+		// Calculate deadband AFTER Cloud Sync so the Cloud receives highly granular data and can decide locally.
 		if !s.shouldStoreValue(tagInfo, metric.Value, legacyQuality) {
 			continue
 		}

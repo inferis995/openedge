@@ -55,9 +55,9 @@ type Driver struct {
 	prevValuesMu   sync.RWMutex
 
 	// Connection state tracking for DBIRTH/DDEATH
-	isConnected      bool
-	wasConnected     bool
-	connectionMu     sync.RWMutex
+	isConnected  bool
+	wasConnected bool
+	connectionMu sync.RWMutex
 
 	// Sparkplug B support
 	sparkplugClient *sparkplug.SparkplugClient
@@ -123,15 +123,19 @@ func main() {
 	settingsManager := settings.NewManager(database)
 
 	driver := &Driver{
-		gatewayID:        gatewayID,
-		database:         database,
-		mqttClient:       mqttClient,
-		stopChan:         make(chan struct{}),
-		reloadChan:       make(chan struct{}, 1),
-		previousValues:   make(map[int]interface{}),
-		settingsManager:  settingsManager,
-		wasConnected:     false,
-		isConnected:      false,
+		gatewayID:       gatewayID,
+		database:        database,
+		mqttClient:      mqttClient,
+		stopChan:        make(chan struct{}),
+		reloadChan:      make(chan struct{}, 1),
+		previousValues:  make(map[int]interface{}),
+		settingsManager: settingsManager,
+		wasConnected:    false,
+		isConnected:     false,
+	}
+
+	if err := driver.settingsManager.Load(); err != nil {
+		log.Printf("[DRIVER-REDIS] Warning: Failed to load settings: %v", err)
 	}
 
 	if err := driver.loadConfig(); err != nil {

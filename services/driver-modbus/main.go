@@ -142,6 +142,11 @@ func main() {
 		settingsManager:   settings.NewManager(database),
 	}
 
+	// Initialize settings
+	if err := driver.settingsManager.Load(); err != nil {
+		log.Printf("[DRIVER] Warning: Failed to load settings: %v", err)
+	}
+
 	// Initialize Sparkplug B client (optional - for dual publishing)
 	// Enabled via environment variable: SPARKPLUG_ENABLED=true
 	if getEnv("SPARKPLUG_ENABLED", "false") == "true" {
@@ -626,7 +631,7 @@ func (d *Driver) handleSparkplugDCMD(topic string, payload []byte) {
 			alias := cfg.Tags[i].Alias
 			// Match with underscores (Sparkplug format) or original alias
 			if strings.EqualFold(alias, metric.Name) ||
-			   strings.EqualFold(strings.ReplaceAll(alias, "-", "_"), metric.Name) {
+				strings.EqualFold(strings.ReplaceAll(alias, "-", "_"), metric.Name) {
 				targetTag = &cfg.Tags[i]
 				break
 			}

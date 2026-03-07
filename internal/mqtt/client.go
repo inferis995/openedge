@@ -107,6 +107,14 @@ func (c *Client) Disconnect(timeout int) {
 	log.Printf("[MQTT] Disconnected from broker")
 }
 
+// IsConnected returns whether the client is currently connected to the broker
+func (c *Client) IsConnected() bool {
+	if c.client == nil {
+		return false
+	}
+	return c.client.IsConnected()
+}
+
 // Subscribe subscribes to a topic with a message handler
 func (c *Client) Subscribe(topic string, handler MessageHandler) error {
 	c.handlersMu.Lock()

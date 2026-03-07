@@ -219,6 +219,12 @@ type UpdateSettingsRequest struct {
 	MQTTPassword          *string  `json:"mqtt_password"`
 	MQTTClientID          *string  `json:"mqtt_client_id"`
 	DBRetentionDays       *int     `json:"db_retention_days"`
+	CloudSyncEnabled      *bool    `json:"cloud_sync_enabled"`
+	CloudMqttHost         *string  `json:"cloud_mqtt_host"`
+	CloudMqttPort         *int     `json:"cloud_mqtt_port"`
+	CloudMqttUsername     *string  `json:"cloud_mqtt_username"`
+	CloudMqttPassword     *string  `json:"cloud_mqtt_password"`
+	CloudMqttTopic        *string  `json:"cloud_mqtt_topic"`
 }
 
 // UpdateSettings updates global settings (admin only)
@@ -351,6 +357,62 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 		// Apply the new retention policy immediately
 		if h.historyHandler != nil {
 			go h.historyHandler.InitializeRetentionPolicy()
+		}
+	}
+
+	// Handle Cloud Sync Enabled
+	if req.CloudSyncEnabled != nil {
+		val := "false"
+		if *req.CloudSyncEnabled {
+			val = "true"
+		}
+		if err := h.upsertSetting("cloud_sync_enabled", val); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cloud_sync_enabled"})
+			return
+		}
+	}
+
+	// Handle Cloud MQTT Host
+	if req.CloudMqttHost != nil {
+		if err := h.upsertSetting("cloud_mqtt_host", *req.CloudMqttHost); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cloud_mqtt_host"})
+			return
+		}
+	}
+
+	// Handle Cloud MQTT Port
+	if req.CloudMqttPort != nil {
+		if *req.CloudMqttPort < 1 || *req.CloudMqttPort > 65535 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "cloud_mqtt_port must be between 1 and 65535"})
+			return
+		}
+		if err := h.upsertSetting("cloud_mqtt_port", fmt.Sprintf("%d", *req.CloudMqttPort)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cloud_mqtt_port"})
+			return
+		}
+	}
+
+	// Handle Cloud MQTT Username
+	if req.CloudMqttUsername != nil {
+		if err := h.upsertSetting("cloud_mqtt_username", *req.CloudMqttUsername); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cloud_mqtt_username"})
+			return
+		}
+	}
+
+	// Handle Cloud MQTT Password
+	if req.CloudMqttPassword != nil {
+		if err := h.upsertSetting("cloud_mqtt_password", *req.CloudMqttPassword); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cloud_mqtt_password"})
+			return
+		}
+	}
+
+	// Handle Cloud MQTT Topic
+	if req.CloudMqttTopic != nil {
+		if err := h.upsertSetting("cloud_mqtt_topic", *req.CloudMqttTopic); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cloud_mqtt_topic"})
+			return
 		}
 	}
 

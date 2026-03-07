@@ -15,6 +15,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
+import { Badge } from '@/components/ui/badge';
 
 import {
     Download, AlertTriangle, CheckCircle, RefreshCw, Zap, ScrollText,
@@ -101,7 +102,13 @@ const SystemPage = () => {
     const [mqttPassword, setMqttPassword] = useState<string>('');
     const [mqttClientId, setMqttClientId] = useState<string>('industrial-edge');
     const [showPassword, setShowPassword] = useState<boolean>(false);
-    const [dbRetention, setDbRetention] = useState<number>(30);
+    const [dbRetention, setDbRetention] = useState<number>(30); // Default 30 days
+    const [cloudSyncEnabled, setCloudSyncEnabled] = useState<boolean>(false);
+    const [cloudMqttHost, setCloudMqttHost] = useState<string>('');
+    const [cloudMqttPort, setCloudMqttPort] = useState<number>(1883);
+    const [cloudMqttUsername, setCloudMqttUsername] = useState<string>('');
+    const [cloudMqttPassword, setCloudMqttPassword] = useState<string>('');
+    const [cloudMqttTopic, setCloudMqttTopic] = useState<string>('spBv1.0/EdgeNode/');
 
     // Backup Settings
     const [backupSettings, setBackupSettings] = useState<BackupSettings>({
@@ -126,18 +133,31 @@ const SystemPage = () => {
             const data = await systemApi.getSettings();
             setSettings(data);
             setPublishMode(data.publish_mode || 'dual');
-            setHeartbeat(parseInt(data.rbe_heartbeat_seconds) || 60);
-            setDeadband(parseFloat(data.rbe_deadband_percent) || 0.5);
+            const parsedHeartbeat = parseInt(data.rbe_heartbeat_seconds);
+            setHeartbeat(isNaN(parsedHeartbeat) ? 60 : parsedHeartbeat);
+            const parsedDeadband = parseFloat(data.rbe_deadband_percent);
+            setDeadband(isNaN(parsedDeadband) ? 0.5 : parsedDeadband);
             setMqttBrokerMode(data.mqtt_broker_mode || 'internal');
-            setMqttExternalHost(data.mqtt_external_host || '');
-            setMqttExternalPort(parseInt(data.mqtt_external_port || '1883') || 1883);
-            setMqttUsername(data.mqtt_username || '');
-            setMqttPassword(data.mqtt_password || '');
-            setMqttClientId(data.mqtt_client_id || 'industrial-edge');
+            if (data.mqtt_external_host) setMqttExternalHost(data.mqtt_external_host);
+            if (data.mqtt_external_port) setMqttExternalPort(parseInt(data.mqtt_external_port, 10) || 1883);
+            if (data.mqtt_username) setMqttUsername(data.mqtt_username);
+            if (data.mqtt_password) setMqttPassword(data.mqtt_password);
+            if (data.mqtt_client_id) setMqttClientId(data.mqtt_client_id);
 
-            // Handle DB retention, missing/invalid defaults to 30
-            const retention = data.hasOwnProperty('db_retention_days') ? parseInt(data.db_retention_days as string) : 30;
-            setDbRetention(isNaN(retention) ? 30 : retention);
+            // Handle db retention
+            if (data.db_retention_days !== undefined) {
+                const parsedDays = parseInt(data.db_retention_days, 10);
+                setDbRetention(isNaN(parsedDays) ? 30 : parsedDays);
+            }
+
+            // Handle Cloud Sync
+            if (data.cloud_sync_enabled) setCloudSyncEnabled(data.cloud_sync_enabled === 'true');
+            if (data.cloud_mqtt_host) setCloudMqttHost(data.cloud_mqtt_host);
+            if (data.cloud_mqtt_port) setCloudMqttPort(parseInt(data.cloud_mqtt_port, 10) || 1883);
+            if (data.cloud_mqtt_username) setCloudMqttUsername(data.cloud_mqtt_username);
+            if (data.cloud_mqtt_password) setCloudMqttPassword(data.cloud_mqtt_password);
+            if (data.cloud_mqtt_topic) setCloudMqttTopic(data.cloud_mqtt_topic);
+
         } catch (error) {
             console.error('Failed to load settings:', error);
         } finally {
@@ -173,10 +193,9 @@ const SystemPage = () => {
                 mqtt_broker_mode: mqttBrokerMode,
                 db_retention_days: dbRetention,
             };
-            if (publishMode === 'sparkplug_only') {
-                update.rbe_heartbeat_seconds = heartbeat;
-                update.rbe_deadband_percent = deadband;
-            }
+            update.rbe_heartbeat_seconds = heartbeat;
+            update.rbe_deadband_percent = deadband;
+
             if (mqttBrokerMode === 'external') {
                 update.mqtt_external_host = mqttExternalHost;
                 update.mqtt_external_port = mqttExternalPort;
@@ -184,6 +203,15 @@ const SystemPage = () => {
                 update.mqtt_password = mqttPassword;
                 update.mqtt_client_id = mqttClientId;
             }
+
+            // Always send cloud sync settings
+            update.cloud_sync_enabled = cloudSyncEnabled;
+            update.cloud_mqtt_host = cloudMqttHost;
+            update.cloud_mqtt_port = cloudMqttPort;
+            update.cloud_mqtt_username = cloudMqttUsername;
+            update.cloud_mqtt_password = cloudMqttPassword;
+            update.cloud_mqtt_topic = cloudMqttTopic;
+
             await systemApi.updateSettings(update);
             setMessage({ type: 'success', text: 'Configurazione salvata. Riavviare i servizi per applicare le modifiche al broker MQTT.' });
         } catch (error) {
@@ -317,233 +345,350 @@ const SystemPage = () => {
                 )}
 
                 {/* Main grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
 
-                    {/* MQTT Broker Configuration */}
-                    <Card className="border-border shadow-sm bg-card">
-                        <CardHeader className="pb-4 border-b border-border">
-                            <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
-                                    <Server className="h-4 w-4 text-primary" />
+                    {/* Left Column */}
+                    <div className="space-y-6">
+                        {/* MQTT Broker Configuration */}
+                        <Card className="border-border shadow-sm bg-card">
+                            <CardHeader className="pb-4 border-b border-border">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                                        <Server className="h-4 w-4 text-primary" />
+                                    </div>
+                                    <div>
+                                        <CardTitle className="text-base text-foreground">Broker MQTT</CardTitle>
+                                        <CardDescription className="text-xs mt-0.5">
+                                            Seleziona il broker MQTT per la pubblicazione
+                                        </CardDescription>
+                                    </div>
                                 </div>
-                                <div>
-                                    <CardTitle className="text-base text-foreground">Broker MQTT</CardTitle>
-                                    <CardDescription className="text-xs mt-0.5">
-                                        Seleziona il broker MQTT per la pubblicazione
-                                    </CardDescription>
-                                </div>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="pt-5 space-y-5">
-                            {settingsLoading ? (
-                                <div className="text-sm text-muted-foreground py-4 text-center">Caricamento...</div>
-                            ) : (
-                                <>
-                                    <RadioGroup
-                                        value={mqttBrokerMode}
-                                        onValueChange={setMqttBrokerMode}
-                                        className="space-y-2"
-                                    >
-                                        {/* Internal Broker Option */}
-                                        <label
-                                            htmlFor="broker-internal"
-                                            className={`flex items-start gap-3 p-3.5 clip-chamfer border cursor-pointer transition-all ${mqttBrokerMode === 'internal'
-                                                ? 'border-primary bg-primary/5'
-                                                : 'border-border bg-card hover:border-primary/30'
-                                                }`}
+                            </CardHeader>
+                            <CardContent className="pt-5 space-y-5">
+                                {settingsLoading ? (
+                                    <div className="text-sm text-muted-foreground py-4 text-center">Caricamento...</div>
+                                ) : (
+                                    <>
+                                        <RadioGroup
+                                            value={mqttBrokerMode}
+                                            onValueChange={setMqttBrokerMode}
+                                            className="space-y-2"
                                         >
-                                            <RadioGroupItem value="internal" id="broker-internal" className="mt-0.5 flex-shrink-0" />
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <Network className={`h-3.5 w-3.5 flex-shrink-0 ${mqttBrokerMode === 'internal' ? 'text-primary' : 'text-muted-foreground'}`} />
-                                                    <span className={`text-sm font-medium ${mqttBrokerMode === 'internal' ? 'text-foreground' : 'text-foreground'}`}>
-                                                        Broker Interno (Mosquitto)
-                                                    </span>
-                                                </div>
-                                                <p className="text-xs text-muted-foreground mt-1">
-                                                    Broker embedded accessibile su porta 1883
-                                                </p>
-                                                {mqttBrokerMode === 'internal' && (
-                                                    <p className="text-xs text-primary mt-1.5 italic">
-                                                        Ascolta su 0.0.0.0:1883 — accessibile dalla rete locale
+                                            {/* Internal Broker Option */}
+                                            <label
+                                                htmlFor="broker-internal"
+                                                className={`flex items-start gap-3 p-3.5 clip-chamfer border cursor-pointer transition-all ${mqttBrokerMode === 'internal'
+                                                    ? 'border-primary bg-primary/5'
+                                                    : 'border-border bg-card hover:border-primary/30'
+                                                    }`}
+                                            >
+                                                <RadioGroupItem value="internal" id="broker-internal" className="mt-0.5 flex-shrink-0" />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <Network className={`h-3.5 w-3.5 flex-shrink-0 ${mqttBrokerMode === 'internal' ? 'text-primary' : 'text-muted-foreground'}`} />
+                                                        <span className={`text-sm font-medium ${mqttBrokerMode === 'internal' ? 'text-foreground' : 'text-foreground'}`}>
+                                                            Broker Interno (Mosquitto)
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground mt-1">
+                                                        Broker embedded accessibile su porta 1883
                                                     </p>
-                                                )}
-                                            </div>
-                                        </label>
+                                                    {mqttBrokerMode === 'internal' && (
+                                                        <p className="text-xs text-primary mt-1.5 italic">
+                                                            Ascolta su 0.0.0.0:1883 — accessibile dalla rete locale
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </label>
 
-                                        {/* External Broker Option */}
-                                        <label
-                                            htmlFor="broker-external"
-                                            className={`flex items-start gap-3 p-3.5 clip-chamfer border cursor-pointer transition-all ${mqttBrokerMode === 'external'
-                                                ? 'border-primary bg-primary/5'
-                                                : 'border-border bg-card hover:border-primary/30'
-                                                }`}
-                                        >
-                                            <RadioGroupItem value="external" id="broker-external" className="mt-0.5 flex-shrink-0" />
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <Server className={`h-3.5 w-3.5 flex-shrink-0 ${mqttBrokerMode === 'external' ? 'text-primary' : 'text-muted-foreground'}`} />
-                                                    <span className={`text-sm font-medium ${mqttBrokerMode === 'external' ? 'text-foreground' : 'text-foreground'}`}>
-                                                        Broker Esterno
-                                                    </span>
+                                            {/* External Broker Option */}
+                                            <label
+                                                htmlFor="broker-external"
+                                                className={`flex items-start gap-3 p-3.5 clip-chamfer border cursor-pointer transition-all ${mqttBrokerMode === 'external'
+                                                    ? 'border-primary bg-primary/5'
+                                                    : 'border-border bg-card hover:border-primary/30'
+                                                    }`}
+                                            >
+                                                <RadioGroupItem value="external" id="broker-external" className="mt-0.5 flex-shrink-0" />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <Server className={`h-3.5 w-3.5 flex-shrink-0 ${mqttBrokerMode === 'external' ? 'text-primary' : 'text-muted-foreground'}`} />
+                                                        <span className={`text-sm font-medium ${mqttBrokerMode === 'external' ? 'text-foreground' : 'text-foreground'}`}>
+                                                            Broker Esterno
+                                                        </span>
+                                                    </div>
+                                                    <p className="text-xs text-muted-foreground mt-1">
+                                                        Utilizza un broker MQTT esistente
+                                                    </p>
                                                 </div>
-                                                <p className="text-xs text-muted-foreground mt-1">
-                                                    Utilizza un broker MQTT esistente
-                                                </p>
-                                            </div>
-                                        </label>
-                                    </RadioGroup>
+                                            </label>
+                                        </RadioGroup>
 
-                                    {/* External Broker Settings */}
-                                    {mqttBrokerMode === 'external' && (
-                                        <div className="space-y-4 pt-3 border-t border-border">
-                                            {/* Connection Settings */}
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div className="space-y-2">
-                                                    <Label className="text-xs text-muted-foreground flex items-center gap-1">
-                                                        <Network className="h-3 w-3" />
-                                                        Host
-                                                    </Label>
-                                                    <Input
-                                                        value={mqttExternalHost}
-                                                        onChange={(e) => setMqttExternalHost(e.target.value)}
-                                                        placeholder="192.168.1.100"
-                                                        className="h-9"
-                                                    />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label className="text-xs text-muted-foreground">Porta</Label>
-                                                    <Input
-                                                        type="number"
-                                                        value={mqttExternalPort}
-                                                        onChange={(e) => setMqttExternalPort(parseInt(e.target.value) || 1883)}
-                                                        placeholder="1883"
-                                                        className="h-9"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            {/* Authentication Settings */}
-                                            <div className="bg-muted/50 clip-chamfer p-3 space-y-3">
-                                                <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-2">
-                                                    <Key className="h-3.5 w-3.5" />
-                                                    Autenticazione (opzionale)
-                                                </div>
+                                        {/* External Broker Settings */}
+                                        {mqttBrokerMode === 'external' && (
+                                            <div className="space-y-4 pt-3 border-t border-border">
+                                                {/* Connection Settings */}
                                                 <div className="grid grid-cols-2 gap-3">
                                                     <div className="space-y-2">
                                                         <Label className="text-xs text-muted-foreground flex items-center gap-1">
-                                                            <User className="h-3 w-3" />
-                                                            Username
+                                                            <Network className="h-3 w-3" />
+                                                            Host
                                                         </Label>
                                                         <Input
-                                                            value={mqttUsername}
-                                                            onChange={(e) => setMqttUsername(e.target.value)}
-                                                            placeholder="utente"
+                                                            value={mqttExternalHost}
+                                                            onChange={(e) => setMqttExternalHost(e.target.value)}
+                                                            placeholder="192.168.1.100"
                                                             className="h-9"
-                                                            autoComplete="off"
                                                         />
                                                     </div>
                                                     <div className="space-y-2">
-                                                        <Label className="text-xs text-muted-foreground">Password</Label>
-                                                        <div className="relative">
+                                                        <Label className="text-xs text-muted-foreground">Porta</Label>
+                                                        <Input
+                                                            type="number"
+                                                            value={mqttExternalPort}
+                                                            onChange={(e) => setMqttExternalPort(parseInt(e.target.value) || 1883)}
+                                                            placeholder="1883"
+                                                            className="h-9"
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                {/* Authentication Settings */}
+                                                <div className="bg-muted/50 clip-chamfer p-3 space-y-3">
+                                                    <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-2">
+                                                        <Key className="h-3.5 w-3.5" />
+                                                        Autenticazione (opzionale)
+                                                    </div>
+                                                    <div className="grid grid-cols-2 gap-3">
+                                                        <div className="space-y-2">
+                                                            <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                                                                <User className="h-3 w-3" />
+                                                                Username
+                                                            </Label>
                                                             <Input
-                                                                type={showPassword ? "text" : "password"}
-                                                                value={mqttPassword}
-                                                                onChange={(e) => setMqttPassword(e.target.value)}
-                                                                placeholder="••••••••"
-                                                                className="h-9 pr-9"
-                                                                autoComplete="new-password"
+                                                                value={mqttUsername}
+                                                                onChange={(e) => setMqttUsername(e.target.value)}
+                                                                placeholder="utente"
+                                                                className="h-9"
+                                                                autoComplete="off"
                                                             />
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => setShowPassword(!showPassword)}
-                                                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                                            >
-                                                                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                                            </button>
+                                                        </div>
+                                                        <div className="space-y-2">
+                                                            <Label className="text-xs text-muted-foreground">Password</Label>
+                                                            <div className="relative">
+                                                                <Input
+                                                                    type={showPassword ? "text" : "password"}
+                                                                    value={mqttPassword}
+                                                                    onChange={(e) => setMqttPassword(e.target.value)}
+                                                                    placeholder="••••••••"
+                                                                    className="h-9 pr-9"
+                                                                    autoComplete="new-password"
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setShowPassword(!showPassword)}
+                                                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                                                >
+                                                                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                                </button>
+                                                            </div>
                                                         </div>
                                                     </div>
+                                                    <div className="space-y-2">
+                                                        <Label className="text-xs text-muted-foreground">Client ID</Label>
+                                                        <Input
+                                                            value={mqttClientId}
+                                                            onChange={(e) => setMqttClientId(e.target.value)}
+                                                            placeholder="industrial-edge"
+                                                            className="h-9"
+                                                        />
+                                                        <p className="text-xs text-muted-foreground">Identificativo univoco per la connessione MQTT</p>
+                                                    </div>
                                                 </div>
-                                                <div className="space-y-2">
-                                                    <Label className="text-xs text-muted-foreground">Client ID</Label>
-                                                    <Input
-                                                        value={mqttClientId}
-                                                        onChange={(e) => setMqttClientId(e.target.value)}
-                                                        placeholder="industrial-edge"
-                                                        className="h-9"
-                                                    />
-                                                    <p className="text-xs text-muted-foreground">Identificativo univoco per la connessione MQTT</p>
-                                                </div>
+
+                                                <p className="text-xs text-destructive flex items-center gap-1.5">
+                                                    <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                                                    Richiede riavvio dei servizi dopo il salvataggio.
+                                                </p>
                                             </div>
+                                        )}
+                                    </>
+                                )}
+                            </CardContent>
+                        </Card>
 
-                                            <p className="text-xs text-destructive flex items-center gap-1.5">
-                                                <AlertTriangle className="h-3 w-3 flex-shrink-0" />
-                                                Richiede riavvio dei servizi dopo il salvataggio.
-                                            </p>
+                        {/* Cloud Sync (Forwarder) Card */}
+                        <Card className="border-border shadow-sm bg-card">
+                            <CardHeader className="pb-4 border-b border-border">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-9 h-9 clip-hex bg-blue-500/10 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
+                                            <Server className="h-4 w-4 text-blue-500" />
                                         </div>
-                                    )}
-                                </>
-                            )}
-                        </CardContent>
-                    </Card>
+                                        <div>
+                                            <CardTitle className="text-base text-foreground flex items-center gap-2">
+                                                Cloud Sync (MQTT Forwarder) <Badge variant="secondary" className="text-[10px] uppercase font-mono tracking-wider bg-blue-500/10 text-blue-500 border-none px-1.5 py-0 h-4">Beta</Badge>
+                                            </CardTitle>
+                                            <CardDescription className="text-xs mt-0.5">
+                                                Inoltra automaticamente i dati Sparkplug B a un Cloud remoto (AWS, Azure, ecc.)
+                                            </CardDescription>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Switch
+                                            checked={cloudSyncEnabled}
+                                            onCheckedChange={setCloudSyncEnabled}
+                                            id="cloud-sync-toggle"
+                                        />
+                                        <Label htmlFor="cloud-sync-toggle" className="text-xs text-muted-foreground cursor-pointer">
+                                            {cloudSyncEnabled ? 'Attivo' : 'Disattivo'}
+                                        </Label>
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            {cloudSyncEnabled && (
+                                <CardContent className="pt-5 space-y-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <Label className="text-xs text-muted-foreground flex items-center gap-1">
+                                                <Network className="h-3 w-3" />
+                                                Host o Dominio Cloud
+                                            </Label>
+                                            <Input
+                                                value={cloudMqttHost}
+                                                onChange={(e) => setCloudMqttHost(e.target.value)}
+                                                placeholder="es. a1b2c3d4.iot.eu-central-1.amazonaws.com"
+                                                className="h-9 font-mono text-sm"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-xs text-muted-foreground">Porta TLS / TCP</Label>
+                                            <Input
+                                                type="number"
+                                                value={cloudMqttPort}
+                                                onChange={(e) => setCloudMqttPort(parseInt(e.target.value) || 8883)}
+                                                placeholder="8883"
+                                                className="h-9 font-mono text-sm"
+                                            />
+                                        </div>
+                                    </div>
 
-                    {/* MQTT Publish Mode Configuration */}
-                    <Card className="border-border shadow-sm bg-card h-full">
-                        <CardHeader className="pb-4 border-b border-border">
-                            <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
-                                    <RefreshCw className="h-4 w-4 text-primary" />
-                                </div>
-                                <div>
-                                    <CardTitle className="text-base text-foreground">Configurazione MQTT</CardTitle>
-                                    <CardDescription className="text-xs mt-0.5">
-                                        Modalità di pubblicazione per i driver industriali
-                                    </CardDescription>
-                                </div>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="pt-5 space-y-5">
-                            {settingsLoading ? (
-                                <div className="text-sm text-muted-foreground py-4 text-center">Caricamento...</div>
-                            ) : (
-                                <>
-                                    <RadioGroup
-                                        value={publishMode}
-                                        onValueChange={setPublishMode}
-                                        className="space-y-2"
-                                    >
-                                        {PUBLISH_MODES.map((mode) => {
-                                            const Icon = mode.icon;
-                                            const isSelected = publishMode === mode.value;
-                                            return (
-                                                <label
-                                                    key={mode.value}
-                                                    htmlFor={mode.value}
-                                                    className={`flex items-start gap-3 p-3.5 clip-chamfer border cursor-pointer transition-all ${isSelected
-                                                        ? 'border-primary bg-primary/5'
-                                                        : 'border-border bg-card hover:border-primary/30'
-                                                        }`}
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <Label className="text-xs text-muted-foreground">Username (Opzionale)</Label>
+                                            <Input
+                                                value={cloudMqttUsername}
+                                                onChange={(e) => setCloudMqttUsername(e.target.value)}
+                                                placeholder="username-cloud"
+                                                className="h-9"
+                                                autoComplete="off"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label className="text-xs text-muted-foreground">Password (Opzionale)</Label>
+                                            <div className="relative">
+                                                <Input
+                                                    type={showPassword ? "text" : "password"}
+                                                    value={cloudMqttPassword}
+                                                    onChange={(e) => setCloudMqttPassword(e.target.value)}
+                                                    placeholder="••••••••••••••••"
+                                                    className="h-9 pr-10"
+                                                    autoComplete="off"
+                                                />
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="absolute right-0 top-0 h-9 w-9 hover:bg-transparent"
+                                                    onClick={() => setShowPassword(!showPassword)}
                                                 >
-                                                    <RadioGroupItem value={mode.value} id={mode.value} className="mt-0.5 flex-shrink-0" />
-                                                    <div className="flex-1 min-w-0">
-                                                        <div className="flex items-center gap-2">
-                                                            <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
-                                                            <span className={`text-sm font-medium ${isSelected ? 'text-foreground' : 'text-foreground'}`}>
-                                                                {mode.label}
-                                                            </span>
-                                                        </div>
-                                                        <p className="text-xs text-muted-foreground mt-1">{mode.description}</p>
-                                                        {isSelected && (
-                                                            <p className="text-xs text-primary mt-1.5 italic">{mode.tooltip}</p>
-                                                        )}
-                                                    </div>
-                                                </label>
-                                            );
-                                        })}
-                                    </RadioGroup>
+                                                    {showPassword ? (
+                                                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                                                    ) : (
+                                                        <Eye className="h-4 w-4 text-muted-foreground" />
+                                                    )}
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    </div>
 
-                                    {/* Advanced RBE options */}
-                                    {publishMode === 'sparkplug_only' && (
+                                    <div className="space-y-2 pt-2 border-t border-border mt-4">
+                                        <Label className="text-xs text-muted-foreground">Topic di Destinazione (Prefisso)</Label>
+                                        <Input
+                                            value={cloudMqttTopic}
+                                            onChange={(e) => setCloudMqttTopic(e.target.value)}
+                                            placeholder="es. sorical/data/"
+                                            className="h-9 font-mono text-sm"
+                                        />
+                                        <p className="text-[10px] text-muted-foreground mt-1">
+                                            Questo prefisso verrà aggiunto prima di ogni messaggio MQTT inoltrato al Cloud.
+                                            I formati `spBv1.0/` o `legacy/` verranno accodati automaticamente.
+                                            Esempio: <code>{cloudMqttTopic || 'sorical/data/'}spBv1.0/DDATA/...</code>
+                                        </p>
+                                    </div>
+                                </CardContent>
+                            )}
+                        </Card>
+                    </div>
+
+                    {/* Right Column */}
+                    <div className="space-y-6">
+                        {/* MQTT Publish Mode Configuration */}
+                        <Card className="border-border shadow-sm bg-card">
+                            <CardHeader className="pb-4 border-b border-border">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                                        <RefreshCw className="h-4 w-4 text-primary" />
+                                    </div>
+                                    <div>
+                                        <CardTitle className="text-base text-foreground">Configurazione MQTT</CardTitle>
+                                        <CardDescription className="text-xs mt-0.5">
+                                            Modalità di pubblicazione per i driver industriali
+                                        </CardDescription>
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="pt-5 space-y-5">
+                                {settingsLoading ? (
+                                    <div className="text-sm text-muted-foreground py-4 text-center">Caricamento...</div>
+                                ) : (
+                                    <>
+                                        <RadioGroup
+                                            value={publishMode}
+                                            onValueChange={setPublishMode}
+                                            className="space-y-2"
+                                        >
+                                            {PUBLISH_MODES.map((mode) => {
+                                                const Icon = mode.icon;
+                                                const isSelected = publishMode === mode.value;
+                                                return (
+                                                    <label
+                                                        key={mode.value}
+                                                        htmlFor={mode.value}
+                                                        className={`flex items-start gap-3 p-3.5 clip-chamfer border cursor-pointer transition-all ${isSelected
+                                                            ? 'border-primary bg-primary/5'
+                                                            : 'border-border bg-card hover:border-primary/30'
+                                                            }`}
+                                                    >
+                                                        <RadioGroupItem value={mode.value} id={mode.value} className="mt-0.5 flex-shrink-0" />
+                                                        <div className="flex-1 min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
+                                                                <span className={`text-sm font-medium ${isSelected ? 'text-foreground' : 'text-foreground'}`}>
+                                                                    {mode.label}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-xs text-muted-foreground mt-1">{mode.description}</p>
+                                                            {isSelected && (
+                                                                <p className="text-xs text-primary mt-1.5 italic">{mode.tooltip}</p>
+                                                            )}
+                                                        </div>
+                                                    </label>
+                                                );
+                                            })}
+                                        </RadioGroup>
+
+                                        {/* Advanced RBE options */}
                                         <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
                                             <CollapsibleTrigger className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground w-full py-2 border-t border-border mt-1">
                                                 <Settings2 className="h-3.5 w-3.5" />
@@ -555,7 +700,7 @@ const SystemPage = () => {
                                                     <div className="flex justify-between items-center">
                                                         <Label className="text-sm">Heartbeat</Label>
                                                         <span className="text-sm font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
-                                                            {heartbeat === 0 ? 'Solo cambio' : (heartbeat < 60 ? `${heartbeat}s` : `${heartbeat / 60}m`)}
+                                                            {heartbeat === -1 ? 'Solo cambio' : heartbeat === 0 ? 'Real-Time' : (heartbeat < 60 ? `${heartbeat}s` : `${heartbeat / 60}m`)}
                                                         </span>
                                                     </div>
                                                     <div className="flex gap-1.5 flex-wrap">
@@ -565,6 +710,15 @@ const SystemPage = () => {
                                                             size="sm"
                                                             className="h-7 min-w-[44px] text-xs"
                                                             onClick={() => setHeartbeat(0)}
+                                                        >
+                                                            Real-Time
+                                                        </Button>
+                                                        <Button
+                                                            type="button"
+                                                            variant={heartbeat === -1 ? 'default' : 'outline'}
+                                                            size="sm"
+                                                            className="h-7 min-w-[44px] text-xs"
+                                                            onClick={() => setHeartbeat(-1)}
                                                         >
                                                             Solo cambio
                                                         </Button>
@@ -582,9 +736,11 @@ const SystemPage = () => {
                                                         ))}
                                                     </div>
                                                     <p className="text-xs text-muted-foreground">
-                                                        {heartbeat === 0
-                                                            ? 'Pubblica SOLO quando il valore cambia (massima ottimizzazione banda).'
-                                                            : 'Intervallo di pubblicazione periodico anche se il valore non cambia.'}
+                                                        {heartbeat === -1
+                                                            ? 'Pubblica SOLO quando il valore supera la deadband.'
+                                                            : heartbeat === 0
+                                                                ? 'Pubblica ad ogni singola lettura (Real-Time) disabilitando RBE.'
+                                                                : 'Intervallo di pubblicazione forzato anche se il valore non cambia.'}
                                                     </p>
                                                 </div>
 
@@ -605,54 +761,54 @@ const SystemPage = () => {
                                                 </div>
                                             </CollapsibleContent>
                                         </Collapsible>
-                                    )}
 
-                                    {/* DB Retention Section */}
-                                    <div className="pt-4 mt-2 border-t flex flex-col gap-3">
-                                        <div className="flex justify-between items-center">
-                                            <Label className="text-sm font-semibold text-foreground flex items-center gap-2">
-                                                Ritenzione Storico (TimescaleDB)
-                                            </Label>
-                                            <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
-                                                {dbRetention === 0 ? 'Infinito' : `${dbRetention} giorni`}
-                                            </span>
+                                        {/* DB Retention Section */}
+                                        <div className="pt-4 mt-2 border-t flex flex-col gap-3">
+                                            <div className="flex justify-between items-center">
+                                                <Label className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                                    Ritenzione Storico (TimescaleDB)
+                                                </Label>
+                                                <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
+                                                    {dbRetention === 0 ? 'Infinito' : `${dbRetention} giorni`}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-muted-foreground whitespace-pre-wrap">
+                                                Giorni di conservazione dei dati storici nel database PostgreSQL. I dati più vecchi verranno eliminati automaticamente per liberare spazio su disco.{'\n'}
+                                                <span className="text-destructive font-medium">Attenzione: Valore 0 (Infinito) disabilita la pulizia automatica. Il disco potrebbe riempirsi!</span>
+                                            </p>
+                                            <div className="flex gap-2 items-center w-full">
+                                                <Input
+                                                    type="number"
+                                                    min={0}
+                                                    max={3650}
+                                                    value={dbRetention}
+                                                    onChange={(e) => setDbRetention(parseInt(e.target.value) || 0)}
+                                                    className="w-full text-sm font-mono"
+                                                />
+                                            </div>
                                         </div>
-                                        <p className="text-xs text-muted-foreground whitespace-pre-wrap">
-                                            Giorni di conservazione dei dati storici nel database PostgreSQL. I dati più vecchi verranno eliminati automaticamente per liberare spazio su disco.{'\n'}
-                                            <span className="text-destructive font-medium">Attenzione: Valore 0 (Infinito) disabilita la pulizia automatica. Il disco potrebbe riempirsi!</span>
-                                        </p>
-                                        <div className="flex gap-2 items-center w-full">
-                                            <Input
-                                                type="number"
-                                                min={0}
-                                                max={3650}
-                                                value={dbRetention}
-                                                onChange={(e) => setDbRetention(parseInt(e.target.value) || 0)}
-                                                className="w-full text-sm font-mono"
-                                            />
-                                        </div>
-                                    </div>
 
-                                    <div className="flex items-center gap-3 pt-6 border-t border-border mt-4">
-                                        <Button
-                                            onClick={handleSaveSettings}
-                                            disabled={loading}
-                                            className="gap-2 h-9 px-5"
-                                        >
-                                            <CheckCircle className="h-4 w-4" />
-                                            Salva configurazione
-                                        </Button>
-                                        {settings && settings.publish_mode === publishMode && !loading && (
-                                            <span className="text-xs text-primary flex items-center gap-1">
-                                                <CheckCircle className="h-3 w-3" />
-                                                Configurazione attiva
-                                            </span>
-                                        )}
-                                    </div>
-                                </>
-                            )}
-                        </CardContent>
-                    </Card>
+                                        <div className="flex items-center gap-3 pt-6 border-t border-border mt-4">
+                                            <Button
+                                                onClick={handleSaveSettings}
+                                                disabled={loading}
+                                                className="gap-2 h-9 px-5"
+                                            >
+                                                <CheckCircle className="h-4 w-4" />
+                                                Salva configurazione
+                                            </Button>
+                                            {settings && settings.publish_mode === publishMode && !loading && (
+                                                <span className="text-xs text-primary flex items-center gap-1">
+                                                    <CheckCircle className="h-3 w-3" />
+                                                    Configurazione attiva
+                                                </span>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </div>
                 </div>
 
                 {/* Second row — Backup section */}

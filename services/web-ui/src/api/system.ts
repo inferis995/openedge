@@ -11,6 +11,12 @@ export interface GlobalSettings {
     mqtt_password?: string;
     mqtt_client_id?: string;
     db_retention_days?: string;
+    cloud_sync_enabled?: string;
+    cloud_mqtt_host?: string;
+    cloud_mqtt_port?: string;
+    cloud_mqtt_username?: string;
+    cloud_mqtt_password?: string;
+    cloud_mqtt_topic?: string;
 }
 
 export interface UpdateSettingsRequest {
@@ -24,6 +30,12 @@ export interface UpdateSettingsRequest {
     mqtt_password?: string;
     mqtt_client_id?: string;
     db_retention_days?: number;
+    cloud_sync_enabled?: boolean;
+    cloud_mqtt_host?: string;
+    cloud_mqtt_port?: number;
+    cloud_mqtt_username?: string;
+    cloud_mqtt_password?: string;
+    cloud_mqtt_topic?: string;
 }
 
 export interface PublishMetrics {

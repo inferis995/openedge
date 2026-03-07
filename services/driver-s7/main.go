@@ -135,7 +135,7 @@ func main() {
 	driver.previousQualities = make(map[int]int)
 
 	// Initialize settings manager
-	settingsManager := settings.NewManager(database, mqttClient, gatewayID)
+	settingsManager := settings.NewManager(database)
 	if err := settingsManager.Load(); err != nil {
 		log.Printf("Warning: Failed to load settings: %v", err)
 	}

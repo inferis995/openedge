@@ -105,35 +105,37 @@ func (m *Manager) ShouldPublish(tagID int, newValue, oldValue interface{}, newQu
 		return true
 	}
 
-	// Dual and Legacy modes always publish
-	if config.PublishMode == models.PublishModeDual || config.PublishMode == models.PublishModeLegacyOnly {
-		m.recordPublish()
-		return true
-	}
-
-	// Sparkplug Only mode with RBE
-	// Publish if quality changed
+	// Universal RBE Logic (Applies to Legacy, Sparkplug, and Dual)
+	// 1. Publish if quality changed
 	if newQuality != oldQuality {
+		log.Printf("[RBE-DEBUG] Publishing Tag %d due to QUALITY CHANGE (%d -> %d)", tagID, oldQuality, newQuality)
 		m.recordPublish()
 		m.updateLastPublish(tagID)
 		return true
 	}
 
-	// Publish if value changed (considering deadband)
+	// 2. Publish if value changed (considering deadband)
 	if !valuesEqual(newValue, oldValue, config.RBEDeadbandPercent) {
+		log.Printf("[RBE-DEBUG] Publishing Tag %d due to VALUE CHANGE. Old: %v (%T), New: %v (%T)", tagID, oldValue, oldValue, newValue, newValue)
 		m.recordPublish()
 		m.updateLastPublish(tagID)
 		return true
 	}
 
-	// Heartbeat logic: if heartbeat > 0, check if interval elapsed
-	// If heartbeat == 0, skip (only publish on value change - "Solo cambio" mode)
-	if config.RBEHeartbeatSeconds > 0 {
+	// 3. Heartbeat logic:
+	// If heartbeat == 0, it means Real-Time (publish every single poll without waiting)
+	// If heartbeat < 0 (e.g. -1), it means "Solo cambio" (only publish on value/quality changes, which were already handled above)
+	if config.RBEHeartbeatSeconds == 0 {
+		m.recordPublish()
+		m.updateLastPublish(tagID)
+		return true
+	} else if config.RBEHeartbeatSeconds > 0 {
 		m.mu.RLock()
 		lastPub, exists := m.lastPublish[tagID]
 		m.mu.RUnlock()
 
 		if !exists || time.Since(lastPub) > time.Duration(config.RBEHeartbeatSeconds)*time.Second {
+			log.Printf("[RBE-DEBUG] Publishing Tag %d due to Heartbeat elapsed", tagID)
 			m.recordPublish()
 			m.updateLastPublish(tagID)
 			return true
