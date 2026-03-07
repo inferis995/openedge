@@ -208,14 +208,35 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 			messages = append(messages, "Schema public wiped")
 		}
 
-		pgCmd := exec.Command("psql", "-h", pgHost, "-U", pgUser, "-d", pgDB, "-v", "ON_ERROR_STOP=0", "-f", pgDumpFile)
+		// Use default psql behavior (continues on error) but parse the output for critical errors
+		pgCmd := exec.Command("psql", "-h", pgHost, "-U", pgUser, "-d", pgDB, "-f", pgDumpFile)
 		pgCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
 
 		log.Printf("Running psql restore from %s...", pgDumpFile)
-		output, err := pgCmd.CombinedOutput()
-		log.Printf("psql output: %s", string(output))
+		outputBytes, err := pgCmd.CombinedOutput()
+		output := string(outputBytes)
+		log.Printf("psql block completed (err: %v)", err)
 
-		if err != nil {
+		hasCriticalError := false
+		for _, line := range strings.Split(output, "\n") {
+			if strings.Contains(line, "ERROR:") || strings.Contains(line, "FATAL:") {
+				// Ignore expected TimescaleDB/schema wipe warnings
+				if strings.Contains(line, "already exists") || strings.Contains(line, "extension") || strings.Contains(line, "does not exist") || strings.Contains(line, "role") {
+					continue
+				}
+				hasCriticalError = true
+				log.Printf("CRITICAL RESTORE ERROR: %s", line)
+				messages = append(messages, fmt.Sprintf("Restore Error: %s", strings.TrimSpace(line)))
+			}
+		}
+
+		if hasCriticalError {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":   "Database restore failed with critical errors",
+				"details": messages,
+			})
+			return
+		} else if err != nil {
 			messages = append(messages, fmt.Sprintf("Restore completed with warnings: %v", err))
 		} else {
 			messages = append(messages, "Database restored successfully")
@@ -481,6 +502,7 @@ func (h *BackupHandler) RunScheduledBackup() error {
 		pgDumpFile = filepath.Join(tempDir, "config_backup.sql")
 		pgCmd = exec.Command("pg_dump", "-h", pgHost, "-U", pgUser, "-d", pgDB,
 			"-F", "p", "--clean", "--if-exists",
+			"--exclude-table=tag_history",
 			"--exclude-table=tag_data",
 			"--exclude-table=system_events",
 			"-f", pgDumpFile)

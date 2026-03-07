@@ -101,6 +101,7 @@ const SystemPage = () => {
     const [mqttPassword, setMqttPassword] = useState<string>('');
     const [mqttClientId, setMqttClientId] = useState<string>('industrial-edge');
     const [showPassword, setShowPassword] = useState<boolean>(false);
+    const [dbRetention, setDbRetention] = useState<number>(30);
 
     // Backup Settings
     const [backupSettings, setBackupSettings] = useState<BackupSettings>({
@@ -133,6 +134,10 @@ const SystemPage = () => {
             setMqttUsername(data.mqtt_username || '');
             setMqttPassword(data.mqtt_password || '');
             setMqttClientId(data.mqtt_client_id || 'industrial-edge');
+
+            // Handle DB retention, missing/invalid defaults to 30
+            const retention = data.hasOwnProperty('db_retention_days') ? parseInt(data.db_retention_days as string) : 30;
+            setDbRetention(isNaN(retention) ? 30 : retention);
         } catch (error) {
             console.error('Failed to load settings:', error);
         } finally {
@@ -166,6 +171,7 @@ const SystemPage = () => {
             const update: UpdateSettingsRequest = {
                 publish_mode: publishMode,
                 mqtt_broker_mode: mqttBrokerMode,
+                db_retention_days: dbRetention,
             };
             if (publishMode === 'sparkplug_only') {
                 update.rbe_heartbeat_seconds = heartbeat;
@@ -601,7 +607,33 @@ const SystemPage = () => {
                                         </Collapsible>
                                     )}
 
-                                    <div className="flex items-center gap-3 pt-2 border-t border-border">
+                                    {/* DB Retention Section */}
+                                    <div className="pt-4 mt-2 border-t flex flex-col gap-3">
+                                        <div className="flex justify-between items-center">
+                                            <Label className="text-sm font-semibold text-foreground flex items-center gap-2">
+                                                Ritenzione Storico (TimescaleDB)
+                                            </Label>
+                                            <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
+                                                {dbRetention === 0 ? 'Infinito' : `${dbRetention} giorni`}
+                                            </span>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground whitespace-pre-wrap">
+                                            Giorni di conservazione dei dati storici nel database PostgreSQL. I dati più vecchi verranno eliminati automaticamente per liberare spazio su disco.{'\n'}
+                                            <span className="text-destructive font-medium">Attenzione: Valore 0 (Infinito) disabilita la pulizia automatica. Il disco potrebbe riempirsi!</span>
+                                        </p>
+                                        <div className="flex gap-2 items-center w-full">
+                                            <Input
+                                                type="number"
+                                                min={0}
+                                                max={3650}
+                                                value={dbRetention}
+                                                onChange={(e) => setDbRetention(parseInt(e.target.value) || 0)}
+                                                className="w-full text-sm font-mono"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-center gap-3 pt-6 border-t border-border mt-4">
                                         <Button
                                             onClick={handleSaveSettings}
                                             disabled={loading}

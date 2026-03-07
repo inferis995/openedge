@@ -157,10 +157,14 @@ func main() {
 
 	// Create settings manager for publish mode configuration
 	settingsMgr := settings.NewManager(database)
-	systemHandler := handlers.NewSystemHandler(database, mqttClient, settingsMgr)
 
 	// Create history handler with PostgreSQL (no InfluxDB)
 	historyHandler := handlers.NewHistoryHandler(database)
+
+	// Initialize TimescaleDB retention policies based on global settings
+	historyHandler.InitializeRetentionPolicy()
+
+	systemHandler := handlers.NewSystemHandler(database, mqttClient, settingsMgr, historyHandler)
 
 	// Create auth service and handler
 	authService := auth.NewService(database)

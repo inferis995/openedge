@@ -17,6 +17,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/s7"
+	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 )
 
@@ -56,6 +57,10 @@ type Driver struct {
 	// Write Cooldown: prevent read-after-write flickering
 	writeCooldowns map[int]time.Time
 	cooldownMu     sync.RWMutex
+
+	// Settings and RBE
+	settingsManager   *settings.Manager
+	previousQualities map[int]int
 
 	// Sparkplug B support
 	sparkplugClient *sparkplug.SparkplugClient
@@ -125,6 +130,23 @@ func main() {
 		previousValues: make(map[int]interface{}),
 		writeCooldowns: make(map[int]time.Time),
 	}
+
+	// Initialize variables
+	driver.previousQualities = make(map[int]int)
+
+	// Initialize settings manager
+	settingsManager := settings.NewManager(database, mqttClient, gatewayID)
+	if err := settingsManager.Load(); err != nil {
+		log.Printf("Warning: Failed to load settings: %v", err)
+	}
+	driver.settingsManager = settingsManager
+
+	// Subscribe to settings reload command
+	settingsReloadTopic := fmt.Sprintf("sys/command/settings-reload/%d", gatewayID)
+	if err := mqttClient.Subscribe(settingsReloadTopic, driver.handleSettingsReloadCommand); err != nil {
+		log.Fatalf("Failed to subscribe to settings reload topic: %v", err)
+	}
+	log.Printf("Subscribed to settings reload topic: %s", settingsReloadTopic)
 
 	// Initialize Sparkplug B client (optional - for dual publishing)
 	if getEnv("SPARKPLUG_ENABLED", "false") == "true" {
@@ -319,25 +341,75 @@ func (d *Driver) initSparkplugClientLocked(orgName, siteName, areaName, gatewayN
 
 // publishDual publishes a tag value in both legacy and Sparkplug B formats
 func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataType string, quality int, timestamp int64) {
+	// Get publish mode from settings manager
+	publishMode := models.PublishModeDual // default
+	if d.settingsManager != nil {
+		publishMode = d.settingsManager.Get().PublishMode
+	}
+
 	d.sparkplugMu.RLock()
 	dualPublisher := d.dualPublisher
 	d.sparkplugMu.RUnlock()
 
-	if dualPublisher != nil {
-		// Use dual publisher
-		if err := dualPublisher.Publish(tagID, alias, value, dataType, quality, timestamp, d.mqttClient); err != nil {
-			log.Printf("[DRIVER-S7] Dual publish error for %s: %v", alias, err)
-		}
-	} else {
-		// Legacy-only publish
-		d.configMu.RLock()
-		cfg := d.config
-		d.configMu.RUnlock()
+	d.configMu.RLock()
+	cfg := d.config
+	d.configMu.RUnlock()
 
-		if cfg != nil {
-			topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name), slugify(alias))
-			payload, _ := json.Marshal(TagPayload{tagID, cfg.OrgID, value, timestamp, quality})
-			d.mqttClient.PublishWithQoS(topic, string(payload), 1, false)
+	if cfg == nil {
+		return
+	}
+
+	// Legacy publish func
+	publishLegacy := func() {
+		topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name), slugify(alias))
+		payload, _ := json.Marshal(TagPayload{tagID, cfg.OrgID, value, timestamp, quality})
+		d.mqttClient.PublishWithQoS(topic, string(payload), 1, false)
+	}
+
+	switch publishMode {
+	case models.PublishModeLegacyOnly:
+		publishLegacy()
+
+	case models.PublishModeSparkplugOnly:
+		if dualPublisher != nil {
+			d.sparkplugMu.RLock()
+			spClient := d.sparkplugClient
+			d.sparkplugMu.RUnlock()
+			if spClient != nil && spClient.IsConnected() {
+				tagData := sparkplug.TagData{
+					TagID:     tagID,
+					DeviceID:  alias,
+					Value:     value,
+					DataType:  dataType,
+					Timestamp: timestamp,
+					Quality:   quality,
+					OrgID:     cfg.OrgID,
+				}
+				if err := spClient.PublishSingleTag(tagData); err != nil {
+					log.Printf("[DRIVER-S7] Sparkplug publish error for %s: %v", alias, err)
+				}
+			}
+		}
+
+	default: // PublishModeDual
+		if dualPublisher != nil {
+			if err := dualPublisher.Publish(tagID, alias, value, dataType, quality, timestamp, d.mqttClient); err != nil {
+				log.Printf("[DRIVER-S7] Dual publish error for %s: %v", alias, err)
+			}
+		} else {
+			publishLegacy()
+		}
+	}
+}
+
+// handleSettingsReloadCommand handles settings-reload MQTT commands
+func (d *Driver) handleSettingsReloadCommand(topic string, payload []byte) {
+	if d.settingsManager != nil {
+		log.Printf("Received settings reload command")
+		if err := d.settingsManager.Load(); err != nil {
+			log.Printf("Failed to reload settings: %v", err)
+		} else {
+			log.Printf("Successfully reloaded settings")
 		}
 	}
 }
@@ -561,7 +633,7 @@ func (d *Driver) handleSparkplugDCMD(topic string, payload []byte) {
 			alias := cfg.Tags[i].Alias
 			// Match with underscores (Sparkplug format) or original alias
 			if strings.EqualFold(alias, metric.Name) ||
-			   strings.EqualFold(strings.ReplaceAll(alias, "-", "_"), metric.Name) {
+				strings.EqualFold(strings.ReplaceAll(alias, "-", "_"), metric.Name) {
 				targetTag = &cfg.Tags[i]
 				break
 			}
@@ -692,10 +764,11 @@ func (d *Driver) poll() {
 				if !exists {
 					val = 0
 				}
-				d.publishTagValue(topicPrefix, tag, val, timestamp, 2, config.OrgID)
-
-				// Update previous value
-				d.updatePreviousValue(tag.ID, val)
+				if d.shouldPublish(tag.ID, val, 2) {
+					d.publishTagValue(topicPrefix, tag, val, timestamp, 2, config.OrgID)
+					d.updatePreviousValue(tag.ID, val)
+					d.updateQuality(tag.ID, 2)
+				}
 			}
 			return
 		}
@@ -718,10 +791,11 @@ func (d *Driver) poll() {
 			if !exists {
 				val = 0
 			}
-			d.publishTagValue(topicPrefix, tag, val, timestamp, 2, config.OrgID)
-
-			// Update previous value
-			d.updatePreviousValue(tag.ID, val)
+			if d.shouldPublish(tag.ID, val, 2) {
+				d.publishTagValue(topicPrefix, tag, val, timestamp, 2, config.OrgID)
+				d.updatePreviousValue(tag.ID, val)
+				d.updateQuality(tag.ID, 2)
+			}
 			continue
 		}
 
@@ -755,12 +829,12 @@ func (d *Driver) poll() {
 			}
 		}
 
-		// ALWAYS publish (no Report by Exception) - matches Modbus and OPC UA behavior
-		// Update previous value
-		d.updatePreviousValue(tag.ID, result.Value)
-
-		// Publish to MQTT
-		d.publishTagValue(topicPrefix, tag, result.Value, timestamp, result.Quality, config.OrgID)
+		// Publish to MQTT only if value changed (Report by Exception)
+		if d.shouldPublish(tag.ID, result.Value, result.Quality) {
+			d.updatePreviousValue(tag.ID, result.Value)
+			d.updateQuality(tag.ID, result.Quality)
+			d.publishTagValue(topicPrefix, tag, result.Value, timestamp, result.Quality, config.OrgID)
+		}
 	}
 }
 
@@ -790,6 +864,29 @@ func (d *Driver) updatePreviousValue(tagID int, value interface{}) {
 	d.prevValuesMu.Lock()
 	d.previousValues[tagID] = value
 	d.prevValuesMu.Unlock()
+}
+
+func (d *Driver) updateQuality(tagID int, quality int) {
+	d.prevValuesMu.Lock()
+	if d.previousQualities == nil {
+		d.previousQualities = make(map[int]int)
+	}
+	d.previousQualities[tagID] = quality
+	d.prevValuesMu.Unlock()
+}
+
+// shouldPublish checks if the value should be published based on RBE settings
+func (d *Driver) shouldPublish(id int, val interface{}, quality int) bool {
+	d.prevValuesMu.RLock()
+	oldVal := d.previousValues[id]
+	oldQuality := d.previousQualities[id]
+	d.prevValuesMu.RUnlock()
+
+	if d.settingsManager != nil {
+		return d.settingsManager.ShouldPublish(id, val, oldVal, quality, oldQuality)
+	}
+
+	return true // Fallback to always publish if no settings manager
 }
 
 // valuesEqual compares two values for equality

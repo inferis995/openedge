@@ -10,6 +10,7 @@ export interface GlobalSettings {
     mqtt_username?: string;
     mqtt_password?: string;
     mqtt_client_id?: string;
+    db_retention_days?: string;
 }
 
 export interface UpdateSettingsRequest {
@@ -22,6 +23,7 @@ export interface UpdateSettingsRequest {
     mqtt_username?: string;
     mqtt_password?: string;
     mqtt_client_id?: string;
+    db_retention_days?: number;
 }
 
 export interface PublishMetrics {

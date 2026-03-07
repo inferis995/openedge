@@ -60,6 +60,11 @@ type Driver struct {
 	subscribedTags map[string]bool // Track subscribed source topics
 	subMu          sync.Mutex
 
+	// Source connectivity tracking
+	lastMessageTime map[int]time.Time
+	connectionLost  map[int]bool
+	msgTimeMu       sync.Mutex
+
 	// Sparkplug B support
 	sparkplugClient *sparkplug.SparkplugClient
 	dualPublisher   *sparkplug.DualPublisher
@@ -135,12 +140,14 @@ func main() {
 	// This ensures the status reflects actual driver readiness, not just startup
 
 	driver := &Driver{
-		gatewayID:      gatewayID,
-		database:       database,
-		mqttClient:     mqttClient,
-		stopChan:       make(chan struct{}),
-		reloadChan:     make(chan struct{}, 1),
-		subscribedTags: make(map[string]bool),
+		gatewayID:       gatewayID,
+		database:        database,
+		mqttClient:      mqttClient,
+		stopChan:        make(chan struct{}),
+		reloadChan:      make(chan struct{}, 1),
+		subscribedTags:  make(map[string]bool),
+		lastMessageTime: make(map[int]time.Time),
+		connectionLost:  make(map[int]bool),
 	}
 
 	// Initialize Sparkplug B client (optional - for dual publishing)
@@ -407,6 +414,14 @@ func (d *Driver) handleSourceMessage(mapping TagMapping, topic string, payload [
 		log.Printf("[DRIVER-MQTT] ERROR parsing value from %s: %v (raw: %s)", topic, err, string(payload))
 		return
 	}
+
+	d.msgTimeMu.Lock()
+	d.lastMessageTime[mapping.Tag.ID] = time.Now()
+	if d.connectionLost[mapping.Tag.ID] {
+		log.Printf("[DRIVER-MQTT] Source connection restored for tag %s", mapping.Tag.Alias)
+		d.connectionLost[mapping.Tag.ID] = false
+	}
+	d.msgTimeMu.Unlock()
 
 	timestamp := time.Now().UnixMilli()
 
@@ -822,6 +837,9 @@ func (d *Driver) run() {
 				healthTopic := fmt.Sprintf("sys/health/%d", d.gatewayID)
 				d.mqttClient.PublishWithQoS(healthTopic, "online", 1, true)
 			}
+
+			// Check for source topic timeouts
+			d.checkSourceTimeouts()
 		}
 	}
 }
@@ -844,6 +862,42 @@ func (d *Driver) setConnectionState(connected bool) {
 	topic := fmt.Sprintf("sys/health/%d", d.gatewayID)
 	d.mqttClient.PublishWithQoS(topic, status, 1, true)
 	log.Printf("[DRIVER-MQTT] Health status changed to: %s", status)
+}
+
+// checkSourceTimeouts verifies if any tags have stopped receiving data
+func (d *Driver) checkSourceTimeouts() {
+	d.configMu.RLock()
+	cfg := d.config
+	d.configMu.RUnlock()
+
+	if cfg == nil || !cfg.Gateway.Enabled {
+		return
+	}
+
+	// Use 3x scan rate or 60s minimum as timeout
+	timeoutMs := cfg.Gateway.ScanRateMs * 3
+	if timeoutMs < 60000 {
+		timeoutMs = 60000
+	}
+	timeout := time.Duration(timeoutMs) * time.Millisecond
+	now := time.Now()
+	timestamp := now.UnixMilli()
+
+	d.msgTimeMu.Lock()
+	defer d.msgTimeMu.Unlock()
+
+	for _, tag := range cfg.Tags {
+		lastTime, exists := d.lastMessageTime[tag.ID]
+		// If we haven't heard from the tag for longer than the timeout, mark as connection lost
+		if exists && now.Sub(lastTime) > timeout {
+			if !d.connectionLost[tag.ID] {
+				log.Printf("[DRIVER-MQTT] Source timeout for tag %s (ID:%d). No data for %v", tag.Alias, tag.ID, timeout)
+				d.connectionLost[tag.ID] = true
+				// Publish with BAD quality
+				d.publishDual(tag.ID, tag.Alias, 0, tag.DataType, 2, timestamp)
+			}
+		}
+	}
 }
 
 // Utility functions

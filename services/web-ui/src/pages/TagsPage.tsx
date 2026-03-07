@@ -694,13 +694,30 @@ const TagsPage = () => {
                                     <DialogHeader>
                                         <DialogTitle>Import Tags</DialogTitle>
                                         <DialogDescription>
-                                            Paste tag definitions in PLC format. Format: <code>Alias : DataType AT Address;</code>
+                                            {selectedGatewayDriverType === 'S7' ? (
+                                                <span>Paste S7 Data Block (DB) definitions from TIA Portal (STL syntax). Format: <code className="bg-muted px-1 rounded">Alias : DataType AT Address;</code></span>
+                                            ) : (
+                                                <span>Paste tag definitions in standard format. Format: <code className="bg-muted px-1 rounded">Alias : DataType AT Address;</code></span>
+                                            )}
                                         </DialogDescription>
                                     </DialogHeader>
                                     <div className="space-y-4">
+                                        {selectedGatewayDriverType === 'S7' && (
+                                            <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 p-3 rounded-md">
+                                                <p className="font-semibold mb-1">Siemens S7 Import Guide:</p>
+                                                <ul className="list-disc pl-4 space-y-1">
+                                                    <li>Use standard S7 absolute addressing (e.g., <code className="font-semibold">DB1.DBX0.0</code>, <code className="font-semibold">DB2.DBW4</code>, <code className="font-semibold">DB3.DBD8</code>)</li>
+                                                    <li>Supported types: BOOL, INT, DINT, REAL, STRING, WORD, etc.</li>
+                                                    <li>You can paste data block source exports directly but you <strong>must append the absolute address</strong> after the <code>AT</code> keyword.</li>
+                                                </ul>
+                                            </div>
+                                        )}
                                         <textarea
                                             className="w-full h-64 p-3 font-mono text-sm border rounded-md"
-                                            placeholder={`HMI_CFG_HBeg_1 : DINT AT 42095;\nHMI_PortataTotEM1 : REAL AT 42131;\nDO_Valvola_1 : BOOL AT 00001;`}
+                                            placeholder={selectedGatewayDriverType === 'S7' ?
+                                                `Totalizzatore_1 : BOOL AT DB1.DBX0.0;\nPortata_Misuratore : INT AT DB1.DBW2;\nHMI_PortataTotale : REAL AT DB1.DBD8;` :
+                                                `HMI_CFG_HBeg_1 : DINT AT 42095;\nHMI_PortataTotEM1 : REAL AT 42131;\nDO_Valvola_1 : BOOL AT 00001;`
+                                            }
                                             value={importContent}
                                             onChange={(e) => setImportContent(e.target.value)}
                                         />

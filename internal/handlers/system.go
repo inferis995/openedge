@@ -27,14 +27,16 @@ type SystemHandler struct {
 	db             *sql.DB
 	mqttClient     MQTTClient // Use same interface as GatewaysHandler
 	settingsMgr    *settings.Manager
+	historyHandler *HistoryHandler
 }
 
 // NewSystemHandler creates a new system handler
-func NewSystemHandler(db *sql.DB, mqttClient MQTTClient, settingsMgr *settings.Manager) *SystemHandler {
+func NewSystemHandler(db *sql.DB, mqttClient MQTTClient, settingsMgr *settings.Manager, historyHandler *HistoryHandler) *SystemHandler {
 	return &SystemHandler{
-		db:         db,
-		mqttClient: mqttClient,
-		settingsMgr: settingsMgr,
+		db:             db,
+		mqttClient:     mqttClient,
+		settingsMgr:    settingsMgr,
+		historyHandler: historyHandler,
 	}
 }
 
@@ -216,6 +218,7 @@ type UpdateSettingsRequest struct {
 	MQTTUsername          *string  `json:"mqtt_username"`
 	MQTTPassword          *string  `json:"mqtt_password"`
 	MQTTClientID          *string  `json:"mqtt_client_id"`
+	DBRetentionDays       *int     `json:"db_retention_days"`
 }
 
 // UpdateSettings updates global settings (admin only)
@@ -331,6 +334,23 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 		if err := h.upsertSetting("mqtt_client_id", *req.MQTTClientID); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_client_id"})
 			return
+		}
+	}
+
+	// Handle DB Retention Days setting
+	if req.DBRetentionDays != nil {
+		if *req.DBRetentionDays < 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "db_retention_days cannot be negative"})
+			return
+		}
+		if err := h.upsertSetting("db_retention_days", fmt.Sprintf("%d", *req.DBRetentionDays)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update db_retention_days"})
+			return
+		}
+
+		// Apply the new retention policy immediately
+		if h.historyHandler != nil {
+			go h.historyHandler.InitializeRetentionPolicy()
 		}
 	}
 

@@ -312,8 +312,6 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 		return
 	}
 
-	log.Printf("[HISTORIAN] Received data for topic: %s, value: %v", topic, mqttPayload.V)
-
 	// Get tag info (includes deadband configuration)
 	tagInfo, err := s.getTagInfo(org, site, area, gateway, alias)
 	if err != nil {
@@ -329,23 +327,17 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 
 	// Skip if historize is disabled
 	if !tagInfo.Historize {
-		log.Printf("[HISTORIAN] Tag %d has historize=false, skipping storage", tagInfo.ID)
 		return
 	}
 
 	// Check deadband filter
 	if !s.shouldStoreValue(tagInfo, mqttPayload.V, mqttPayload.Q) {
 		// Value within deadband, skip storing
-		log.Printf("[HISTORIAN] Tag %d value within deadband (%.2f), skipping storage",
-			tagInfo.ID, tagInfo.HistorizeDeadband)
 		return
 	}
 
 	// Store previous value in Redis for next deadband comparison
 	s.storePreviousValue(tagInfo.ID, mqttPayload.V, mqttPayload.Q)
-
-	log.Printf("[HISTORIAN] Storing data point for tag %d: value=%v, ts=%d",
-		tagInfo.ID, mqttPayload.V, mqttPayload.Ts)
 
 	// Convert value to float64
 	var floatValue float64
@@ -454,6 +446,14 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 			continue
 		}
 
+		// Check deadband filter (same logic as legacy handler)
+		if !s.shouldStoreValue(tagInfo, metric.Value, legacyQuality) {
+			continue
+		}
+
+		// Store previous value in Redis for next deadband comparison
+		s.storePreviousValue(tagInfo.ID, metric.Value, legacyQuality)
+
 		// Convert value to float64
 		var floatValue float64
 		switch v := metric.Value.(type) {
@@ -498,8 +498,6 @@ func (s *HistorianService) saveToPostgreSQL(tagID int, value float64, timestampM
 
 		if err != nil {
 			log.Printf("[HISTORIAN] ERROR inserting gap marker to PostgreSQL: %v", err)
-		} else {
-			log.Printf("[HISTORIAN] Tag %d quality=%d (BAD), gap marker inserted.", tagID, quality)
 		}
 		return
 	}
@@ -512,8 +510,6 @@ func (s *HistorianService) saveToPostgreSQL(tagID int, value float64, timestampM
 
 	if err != nil {
 		log.Printf("[HISTORIAN] ERROR inserting to PostgreSQL: %v", err)
-	} else {
-		log.Printf("[HISTORIAN] Saved tag %d value=%.2f to PostgreSQL", tagID, value)
 	}
 }
 
@@ -665,8 +661,6 @@ func (s *HistorianService) getTagInfoByAlias(alias string) (*TagInfo, error) {
 func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface{}, newQuality int) bool {
 	// Always store BAD/UNCERTAIN quality to create visible gaps in charts
 	if newQuality > 0 {
-		log.Printf("[HISTORIAN] Tag %d quality=%d (BAD/UNCERTAIN), storing for gap visualization",
-			tagInfo.ID, newQuality)
 		return true
 	}
 
@@ -691,17 +685,11 @@ func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface
 	// If deadband is not configured (≤ 0), store only on actual value change (on-change storage)
 	if tagInfo.HistorizeDeadband <= 0 {
 		changed := s.hasValueChanged(prevValue.Value, newValue)
-		if changed {
-			log.Printf("[HISTORIAN] Tag %d value changed, storing", tagInfo.ID)
-		}
 		return changed
 	}
 
 	// Apply configured numeric deadband
 	exceeded := s.exceedsDeadband(prevValue.Value, newValue, tagInfo.HistorizeDeadband)
-	if exceeded {
-		log.Printf("[HISTORIAN] Tag %d deadband exceeded (%.4f), storing", tagInfo.ID, tagInfo.HistorizeDeadband)
-	}
 	return exceeded
 }
 

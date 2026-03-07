@@ -36,6 +36,46 @@ func NewHistoryHandler(db *sql.DB) *HistoryHandler {
 	}
 }
 
+// InitializeRetentionPolicy reads the db_retention_days setting and configures TimescaleDB
+func (h *HistoryHandler) InitializeRetentionPolicy() {
+	var retentionDays int
+	err := h.db.QueryRow(`
+		SELECT COALESCE(
+			(SELECT value::int FROM global_settings WHERE key = 'db_retention_days'),
+			30
+		)
+	`).Scan(&retentionDays)
+
+	if err != nil {
+		log.Printf("[TIMESCALEDB] Warning: Could not read db_retention_days, defaulting to 30 days: %v", err)
+		retentionDays = 30
+	}
+
+	if retentionDays <= 0 {
+		log.Printf("[TIMESCALEDB] Retention policy disabled (db_retention_days = %d)", retentionDays)
+		h.db.Exec(`SELECT remove_retention_policy('tag_history', if_exists => true)`)
+		h.db.Exec(`SELECT remove_retention_policy('system_events', if_exists => true)`)
+		return
+	}
+
+	// Remove existing policies first to avoid duplicate errors, then add the new ones
+	h.db.Exec(`SELECT remove_retention_policy('tag_history', if_exists => true)`)
+	h.db.Exec(`SELECT remove_retention_policy('system_events', if_exists => true)`)
+
+	intervalStr := fmt.Sprintf("INTERVAL '%d days'", retentionDays)
+	log.Printf("[TIMESCALEDB] Configuring data retention policy: keeping %d days of history", retentionDays)
+
+	_, err1 := h.db.Exec(fmt.Sprintf(`SELECT add_retention_policy('tag_history', %s, if_not_exists => true)`, intervalStr))
+	if err1 != nil {
+		log.Printf("[TIMESCALEDB] Error setting retention policy for tag_history: %v", err1)
+	}
+
+	_, err2 := h.db.Exec(fmt.Sprintf(`SELECT add_retention_policy('system_events', %s, if_not_exists => true)`, intervalStr))
+	if err2 != nil {
+		log.Printf("[TIMESCALEDB] Error setting retention policy for system_events: %v", err2)
+	}
+}
+
 // HistoryDataPoint represents a single historical data point
 type HistoryDataPoint struct {
 	Timestamp   int64    `json:"timestamp"`
