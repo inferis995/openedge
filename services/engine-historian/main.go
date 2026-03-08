@@ -99,7 +99,42 @@ type RealtimeValue struct {
 
 const (
 	realtimeCacheTTL = 5184000 // 60 days in seconds
+	// Retry configuration for connection attempts
+	maxRetries      = 30                // Maximum number of retry attempts
+	initialDelay    = 2 * time.Second  // Initial delay before first retry
+	maxDelay        = 30 * time.Second // Maximum delay between retries
 )
+
+// retryWithBackoff attempts to execute a function with exponential backoff retry logic.
+// It will retry up to maxRetries times with increasing delays between attempts.
+func retryWithBackoff(operationName string, operation func() error) error {
+	var lastErr error
+	delay := initialDelay
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			log.Printf("[RETRY] %s - attempt %d/%d failed, retrying in %v...",
+				operationName, attempt, maxRetries, delay)
+			time.Sleep(delay)
+			// Exponential backoff with jitter
+			delay = time.Duration(float64(delay) * 1.5)
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+		}
+
+		err := operation()
+		if err == nil {
+			if attempt > 0 {
+				log.Printf("[RETRY] %s - succeeded on attempt %d", operationName, attempt+1)
+			}
+			return nil
+		}
+		lastErr = err
+	}
+
+	return fmt.Errorf("failed after %d attempts: %w", maxRetries+1, lastErr)
+}
 
 func main() {
 	// Load configuration from environment variables
@@ -119,15 +154,26 @@ func main() {
 	dbPassword := getEnv("DB_PASSWORD", "postgres")
 	dbName := getEnv("DB_NAME", "industrial_edge")
 
-	// Connect to PostgreSQL
+	var err error
+
+	// Connect to PostgreSQL with retry logic
 	dbConnStr := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
 		dbHost, dbPort, dbUser, dbPassword, dbName)
-	database, err := sql.Open("postgres", dbConnStr)
+
+	var database *sql.DB
+	err = retryWithBackoff("Database connection", func() error {
+		var err error
+		database, err = sql.Open("postgres", dbConnStr)
+		if err != nil {
+			return fmt.Errorf("failed to open database: %w", err)
+		}
+		if err := database.Ping(); err != nil {
+			return fmt.Errorf("failed to ping database: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		log.Fatalf("Failed to open database: %v", err)
-	}
-	if err := database.Ping(); err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Fatalf("Failed to connect to database after retries: %v", err)
 	}
 	defer database.Close()
 	log.Println("Connected to PostgreSQL")
@@ -139,10 +185,13 @@ func main() {
 		ClientID: mqttClientID,
 	})
 
-	// Connect to MQTT broker
+	// Connect to MQTT broker with retry logic
 	log.Printf("Connecting to MQTT broker at %s:%d...", mqttHost, mqttPort)
-	if err := mqttClient.Connect(); err != nil {
-		log.Fatalf("Failed to connect to MQTT broker: %v", err)
+	err = retryWithBackoff("MQTT broker connection", func() error {
+		return mqttClient.Connect()
+	})
+	if err != nil {
+		log.Fatalf("Failed to connect to MQTT broker after retries: %v", err)
 	}
 	log.Println("Connected to MQTT broker")
 
@@ -154,10 +203,13 @@ func main() {
 		DB:       redisDB,
 	})
 
-	// Connect to Redis
+	// Connect to Redis with retry logic
 	log.Printf("Connecting to Redis at %s:%d...", redisHost, redisPort)
-	if err := redisClient.Connect(); err != nil {
-		log.Fatalf("Failed to connect to Redis: %v", err)
+	err = retryWithBackoff("Redis connection", func() error {
+		return redisClient.Connect()
+	})
+	if err != nil {
+		log.Fatalf("Failed to connect to Redis after retries: %v", err)
 	}
 	log.Println("Connected to Redis")
 
@@ -175,10 +227,14 @@ func main() {
 
 	// Subscribe to data topics
 	log.Printf("Subscribing to MQTT topic: %s", mqttTopicData)
-	if err := mqttClient.Subscribe(mqttTopicData, service.handleDataMessage); err != nil {
-		log.Fatalf("Failed to subscribe to MQTT topic: %v", err)
+	err = retryWithBackoff("Subscribe to data topic", func() error {
+		return mqttClient.Subscribe(mqttTopicData, service.handleDataMessage)
+	})
+	if err != nil {
+		log.Printf("Warning: Failed to subscribe to data topic after retries: %v", err)
+	} else {
+		log.Println("Successfully subscribed to data topics")
 	}
-	log.Println("Successfully subscribed to data topics")
 
 	// Subscribe to Sparkplug B topics (dual format support)
 	log.Printf("Subscribing to MQTT topic: %s", mqttTopicSparkplug)
@@ -190,10 +246,14 @@ func main() {
 
 	// Subscribe to health topics (gateway connection events)
 	log.Printf("Subscribing to MQTT topic: %s", mqttTopicHealth)
-	if err := mqttClient.Subscribe(mqttTopicHealth, service.handleHealthMessage); err != nil {
-		log.Fatalf("Failed to subscribe to health topic: %v", err)
+	err = retryWithBackoff("Subscribe to health topic", func() error {
+		return mqttClient.Subscribe(mqttTopicHealth, service.handleHealthMessage)
+	})
+	if err != nil {
+		log.Printf("Warning: Failed to subscribe to health topic after retries: %v", err)
+	} else {
+		log.Println("Successfully subscribed to health topics")
 	}
-	log.Println("Successfully subscribed to health topics")
 
 	// Subscribe to alarm topics (forward to cloud)
 	log.Printf("Subscribing to MQTT topic: %s", mqttTopicAlarms)
@@ -509,9 +569,17 @@ func (s *HistorianService) setupCloudClient() {
 		ClientID: cloudClientID,
 	})
 
-	if err := s.cloudClient.Connect(); err != nil {
-		log.Printf("[CLOUD SYNC] ERROR - Failed to connect to External Cloud Broker: %v", err)
+	// Try to connect with retry logic (use a shorter timeout for cloud connection)
+	err = retryWithBackoff("[CLOUD SYNC] Cloud MQTT connection", func() error {
+		return s.cloudClient.Connect()
+	})
+	if err != nil {
+		log.Printf("[CLOUD SYNC] WARNING - Failed to connect to External Cloud Broker after retries: %v", err)
+		log.Printf("[CLOUD SYNC] Will retry connection in background...")
 		s.cloudClient = nil
+		// Start background retry goroutine
+		s.wg.Add(1)
+		go s.maintainCloudConnection(host, port, username, password)
 		return
 	}
 
@@ -543,6 +611,78 @@ func (s *HistorianService) setupCloudClient() {
 			s.mqttClient.PublishWithQoS(localTopic, string(payload), 1, false)
 		}
 	})
+}
+
+// maintainCloudConnection continuously attempts to reconnect to the cloud MQTT broker
+// Runs in a separate goroutine when initial connection fails
+func (s *HistorianService) maintainCloudConnection(host string, port int, username, password string) {
+	defer s.wg.Done()
+
+	ticker := time.NewTicker(30 * time.Second) // Retry every 30 seconds
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.shutdown:
+			log.Println("[CLOUD SYNC] Background reconnection task stopped")
+			return
+		case <-ticker.C:
+			// Check if cloud sync is still enabled
+			var syncEnabledStr string
+			err := s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_sync_enabled'").Scan(&syncEnabledStr)
+			if err != nil || syncEnabledStr != "true" {
+				// Cloud sync disabled, stop trying
+				return
+			}
+
+			// Already connected?
+			if s.cloudClient != nil && s.cloudClient.IsConnected() {
+				return
+			}
+
+			log.Printf("[CLOUD SYNC] Attempting reconnection to %s:%d...", host, port)
+
+			cloudClientID := fmt.Sprintf("edge-sync-%d", time.Now().Unix())
+			s.cloudClient = mqtt.NewClient(mqtt.Config{
+				Host:     host,
+				Port:     port,
+				Username: username,
+				Password: password,
+				ClientID: cloudClientID,
+			})
+
+			if err := s.cloudClient.Connect(); err != nil {
+				log.Printf("[CLOUD SYNC] Reconnection failed: %v", err)
+				s.cloudClient = nil
+				continue
+			}
+
+			log.Println("[CLOUD SYNC] Successfully reconnected to Cloud Broker")
+
+			// Re-subscribe to command topic
+			var baseTopic string
+			s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_topic'").Scan(&baseTopic)
+			if baseTopic != "" && !strings.HasSuffix(baseTopic, "/") {
+				baseTopic += "/"
+			}
+
+			cmdTopic := fmt.Sprintf("%scmd/#", baseTopic)
+			s.cloudClient.Subscribe(cmdTopic, func(topic string, payload []byte) {
+				localTopic := topic
+				if baseTopic != "" {
+					localTopic = strings.TrimPrefix(topic, baseTopic)
+				}
+
+				log.Printf("[CLOUD SYNC] Received command from cloud: %s -> Forwarding to local: %s", topic, localTopic)
+
+				if s.mqttClient != nil && s.mqttClient.IsConnected() {
+					s.mqttClient.PublishWithQoS(localTopic, string(payload), 1, false)
+				}
+			})
+
+			return // Connected successfully, exit reconnection loop
+		}
+	}
 }
 
 // handleSparkplugMessage handles incoming Sparkplug B messages

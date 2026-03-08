@@ -165,10 +165,12 @@ func (m *Manager) StartTicker(ctx context.Context) {
 // tickDelays safely evaluates all activeTracks to see if they reached their fire duration
 func (m *Manager) tickDelays() {
 	m.mu.Lock()
+	defer m.mu.Unlock() // Keep lock for entire operation to prevent race conditions
 
 	now := time.Now()
 
-	// Collect alarms to trigger so we don't hold the lock while querying the DB
+	// Collect alarms to trigger - we will do everything while holding the lock
+	// to prevent race conditions where state could change between operations
 	type pendingTrigger struct {
 		tagID        int
 		definition   models.AlarmDefinition
@@ -191,10 +193,10 @@ func (m *Manager) tickDelays() {
 			}
 		}
 	}
-	m.mu.Unlock() // Unlock early before DB call!
 
-	// Now trigger the alarms
-	m.mu.Lock() // Re-acquire lock to update tracks
+	// Now trigger the alarms - still holding lock to ensure consistency
+	// Note: DB operations are done while holding lock, which is acceptable
+	// because tickDelays runs infrequently (once per second)
 	for _, pt := range toTrigger {
 		var alias string
 		m.db.QueryRow("SELECT alias FROM tags WHERE id = $1", pt.tagID).Scan(&alias)
@@ -207,7 +209,6 @@ func (m *Manager) tickDelays() {
 			}
 		}
 	}
-	m.mu.Unlock()
 }
 
 // EvaluateTag checks a new tag value against all its alarm rules

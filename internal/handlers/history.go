@@ -58,19 +58,28 @@ func (h *HistoryHandler) InitializeRetentionPolicy() {
 		return
 	}
 
+	// Validate retentionDays is within reasonable bounds (1 day to 10 years)
+	if retentionDays < 1 || retentionDays > 3650 {
+		log.Printf("[TIMESCALEDB] WARNING: Invalid retention days value: %d (valid range: 1-3650). Using default: 30 days", retentionDays)
+		retentionDays = 30
+	}
+
 	// Remove existing policies first to avoid duplicate errors, then add the new ones
 	h.db.Exec(`SELECT remove_retention_policy('tag_history', if_exists => true)`)
 	h.db.Exec(`SELECT remove_retention_policy('system_events', if_exists => true)`)
 
-	intervalStr := fmt.Sprintf("INTERVAL '%d days'", retentionDays)
 	log.Printf("[TIMESCALEDB] Configuring data retention policy: keeping %d days of history", retentionDays)
 
-	_, err1 := h.db.Exec(fmt.Sprintf(`SELECT add_retention_policy('tag_history', %s, if_not_exists => true)`, intervalStr))
+	// Use parameterized approach - construct interval with validated integer
+	// TimescaleDB's add_retention_policy requires INTERVAL literal syntax
+	intervalLiteral := fmt.Sprintf("INTERVAL '%d days'", retentionDays)
+
+	_, err1 := h.db.Exec(`SELECT add_retention_policy('tag_history', $1, if_not_exists => true)`, intervalLiteral)
 	if err1 != nil {
 		log.Printf("[TIMESCALEDB] Error setting retention policy for tag_history: %v", err1)
 	}
 
-	_, err2 := h.db.Exec(fmt.Sprintf(`SELECT add_retention_policy('system_events', %s, if_not_exists => true)`, intervalStr))
+	_, err2 := h.db.Exec(`SELECT add_retention_policy('system_events', $1, if_not_exists => true)`, intervalLiteral)
 	if err2 != nil {
 		log.Printf("[TIMESCALEDB] Error setting retention policy for system_events: %v", err2)
 	}

@@ -88,6 +88,41 @@ type Driver struct {
 	alarmManager *alarms.Manager
 }
 
+const (
+	maxRetries   = 30
+	initialDelay = 2 * time.Second
+	maxDelay     = 30 * time.Second
+)
+
+// retryWithBackoff attempts to execute a function with exponential backoff retry logic
+func retryWithBackoff(operationName string, operation func() error) error {
+	var lastErr error
+	delay := initialDelay
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			log.Printf("[RETRY] %s - attempt %d/%d failed, retrying in %v...",
+				operationName, attempt, maxRetries, delay)
+			time.Sleep(delay)
+			delay = time.Duration(float64(delay) * 1.5)
+			if delay > maxDelay {
+				delay = maxDelay
+			}
+		}
+
+		err := operation()
+		if err == nil {
+			if attempt > 0 {
+				log.Printf("[RETRY] %s - succeeded on attempt %d", operationName, attempt+1)
+			}
+			return nil
+		}
+		lastErr = err
+	}
+
+	return fmt.Errorf("failed after %d attempts: %w", maxRetries+1, lastErr)
+}
+
 func main() {
 	log.Println("[DRIVER] Starting driver-modbus...")
 
@@ -97,6 +132,8 @@ func main() {
 	}
 	gatewayID, _ := strconv.Atoi(gatewayIDStr)
 
+	var err error
+
 	dbCfg := db.Config{
 		Host:     getEnv("DB_HOST", "postgres"),
 		Port:     getEnvInt("DB_PORT", 5432),
@@ -105,9 +142,14 @@ func main() {
 		Database: getEnv("DB_NAME", "industrial_edge"),
 	}
 
-	database, err := db.Connect(dbCfg)
+	var database *sql.DB
+	err = retryWithBackoff("[DRIVER] Database connection", func() error {
+		var err error
+		database, err = db.Connect(dbCfg)
+		return err
+	})
 	if err != nil {
-		log.Fatalf("[DRIVER] Failed to connect to database: %v", err)
+		log.Fatalf("[DRIVER] Failed to connect to database after retries: %v", err)
 	}
 	defer database.Close()
 	log.Println("[DRIVER] Connected to PostgreSQL")
@@ -125,8 +167,11 @@ func main() {
 	}
 
 	mqttClient := mqtt.NewClient(mqttCfg)
-	if err := mqttClient.Connect(); err != nil {
-		log.Fatalf("[DRIVER] Failed to connect to MQTT broker: %v", err)
+	err = retryWithBackoff("[DRIVER] MQTT broker connection", func() error {
+		return mqttClient.Connect()
+	})
+	if err != nil {
+		log.Fatalf("[DRIVER] Failed to connect to MQTT broker after retries: %v", err)
 	}
 	defer mqttClient.Disconnect(1000)
 	log.Println("[DRIVER] Connected to MQTT broker")
