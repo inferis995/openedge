@@ -2,6 +2,8 @@
 
 <div align="center">
 
+<img src="logo.png" alt="OpenEdge Logo" width="200" height="auto"/>
+
 **Production-Ready Industrial IoT Edge Computing Platform**
 
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)](https://golang.org/)
