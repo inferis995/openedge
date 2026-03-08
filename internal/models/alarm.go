@@ -21,14 +21,14 @@ type AlarmDefinition struct {
 type AlarmEvent struct {
 	ID             int        `json:"id" db:"id"`
 	TagID          int        `json:"tag_id" db:"tag_id"`
-	DefinitionID   *int       `json:"definition_id" db:"definition_id"` // Nil if def was deleted
-	Status         string     `json:"status" db:"status"`               // 'ACTIVE', 'ACKNOWLEDGED', 'CLEARED'
+	DefinitionID   *int       `json:"definition_id,omitempty" db:"definition_id"` // Nil if def was deleted
+	Status         string     `json:"status" db:"status"`                          // 'ACTIVE', 'ACKNOWLEDGED', 'CLEARED'
 	AlarmType      string     `json:"alarm_type" db:"alarm_type"`
 	Severity       string     `json:"severity" db:"severity"`
 	Message        string     `json:"message" db:"message"`
-	ValueAtTrigger *float64   `json:"value_at_trigger" db:"value_at_trigger"`
+	ValueAtTrigger *float64   `json:"value_at_trigger,omitempty" db:"value_at_trigger"`
 	TriggerTime    time.Time  `json:"trigger_time" db:"trigger_time"`
-	ClearTime      *time.Time `json:"clear_time" db:"clear_time"` // Nil if still active
-	BgAckUser      *string    `json:"bg_ack_user" db:"bg_ack_user"`
-	AckTime        *time.Time `json:"ack_time" db:"ack_time"` // Nil if unacknowledged
+	ClearTime      *time.Time `json:"clear_time,omitempty" db:"clear_time"` // Nil if still active
+	BgAckUser      *string    `json:"bg_ack_user,omitempty" db:"bg_ack_user"`
+	AckTime        *time.Time `json:"ack_time,omitempty" db:"ack_time"` // Nil if unacknowledged
 }

@@ -19,23 +19,26 @@ CREATE TABLE IF NOT EXISTS alarm_definitions (
 CREATE INDEX IF NOT EXISTS idx_alarm_def_tag ON alarm_definitions(tag_id);
 
 -- Alarm Events table (active and historical events)
-DROP TABLE IF EXISTS alarm_events CASCADE;
-
-CREATE TABLE alarm_events (
-    id SERIAL,
-    tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-    definition_id INTEGER REFERENCES alarm_definitions(id) ON DELETE SET NULL,
-    status VARCHAR(50) NOT NULL, -- e.g. ACTIVE, CLEARED, ACKNOWLEDGED
-    alarm_type VARCHAR(50) NOT NULL,
-    severity VARCHAR(50) NOT NULL,
-    message TEXT,
-    value_at_trigger DOUBLE PRECISION,
-    trigger_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    clear_time TIMESTAMPTZ,
-    bg_ack_user VARCHAR(100),
-    ack_time TIMESTAMPTZ,
-    PRIMARY KEY (id, trigger_time)
-);
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'alarm_events') THEN
+        CREATE TABLE alarm_events (
+            id SERIAL,
+            tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            definition_id INTEGER REFERENCES alarm_definitions(id) ON DELETE SET NULL,
+            status VARCHAR(50) NOT NULL, -- e.g. ACTIVE, CLEARED, ACKNOWLEDGED
+            alarm_type VARCHAR(50) NOT NULL,
+            severity VARCHAR(50) NOT NULL,
+            message TEXT,
+            value_at_trigger DOUBLE PRECISION,
+            trigger_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            clear_time TIMESTAMPTZ,
+            bg_ack_user VARCHAR(100),
+            ack_time TIMESTAMPTZ,
+            PRIMARY KEY (id, trigger_time)
+        );
+    END IF;
+END $$;
 
 -- Index for querying active and history
 CREATE INDEX IF NOT EXISTS idx_alarm_events_status ON alarm_events(status);

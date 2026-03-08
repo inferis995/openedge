@@ -346,6 +346,7 @@ func (h *AlarmHandler) GetActiveAlarms(c *gin.Context) {
 // @Tags alarms
 // @Produce json
 // @Param limit query int false "Limit" default(100)
+// @Param offset query int false "Offset" default(0)
 // @Success 200 {array} models.AlarmEvent
 // @Failure 500 {object} map[string]string
 // @Router /api/alarms/history [get]
@@ -363,6 +364,13 @@ func (h *AlarmHandler) GetAlarmHistory(c *gin.Context) {
 		}
 	}
 
+	offset := 0
+	if offsetStr := c.Query("offset"); offsetStr != "" {
+		if o, err := strconv.Atoi(offsetStr); err == nil {
+			offset = o
+		}
+	}
+
 	rows, err := h.db.Query(`
 		SELECT e.id, e.tag_id, e.definition_id, e.status, e.alarm_type, e.severity, e.message, e.value_at_trigger, e.trigger_time, e.clear_time, e.bg_ack_user, e.ack_time
 		FROM alarm_events e
@@ -372,8 +380,8 @@ func (h *AlarmHandler) GetAlarmHistory(c *gin.Context) {
 		JOIN sites s ON a.site_id = s.id
 		WHERE s.org_id = $1
 		ORDER BY e.trigger_time DESC
-		LIMIT $2
-	`, orgID, limit)
+		LIMIT $2 OFFSET $3
+	`, orgID, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query alarm history"})
 		return
@@ -413,11 +421,13 @@ func (h *AlarmHandler) AcknowledgeAlarm(c *gin.Context) {
 	}
 
 	result, err := h.db.Exec(`
-		UPDATE alarm_events 
-		SET status = CASE WHEN clear_time IS NULL THEN 'ACKNOWLEDGED' ELSE 'CLEARED' END,
-		    bg_ack_user = $1, 
-		    ack_time = $2 
-		WHERE id = $3 AND ack_time IS NULL
+		UPDATE alarm_events
+		SET status = 'ACKNOWLEDGED',
+		    bg_ack_user = $1,
+		    ack_time = $2
+		WHERE id = $3
+		  AND ack_time IS NULL
+		  AND clear_time IS NULL
 	`, username, time.Now(), eventID)
 
 	if err != nil {

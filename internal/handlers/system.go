@@ -4,16 +4,29 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ralph/industrial-edge-middleware/internal/crypto"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 )
 
 // upsertSetting inserts or updates a setting in global_settings table
 func (h *SystemHandler) upsertSetting(key, value string) error {
+	// Auto-encrypt passwords before saving
+	if strings.Contains(key, "password") {
+		encrypted, err := crypto.Encrypt(value)
+		if err != nil {
+			log.Printf("[WARN] Failed to encrypt password setting '%s': %v - storing as plaintext", key, err)
+		} else {
+			value = encrypted
+		}
+	}
+
 	_, err := h.db.Exec(`
 		INSERT INTO global_settings (key, value, updated_at)
 		VALUES ($1, $2, NOW())
@@ -199,6 +212,13 @@ func (h *SystemHandler) GetSettings(c *gin.Context) {
 	for rows.Next() {
 		var key, value string
 		if err := rows.Scan(&key, &value); err == nil {
+			// Auto-decrypt passwords for the UI/API response
+			if strings.Contains(key, "password") {
+				decrypted, err := crypto.Decrypt(value)
+				if err == nil {
+					value = decrypted
+				}
+			}
 			settings[key] = value
 		}
 	}

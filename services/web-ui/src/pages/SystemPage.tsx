@@ -114,7 +114,7 @@ const SystemPage = () => {
     const [backupSettings, setBackupSettings] = useState<BackupSettings>({
         enabled: false,
         interval: '24h',
-        backup_type: 'config',
+        backup_type: 'full',
         retention: 7,
         next_run: '',
         last_run: '',
@@ -613,7 +613,19 @@ const SystemPage = () => {
                                     </div>
 
                                     <div className="space-y-2 pt-2 border-t border-border mt-4">
-                                        <Label className="text-xs text-muted-foreground">Topic di Destinazione (Prefisso)</Label>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <Label className="text-xs text-muted-foreground">Topic di Destinazione (Prefisso)</Label>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => setCloudMqttTopic('')}
+                                                className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                            >
+                                                <Trash2 className="h-2.5 w-2.5 mr-1" />
+                                                Nessun Prefisso
+                                            </Button>
+                                        </div>
                                         <Input
                                             value={cloudMqttTopic}
                                             onChange={(e) => setCloudMqttTopic(e.target.value)}
@@ -622,8 +634,11 @@ const SystemPage = () => {
                                         />
                                         <p className="text-[10px] text-muted-foreground mt-1">
                                             Questo prefisso verrà aggiunto prima di ogni messaggio MQTT inoltrato al Cloud.
-                                            I formati `spBv1.0/` o `legacy/` verranno accodati automaticamente.
-                                            Esempio: <code>{cloudMqttTopic || 'sorical/data/'}spBv1.0/DDATA/...</code>
+                                            {cloudMqttTopic ? (
+                                                <>Esempio: <code>{cloudMqttTopic}spBv1.0/DDATA/...</code></>
+                                            ) : (
+                                                <>Senza prefisso: i messaggi verranno pubblicati con il formato originale (es. <code>spBv1.0/DDATA/...</code>)</>
+                                            )}
                                         </p>
                                     </div>
                                 </CardContent>
@@ -990,7 +1005,7 @@ const SystemPage = () => {
                                                 <p className="text-xs text-muted-foreground">
                                                     {formatBytes(backup.size)} • {formatDate(backup.created_at)} •
                                                     <span className="ml-1 text-primary">
-                                                        {backup.type === 'full' ? 'Completo' : 'Config'}
+                                                        Solo Completo
                                                     </span>
                                                 </p>
                                             </div>

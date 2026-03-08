@@ -23,6 +23,7 @@ type activeAlarmTrack struct {
 	ActiveSince  time.Time
 	Triggered    bool // True if it has passed the delay phase and fired via MQTT
 	InitialValue float64
+	EventID      int  // Database alarm_events.id for CLEARED updates
 }
 
 type Manager struct {
@@ -77,9 +78,6 @@ func (m *Manager) loadGatewayContext() {
 
 // LoadDefinitions reads all enabled alarm definitions for tags in this gateway
 func (m *Manager) LoadDefinitions() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if m.db == nil {
 		return
 	}
@@ -111,6 +109,7 @@ func (m *Manager) LoadDefinitions() {
 		}
 	}
 
+	m.mu.Lock()
 	m.definitions = newDefs
 
 	// Clean up active tracks that no longer have definitions
@@ -130,11 +129,18 @@ func (m *Manager) LoadDefinitions() {
 					var alias string
 					m.db.QueryRow("SELECT alias FROM tags WHERE id = $1", tagID).Scan(&alias)
 					m.fireAlarmEvent(tagID, alias, tracks[defID].Definition, tracks[defID].InitialValue, "CLEARED")
+					// Update the database record with CLEARED status
+					if tracks[defID].EventID > 0 {
+						if err := m.updateAlarmEventAsCleared(tracks[defID].EventID); err != nil {
+							log.Printf("[ALARM-MANAGER] Failed to update alarm event %d as CLEARED during cleanup: %v", tracks[defID].EventID, err)
+						}
+					}
 				}
 				delete(tracks, defID)
 			}
 		}
 	}
+	m.mu.Unlock()
 
 	log.Printf("[ALARM-MANAGER] Loaded %d active alarm rules for %d tags", count, len(newDefs))
 }
@@ -188,11 +194,20 @@ func (m *Manager) tickDelays() {
 	m.mu.Unlock() // Unlock early before DB call!
 
 	// Now trigger the alarms
+	m.mu.Lock() // Re-acquire lock to update tracks
 	for _, pt := range toTrigger {
 		var alias string
 		m.db.QueryRow("SELECT alias FROM tags WHERE id = $1", pt.tagID).Scan(&alias)
-		m.fireAlarmEvent(pt.tagID, alias, pt.definition, pt.initialValue, "ACTIVE")
+		eventID := m.fireAlarmEvent(pt.tagID, alias, pt.definition, pt.initialValue, "ACTIVE")
+
+		// Store the event ID in the track for later CLEARED updates
+		if tracks, ok := m.activeTracks[pt.tagID]; ok {
+			if track, ok := tracks[pt.definition.ID]; ok {
+				track.EventID = eventID
+			}
+		}
 	}
+	m.mu.Unlock()
 }
 
 // EvaluateTag checks a new tag value against all its alarm rules
@@ -233,13 +248,15 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 					ActiveSince:  now,
 					Triggered:    false,
 					InitialValue: floatVal,
+					EventID:      0,
 				}
 				track = tracks[def.ID]
 
 				// Evaluate immediately if delay is 0
 				if def.DelaySeconds == 0 {
-					m.fireAlarmEvent(tagID, alias, def, floatVal, "ACTIVE")
+					eventID := m.fireAlarmEvent(tagID, alias, def, floatVal, "ACTIVE")
 					track.Triggered = true
+					track.EventID = eventID
 				}
 			}
 			// Delay ticking is handled by StartTicker() background loop now
@@ -249,8 +266,14 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 			if isTracking {
 				if isCleared(def, floatVal) {
 					if track.Triggered {
-						// It was fired, so we must publish a CLEAR event
+						// It was fired, so we must publish a CLEAR event and update database
 						m.fireAlarmEvent(tagID, alias, def, floatVal, "CLEARED")
+						// Update the database record with CLEARED status
+						if track.EventID > 0 {
+							if err := m.updateAlarmEventAsCleared(track.EventID); err != nil {
+								log.Printf("[ALARM-MANAGER] Failed to update alarm event %d as CLEARED: %v", track.EventID, err)
+							}
+						}
 					}
 					// Remove from tracking
 					delete(tracks, def.ID)
@@ -260,7 +283,47 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 	}
 }
 
-func (m *Manager) fireAlarmEvent(tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
+// insertAlarmEvent creates a new alarm event record in the database
+// Returns the ID of the created event or error
+func (m *Manager) insertAlarmEvent(tagID int, def models.AlarmDefinition, val float64, status string) (int, error) {
+	if m.db == nil {
+		return 0, fmt.Errorf("database connection is nil")
+	}
+
+	var eventID int
+	err := m.db.QueryRow(`
+		INSERT INTO alarm_events (tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id
+	`, tagID, def.ID, status, def.AlarmType, def.Severity, def.Message, val, time.Now()).Scan(&eventID)
+
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert alarm event: %w", err)
+	}
+
+	return eventID, nil
+}
+
+// updateAlarmEventAsCleared updates an existing alarm event with CLEARED status
+func (m *Manager) updateAlarmEventAsCleared(eventID int) error {
+	if m.db == nil {
+		return fmt.Errorf("database connection is nil")
+	}
+
+	_, err := m.db.Exec(`
+		UPDATE alarm_events
+		SET status = 'CLEARED', clear_time = $1
+		WHERE id = $2
+	`, time.Now(), eventID)
+
+	if err != nil {
+		return fmt.Errorf("failed to update alarm event: %w", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) fireAlarmEvent(tagID int, alias string, def models.AlarmDefinition, val float64, status string) int {
 	topic := fmt.Sprintf("sys/alarms/%d/%s/%s/%s/%s", m.orgID, m.siteName, m.areaName, m.gatewayName, alias)
 
 	payload := map[string]interface{}{
@@ -277,7 +340,7 @@ func (m *Manager) fireAlarmEvent(tagID int, alias string, def models.AlarmDefini
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		log.Printf("[ALARM-MANAGER] Failed to marshal alarm payload: %v", err)
-		return
+		return 0
 	}
 
 	if m.mqttClient != nil {
@@ -289,10 +352,24 @@ func (m *Manager) fireAlarmEvent(tagID int, alias string, def models.AlarmDefini
 		}
 	}
 
+	// Write to database for history tracking
+	var eventID int
+	if status == "ACTIVE" {
+		eventID, err = m.insertAlarmEvent(tagID, def, val, status)
+		if err != nil {
+			log.Printf("[ALARM-MANAGER] Failed to insert alarm event: %v", err)
+		}
+	} else if status == "CLEARED" {
+		// EventID should be passed from the track when clearing
+		// This will be handled by the caller
+	}
+
 	// Notify parent driver if callback is set
 	if m.OnAlarmEvent != nil {
 		m.OnAlarmEvent(tagID, alias, def, val, status)
 	}
+
+	return eventID
 }
 
 // Helpers

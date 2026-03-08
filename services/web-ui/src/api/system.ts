@@ -47,7 +47,7 @@ export interface PublishMetrics {
 export interface BackupSettings {
     enabled: boolean;
     interval: string;
-    backup_type: 'config' | 'full';
+    backup_type: 'full';
     retention: number;
     next_run: string;
     last_run: string;
@@ -58,7 +58,7 @@ export interface BackupFileInfo {
     filename: string;
     size: number;
     created_at: string;
-    type: 'config' | 'full';
+    type: 'full';
 }
 
 export const systemApi = {

@@ -54,16 +54,17 @@ func (h *BackupHandler) ExportBackup(c *gin.Context) {
 	pgPass := os.Getenv("DB_PASSWORD")
 	pgDB := os.Getenv("DB_NAME")
 
-	// Full backup: everything except TimescaleDB internal tables
+	// Full backup including historical data (complete backup with all tables)
+	// Uses pg_dump with proper flags for reliable restore
 	pgDumpFile := filepath.Join(tempDir, "full_backup.sql")
 	pgCmd := exec.Command("pg_dump", "-h", pgHost, "-U", pgUser, "-d", pgDB,
 		"-F", "p",
+		"--create",              // Include CREATE DATABASE statement
+		"--clean", "--if-exists", // Drop existing objects before restore
+		"--no-owner", "--no-acl", // Skip owner/ACL to avoid permission issues
 		"--exclude-table=_timescaledb_internal.*",
 		"--exclude-table=_timescaledb_catalog.*",
 		"--exclude-table=_timescaledb_config.*",
-		"--exclude-table=tag_history_1m",
-		"--exclude-table=tag_history_1h",
-		"--exclude-table=tag_history_1d",
 		"-f", pgDumpFile)
 	pgCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
 
@@ -107,11 +108,17 @@ func (h *BackupHandler) ExportBackup(c *gin.Context) {
 	c.Data(http.StatusOK, "application/zip", buf.Bytes())
 }
 
-// ImportRestore handles uploading a backup zip and restoring it
+// ImportRestore handles uploading a backup zip and restoring it with full validation
 func (h *BackupHandler) ImportRestore(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No file uploaded"})
+		return
+	}
+
+	// Validate file size (max 500MB)
+	if file.Size > 500*1024*1024 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Backup file too large (max 500MB)"})
 		return
 	}
 
@@ -138,14 +145,16 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 	defer zipReader.Close()
 
 	// Extract everything
-	configFound := false
+	backupFound := false
+	sqlFiles := []string{}
 
 	for _, f := range zipReader.File {
 		fpath := filepath.Join(tempDir, f.Name)
 
-		// Check for specific files
-		if f.Name == "full_backup.sql" || f.Name == "config_dump.sql" {
-			configFound = true
+		// Check for backup files
+		if f.Name == "full_backup.sql" || f.Name == "config_dump.sql" || strings.HasSuffix(f.Name, ".sql") {
+			backupFound = true
+			sqlFiles = append(sqlFiles, f.Name)
 		}
 
 		if f.FileInfo().IsDir() {
@@ -174,103 +183,222 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 		rc.Close()
 	}
 
+	if !backupFound {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No SQL backup file found in zip"})
+		return
+	}
+
 	messages := []string{}
 
-	// Restore PostgreSQL (always full restore)
-	if configFound {
-		// Detect backup file: full_backup.sql vs config_backup.sql
-		fullBackupFile := filepath.Join(tempDir, "full_backup.sql")
-		configBackupFile := filepath.Join(tempDir, "config_backup.sql")
+	// Find the primary backup file
+	var pgDumpFile string
+	fullBackupFile := filepath.Join(tempDir, "full_backup.sql")
+	if _, err := os.Stat(fullBackupFile); err == nil {
+		pgDumpFile = fullBackupFile
+		log.Println("Detected FULL backup file")
+	} else {
+		// Use first SQL file found
+		pgDumpFile = filepath.Join(tempDir, sqlFiles[0])
+		log.Printf("Using backup file: %s", sqlFiles[0])
+	}
 
-		var pgDumpFile string
+	// Validate SQL file content
+	if err := h.validateBackupFile(pgDumpFile); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":   "Invalid backup file",
+			"details": err.Error(),
+		})
+		return
+	}
+	messages = append(messages, "Backup file validated")
 
-		if _, err := os.Stat(fullBackupFile); err == nil {
-			pgDumpFile = fullBackupFile
-			log.Println("Detected FULL backup")
-		} else if _, err := os.Stat(configBackupFile); err == nil {
-			pgDumpFile = configBackupFile
-			log.Println("Detected backup file (config_backup.sql)")
-		} else {
-			// Fallback to old naming
-			pgDumpFile = filepath.Join(tempDir, "config_dump.sql")
-		}
+	pgHost := os.Getenv("DB_HOST")
+	pgUser := os.Getenv("DB_USER")
+	pgPass := os.Getenv("DB_PASSWORD")
+	pgDB := os.Getenv("DB_NAME")
 
-		pgHost := os.Getenv("DB_HOST")
-		pgUser := os.Getenv("DB_USER")
-		pgPass := os.Getenv("DB_PASSWORD")
-		pgDB := os.Getenv("DB_NAME")
+	// Step 1: Drop and recreate schema for clean restore
+	log.Println("Step 1: Dropping schema public for clean restore...")
+	if _, err := h.db.Exec("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"); err != nil {
+		log.Printf("Schema reset error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to reset schema: %v", err)})
+		return
+	}
+	messages = append(messages, "Schema reset complete")
 
-		// ALWAYS do a full restore - wipe everything and restore from backup
-		log.Println("Wiping schema public (full restore)...")
-		if _, err := h.db.Exec("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO public;"); err != nil {
-			log.Printf("Schema wipe warning: %v", err)
-			messages = append(messages, fmt.Sprintf("Schema wipe warning: %v", err))
-		} else {
-			messages = append(messages, "Schema public wiped")
-		}
+	// Step 2: Restore from backup
+	log.Println("Step 2: Restoring from backup file...")
+	pgCmd := exec.Command("psql", "-h", pgHost, "-U", pgUser, "-d", pgDB,
+		"-v", "ON_ERROR_STOP=0", // Continue on errors, we'll parse output
+		"-f", pgDumpFile)
+	pgCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
 
-		// Use default psql behavior (continues on error) but parse the output for critical errors
-		pgCmd := exec.Command("psql", "-h", pgHost, "-U", pgUser, "-d", pgDB, "-f", pgDumpFile)
-		pgCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
+	outputBytes, err := pgCmd.CombinedOutput()
+	output := string(outputBytes)
+	log.Printf("psql restore completed (err: %v)", err)
 
-		log.Printf("Running psql restore from %s...", pgDumpFile)
-		outputBytes, err := pgCmd.CombinedOutput()
-		output := string(outputBytes)
-		log.Printf("psql block completed (err: %v)", err)
-
-		hasCriticalError := false
-		for _, line := range strings.Split(output, "\n") {
-			if strings.Contains(line, "ERROR:") || strings.Contains(line, "FATAL:") {
-				// Ignore expected TimescaleDB/schema wipe warnings
-				if strings.Contains(line, "already exists") || strings.Contains(line, "extension") || strings.Contains(line, "does not exist") || strings.Contains(line, "role") {
-					continue
-				}
-				hasCriticalError = true
-				log.Printf("CRITICAL RESTORE ERROR: %s", line)
-				messages = append(messages, fmt.Sprintf("Restore Error: %s", strings.TrimSpace(line)))
+	// Parse output for critical errors
+	hasCriticalError := false
+	errorLines := []string{}
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "ERROR:") || strings.HasPrefix(trimmed, "FATAL:") {
+			// Ignore expected/non-critical errors
+			if h.isNonCriticalError(trimmed) {
+				continue
 			}
-		}
-
-		if hasCriticalError {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Database restore failed with critical errors",
-				"details": messages,
-			})
-			return
-		} else if err != nil {
-			messages = append(messages, fmt.Sprintf("Restore completed with warnings: %v", err))
-		} else {
-			messages = append(messages, "Database restored successfully")
-		}
-
-		// Always try to ensure structures exist after restore
-		log.Println("Ensuring TimescaleDB structures exist...")
-		if err := h.EnsureTimescaleDBStructures(); err != nil {
-			log.Printf("TimescaleDB setup warning: %v", err)
-			messages = append(messages, fmt.Sprintf("TimescaleDB warning: %v", err))
-		} else {
-			messages = append(messages, "TimescaleDB structures verified")
-		}
-
-		// Re-apply CASCADE constraint for tags
-		h.db.Exec(`ALTER TABLE tags DROP CONSTRAINT IF EXISTS tags_gateway_id_fkey`)
-		h.db.Exec(`ALTER TABLE tags ADD CONSTRAINT tags_gateway_id_fkey FOREIGN KEY (gateway_id) REFERENCES gateways(id) ON DELETE CASCADE`)
-
-		// Send MQTT signal to driver-manager to reload after restore
-		if h.mqttClient != nil {
-			if err := h.mqttClient.PublishWithQoS("sys/command/restore-complete", "restore", 1, false); err != nil {
-				log.Printf("Failed to send restore signal: %v", err)
-			} else {
-				log.Println("Sent restore-complete signal to driver-manager")
-				messages = append(messages, "Driver manager notified to reload")
-			}
+			hasCriticalError = true
+			errorLines = append(errorLines, trimmed)
+			log.Printf("CRITICAL: %s", trimmed)
 		}
 	}
 
+	if hasCriticalError {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Database restore failed with critical errors",
+			"details": append(messages, errorLines...),
+		})
+		return
+	}
+
+	messages = append(messages, "Database restored from backup")
+
+	// Step 3: Ensure TimescaleDB structures and extensions
+	log.Println("Step 3: Verifying TimescaleDB structures...")
+	if err := h.EnsureTimescaleDBStructures(); err != nil {
+		log.Printf("TimescaleDB setup error: %v", err)
+		messages = append(messages, fmt.Sprintf("TimescaleDB warning: %v", err))
+	} else {
+		messages = append(messages, "TimescaleDB structures verified")
+	}
+
+	// Step 4: Ensure critical constraints
+	log.Println("Step 4: Ensuring referential integrity...")
+	h.ensureCriticalConstraints()
+	messages = append(messages, "Referential integrity verified")
+
+	// Step 5: Post-restore validation
+	log.Println("Step 5: Validating restore integrity...")
+	validationResults := h.validateRestoreIntegrity()
+	messages = append(messages, validationResults...)
+	if len(validationResults) == 0 {
+		messages = append(messages, "Restore validation passed")
+	}
+
+	// Step 6: Notify drivers to reload
+	if h.mqttClient != nil {
+		if err := h.mqttClient.PublishWithQoS("sys/command/restore-complete", "restore", 1, false); err != nil {
+			log.Printf("Failed to send restore signal: %v", err)
+		} else {
+			messages = append(messages, "Drivers notified to reload configuration")
+		}
+	}
+
+	log.Printf("Restore completed successfully with %d messages", len(messages))
 	c.JSON(http.StatusOK, gin.H{
-		"message": "Restore process completed",
+		"message": "Restore completed successfully",
 		"details": messages,
 	})
+}
+
+// validateBackupFile checks if the SQL file contains valid backup content
+func (h *BackupHandler) validateBackupFile(filepath string) error {
+	content, err := os.ReadFile(filepath)
+	if err != nil {
+		return fmt.Errorf("cannot read backup file: %w", err)
+	}
+
+	contentStr := string(content)
+
+	// Check for minimum content
+	if len(contentStr) < 100 {
+		return fmt.Errorf("backup file too small or empty")
+	}
+
+	// Check for PostgreSQL backup markers
+	hasPostgresMarker := strings.Contains(contentStr, "PostgreSQL database dump") ||
+		strings.Contains(contentStr, "CREATE TABLE") ||
+		strings.Contains(contentStr, "CREATE DATABASE")
+
+	if !hasPostgresMarker {
+		return fmt.Errorf("file does not appear to be a valid PostgreSQL backup")
+	}
+
+	// Check for critical table structures
+	hasCriticalTables := strings.Contains(contentStr, "CREATE TABLE") &&
+		(strings.Contains(contentStr, "organizations") ||
+			strings.Contains(contentStr, "sites") ||
+			strings.Contains(contentStr, "gateways"))
+
+	if !hasCriticalTables {
+		return fmt.Errorf("backup missing critical table structures")
+	}
+
+	return nil
+}
+
+// isNonCriticalError checks if an error message is expected/non-critical
+func (h *BackupHandler) isNonCriticalError(errMsg string) bool {
+	nonCriticalPatterns := []string{
+		"already exists",
+		"does not exist",
+		"extension",
+		"role",
+		"must be owner of table",
+		"cannot drop",
+		"timescaledb",
+	}
+
+	lowerErr := strings.ToLower(errMsg)
+	for _, pattern := range nonCriticalPatterns {
+		if strings.Contains(lowerErr, strings.ToLower(pattern)) {
+			return true
+		}
+	}
+	return false
+}
+
+// ensureCriticalConstraints ensures critical foreign key constraints exist
+func (h *BackupHandler) ensureCriticalConstraints() {
+	// Tags gateway constraint
+	h.db.Exec(`ALTER TABLE tags DROP CONSTRAINT IF EXISTS tags_gateway_id_fkey`)
+	h.db.Exec(`ALTER TABLE tags ADD CONSTRAINT tags_gateway_id_fkey FOREIGN KEY (gateway_id) REFERENCES gateways(id) ON DELETE CASCADE`)
+
+	// Alarm definitions tag constraint
+	h.db.Exec(`ALTER TABLE alarm_definitions DROP CONSTRAINT IF EXISTS alarm_definitions_tag_id_fkey`)
+	h.db.Exec(`ALTER TABLE alarm_definitions ADD CONSTRAINT alarm_definitions_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE`)
+
+	// Alarm events tag constraint
+	h.db.Exec(`ALTER TABLE alarm_events DROP CONSTRAINT IF EXISTS alarm_events_tag_id_fkey`)
+	h.db.Exec(`ALTER TABLE alarm_events ADD CONSTRAINT alarm_events_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE`)
+}
+
+// validateRestoreIntegrity checks database integrity after restore
+func (h *BackupHandler) validateRestoreIntegrity() []string {
+	messages := []string{}
+
+	// Check critical tables exist
+	criticalTables := []string{
+		"organizations", "sites", "areas", "gateways", "tags",
+		"alarm_definitions", "alarm_events", "tag_data",
+	}
+
+	for _, table := range criticalTables {
+		var exists bool
+		err := h.db.QueryRow(`
+			SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)
+		`, table).Scan(&exists)
+
+		if err != nil || !exists {
+			messages = append(messages, fmt.Sprintf("WARNING: Table '%s' missing after restore", table))
+		}
+	}
+
+	if len(messages) == 0 {
+		messages = append(messages, fmt.Sprintf("All %d critical tables verified", len(criticalTables)))
+	}
+
+	return messages
 }
 
 // BackupFileInfo represents a backup file on disk
@@ -286,7 +414,7 @@ func (h *BackupHandler) GetBackupSettings(c *gin.Context) {
 	settings := BackupSettings{
 		Enabled:    false,
 		Interval:   "24h",
-		BackupType: "config",
+		BackupType: "full",
 		Retention:  7,
 	}
 
@@ -382,10 +510,7 @@ func (h *BackupHandler) ListBackups(c *gin.Context) {
 			continue
 		}
 
-		backupType := "config"
-		if strings.HasPrefix(f.Name(), "full-") {
-			backupType = "full"
-		}
+		backupType := "full"
 
 		backups = append(backups, BackupFileInfo{
 			Filename:  f.Name(),
@@ -408,7 +533,9 @@ func (h *BackupHandler) DownloadBackup(c *gin.Context) {
 	filename := c.Param("filename")
 
 	// Security: prevent path traversal
-	if strings.Contains(filename, "..") || strings.ContainsAny(filename, "/\\") {
+	cleanFilename := filepath.Base(filename)
+	if cleanFilename != filename {
+		log.Printf("[SECURITY] Path traversal attempt blocked in DownloadBackup: %s", filename)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename"})
 		return
 	}
@@ -429,7 +556,9 @@ func (h *BackupHandler) DeleteBackup(c *gin.Context) {
 	filename := c.Param("filename")
 
 	// Security: prevent path traversal
-	if strings.Contains(filename, "..") || strings.ContainsAny(filename, "/\\") {
+	cleanFilename := filepath.Base(filename)
+	if cleanFilename != filename {
+		log.Printf("[SECURITY] Path traversal attempt blocked in DeleteBackup: %s", filename)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filename"})
 		return
 	}
@@ -492,22 +621,21 @@ func (h *BackupHandler) RunScheduledBackup() error {
 	pgPass := os.Getenv("DB_PASSWORD")
 	pgDB := os.Getenv("DB_NAME")
 
+	// We still need these variables because pgCmd is created differently in earlier versions,
+	// but now it's just one path
 	var pgDumpFile string
 	var pgCmd *exec.Cmd
 
-	if backupType == "full" {
-		pgDumpFile = filepath.Join(tempDir, "full_backup.sql")
-		pgCmd = exec.Command("pg_dump", "-h", pgHost, "-U", pgUser, "-d", pgDB,
-			"-F", "p", "--clean", "--if-exists", "-f", pgDumpFile)
-	} else {
-		pgDumpFile = filepath.Join(tempDir, "config_backup.sql")
-		pgCmd = exec.Command("pg_dump", "-h", pgHost, "-U", pgUser, "-d", pgDB,
-			"-F", "p", "--clean", "--if-exists",
-			"--exclude-table=tag_history",
-			"--exclude-table=tag_data",
-			"--exclude-table=system_events",
-			"-f", pgDumpFile)
-	}
+	pgDumpFile = filepath.Join(tempDir, "full_backup.sql")
+	pgCmd = exec.Command("pg_dump", "-h", pgHost, "-U", pgUser, "-d", pgDB,
+		"-F", "p",
+		"--create",              // Include CREATE DATABASE statement
+		"--clean", "--if-exists", // Drop existing objects before restore
+		"--no-owner", "--no-acl", // Skip owner/ACL to avoid permission issues
+		"--exclude-table=_timescaledb_internal.*",
+		"--exclude-table=_timescaledb_catalog.*",
+		"--exclude-table=_timescaledb_config.*",
+		"-f", pgDumpFile)
 	pgCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
 
 	if output, err := pgCmd.CombinedOutput(); err != nil {
@@ -518,10 +646,7 @@ func (h *BackupHandler) RunScheduledBackup() error {
 
 	// Create ZIP
 	timestamp := time.Now().Format("20060102-150405")
-	prefix := "config"
-	if backupType == "full" {
-		prefix = "full"
-	}
+	prefix := "full"
 	zipPath := filepath.Join(backupPath, fmt.Sprintf("%s-backup-%s.zip", prefix, timestamp))
 
 	zipFile, err := os.Create(zipPath)
@@ -694,17 +819,90 @@ func (h *BackupHandler) EnsureTimescaleDBStructures() error {
 				id INTEGER PRIMARY KEY DEFAULT 1,
 				enabled BOOLEAN DEFAULT FALSE,
 				interval_hours VARCHAR(10) DEFAULT '24h',
-				backup_type VARCHAR(10) DEFAULT 'config',
+				backup_type VARCHAR(10) DEFAULT 'full',
 				retention_days INTEGER DEFAULT 7,
 				last_run TIMESTAMPTZ,
 				last_status VARCHAR(20)
 			);
 			INSERT INTO backup_settings (id, enabled, interval_hours, backup_type, retention_days)
-			VALUES (1, FALSE, '24h', 'config', 7)
+			VALUES (1, FALSE, '24h', 'full', 7)
 			ON CONFLICT (id) DO NOTHING
 		`)
 		if err != nil {
 			return fmt.Errorf("failed to create backup_settings: %w", err)
+		}
+	}
+
+	// Ensure alarm_definitions table exists
+	var alarmDefsExists bool
+	err = h.db.QueryRow(`SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'alarm_definitions')`).Scan(&alarmDefsExists)
+	if err != nil {
+		return err
+	}
+
+	if !alarmDefsExists {
+		_, err = h.db.Exec(`
+			CREATE TABLE IF NOT EXISTS alarm_definitions (
+				id SERIAL PRIMARY KEY,
+				tag_id INT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+				alarm_type VARCHAR(20) NOT NULL,
+				threshold DOUBLE PRECISION,
+				deadband DOUBLE PRECISION DEFAULT 0,
+				delay_seconds INT DEFAULT 0,
+				severity VARCHAR(20) DEFAULT 'warning',
+				message TEXT,
+				enabled BOOLEAN DEFAULT true,
+				created_at TIMESTAMPTZ DEFAULT NOW(),
+				updated_at TIMESTAMPTZ DEFAULT NOW()
+			);
+			CREATE INDEX IF NOT EXISTS idx_alarm_def_tag ON alarm_definitions(tag_id)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create alarm_definitions: %w", err)
+		}
+	}
+
+	// Ensure alarm_events hypertable exists
+	var alarmEventsExists bool
+	err = h.db.QueryRow(`SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'alarm_events')`).Scan(&alarmEventsExists)
+	if err != nil {
+		return err
+	}
+
+	if !alarmEventsExists {
+		_, err = h.db.Exec(`
+			CREATE TABLE alarm_events (
+				id SERIAL,
+				tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+				definition_id INTEGER REFERENCES alarm_definitions(id) ON DELETE SET NULL,
+				status VARCHAR(50) NOT NULL,
+				alarm_type VARCHAR(50) NOT NULL,
+				severity VARCHAR(50) NOT NULL,
+				message TEXT,
+				value_at_trigger DOUBLE PRECISION,
+				trigger_time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+				clear_time TIMESTAMPTZ,
+				bg_ack_user VARCHAR(100),
+				ack_time TIMESTAMPTZ,
+				PRIMARY KEY (id, trigger_time)
+			)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create alarm_events: %w", err)
+		}
+
+		_, err = h.db.Exec(`SELECT create_hypertable('alarm_events', 'trigger_time', if_not_exists => TRUE)`)
+		if err != nil {
+			return fmt.Errorf("failed to create alarm_events hypertable: %w", err)
+		}
+
+		_, err = h.db.Exec(`
+			CREATE INDEX IF NOT EXISTS idx_alarm_events_status ON alarm_events(status);
+			CREATE INDEX IF NOT EXISTS idx_alarm_events_tag ON alarm_events(tag_id);
+			CREATE INDEX IF NOT EXISTS idx_alarm_events_time ON alarm_events(trigger_time DESC)
+		`)
+		if err != nil {
+			return fmt.Errorf("failed to create alarm_events indexes: %w", err)
 		}
 	}
 

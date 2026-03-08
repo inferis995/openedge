@@ -26,6 +26,7 @@ const (
 	mqttTopicData      = "data/#"
 	mqttTopicSparkplug = "spBv1.0/#" // Sparkplug B topic
 	mqttTopicHealth    = "sys/health/+"
+	mqttTopicAlarms    = "sys/alarms/#" // Alarm events
 )
 
 type HistorianService struct {
@@ -194,6 +195,14 @@ func main() {
 	}
 	log.Println("Successfully subscribed to health topics")
 
+	// Subscribe to alarm topics (forward to cloud)
+	log.Printf("Subscribing to MQTT topic: %s", mqttTopicAlarms)
+	if err := mqttClient.Subscribe(mqttTopicAlarms, service.handleAlarmMessage); err != nil {
+		log.Printf("Warning: Failed to subscribe to alarm topic: %v", err)
+	} else {
+		log.Println("Successfully subscribed to alarm topics")
+	}
+
 	// Subscribe to settings reload topics (for dynamic cloud sync updates)
 	log.Println("Subscribing to MQTT topic: sys/command/settings-reload")
 	if err := mqttClient.Subscribe("sys/command/settings-reload", service.handleSystemSettingsReload); err != nil {
@@ -284,6 +293,58 @@ func (s *HistorianService) handleHealthMessage(topic string, payload []byte) {
 			for _, tagID := range tagIDs {
 				s.markTagOffline(tagID)
 			}
+		}
+	}
+}
+
+// handleAlarmMessage forwards alarm events to the cloud with proper prefix
+// Topic format: sys/alarms/{org_id}/{site}/{area}/{gateway}/{tag}
+// Forwarded to: {cloud_mqtt_topic}alarms/{org}/{site}/{area}/{gateway}/{tag}
+func (s *HistorianService) handleAlarmMessage(topic string, payload []byte) {
+	select {
+	case <-s.shutdown:
+		return
+	default:
+	}
+
+	// Parse topic: sys/alarms/{org_id}/{site}/{area}/{gateway}/{tag}
+	parts := strings.Split(topic, "/")
+	if len(parts) < 7 || parts[0] != "sys" || parts[1] != "alarms" {
+		log.Printf("[CLOUD SYNC] Invalid alarm topic format: %s", topic)
+		return
+	}
+
+	// Extract components (org_id is parts[2] but we use it for validation only)
+	site := parts[3]
+	area := parts[4]
+	gateway := parts[5]
+	tag := parts[6]
+
+	log.Printf("[CLOUD SYNC] Received alarm: %s -> Forwarding to cloud", topic)
+
+	// Get cloud topic prefix from settings (can be empty for no prefix)
+	var baseTopic string
+	err := s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_topic'").Scan(&baseTopic)
+	if err != nil && err != sql.ErrNoRows {
+		log.Printf("[CLOUD SYNC] Error reading cloud topic prefix: %v", err)
+		// Continue with empty baseTopic on error
+		baseTopic = ""
+	}
+
+	// Ensure base topic ends with slash
+	if baseTopic != "" && !strings.HasSuffix(baseTopic, "/") {
+		baseTopic += "/"
+	}
+
+	// Forward alarm to cloud with proper format
+	// Format: {baseTopic}alarms/{site}/{area}/{gateway}/{tag}
+	cloudTopic := fmt.Sprintf("%salarms/%s/%s/%s/%s", baseTopic, site, area, gateway, tag)
+
+	if s.cloudClient != nil {
+		if err := s.cloudClient.Publish(cloudTopic, string(payload)); err != nil {
+			log.Printf("[CLOUD SYNC] Failed to forward alarm to cloud: %v", err)
+		} else {
+			log.Printf("[CLOUD SYNC] Forwarded alarm to cloud: %s", cloudTopic)
 		}
 	}
 }
@@ -455,6 +516,33 @@ func (s *HistorianService) setupCloudClient() {
 	}
 
 	log.Println("[CLOUD SYNC] Successfully connected to External Cloud Broker")
+
+	// Subscribe to incoming commands from the cloud broker (Cloud -> Edge)
+	// We listen on the base topic + cmd/# and forward it directly to the local broker
+	var baseTopic string
+	s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_topic'").Scan(&baseTopic)
+	if baseTopic != "" && !strings.HasSuffix(baseTopic, "/") {
+		baseTopic += "/"
+	}
+
+	cmdTopic := fmt.Sprintf("%scmd/#", baseTopic)
+	log.Printf("[CLOUD SYNC] Subscribing to Cloud Command Topic: %s", cmdTopic)
+
+	s.cloudClient.Subscribe(cmdTopic, func(topic string, payload []byte) {
+		// Topic received: {baseTopic}/cmd/{org}/{site}/{area}/{gateway}/{alias}
+		// We need to strip the baseTopic to get the local standard format "cmd/..."
+		localTopic := topic
+		if baseTopic != "" {
+			localTopic = strings.TrimPrefix(topic, baseTopic)
+		}
+
+		log.Printf("[CLOUD SYNC] Received command from cloud: %s -> Forwarding to local: %s", topic, localTopic)
+
+		// Forward exactly as received to the local Mosquitto broker
+		if s.mqttClient != nil && s.mqttClient.IsConnected() {
+			s.mqttClient.PublishWithQoS(localTopic, string(payload), 1, false)
+		}
+	})
 }
 
 // handleSparkplugMessage handles incoming Sparkplug B messages
@@ -535,28 +623,9 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 		s.storeRealtimeValue(tagInfo.ID, mqttPayload)
 		s.broadcastRealtimeUpdate(tagInfo.OrganizationID, tagInfo.ID, mqttPayload)
 
-		s.broadcastRealtimeUpdate(tagInfo.OrganizationID, tagInfo.ID, mqttPayload)
-
 		// SKIP HISTORIZATION if Historize flag is false or quality is bad
 		if !tagInfo.Historize || legacyQuality != 0 {
 			continue
-		}
-
-		// Cloud Sync: Forward the entire RAW metric payload array upwards.
-		// (We do the forwarding check *after* evaluating DEATHs but BEFORE dropping the metric due to deadband)
-		if s.cloudClient != nil && s.cloudClient.IsConnected() {
-			var baseTopic string
-			s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_topic'").Scan(&baseTopic)
-
-			// Ensure base topic ends with a slash if it's not empty
-			if baseTopic != "" && !strings.HasSuffix(baseTopic, "/") {
-				baseTopic += "/"
-			}
-
-			// Always append the standard Sparkplug B structure to whatever custom prefix the user provided
-			// Topic example: <UserPrefix/>spBv1.0/DDATA/Area1/Inverter1
-			cloudTopic := fmt.Sprintf("%sspBv1.0/%s/%s/%s/%s", baseTopic, topicInfo.MessageType, topicInfo.GroupID, topicInfo.EdgeNodeID, topicInfo.DeviceID)
-			s.cloudClient.Publish(cloudTopic, string(payload))
 		}
 
 		// Calculate deadband AFTER Cloud Sync so the Cloud receives highly granular data and can decide locally.
@@ -594,6 +663,23 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 
 		// Save directly to PostgreSQL
 		s.saveToPostgreSQL(tagInfo.ID, floatValue, timestamp, legacyQuality, "sparkplug_b")
+	}
+
+	// Cloud Sync: Forward the entire RAW Sparkplug B payload ONCE per message (not per metric)
+	// This must be OUTSIDE the metrics loop to avoid duplicate publishes
+	if s.cloudClient != nil && s.cloudClient.IsConnected() {
+		var baseTopic string
+		s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_topic'").Scan(&baseTopic)
+
+		// Ensure base topic ends with a slash if it's not empty
+		if baseTopic != "" && !strings.HasSuffix(baseTopic, "/") {
+			baseTopic += "/"
+		}
+
+		// Always append the standard Sparkplug B structure to whatever custom prefix the user provided
+		// Topic example: <UserPrefix/>spBv1.0/DDATA/Area1/Inverter1
+		cloudTopic := fmt.Sprintf("%sspBv1.0/%s/%s/%s/%s", baseTopic, topicInfo.MessageType, topicInfo.GroupID, topicInfo.EdgeNodeID, topicInfo.DeviceID)
+		s.cloudClient.Publish(cloudTopic, string(payload))
 	}
 }
 
