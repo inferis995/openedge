@@ -148,23 +148,16 @@ func main() {
 	}
 
 	driver.alarmManager.OnAlarmEvent = func(tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
-		driver.sparkplugMu.RLock()
-		spClient := driver.sparkplugClient
-		driver.sparkplugMu.RUnlock()
-
-		if spClient != nil && spClient.IsConnected() {
-			tagData := sparkplug.TagData{
-				TagID:     tagID,
-				DeviceID:  alias + "_Alarm",
-				Value:     status == "ACTIVE",
-				DataType:  "BOOL",
-				Timestamp: time.Now().UnixMilli(),
-				Quality:   0,
-			}
-			if err := spClient.PublishSingleTag(tagData); err != nil {
-				log.Printf("[DRIVER] Failed to publish Sparkplug alarm state for %s: %v", alias, err)
-			}
-		}
+		// Use publishDual to automatically route the alarm to Sparkplug B, Legacy, or both
+		// based on the user's configured PublishMode.
+		driver.publishDual(
+			tagID,
+			alias+"_Alarm",
+			status == "ACTIVE",
+			"BOOL",
+			192, // Good quality (legacy 0 equivalent is handled downstream)
+			time.Now().UnixMilli(),
+		)
 	}
 
 	// Initialize settings
