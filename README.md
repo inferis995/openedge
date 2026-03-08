@@ -73,7 +73,7 @@ open http://localhost:80
 
 **Default Credentials:**
 - Username: `admin`
-- Password: `admin` (change immediately after first login)
+- Password: `admin123` (change immediately after first login)
 
 ### Services Started
 
@@ -84,6 +84,22 @@ open http://localhost:80
 | Mosquitto | 18830 | MQTT broker |
 | PostgreSQL | 5432 | TimescaleDB |
 | Redis | 6379 | Cache & real-time data |
+
+---
+
+## 📸 Screenshots
+
+### Home Dashboard
+<img src="img/home-screenshot.png" alt="Home Dashboard" width="800"/>
+
+### Tag Browser
+<img src="img/tags-screenshot.png" alt="Tag Browser" width="800"/>
+
+### Real-Time Trend
+<img src="img/trend-screenshot.png" alt="Real-Time Trend" width="800"/>
+
+### Cloud Gateway Configuration
+<img src="img/gateway-screenshot.png" alt="Cloud Gateway" width="800"/>
 
 ---
 
