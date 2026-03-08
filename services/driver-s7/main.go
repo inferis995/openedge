@@ -148,6 +148,18 @@ func main() {
 
 	// Initialize Alarm Manager
 	driver.alarmManager = alarms.NewManager(database, mqttClient, gatewayID)
+
+	driver.alarmManager.OnAlarmEvent = func(tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
+		driver.publishDual(
+			tagID,
+			alias+"_Alarm",
+			status == "ACTIVE",
+			"BOOL",
+			192,
+			time.Now().UnixMilli(),
+		)
+	}
+
 	go driver.alarmManager.StartTicker(context.Background())
 
 	// Subscribe to settings reload command
@@ -873,7 +885,6 @@ func (d *Driver) hasValueChanged(tagID int, newValue interface{}) bool {
 	return !valuesEqual(prevValue, newValue)
 }
 
-// updatePreviousValue updates the stored previous value for a tag
 func (d *Driver) updatePreviousValue(tagID int, value interface{}) {
 	d.prevValuesMu.Lock()
 	d.previousValues[tagID] = value

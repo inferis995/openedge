@@ -159,6 +159,18 @@ func main() {
 
 	// Initialize Alarm Manager
 	driver.alarmManager = alarms.NewManager(database, mqttClient, gatewayID)
+
+	driver.alarmManager.OnAlarmEvent = func(tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
+		driver.publishDual(
+			tagID,
+			alias+"_Alarm",
+			status == "ACTIVE",
+			"BOOL",
+			192,
+			time.Now().UnixMilli(),
+		)
+	}
+
 	go driver.alarmManager.StartTicker(context.Background())
 
 	go driver.run()
@@ -584,6 +596,10 @@ func (d *Driver) handleReloadCommand(topic string, payload []byte) {
 }
 
 func (d *Driver) publishTagValue(tag models.Tag, value interface{}, timestamp int64, quality int) {
+	d.publishDual(tag.ID, tag.Alias, value, tag.DataType, quality, timestamp)
+}
+
+func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataType string, quality int, timestamp int64) {
 	d.configMu.RLock()
 	cfg := d.config
 	d.configMu.RUnlock()
@@ -592,7 +608,6 @@ func (d *Driver) publishTagValue(tag models.Tag, value interface{}, timestamp in
 		return
 	}
 
-	// Get publish mode from settings
 	publishMode := models.PublishModeDual
 	if d.settingsManager != nil {
 		publishMode = d.settingsManager.Get().PublishMode
@@ -600,43 +615,51 @@ func (d *Driver) publishTagValue(tag models.Tag, value interface{}, timestamp in
 
 	d.sparkplugMu.RLock()
 	dualPublisher := d.dualPublisher
+	sparkplugClient := d.sparkplugClient
 	d.sparkplugMu.RUnlock()
 
-	// Publish based on mode
 	switch publishMode {
 	case models.PublishModeLegacyOnly:
-		// Only legacy format
-		d.publishLegacy(tag, value, timestamp, quality, cfg)
+		d.publishLegacy(tagID, alias, value, timestamp, quality, cfg)
 
 	case models.PublishModeSparkplugOnly:
-		// Only Sparkplug B format - use dual publisher with legacy disabled
-		if dualPublisher != nil {
-			if err := dualPublisher.Publish(tag.ID, tag.Alias, value, tag.DataType, quality, timestamp, d.mqttClient); err != nil {
-				log.Printf("[DRIVER-REDIS] Sparkplug publish error for %s: %v", tag.Alias, err)
+		if sparkplugClient != nil && sparkplugClient.IsConnected() {
+			tagData := sparkplug.TagData{
+				TagID:     tagID,
+				DeviceID:  alias,
+				Value:     value,
+				DataType:  dataType,
+				Timestamp: timestamp,
+				Quality:   quality,
+				OrgID:     cfg.OrgID,
+			}
+			if err := sparkplugClient.PublishSingleTag(tagData); err != nil {
+				log.Printf("[DRIVER-REDIS] Sparkplug publish error for %s: %v", alias, err)
 			}
 		}
 
-	case models.PublishModeDual:
-		fallthrough
-	default:
-		// Both formats - use dual publisher if available
+	default: // PublishModeDual
 		if dualPublisher != nil {
-			if err := dualPublisher.Publish(tag.ID, tag.Alias, value, tag.DataType, quality, timestamp, d.mqttClient); err != nil {
-				log.Printf("[DRIVER-REDIS] Dual publish error for %s: %v", tag.Alias, err)
+			if err := dualPublisher.Publish(tagID, alias, value, dataType, quality, timestamp, d.mqttClient); err != nil {
+				log.Printf("[DRIVER-REDIS] Dual publish error for %s: %v", alias, err)
 			}
 		} else {
-			// Fallback to legacy only
-			d.publishLegacy(tag, value, timestamp, quality, cfg)
+			d.publishLegacy(tagID, alias, value, timestamp, quality, cfg)
 		}
 	}
 }
 
-func (d *Driver) publishLegacy(tag models.Tag, value interface{}, timestamp int64, quality int, cfg *GatewayConfig) {
-	topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name), slugify(tag.Alias))
-	payload := TagPayload{Value: value, Timestamp: timestamp, Quality: quality}
-
-	bytes, _ := json.Marshal(payload)
-	d.mqttClient.PublishWithQoS(topic, string(bytes), 1, false)
+func (d *Driver) publishLegacy(tagID int, alias string, value interface{}, timestamp int64, quality int, cfg *GatewayConfig) {
+	topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name), slugify(alias))
+	type TagPayload struct {
+		TagID     int         `json:"tag_id"`
+		OrgID     int         `json:"org_id"`
+		Value     interface{} `json:"v"`
+		Timestamp int64       `json:"ts"`
+		Quality   int         `json:"q"`
+	}
+	payload, _ := json.Marshal(TagPayload{tagID, cfg.OrgID, value, timestamp, quality})
+	d.mqttClient.PublishWithQoS(topic, string(payload), 1, false)
 }
 
 func (d *Driver) hasValueChanged(tagID int, newValue interface{}) bool {

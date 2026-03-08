@@ -68,6 +68,7 @@ type Driver struct {
 
 	// Sparkplug B support
 	sparkplugClient *sparkplug.SparkplugClient
+	dualPublisher   *sparkplug.DualPublisher
 	sparkplugMu     sync.RWMutex
 
 	// Settings manager for publish mode and RBE
@@ -182,6 +183,18 @@ func main() {
 
 	// Initialize Alarm Manager
 	driver.alarmManager = alarms.NewManager(database, mqttClient, gatewayID)
+
+	driver.alarmManager.OnAlarmEvent = func(tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
+		driver.publishDual(
+			tagID,
+			alias+"_Alarm",
+			status == "ACTIVE",
+			"BOOL",
+			192,
+			time.Now().UnixMilli(),
+		)
+	}
+
 	go driver.alarmManager.StartTicker(context.Background())
 
 	// Start polling loop
@@ -437,6 +450,15 @@ func (d *Driver) initSparkplugClientLocked(orgName, siteName, areaName, gatewayN
 	// Create sparkplug client with the internal mqtt wrapper
 	d.sparkplugClient = sparkplug.NewClient(config, d.mqttClient)
 	d.sparkplugClient.SetConnected(true)
+
+	d.dualPublisher = sparkplug.NewDualPublisher(
+		d.sparkplugClient,
+		orgName,
+		siteName,
+		areaName,
+		gatewayName,
+		orgID,
+	)
 
 	log.Printf("[OPC-UA Driver] Sparkplug B client initialized: group=%s, node=%s", groupID, edgeNodeID)
 }
@@ -951,6 +973,58 @@ func slugify(s string) string {
 	s = strings.ToLower(s)
 	s = strings.ReplaceAll(s, " ", "-")
 	return s
+}
+
+// publishDual publishes a tag value based on the configured publish mode
+func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataType string, quality int, timestamp int64) {
+	publishMode := models.PublishModeDual // default
+	if d.settingsManager != nil {
+		publishMode = d.settingsManager.Get().PublishMode
+	}
+
+	d.configMu.RLock()
+	cfg := d.config
+	d.configMu.RUnlock()
+
+	if cfg == nil {
+		return
+	}
+
+	d.sparkplugMu.RLock()
+	dualPublisher := d.dualPublisher
+	sparkplugClient := d.sparkplugClient
+	d.sparkplugMu.RUnlock()
+
+	// Publish based on mode
+	switch publishMode {
+	case models.PublishModeLegacyOnly:
+		d.publishLegacy(tagID, cfg.OrgID, alias, value, timestamp, quality, cfg)
+
+	case models.PublishModeSparkplugOnly:
+		if sparkplugClient != nil && sparkplugClient.IsConnected() {
+			tagData := sparkplug.TagData{
+				TagID:     tagID,
+				DeviceID:  alias,
+				Value:     value,
+				DataType:  dataType,
+				Timestamp: timestamp,
+				Quality:   quality,
+				OrgID:     cfg.OrgID,
+			}
+			if err := sparkplugClient.PublishSingleTag(tagData); err != nil {
+				log.Printf("[OPC-UA Driver] Sparkplug publish error for %s: %v", alias, err)
+			}
+		}
+
+	default: // PublishModeDual
+		if dualPublisher != nil {
+			if err := dualPublisher.Publish(tagID, alias, value, dataType, quality, timestamp, d.mqttClient); err != nil {
+				log.Printf("[OPC-UA Driver] Dual publish error for %s: %v", alias, err)
+			}
+		} else {
+			d.publishLegacy(tagID, cfg.OrgID, alias, value, timestamp, quality, cfg)
+		}
+	}
 }
 
 // shouldPublish checks if the value should be published based on RBE settings
