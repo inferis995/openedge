@@ -1,0 +1,280 @@
+version: '3.8'
+
+# Load environment variables from .env file (copy .env.example to .env)
+# For production: use Docker secrets or external secret management
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    container_name: industrial-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-industrial_edge}
+      POSTGRES_USER: ${POSTGRES_USER:-industrial_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge}" ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: "unless-stopped"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - industrial-network
+
+  redis:
+    image: redis/redis-stack:latest
+    container_name: industrial-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: "unless-stopped"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - industrial-network
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: industrial-mosquitto
+    ports:
+      - "18830:1883"     # Internal MQTT broker (non-standard port to avoid conflicts)
+      - "9001:9001"      # WebSocket port
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    healthcheck:
+      test: [ "CMD", "mosquitto_sub", "-t", "$$SYS/broker/version", "-C", "1", "-i", "healthcheck", "-W", "3" ]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: "unless-stopped"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - industrial-network
+
+  core-api:
+    build:
+      context: .
+      dockerfile: services/core-api/Dockerfile
+    image: openedge-core-api:latest
+    container_name: industrial-core-api
+    environment:
+      DB_HOST: postgres
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${POSTGRES_USER:-industrial_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
+      DB_NAME: ${POSTGRES_DB:-industrial_edge}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      PORT: ${PORT:-8081}
+      BACKUP_PATH: /backups
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./backups:/backups
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health" ]
+      interval: 15s
+      timeout: 10s
+      start_period: 60s
+      retries: 10
+    restart: "unless-stopped"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - industrial-network
+
+  web-ui:
+    build:
+      context: .
+      dockerfile: services/web-ui/Dockerfile
+    image: openedge-web-ui:latest
+    container_name: industrial-web-ui
+    ports:
+      - "9090:80"
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/nginx-health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: "unless-stopped"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - industrial-network
+
+  # Driver Images (Built for Driver Manager to spawn)
+  # These are IMAGES ONLY - driver-manager spawns containers with correct GATEWAY_ID
+  driver-modbus:
+    build:
+      context: .
+      dockerfile: services/driver-modbus/Dockerfile
+    image: industrial-driver-modbus:latest
+    profiles: [ "build-only" ] # Never start, only for building image
+    networks:
+      - industrial-network
+
+  driver-redis:
+    build:
+      context: .
+      dockerfile: services/driver-redis/Dockerfile
+    image: industrial-driver-redis:latest
+    profiles: [ "build-only" ] # Never start, only for building image
+    networks:
+      - industrial-network
+
+  driver-s7:
+    build:
+      context: .
+      dockerfile: services/driver-s7/Dockerfile
+    image: industrial-driver-s7:latest
+    profiles: [ "build-only" ] # Never start, only for building image
+    networks:
+      - industrial-network
+
+  driver-mqtt:
+    build:
+      context: .
+      dockerfile: services/driver-mqtt/Dockerfile
+    image: industrial-driver-mqtt:latest
+    profiles: [ "build-only" ] # Never start, only for building image
+    networks:
+      - industrial-network
+
+  driver-opcua:
+    build:
+      context: .
+      dockerfile: services/driver-opcua/Dockerfile
+    image: industrial-driver-opcua:latest
+    profiles: [ "build-only" ] # Never start, only for building image
+    networks:
+      - industrial-network
+
+  driver-manager:
+    build:
+      context: .
+      dockerfile: services/driver-manager/Dockerfile
+    container_name: industrial-driver-manager
+    environment:
+      DB_HOST: postgres
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${POSTGRES_USER:-industrial_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
+      DB_NAME: ${POSTGRES_DB:-industrial_edge}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -h postgres -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge} || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: "unless-stopped"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - industrial-network
+
+  engine-historian:
+    build:
+      context: .
+      dockerfile: services/engine-historian/Dockerfile
+    container_name: industrial-engine-historian
+    environment:
+      DB_HOST: postgres
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${POSTGRES_USER:-industrial_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
+      DB_NAME: ${POSTGRES_DB:-industrial_edge}
+      REDIS_HOST: redis
+      REDIS_PORT: ${REDIS_PORT:-6379}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      MQTT_CLIENT_ID: engine-historian
+      SPARKPLUG_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -h postgres -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge} && redis-cli -h redis ping | grep -q PONG || exit 1" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: "unless-stopped"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - industrial-network
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  industrial-network:
+    driver: bridge

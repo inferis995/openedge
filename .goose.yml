@@ -1,0 +1,16 @@
+# Goose configuration for OpenEdge Industrial Database
+# This file configures the database migration tool
+
+development:
+  driver: postgres
+  open: host=localhost port=5432 user=industrial_user password=industrial_pass dbname=industrial_edge sslmode=disable
+
+# Docker environment (matches docker-compose postgres service)
+docker:
+  driver: postgres
+  open: host=openedge-postgres port=5432 user=industrial_user password=industrial_pass dbname=industrial_edge sslmode=disable
+
+# Production environment
+production:
+  driver: postgres
+  open: ${DATABASE_URL}
