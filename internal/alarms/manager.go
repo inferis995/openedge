@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,7 +87,7 @@ func (m *Manager) LoadDefinitions() {
 		SELECT a.id, a.tag_id, a.alarm_type, a.threshold, a.deadband, a.delay_seconds, a.severity, a.message, a.enabled
 		FROM alarm_definitions a
 		JOIN tags t ON a.tag_id = t.id
-		WHERE t.gateway_id = $1 AND a.enabled = true AND t.enabled = true
+		WHERE t.gateway_id = $1 AND a.enabled = true
 	`, m.gatewayID)
 
 	if err != nil {
@@ -198,6 +199,18 @@ func (m *Manager) tickDelays() {
 	// Note: DB operations are done while holding lock, which is acceptable
 	// because tickDelays runs infrequently (once per second)
 	for _, pt := range toTrigger {
+		// Check again if track is still valid and not already triggered
+		// This prevents duplicate alarms for zero-delay alarms when EvaluateTag()
+		// immediately fires them
+		if tracks, ok := m.activeTracks[pt.tagID]; ok {
+			if track, ok := tracks[pt.definition.ID]; ok {
+				if track.Triggered {
+					// Already fired by EvaluateTag(), skip duplicate
+					continue
+				}
+			}
+		}
+
 		var alias string
 		m.db.QueryRow("SELECT alias FROM tags WHERE id = $1", pt.tagID).Scan(&alias)
 		eventID := m.fireAlarmEvent(pt.tagID, alias, pt.definition, pt.initialValue, "ACTIVE")
@@ -285,13 +298,49 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 }
 
 // insertAlarmEvent creates a new alarm event record in the database
-// Returns the ID of the created event or error
+// Uses ON CONFLICT to prevent duplicate ACTIVE events for the same tag/definition
+// Returns the ID of the created event (or existing event if duplicate) or error
 func (m *Manager) insertAlarmEvent(tagID int, def models.AlarmDefinition, val float64, status string) (int, error) {
 	if m.db == nil {
 		return 0, fmt.Errorf("database connection is nil")
 	}
 
 	var eventID int
+	// For ACTIVE status, use ON CONFLICT to handle duplicates gracefully
+	// The unique index alarm_events_active_unique prevents duplicate ACTIVE events
+	if status == "ACTIVE" {
+		// Try to insert first
+		err := m.db.QueryRow(`
+			INSERT INTO alarm_events (tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			RETURNING id
+		`, tagID, def.ID, status, def.AlarmType, def.Severity, def.Message, val, time.Now()).Scan(&eventID)
+
+		// If it's a duplicate error, fetch the existing event ID and return it (no error)
+		if err != nil && strings.Contains(err.Error(), "duplicate key") {
+			// Fetch the existing active alarm event
+			err = m.db.QueryRow(`
+				SELECT id FROM alarm_events
+				WHERE tag_id = $1 AND definition_id = $2 AND status = 'ACTIVE' AND clear_time IS NULL
+				ORDER BY trigger_time DESC LIMIT 1
+			`, tagID, def.ID).Scan(&eventID)
+			if err != nil {
+				// If we can't find the existing event, log and return the duplicate as a new error
+				log.Printf("[ALARM-MANAGER] Duplicate detected but couldn't find existing event for tag %d: %v", tagID, err)
+				// Return the original error which will be handled by the caller
+				return 0, fmt.Errorf("duplicate key: %w", err)
+			}
+			// Return the existing event ID with no error - duplicate was handled successfully
+			return eventID, nil
+		}
+
+		if err != nil {
+			return 0, fmt.Errorf("failed to insert alarm event: %w", err)
+		}
+		return eventID, nil
+	}
+
+	// For other statuses (CLEARED), just do a normal insert
 	err := m.db.QueryRow(`
 		INSERT INTO alarm_events (tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -357,7 +406,8 @@ func (m *Manager) fireAlarmEvent(tagID int, alias string, def models.AlarmDefini
 	var eventID int
 	if status == "ACTIVE" {
 		eventID, err = m.insertAlarmEvent(tagID, def, val, status)
-		if err != nil {
+		// Note: Duplicate errors are silently handled in insertAlarmEvent
+		if err != nil && !strings.Contains(err.Error(), "duplicate key") {
 			log.Printf("[ALARM-MANAGER] Failed to insert alarm event: %v", err)
 		}
 	} else if status == "CLEARED" {

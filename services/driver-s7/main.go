@@ -243,6 +243,14 @@ func main() {
 	}
 	log.Printf("Subscribed to write topic: %s", writeTopic)
 
+	// Subscribe to health events for auto-reload when gateway comes online
+	healthTopic := "sys/health/+"
+	if err := mqttClient.Subscribe(healthTopic, driver.handleHealthMessage); err != nil {
+		log.Printf("Failed to subscribe to health topic: %v", err)
+	} else {
+		log.Printf("Subscribed to health topic: %s (auto-reload enabled)", healthTopic)
+	}
+
 	// Start the driver loop
 	go driver.run()
 
@@ -505,6 +513,40 @@ func (d *Driver) handleReloadCommand(topic string, payload []byte) {
 	case d.reloadChan <- struct{}{}:
 	default:
 		// Already a reload pending
+	}
+}
+
+// handleHealthMessage handles gateway health events for auto-reload
+// Topic format: sys/health/{gateway_id}
+// Payload: "online" or "offline"
+func (d *Driver) handleHealthMessage(topic string, payload []byte) {
+	// Parse topic: sys/health/{gateway_id}
+	parts := strings.Split(topic, "/")
+	if len(parts) < 3 {
+		return
+	}
+
+	// Extract gateway ID from topic
+	gatewayIDStr := parts[2]
+	healthGatewayID, err := strconv.Atoi(gatewayIDStr)
+	if err != nil {
+		return
+	}
+
+	// Only process health events for this driver's gateway
+	if healthGatewayID != d.gatewayID {
+		return
+	}
+
+	// Check if gateway is coming online
+	status := strings.ToLower(strings.TrimSpace(string(payload)))
+	if status == "online" {
+		log.Printf("[DRIVER-S7] Gateway %d is ONLINE - auto-reloading config and tags", d.gatewayID)
+		if err := d.loadConfig(); err != nil {
+			log.Printf("[DRIVER-S7] Auto-reload failed: %v", err)
+		} else {
+			log.Printf("[DRIVER-S7] Auto-reload successful - %d tags loaded", len(d.config.Tags))
+		}
 	}
 }
 
