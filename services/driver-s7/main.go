@@ -896,8 +896,13 @@ func (d *Driver) poll() {
 		}
 
 		// Evaluate alarms via AlarmManager
+		// Convert S7 quality (0=GOOD, 1=BAD) to industrial-edge standard (192=GOOD, 0=BAD)
+		alarmQuality := 192
+		if result.Quality != 0 {
+			alarmQuality = 0 // BAD - will be skipped by alarm manager
+		}
 		if d.alarmManager != nil {
-			d.alarmManager.EvaluateTag(tag.ID, tag.Alias, result.Value, result.Quality)
+			d.alarmManager.EvaluateTag(tag.ID, tag.Alias, result.Value, alarmQuality)
 		}
 
 		// Publish to MQTT only if value changed (Report by Exception)

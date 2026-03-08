@@ -1024,12 +1024,40 @@ func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface
 	// If deadband is not configured (≤ 0), store only on actual value change (on-change storage)
 	if tagInfo.HistorizeDeadband <= 0 {
 		changed := s.hasValueChanged(prevValue.Value, newValue)
-		return changed
+		if changed {
+			return true
+		}
+		// PRODUCTION FIX: Force periodic storage even if value hasn't changed
+		// Check if last store was more than 30 seconds ago
+		lastStoreKey := fmt.Sprintf("last_store:%d", tagInfo.ID)
+		lastStoreStr, _ := s.redisClient.Get(lastStoreKey)
+		if lastStoreStr == "" {
+			// No timestamp recorded, store now
+			return true
+		}
+		lastStoreMs, _ := strconv.ParseInt(lastStoreStr, 10, 64)
+		if time.Now().UnixMilli()-lastStoreMs > 30000 { // 30 seconds
+			return true
+		}
+		return false
 	}
 
 	// Apply configured numeric deadband
 	exceeded := s.exceedsDeadband(prevValue.Value, newValue, tagInfo.HistorizeDeadband)
-	return exceeded
+	if exceeded {
+		return true
+	}
+	// PRODUCTION FIX: For tags with deadband, also enforce periodic storage (30 seconds)
+	lastStoreKey := fmt.Sprintf("last_store:%d", tagInfo.ID)
+	lastStoreStr, _ := s.redisClient.Get(lastStoreKey)
+	if lastStoreStr == "" {
+		return true
+	}
+	lastStoreMs, _ := strconv.ParseInt(lastStoreStr, 10, 64)
+	if time.Now().UnixMilli()-lastStoreMs > 30000 { // 30 seconds
+		return true
+	}
+	return false
 }
 
 // hasValueChanged returns true if the new value differs from the previous value.
@@ -1099,6 +1127,9 @@ func (s *HistorianService) storePreviousValue(tagID int, value interface{}, qual
 	prevValueJSON, _ := json.Marshal(prevValue)
 	// Store with no expiration (will be overwritten on next value)
 	s.redisClient.Set(prevValueKey, string(prevValueJSON), 0)
+	// Store last save timestamp for periodic storage (PRODUCTION FIX)
+	lastStoreKey := fmt.Sprintf("last_store:%d", tagID)
+	s.redisClient.Set(lastStoreKey, strconv.FormatInt(time.Now().UnixMilli(), 10), 0)
 }
 
 // storeRealtimeValue stores the current value in Redis for real-time queries

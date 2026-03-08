@@ -770,8 +770,13 @@ func (d *Driver) pollLoop() {
 			}
 
 			// Evaluate alarms via AlarmManager
+			// Convert OPC-UA quality (0=GOOD, 1=BAD) to industrial-edge standard (192=GOOD, 0=BAD)
+			alarmQuality := 192
+			if quality != 0 {
+				alarmQuality = 0 // BAD - will be skipped by alarm manager
+			}
 			if d.alarmManager != nil {
-				d.alarmManager.EvaluateTag(tag.ID, tag.Alias, value, quality)
+				d.alarmManager.EvaluateTag(tag.ID, tag.Alias, value, alarmQuality)
 			}
 
 			// Check RBE - only publish if value/quality changed
