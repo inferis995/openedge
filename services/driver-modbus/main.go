@@ -147,6 +147,26 @@ func main() {
 		alarmManager:      alarms.NewManager(database, mqttClient, gatewayID),
 	}
 
+	driver.alarmManager.OnAlarmEvent = func(tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
+		driver.sparkplugMu.RLock()
+		spClient := driver.sparkplugClient
+		driver.sparkplugMu.RUnlock()
+
+		if spClient != nil && spClient.IsConnected() {
+			tagData := sparkplug.TagData{
+				TagID:     tagID,
+				DeviceID:  alias + "_Alarm",
+				Value:     status == "ACTIVE",
+				DataType:  "BOOL",
+				Timestamp: time.Now().UnixMilli(),
+				Quality:   0,
+			}
+			if err := spClient.PublishSingleTag(tagData); err != nil {
+				log.Printf("[DRIVER] Failed to publish Sparkplug alarm state for %s: %v", alias, err)
+			}
+		}
+	}
+
 	// Initialize settings
 	if err := driver.settingsManager.Load(); err != nil {
 		log.Printf("[DRIVER] Warning: Failed to load settings: %v", err)

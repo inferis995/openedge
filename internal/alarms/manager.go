@@ -36,6 +36,10 @@ type Manager struct {
 	definitions  map[int][]models.AlarmDefinition  // tag_id -> definitions
 	activeTracks map[int]map[int]*activeAlarmTrack // tag_id -> definition_id -> track
 	mu           sync.RWMutex
+
+	// OnAlarmEvent is called whenever an alarm state changes (e.g. triggered or cleared)
+	// This allows the parent driver to publish the alarm to the cloud (e.g. via Sparkplug B)
+	OnAlarmEvent func(tagID int, alias string, def models.AlarmDefinition, val float64, status string)
 }
 
 func NewManager(db *sql.DB, mqttClient MQTTPublisher, gatewayID int) *Manager {
@@ -283,6 +287,11 @@ func (m *Manager) fireAlarmEvent(tagID int, alias string, def models.AlarmDefini
 		} else {
 			log.Printf("[ALARM] %s -> Tag %d (%s) - Rule %d", status, tagID, def.AlarmType, def.ID)
 		}
+	}
+
+	// Notify parent driver if callback is set
+	if m.OnAlarmEvent != nil {
+		m.OnAlarmEvent(tagID, alias, def, val, status)
 	}
 }
 
