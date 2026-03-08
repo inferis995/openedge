@@ -33,6 +33,34 @@
 
 ---
 
+## 🖼️ Interface Gallery
+
+<div align="center">
+
+### 🏠 **Home Dashboard**
+Real-time system overview with status indicators and quick access to all features
+
+<img src="img/home-screenshot.png" alt="Home Dashboard" width="900"/>
+
+### 🏷️ **Tag Browser**
+Browse and manage industrial tags with tree view and inline editing
+
+<img src="img/tags-screenshot.png" alt="Tag Browser" width="900"/>
+
+### 📈 **Real-Time Trends**
+Advanced trending chart with zoom, pan, and offline gap detection
+
+<img src="img/trend-screenshot.png" alt="Real-Time Trends" width="900"/>
+
+### 🌐 **Cloud Gateway**
+Configure cloud synchronization with Sparkplug B protocol support
+
+<img src="img/gateway-screenshot.png" alt="Cloud Gateway" width="900"/>
+
+</div>
+
+---
+
 ## 📋 Table of Contents
 
 - [Quick Start](#-quick-start)
@@ -84,22 +112,6 @@ open http://localhost:80
 | Mosquitto | 18830 | MQTT broker |
 | PostgreSQL | 5432 | TimescaleDB |
 | Redis | 6379 | Cache & real-time data |
-
----
-
-## 📸 Screenshots
-
-### Home Dashboard
-<img src="img/home-screenshot.png" alt="Home Dashboard" width="800"/>
-
-### Tag Browser
-<img src="img/tags-screenshot.png" alt="Tag Browser" width="800"/>
-
-### Real-Time Trend
-<img src="img/trend-screenshot.png" alt="Real-Time Trend" width="800"/>
-
-### Cloud Gateway Configuration
-<img src="img/gateway-screenshot.png" alt="Cloud Gateway" width="800"/>
 
 ---
 
