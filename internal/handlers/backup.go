@@ -67,8 +67,9 @@ func (h *BackupHandler) ExportBackup(c *gin.Context) {
 		"-f", pgDumpFile)
 	pgCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
 
+	log.Printf("[BACKUP] Running pg_dump for host=%s, db=%s, user=%s", pgHost, pgDB, pgUser)
 	if output, err := pgCmd.CombinedOutput(); err != nil {
-		log.Printf("pg_dump error: %s", string(output))
+		log.Printf("pg_dump error (credentials masked): %s", maskCredentials(string(output), pgPass))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Database backup failed: %v", err)})
 		return
 	}
@@ -582,6 +583,14 @@ func (h *BackupHandler) updateBackupStatus(status string) {
 		SET last_run = $1, last_status = $2
 		WHERE id = 1
 	`, now, status)
+}
+
+// maskCredentials replaces sensitive password values in log output
+func maskCredentials(output, password string) string {
+	if password != "" {
+		return strings.ReplaceAll(output, password, "****")
+	}
+	return output
 }
 
 // parseBackupInterval converts interval string to duration

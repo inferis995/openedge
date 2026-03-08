@@ -12,7 +12,22 @@ ALTER TABLE tag_data DROP CONSTRAINT IF EXISTS tag_data_tag_id_fkey;
 ALTER TABLE tag_data ADD CONSTRAINT tag_data_tag_id_fkey
     FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE;
 
--- Alarms should also cascade
-ALTER TABLE alarms DROP CONSTRAINT IF EXISTS alarms_tag_id_fkey;
-ALTER TABLE alarms ADD CONSTRAINT alarms_tag_id_fkey
-    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE;
+-- Alarms should also cascade (only if table exists)
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'alarms') THEN
+        ALTER TABLE alarms DROP CONSTRAINT IF EXISTS alarms_tag_id_fkey;
+        ALTER TABLE alarms ADD CONSTRAINT alarms_tag_id_fkey
+            FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE;
+    END IF;
+END $$;
+
+-- Also handle alarm_configs table if it exists
+DO $$
+BEGIN
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'alarm_configs') THEN
+        ALTER TABLE alarm_configs DROP CONSTRAINT IF EXISTS alarm_configs_tag_id_fkey;
+        ALTER TABLE alarm_configs ADD CONSTRAINT alarm_configs_tag_id_fkey
+            FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE;
+    END IF;
+END $$;
