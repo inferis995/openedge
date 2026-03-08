@@ -76,9 +76,10 @@ services/core-api/core-api
 services/engine-historian/engine-historian
 services/driver-manager/driver-manager
 
-# Ralph temp folder
-ralph/
-
 # Backup files (keep directory, exclude content)
 backups/*.zip
 backups/*.sql
+
+# Release archives (keep folder, exclude content)
+release-*/openedge-*.tar.gz
+release-*/openedge-*.zip

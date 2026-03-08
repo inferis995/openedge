@@ -1,30 +1,7 @@
 {
   "permissions": {
     "allow": [
-      "Bash(go build:*)",
-      "Bash(docker-compose:*)",
-      "Bash(docker system prune:*)",
-      "Bash(dir:*)",
-      "Bash(docker ps:*)",
-      "Bash(docker stop:*)",
-      "Bash(docker rm:*)",
-      "Bash(docker restart:*)",
-      "Bash(docker logs:*)",
-      "Bash(docker compose down:*)",
-      "Bash(docker compose up:*)",
-      "Bash(docker compose:*)",
-      "Bash(docker cp:*)",
-      "Bash(docker exec industrial-postgres psql:*)",
-      "Bash(docker exec:*)",
-      "Bash(curl:*)",
-      "Bash(npm run build:*)",
-      "Bash(npm install:*)",
-      "Bash(npx tsc:*)",
-      "Bash(node:*)",
-      "Bash(cmd:*)",
-      "Bash(powershell:*)",
-      "Bash(python:*)",
-      "Bash(docker-compose down:*)"
+      "Bash(git add -A)"
     ]
   }
 }

@@ -78,7 +78,7 @@ services:
     build:
       context: .
       dockerfile: services/core-api/Dockerfile
-    image: ralph-wiggum-claude-code--main-core-api:latest
+    image: openedge-core-api:latest
     container_name: industrial-core-api
     environment:
       DB_HOST: postgres
@@ -124,7 +124,7 @@ services:
     build:
       context: .
       dockerfile: services/web-ui/Dockerfile
-    image: ralph-wiggum-claude-code--main-web-ui:latest
+    image: openedge-web-ui:latest
     container_name: industrial-web-ui
     ports:
       - "9090:80"
