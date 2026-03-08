@@ -2,7 +2,7 @@
 
 <div align="center">
 
-<img src="logo.png" alt="OpenEdge Logo" width="200" height="auto"/>
+<img src="logo.png" alt="OpenEdge Logo" width="350" height="auto"/>
 
 **Production-Ready Industrial IoT Edge Computing Platform**
 
