@@ -119,7 +119,20 @@
       "Bash(docker exec industrial-postgres psql -U industrial_user -d postgres -c \"SELECT id, tag_id, definition_id, status, trigger_time, clear_time FROM alarm_events WHERE tag_id = 137 ORDER BY id DESC LIMIT 5;\")",
       "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \"SELECT id, tag_id, definition_id, status, trigger_time, clear_time FROM alarm_events WHERE tag_id = 137 ORDER BY id DESC LIMIT 10;\")",
       "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \"DELETE FROM alarm_events WHERE id IN \\(40, 41\\);\")",
-      "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \"SELECT id, tag_id, definition_id, status, trigger_time FROM alarm_events WHERE tag_id = 137 ORDER BY id DESC LIMIT 3;\")"
+      "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \"SELECT id, tag_id, definition_id, status, trigger_time FROM alarm_events WHERE tag_id = 137 ORDER BY id DESC LIMIT 3;\")",
+      "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \"SELECT status, COUNT\\(*\\) FROM alarm_events WHERE tag_id = 137 GROUP BY status;\")",
+      "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \"SELECT id, tag_id, status, trigger_time FROM alarm_events ORDER BY id DESC LIMIT 5;\")",
+      "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \"INSERT INTO alarm_events \\(tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time\\) VALUES \\(137, 5, ''ACTIVE'', ''bool_true'', ''warning'', ''Allarme test'', 1, NOW\\(\\)\\);\")",
+      "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \"SELECT id, tag_id, status, trigger_time FROM alarm_events ORDER BY id DESC LIMIT 3;\")",
+      "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \"DELETE FROM alarm_events WHERE id = 42;\")",
+      "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \"SELECT COUNT\\(*\\) as total FROM alarm_events WHERE status IN \\(''ACTIVE'', ''ACKNOWLEDGED''\\);\")",
+      "Bash(docker compose build driver-opcua)",
+      "Bash(docker compose up -d driver-opcua)",
+      "Bash(docker compose restart driver-manager)",
+      "Bash(docker exec postgres psql -U industrial_user -d industrial_edge -c \"DELETE FROM alarm_events WHERE tag_id = 137;\")",
+      "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \"DELETE FROM alarm_events WHERE tag_id = 137;\")",
+      "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \"SELECT id, tag_id, definition_id, status, value_at_trigger, trigger_time FROM alarm_events ORDER BY trigger_time DESC LIMIT 10;\")",
+      "Bash(go build -o /tmp/test ./services/driver-opcua)"
     ]
   }
 }

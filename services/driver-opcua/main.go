@@ -237,9 +237,11 @@ func main() {
 	log.Printf("[OPC-UA Driver] Subscribed to health topic: %s (auto-reload enabled)", healthTopic)
 
 	// Initialize Alarm Manager
-	driver.alarmManager = alarms.NewManager(database, gatewayID)
+	driver.alarmManager = alarms.NewManager(database, mqttClient, gatewayID)
 
 	driver.alarmManager.OnAlarmEvent = func(tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
+		log.Printf("[OPC-UA ALARM-EVENT] tagID=%d, alias=%s, status=%s, severity=%s",
+			tagID, alias, status, def.Severity)
 		driver.publishDual(
 			tagID,
 			alias+"_Alarm",
@@ -820,6 +822,8 @@ func (d *Driver) pollLoop() {
 				alarmQuality = 0 // BAD - will be skipped by alarm manager
 			}
 			if d.alarmManager != nil {
+				log.Printf("[OPC-UA ALARM-EVAL] tagID=%d (%s), value=%v (type=%T), alarmQuality=%d",
+					tag.ID, tag.Alias, value, value, alarmQuality)
 				d.alarmManager.EvaluateTag(tag.ID, tag.Alias, value, alarmQuality)
 			}
 

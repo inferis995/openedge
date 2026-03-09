@@ -12,17 +12,23 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
-// activeAlarmTrack state of an alarm rule that is currently active or in delay
+// MQTT publisher interface expected by AlarmManager
+type MQTTPublisher interface {
+	PublishWithQoS(topic string, payload interface{}, qos byte, retained bool) error
+}
+
+// ActiveAlarmTracks state of an alarm rule that is currently active or in delay
 type activeAlarmTrack struct {
 	Definition   models.AlarmDefinition
 	ActiveSince  time.Time
-	Triggered    bool // True if it has passed the delay phase and fired via callback
+	Triggered    bool // True if it has passed the delay phase and fired via MQTT
 	InitialValue float64
 	EventID      int  // Database alarm_events.id for CLEARED updates
 }
 
 type Manager struct {
 	db           *sql.DB
+	mqttClient   MQTTPublisher
 	gatewayID    int
 	orgID        int
 	siteName     string
@@ -33,13 +39,14 @@ type Manager struct {
 	mu           sync.RWMutex
 
 	// OnAlarmEvent is called whenever an alarm state changes (e.g. triggered or cleared)
-	// This allows the parent driver to publish the alarm to MQTT with custom formatting
+	// This allows the parent driver to publish the alarm to the cloud (e.g. via Sparkplug B)
 	OnAlarmEvent func(tagID int, alias string, def models.AlarmDefinition, val float64, status string)
 }
 
-func NewManager(db *sql.DB, gatewayID int) *Manager {
+func NewManager(db *sql.DB, mqttClient MQTTPublisher, gatewayID int) *Manager {
 	m := &Manager{
 		db:           db,
+		mqttClient:   mqttClient,
 		gatewayID:    gatewayID,
 		definitions:  make(map[int][]models.AlarmDefinition),
 		activeTracks: make(map[int]map[int]*activeAlarmTrack),
@@ -136,86 +143,6 @@ func (m *Manager) LoadDefinitions() {
 	m.mu.Unlock()
 
 	log.Printf("[ALARM-MANAGER] Loaded %d active alarm rules for %d tags", count, len(newDefs))
-
-	// Restore active alarm tracks from database to allow proper clearing
-	m.loadActiveAlarmsFromDB()
-}
-
-// loadActiveAlarmsFromDB restores active alarm tracks from the database
-// This is called on startup/reload to restore in-memory state from persistent storage
-func (m *Manager) loadActiveAlarmsFromDB() {
-	if m.db == nil {
-		return
-	}
-
-	// Query all ACTIVE and ACKNOWLEDGED alarm events from the database for this gateway
-	// Use DISTINCT ON to get only the latest event for each tag/definition combination
-	rows, err := m.db.Query(`
-		SELECT DISTINCT ON (ae.tag_id, ae.definition_id) ae.tag_id, ae.definition_id, ae.value_at_trigger, ae.trigger_time
-		FROM alarm_events ae
-		JOIN tags t ON ae.tag_id = t.id
-		WHERE t.gateway_id = $1 AND ae.status IN ('ACTIVE', 'ACKNOWLEDGED') AND ae.clear_time IS NULL
-		ORDER BY ae.tag_id, ae.definition_id, ae.trigger_time DESC
-	`, m.gatewayID)
-	if err != nil {
-		log.Printf("[ALARM-MANAGER] Error loading active alarms from DB: %v", err)
-		return
-	}
-	defer rows.Close()
-
-	restored := 0
-	for rows.Next() {
-		var tagID, definitionID int
-		var valueAtTrigger float64
-		var triggerTime time.Time
-
-		err := rows.Scan(&tagID, &definitionID, &valueAtTrigger, &triggerTime)
-		if err != nil {
-			continue
-		}
-
-		// Find the definition for this alarm
-		var def models.AlarmDefinition
-		found := false
-		for _, defs := range m.definitions {
-			for _, d := range defs {
-				if d.ID == definitionID {
-					def = d
-					found = true
-					break
-				}
-			}
-			if found {
-				break
-			}
-		}
-
-		if !found {
-			log.Printf("[ALARM-MANAGER] Warning: Active alarm found but definition not loaded: tagID=%d, defID=%d", tagID, definitionID)
-			continue
-		}
-
-		// Restore the active track
-		if m.activeTracks[tagID] == nil {
-			m.activeTracks[tagID] = make(map[int]*activeAlarmTrack)
-		}
-
-		m.activeTracks[tagID][definitionID] = &activeAlarmTrack{
-			Definition:   def,
-			ActiveSince:  triggerTime,
-			Triggered:    true, // Already triggered
-			InitialValue: valueAtTrigger,
-			EventID:      0,
-		}
-
-		restored++
-		log.Printf("[ALARM-MANAGER] Restored active alarm: tagID=%d, defID=%d, value=%v, triggered_at=%v",
-			tagID, definitionID, valueAtTrigger, triggerTime)
-	}
-
-	if restored > 0 {
-		log.Printf("[ALARM-MANAGER] Restored %d active alarm(s) from database", restored)
-	}
 }
 
 // StartTicker runs a background loop to constantly evaluate DelaySeconds for tracked alarms
@@ -271,18 +198,8 @@ func (m *Manager) tickDelays() {
 	// Note: DB operations are done while holding lock, which is acceptable
 	// because tickDelays runs infrequently (once per second)
 	for _, pt := range toTrigger {
-		// Check again if track is still valid and not already triggered
-		// This prevents duplicate alarms for zero-delay alarms when EvaluateTag()
-		// immediately fires them
-		if tracks, ok := m.activeTracks[pt.tagID]; ok {
-			if track, ok := tracks[pt.definition.ID]; ok {
-				if track.Triggered {
-					// Already fired by EvaluateTag(), skip duplicate
-					continue
-				}
-			}
-		}
-
+		// Fire the alarm event - we already set Triggered=true in the collection phase
+		// No need to check again since we're iterating over alarms we just collected
 		var alias string
 		m.db.QueryRow("SELECT alias FROM tags WHERE id = $1", pt.tagID).Scan(&alias)
 		eventID := m.fireAlarmEvent(pt.tagID, alias, pt.definition, pt.initialValue, "ACTIVE")
@@ -325,6 +242,9 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 	for _, def := range defs {
 		isViolating := isConditionViolated(def, floatVal)
 		track, isTracking := tracks[def.ID]
+
+		log.Printf("[ALARM-MANAGER-DEBUG] tagID=%d, defID=%d, type=%s, val=%v, isViolating=%v, isTracking=%v, Triggered=%v",
+			tagID, def.ID, def.AlarmType, floatVal, isViolating, isTracking, track != nil && track.Triggered)
 
 		if isViolating {
 			if !isTracking {
@@ -451,8 +371,8 @@ func (m *Manager) fireAlarmEvent(tagID int, alias string, def models.AlarmDefini
 
 	// Write to database for history tracking
 	var eventID int
+	var err error
 	if status == "ACTIVE" {
-		var err error
 		eventID, err = m.insertAlarmEvent(tagID, def, val, status)
 		// Note: Duplicate errors are silently handled in insertAlarmEvent
 		if err != nil && !strings.Contains(err.Error(), "duplicate key") {
