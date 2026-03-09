@@ -326,17 +326,24 @@ func (c *Client) WriteValue(nodeID string, value interface{}, dataType string) e
 		return fmt.Errorf("invalid node ID '%s': %w", nodeID, err)
 	}
 
-	v, err := convertToVariant(value, dataType)
-	if err != nil {
-		return fmt.Errorf("failed to convert value: %w", err)
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), c.config.Timeout)
 	defer cancel()
 
-	log.Printf("[OPC-UA DEBUG] WriteValue called - NodeID: %s, DatabaseType: %s, Value: %v (%T)", nodeID, dataType, value, value)
+	log.Printf("[OPC-UA WRITE] NodeID: %s, DatabaseType: %s, Value: %v (%T)", nodeID, dataType, value, value)
 
-	// First, try to read the current value to see what type it actually is
+	// STRATEGY: Try multiple approaches to write the value, starting with most compatible
+
+	// Convert the incoming value to multiple possible representations
+	boolVal, isBool := toBool(value)
+
+	// Build a list of variants to try, in order of preference
+	variantsToTry := []struct {
+		name string
+		variant *ua.Variant
+		desc string
+	}{}
+
+	// First, read current value from server to understand its type
 	readReq := &ua.ReadRequest{
 		MaxAge: 2000,
 		NodesToRead: []*ua.ReadValueID{
@@ -347,73 +354,141 @@ func (c *Client) WriteValue(nodeID string, value interface{}, dataType string) e
 		},
 	}
 
+	var serverType string
+	var currentVariant *ua.Variant
 	readResp, err := c.client.Read(ctx, readReq)
 	if err == nil && len(readResp.Results) > 0 {
 		result := readResp.Results[0]
 		if result.Status == ua.StatusOK && result.Value != nil {
-			log.Printf("[OPC-UA DEBUG] Current value on server: Type=%v, Value=%v", result.Value.Type(), result.Value.Value())
+			currentVariant = result.Value
+			serverType = result.Value.Type().String()
+			log.Printf("[OPC-UA WRITE] Current server value: Type=%s, Value=%v", serverType, result.Value.Value())
 		}
 	}
 
-	// Try to read the actual DataType from the server to match it exactly
-	// This helps with servers like OpenPLC that have specific type requirements
+	// Read the DataType attribute
 	opcuaType := c.readDataType(ctx, nid)
+	log.Printf("[OPC-UA WRITE] Server DataType attribute: %s", opcuaType)
 
-	log.Printf("[OPC-UA DEBUG] Server reports DataType: %s for node %s", opcuaType, nodeID)
-
-	// Special handling for Boolean types: some servers (like OpenPLC) expect booleans as numeric values
-	boolVal, isBool := toBool(value)
-
-	// If we can read the type from server, try to convert to that specific type
-	// SPECIAL CASE: For this OPC UA server, ALL boolean values should be sent as Int16 (numeric 0/1)
-	// regardless of what the server reports as the type. This is required for compatibility.
 	if isBool {
-		log.Printf("[OPC-UA DEBUG] Boolean value detected, converting to Int16 (numeric 0/1) for server compatibility")
-		var numericVal int16
+		// For boolean values, try multiple numeric encodings
+		var int8Val int8
 		if boolVal {
-			numericVal = 1
+			int8Val = 1
 		}
-		v, _ = ua.NewVariant(numericVal)
-		log.Printf("[OPC-UA DEBUG] Converted boolean %v to Int16 %d (server requires numeric booleans)", boolVal, numericVal)
-	} else if opcuaType != "Unknown" && opcuaType != "" {
-		log.Printf("[OPC-UA DEBUG] Attempting type conversion from database type '%s' to server type '%s'", dataType, opcuaType)
-		if v2, err2 := convertToVariantByOpcUaType(value, opcuaType); err2 == nil {
-			log.Printf("[OPC-UA DEBUG] Successfully converted value to type %s", opcuaType)
-			v = v2
-		} else {
-			log.Printf("[OPC-UA DEBUG] Type conversion failed: %v, using database type conversion", err2)
+
+		var int16Val int16
+		if boolVal {
+			int16Val = 1
 		}
+
+		var int32Val int32
+		if boolVal {
+			int32Val = 1
+		}
+
+		var uint8Val uint8
+		if boolVal {
+			uint8Val = 1
+		}
+
+		var uint16Val uint16
+		if boolVal {
+			uint16Val = 1
+		}
+
+		var uint32Val uint32
+		if boolVal {
+			uint32Val = 1
+		}
+
+		// Try in order of most likely to work
+		variantsToTry = append(variantsToTry,
+			struct{ name string; variant *ua.Variant; desc string }{
+				name: "Boolean", variant: mustVariant(boolVal), desc: "native Go bool",
+			},
+			struct{ name string; variant *ua.Variant; desc string }{
+				name: "Int16", variant: mustVariant(int16Val), desc: "signed 16-bit (0/1)",
+			},
+			struct{ name string; variant *ua.Variant; desc string }{
+				name: "Int32", variant: mustVariant(int32Val), desc: "signed 32-bit (0/1)",
+			},
+			struct{ name string; variant *ua.Variant; desc string }{
+				name: "SByte", variant: mustVariant(int8Val), desc: "signed 8-bit (0/1)",
+			},
+			struct{ name string; variant *ua.Variant; desc string }{
+				name: "Byte", variant: mustVariant(uint8Val), desc: "unsigned 8-bit (0/1)",
+			},
+			struct{ name string; variant *ua.Variant; desc string }{
+				name: "UInt16", variant: mustVariant(uint16Val), desc: "unsigned 16-bit (0/1)",
+			},
+			struct{ name string; variant *ua.Variant; desc string }{
+				name: "UInt32", variant: mustVariant(uint32Val), desc: "unsigned 32-bit (0/1)",
+			},
+		)
 	} else {
-		log.Printf("[OPC-UA DEBUG] Using database type '%s' for conversion", dataType)
+		// For non-boolean values, use standard conversion
+		v, err := convertToVariant(value, dataType)
+		if err != nil {
+			return fmt.Errorf("failed to convert value: %w", err)
+		}
+		variantsToTry = append(variantsToTry,
+			struct{ name string; variant *ua.Variant; desc string }{
+				name: dataType, variant: v, desc: "standard conversion",
+			},
+		)
 	}
 
-	log.Printf("[OPC-UA DEBUG] Final variant type: %v, value: %v", v.Type(), v.Value())
+	// Try each variant until one succeeds
+	var lastErr error
+	for i, vt := range variantsToTry {
+		log.Printf("[OPC-UA WRITE] Attempt %d/%d: Trying %s (%s)",
+			i+1, len(variantsToTry), vt.name, vt.desc)
 
-	req := &ua.WriteRequest{
-		NodesToWrite: []*ua.WriteValue{
-			{
-				NodeID:      nid,
-				AttributeID: ua.AttributeIDValue,
-				Value: &ua.DataValue{
-					Value: v,
+		req := &ua.WriteRequest{
+			NodesToWrite: []*ua.WriteValue{
+				{
+					NodeID:      nid,
+					AttributeID: ua.AttributeIDValue,
+					Value: &ua.DataValue{
+						Value: vt.variant,
+					},
 				},
 			},
-		},
+		}
+
+		resp, err := c.client.Write(ctx, req)
+		if err != nil {
+			lastErr = fmt.Errorf("write error with %s: %w", vt.name, err)
+			log.Printf("[OPC-UA WRITE] Attempt %d failed: %v", i+1, err)
+			continue
+		}
+
+		if len(resp.Results) > 0 {
+			status := resp.Results[0]
+			if status == ua.StatusOK {
+				log.Printf("[OPC-UA WRITE] SUCCESS with %s type!", vt.name)
+				return nil
+			}
+			lastErr = fmt.Errorf("write with %s returned status: %v", vt.name, status)
+			log.Printf("[OPC-UA WRITE] Attempt %d failed with status: %v", i+1, status)
+			continue
+		}
 	}
 
-	log.Printf("[OPC-UA DEBUG] WriteRequest created for node %s with DataValue", nodeID)
+	// All attempts failed
+	log.Printf("[OPC-UA WRITE] All %d attempts failed", len(variantsToTry))
+	return lastErr
+}
 
-	resp, err := c.client.Write(ctx, req)
+// mustVariant creates a variant, panicking on error (used when input is guaranteed valid)
+func mustVariant(value interface{}) *ua.Variant {
+	v, err := ua.NewVariant(value)
 	if err != nil {
-		c.handleConnectionError(err)
-		return fmt.Errorf("write failed: %w", err)
+		// For our simple types, this should never fail
+		return ua.MustVariant(value)
 	}
-
-	if len(resp.Results) > 0 && resp.Results[0] != ua.StatusOK {
-		return fmt.Errorf("write returned status: %v", resp.Results[0])
-	}
-
-	return nil
+	return v
 }
 
 // readDataType reads the DataType attribute of a variable node and returns a human-readable string
