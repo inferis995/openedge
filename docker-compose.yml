@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Load environment variables from .env file (copy .env.example to .env)
 # For production: use Docker secrets or external secret management
 services:
