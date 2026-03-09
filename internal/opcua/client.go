@@ -355,12 +355,10 @@ func (c *Client) WriteValue(nodeID string, value interface{}, dataType string) e
 	}
 
 	var serverType string
-	var currentVariant *ua.Variant
 	readResp, err := c.client.Read(ctx, readReq)
 	if err == nil && len(readResp.Results) > 0 {
 		result := readResp.Results[0]
 		if result.Status == ua.StatusOK && result.Value != nil {
-			currentVariant = result.Value
 			serverType = result.Value.Type().String()
 			log.Printf("[OPC-UA WRITE] Current server value: Type=%s, Value=%v", serverType, result.Value.Value())
 		}

@@ -237,7 +237,7 @@ func main() {
 	log.Printf("[OPC-UA Driver] Subscribed to health topic: %s (auto-reload enabled)", healthTopic)
 
 	// Initialize Alarm Manager
-	driver.alarmManager = alarms.NewManager(database, mqttClient, gatewayID)
+	driver.alarmManager = alarms.NewManager(database, gatewayID)
 
 	driver.alarmManager.OnAlarmEvent = func(tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
 		driver.publishDual(

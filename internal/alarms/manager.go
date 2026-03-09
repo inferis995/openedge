@@ -3,7 +3,6 @@ package alarms
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -13,23 +12,17 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
-// MQTT publisher interface expected by AlarmManager
-type MQTTPublisher interface {
-	PublishWithQoS(topic string, payload interface{}, qos byte, retained bool) error
-}
-
-// ActiveAlarmTracks state of an alarm rule that is currently active or in delay
+// activeAlarmTrack state of an alarm rule that is currently active or in delay
 type activeAlarmTrack struct {
 	Definition   models.AlarmDefinition
 	ActiveSince  time.Time
-	Triggered    bool // True if it has passed the delay phase and fired via MQTT
+	Triggered    bool // True if it has passed the delay phase and fired via callback
 	InitialValue float64
 	EventID      int  // Database alarm_events.id for CLEARED updates
 }
 
 type Manager struct {
 	db           *sql.DB
-	mqttClient   MQTTPublisher
 	gatewayID    int
 	orgID        int
 	siteName     string
@@ -40,14 +33,13 @@ type Manager struct {
 	mu           sync.RWMutex
 
 	// OnAlarmEvent is called whenever an alarm state changes (e.g. triggered or cleared)
-	// This allows the parent driver to publish the alarm to the cloud (e.g. via Sparkplug B)
+	// This allows the parent driver to publish the alarm to MQTT with custom formatting
 	OnAlarmEvent func(tagID int, alias string, def models.AlarmDefinition, val float64, status string)
 }
 
-func NewManager(db *sql.DB, mqttClient MQTTPublisher, gatewayID int) *Manager {
+func NewManager(db *sql.DB, gatewayID int) *Manager {
 	m := &Manager{
 		db:           db,
-		mqttClient:   mqttClient,
 		gatewayID:    gatewayID,
 		definitions:  make(map[int][]models.AlarmDefinition),
 		activeTracks: make(map[int]map[int]*activeAlarmTrack),
@@ -374,37 +366,13 @@ func (m *Manager) updateAlarmEventAsCleared(eventID int) error {
 }
 
 func (m *Manager) fireAlarmEvent(tagID int, alias string, def models.AlarmDefinition, val float64, status string) int {
-	topic := fmt.Sprintf("sys/alarms/%d/%s/%s/%s/%s", m.orgID, m.siteName, m.areaName, m.gatewayName, alias)
-
-	payload := map[string]interface{}{
-		"tag_id":           tagID,
-		"definition_id":    def.ID,
-		"status":           status,
-		"alarm_type":       def.AlarmType,
-		"severity":         def.Severity,
-		"message":          def.Message,
-		"value_at_trigger": val,
-		"timestamp":        time.Now().UnixMilli(),
-	}
-
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("[ALARM-MANAGER] Failed to marshal alarm payload: %v", err)
-		return 0
-	}
-
-	if m.mqttClient != nil {
-		err := m.mqttClient.PublishWithQoS(topic, string(payloadBytes), 1, false)
-		if err != nil {
-			log.Printf("[ALARM-MANAGER] Failed to publish %s event for tag %d: %v", status, tagID, err)
-		} else {
-			log.Printf("[ALARM] %s -> Tag %d (%s) - Rule %d", status, tagID, def.AlarmType, def.ID)
-		}
-	}
+	// NOTE: MQTT publishing is now handled ONLY by OnAlarmEvent callback in the driver
+	// This function handles database persistence and triggers the callback
 
 	// Write to database for history tracking
 	var eventID int
 	if status == "ACTIVE" {
+		var err error
 		eventID, err = m.insertAlarmEvent(tagID, def, val, status)
 		// Note: Duplicate errors are silently handled in insertAlarmEvent
 		if err != nil && !strings.Contains(err.Error(), "duplicate key") {

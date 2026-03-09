@@ -105,7 +105,12 @@
       "Bash(ls migrations/*.sql)",
       "Bash(grep -l \"DO\\\\ \\\\$\\\\$\" migrations/014*.sql migrations/015*.sql migrations/016*.sql migrations/017*.sql migrations/018*.sql migrations/019*.sql migrations/020*.sql migrations/021*.sql migrations/022*.sql migrations/023*.sql)",
       "Bash(grep -l \"DO \\\\$\" migrations/014*.sql migrations/015*.sql migrations/016*.sql migrations/017*.sql migrations/018*.sql migrations/019*.sql migrations/020*.sql migrations/021*.sql migrations/022*.sql migrations/023*.sql)",
-      "Bash(go build ./services/core-api/...)"
+      "Bash(go build ./services/core-api/...)",
+      "Bash(go build ./internal/alarms/...)",
+      "Bash(go build ./services/driver-opcua/...)",
+      "Bash(docker build -t industrial-driver-opcua:latest -f services/driver-opcua/Dockerfile .)",
+      "Bash(docker restart industrial-driver-manager)",
+      "Bash(docker ps --filter \"name=opcua\" --format \"table {{.Names}}\\\\t{{.Status}}\\\\t{{.CreatedAt}}\")"
     ]
   }
 }
