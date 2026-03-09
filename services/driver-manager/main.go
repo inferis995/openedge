@@ -379,12 +379,19 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 	}
 
 	// Pull image if needed (skip if image exists locally)
-	_, _, err := m.dockerClient.ImageInspectWithRaw(m.ctx, imageName)
+	_, _, err = m.dockerClient.ImageInspectWithRaw(m.ctx, imageName)
 	if err != nil {
 		// Image doesn't exist, pull it
-		log.Printf("Pulling image %s for gateway %d...", imageName, gateway.ID)
-		// Note: In production, you'd use ImagePull here
-		// For now, assume images are built locally
+		log.Printf("Image %s not found locally, pulling from registry...", imageName)
+		reader, err := m.dockerClient.ImagePull(m.ctx, imageName, types.ImagePullOptions{})
+		if err != nil {
+			return fmt.Errorf("failed to pull image %s: %w", imageName, err)
+		}
+		defer reader.Close()
+
+		// Wait for pull to complete
+		// Note: We don't need to read the output, just wait for the pull to finish
+		log.Printf("Successfully pulled image %s", imageName)
 	}
 
 	// Remove existing container with same name if it exists to avoid conflicts
