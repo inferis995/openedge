@@ -49,7 +49,7 @@ Aggiungere `zero_based?: boolean;` all'interfaccia `CreateGatewayDto`
 
 ---
 
-### 3. Cloud MQTT Write a OPC UA Fails (StatusBadTypeMismatch)
+### 3. Cloud MQTT Write a OPC UA Fails (StatusBadTypeMismatch) - FIX IMPLEMENTATO
 **Descrizione:** I comandi di write dal cloud broker al PLC OPC UA falliscono con errore `StatusBadTypeMismatch (0x80740000)`.
 
 **Root Cause Analisys:**
@@ -68,11 +68,17 @@ Aggiungere `zero_based?: boolean;` all'interfaccia `CreateGatewayDto`
 3. Potrebbe servire leggere il valore attuale e ri-scriverlo con lo stesso encoding
 4. Il gopcua library potrebbe avere un bug con questo server specifico
 
-**Soluzioni da Provare:**
-1. Leggere il valore attuale e usarne lo stesso encoding per la write
-2. Provare altri tipi numerici (Int32, UInt32)
-3. Investigare differenze tra cosa invia UA Expert vs il nostro client
-4. Provare a usare il DataType NodeID letto dal server invece di usare il tipo stringa
+**Soluzione Implementata (2025-03-09):**
+Implementato multi-strategy write con fallback in `internal/opcua/client.go`:
+- Prova多种 tipi in ordine: Boolean, Int16, Int32, SByte, Byte, UInt16, UInt32
+- Ogni tentativo è loggato con dettagli per diagnosi
+- Si ferma al primo successo
+- Se tutti falliscono, ritorna l'ultimo errore
+
+**Prossimi Passi:**
+1. Testare con gateway 138 (tag: hmi_cfg_enablevalvola_1)
+2. Verificare nei log quale tipo il server accetta
+3. Ottimizzare il codice per usare solo il tipo corretto
 
 ---
 

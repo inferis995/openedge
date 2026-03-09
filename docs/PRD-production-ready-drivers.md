@@ -83,7 +83,7 @@ if err != nil {
 - Aggiunto `zero_based?: boolean` a CreateGatewayDto
 - Creata migrazione per correggere default DB a FALSE
 
-### 2.3 Cloud MQTT Write → OPC UA Fails (IN CORSO)
+### 2.3 Cloud MQTT Write → OPC UA Fails (IN CORSO - FIX IMPLEMENTATO)
 
 **Problema:** I comandi di write dal cloud broker falliscono con `StatusBadTypeMismatch`.
 
@@ -97,10 +97,22 @@ if err != nil {
 2. Namespace personalizzato (ns=2)
 3. Libreria gopcua incompatibile
 
+**Fix Implementato (2025-03-09):**
+Implementato multi-strategy write con fallback. Il client ora prova多种 tipi in ordine:
+1. Boolean nativo (bool)
+2. Int16 (0/1)
+3. Int32 (0/1)
+4. SByte (0/1)
+5. Byte (0/1)
+6. UInt16 (0/1)
+7. UInt32 (0/1)
+
+Ogni tentativo è loggato con dettagli per identificare quale tipo il server accetta.
+
 **Prossimi Passi:**
-1. Capture network traffic da UA Expert
-2. Provare lettura + riscrittura con stesso encoding
-3. Testare con altri tipi (Int32, UInt32)
+1. Testare il nuovo codice con gateway 138
+2. Verificare nei log quale tipo funziona
+3. Ottimizzare per usare solo quello corretto
 
 ---
 
