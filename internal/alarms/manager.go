@@ -136,6 +136,86 @@ func (m *Manager) LoadDefinitions() {
 	m.mu.Unlock()
 
 	log.Printf("[ALARM-MANAGER] Loaded %d active alarm rules for %d tags", count, len(newDefs))
+
+	// Restore active alarm tracks from database to allow proper clearing
+	m.loadActiveAlarmsFromDB()
+}
+
+// loadActiveAlarmsFromDB restores active alarm tracks from the database
+// This is called on startup/reload to restore in-memory state from persistent storage
+func (m *Manager) loadActiveAlarmsFromDB() {
+	if m.db == nil {
+		return
+	}
+
+	// Query all ACTIVE and ACKNOWLEDGED alarm events from the database for this gateway
+	// Use DISTINCT ON to get only the latest event for each tag/definition combination
+	rows, err := m.db.Query(`
+		SELECT DISTINCT ON (ae.tag_id, ae.definition_id) ae.tag_id, ae.definition_id, ae.value_at_trigger, ae.trigger_time
+		FROM alarm_events ae
+		JOIN tags t ON ae.tag_id = t.id
+		WHERE t.gateway_id = $1 AND ae.status IN ('ACTIVE', 'ACKNOWLEDGED') AND ae.clear_time IS NULL
+		ORDER BY ae.tag_id, ae.definition_id, ae.trigger_time DESC
+	`, m.gatewayID)
+	if err != nil {
+		log.Printf("[ALARM-MANAGER] Error loading active alarms from DB: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	restored := 0
+	for rows.Next() {
+		var tagID, definitionID int
+		var valueAtTrigger float64
+		var triggerTime time.Time
+
+		err := rows.Scan(&tagID, &definitionID, &valueAtTrigger, &triggerTime)
+		if err != nil {
+			continue
+		}
+
+		// Find the definition for this alarm
+		var def models.AlarmDefinition
+		found := false
+		for _, defs := range m.definitions {
+			for _, d := range defs {
+				if d.ID == definitionID {
+					def = d
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+
+		if !found {
+			log.Printf("[ALARM-MANAGER] Warning: Active alarm found but definition not loaded: tagID=%d, defID=%d", tagID, definitionID)
+			continue
+		}
+
+		// Restore the active track
+		if m.activeTracks[tagID] == nil {
+			m.activeTracks[tagID] = make(map[int]*activeAlarmTrack)
+		}
+
+		m.activeTracks[tagID][definitionID] = &activeAlarmTrack{
+			Definition:   def,
+			ActiveSince:  triggerTime,
+			Triggered:    true, // Already triggered
+			InitialValue: valueAtTrigger,
+			EventID:      0,
+		}
+
+		restored++
+		log.Printf("[ALARM-MANAGER] Restored active alarm: tagID=%d, defID=%d, value=%v, triggered_at=%v",
+			tagID, definitionID, valueAtTrigger, triggerTime)
+	}
+
+	if restored > 0 {
+		log.Printf("[ALARM-MANAGER] Restored %d active alarm(s) from database", restored)
+	}
 }
 
 // StartTicker runs a background loop to constantly evaluate DelaySeconds for tracked alarms
