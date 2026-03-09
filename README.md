@@ -60,7 +60,7 @@ cd openedge
 docker-compose up -d
 
 # 3. Access the web UI
-# Open http://localhost in your browser
+# Open http://localhost:3000 in your browser
 # Login with admin/admin123
 ```
 
@@ -99,7 +99,7 @@ cp .env.example .env
 docker-compose up -d
 
 # Access the web UI
-open http://localhost:80
+open http://localhost:3000
 ```
 
 **Default Credentials:**

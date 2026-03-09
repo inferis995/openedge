@@ -149,7 +149,7 @@ Write-Log "=========================================="
 Write-Log "Services Status:"
 docker ps --format "table {{.Names}}`t{{.Status}}`t{{.Ports}}" 2>&1 | ForEach-Object { Write-Log $_ }
 Write-Log "=========================================="
-Write-Log "Web UI: http://localhost:9090"
+Write-Log "Web UI: http://localhost:3000"
 Write-Log "API: http://localhost:8081"
 Write-Log "Default login: admin / admin123"
 Write-Log "=========================================="

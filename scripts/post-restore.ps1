@@ -77,6 +77,6 @@ Write-Host "================================" -ForegroundColor Cyan
 Write-Host "✓ Post-Restore completed successfully!" -ForegroundColor Green
 Write-Host ""
 Write-Host "🌐 Web UI: http://localhost:3000" -ForegroundColor Cyan
-Write-Host "📊 API: http://localhost:9090" -ForegroundColor Cyan
+Write-Host "📊 API: http://localhost:8081" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "💡 Tip: Wait 30-60 seconds for all drivers to reconnect to PLCs" -ForegroundColor Yellow
