@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { usersApi, User, CreateUserRequest, UpdateUserRequest } from '@/api/users';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useOrganizations } from '@/hooks/useOrganizations';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,7 +28,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Users, Plus, Trash2, Pencil, Shield, User as UserIcon } from 'lucide-react';
+import { Users, Plus, Trash2, Pencil, Shield, User as UserIcon, Building2 } from 'lucide-react';
 
 const UsersPage = () => {
     const [users, setUsers] = useState<User[]>([]);
@@ -37,16 +38,21 @@ const UsersPage = () => {
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
     const [error, setError] = useState<string | null>(null);
 
+    // Organizations
+    const { organizations, isLoading: orgsLoading } = useOrganizations();
+
     // Form state for create
     const [newUsername, setNewUsername] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [newRole, setNewRole] = useState<'admin' | 'user'>('user');
     const [newFullName, setNewFullName] = useState('');
+    const [newOrgId, setNewOrgId] = useState<number | null>(null);
 
     // Form state for edit
     const [editPassword, setEditPassword] = useState('');
     const [editRole, setEditRole] = useState<'admin' | 'user'>('user');
     const [editFullName, setEditFullName] = useState('');
+    const [editOrgId, setEditOrgId] = useState<number | null>(null);
 
     const { user: currentUser } = useAuthStore();
 
@@ -75,6 +81,7 @@ const UsersPage = () => {
                 password: newPassword,
                 role: newRole,
                 full_name: newFullName,
+                org_id: newOrgId,
             };
             await usersApi.create(req);
             setIsCreateOpen(false);
@@ -97,6 +104,7 @@ const UsersPage = () => {
             const req: UpdateUserRequest = {
                 role: editRole,
                 full_name: editFullName,
+                org_id: editOrgId,
             };
             if (editPassword) {
                 req.password = editPassword;
@@ -133,6 +141,7 @@ const UsersPage = () => {
         setEditRole(user.role);
         setEditFullName(user.full_name || '');
         setEditPassword('');
+        setEditOrgId(user.org_id);
         setIsEditOpen(true);
     };
 
@@ -141,6 +150,7 @@ const UsersPage = () => {
         setNewPassword('');
         setNewRole('user');
         setNewFullName('');
+        setNewOrgId(null);
     };
 
     if (isLoading) {
@@ -218,6 +228,24 @@ const UsersPage = () => {
                                     placeholder="e.g. John Doe"
                                 />
                             </div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label htmlFor="org" className="text-right">
+                                    Organization
+                                </Label>
+                                <Select value={newOrgId?.toString() || 'global'} onValueChange={(v) => setNewOrgId(v === 'global' ? null : parseInt(v))}>
+                                    <SelectTrigger className="col-span-3">
+                                        <SelectValue placeholder="Select organization" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="global">Global Admin (All Organizations)</SelectItem>
+                                        {!orgsLoading && organizations.map((org: any) => (
+                                            <SelectItem key={org.id} value={org.id.toString()}>
+                                                {org.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
@@ -244,6 +272,7 @@ const UsersPage = () => {
                             <TableHead>Username</TableHead>
                             <TableHead>Full Name</TableHead>
                             <TableHead>Role</TableHead>
+                            <TableHead>Organization</TableHead>
                             <TableHead>Created At</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
@@ -251,7 +280,7 @@ const UsersPage = () => {
                     <TableBody>
                         {users.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={6} className="h-24 text-center">
+                                <TableCell colSpan={7} className="h-24 text-center">
                                     No users found.
                                 </TableCell>
                             </TableRow>
@@ -275,6 +304,19 @@ const UsersPage = () => {
                                             {user.role === 'admin' ? <Shield size={12} /> : <UserIcon size={12} />}
                                             {user.role === 'admin' ? 'Admin' : 'User'}
                                         </span>
+                                    </TableCell>
+                                    <TableCell>
+                                        {user.org_id ? (
+                                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-700">
+                                                <Building2 size={12} />
+                                                {user.org_name || `Org ${user.org_id}`}
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600">
+                                                <Building2 size={12} />
+                                                Global Admin
+                                            </span>
+                                        )}
                                     </TableCell>
                                     <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
                                     <TableCell className="text-right">
@@ -349,6 +391,24 @@ const UsersPage = () => {
                                 onChange={(e) => setEditFullName(e.target.value)}
                                 className="col-span-3"
                             />
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <Label htmlFor="edit-org" className="text-right">
+                                Organization
+                            </Label>
+                            <Select value={editOrgId?.toString() || 'global'} onValueChange={(v) => setEditOrgId(v === 'global' ? null : parseInt(v))}>
+                                <SelectTrigger className="col-span-3">
+                                    <SelectValue placeholder="Select organization" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="global">Global Admin (All Organizations)</SelectItem>
+                                    {!orgsLoading && organizations.map((org: any) => (
+                                        <SelectItem key={org.id} value={org.id.toString()}>
+                                            {org.name}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
                     </div>
                     <DialogFooter>

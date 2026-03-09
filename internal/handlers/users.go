@@ -24,6 +24,7 @@ type CreateUserRequest struct {
 	Password string          `json:"password" binding:"required,min=6"`
 	Role     models.UserRole `json:"role" binding:"required,oneof=admin user"`
 	FullName string          `json:"full_name"`
+	OrgID    *int            `json:"org_id"` // NULL for global admin, INT for org-scoped user
 }
 
 // UpdateUserRequest represents the request body for updating a user
@@ -31,11 +32,17 @@ type UpdateUserRequest struct {
 	Password string          `json:"password"` // Optional - only update if provided
 	Role     models.UserRole `json:"role" binding:"omitempty,oneof=admin user"`
 	FullName string          `json:"full_name"`
+	OrgID    *int            `json:"org_id"` // Optional - can change organization assignment
 }
 
 // List returns all users
 func (h *UsersHandler) List(c *gin.Context) {
-	query := `SELECT id, username, role, full_name, created_at FROM users ORDER BY id`
+	query := `
+		SELECT u.id, u.username, u.role, u.full_name, u.org_id, u.created_at, o.name as org_name
+		FROM users u
+		LEFT JOIN organizations o ON u.org_id = o.id
+		ORDER BY u.id
+	`
 	rows, err := h.db.QueryContext(c.Request.Context(), query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch users"})
@@ -43,10 +50,20 @@ func (h *UsersHandler) List(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var users []models.User
+	type UserWithOrgName struct {
+		ID           int        `json:"id"`
+		Username     string     `json:"username"`
+		Role         models.UserRole `json:"role"`
+		FullName     string     `json:"full_name"`
+		OrgID        *int       `json:"org_id"`
+		OrgName      *string    `json:"org_name,omitempty"` // Organization name for display
+		CreatedAt    string     `json:"created_at"`
+	}
+
+	var users []UserWithOrgName
 	for rows.Next() {
-		var user models.User
-		if err := rows.Scan(&user.ID, &user.Username, &user.Role, &user.FullName, &user.CreatedAt); err != nil {
+		var user UserWithOrgName
+		if err := rows.Scan(&user.ID, &user.Username, &user.Role, &user.FullName, &user.OrgID, &user.CreatedAt, &user.OrgName); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan user"})
 			return
 		}
@@ -54,7 +71,7 @@ func (h *UsersHandler) List(c *gin.Context) {
 	}
 
 	if users == nil {
-		users = []models.User{}
+		users = []UserWithOrgName{}
 	}
 
 	c.JSON(http.StatusOK, users)
@@ -75,14 +92,15 @@ func (h *UsersHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Insert user
-	query := `INSERT INTO users (username, password_hash, role, full_name) VALUES ($1, $2, $3, $4) RETURNING id, created_at`
+	// Insert user with org_id
+	query := `INSERT INTO users (username, password_hash, role, full_name, org_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`
 	var user models.User
 	user.Username = req.Username
 	user.Role = req.Role
 	user.FullName = req.FullName
+	user.OrgID = req.OrgID
 
-	err = h.db.QueryRowContext(c.Request.Context(), query, req.Username, string(hashedPassword), req.Role, req.FullName).Scan(&user.ID, &user.CreatedAt)
+	err = h.db.QueryRowContext(c.Request.Context(), query, req.Username, string(hashedPassword), req.Role, req.FullName, req.OrgID).Scan(&user.ID, &user.CreatedAt)
 	if err != nil {
 		// Check for unique constraint violation
 		if err.Error() == `pq: duplicate key value violates unique constraint "users_username_key"` {
@@ -113,9 +131,9 @@ func (h *UsersHandler) Update(c *gin.Context) {
 
 	// Check if user exists
 	var existingUser models.User
-	checkQuery := `SELECT id, username, role, full_name, created_at FROM users WHERE id = $1`
+	checkQuery := `SELECT id, username, role, full_name, org_id, created_at FROM users WHERE id = $1`
 	err = h.db.QueryRowContext(c.Request.Context(), checkQuery, id).Scan(
-		&existingUser.ID, &existingUser.Username, &existingUser.Role, &existingUser.FullName, &existingUser.CreatedAt,
+		&existingUser.ID, &existingUser.Username, &existingUser.Role, &existingUser.FullName, &existingUser.OrgID, &existingUser.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -141,24 +159,52 @@ func (h *UsersHandler) Update(c *gin.Context) {
 		}
 	}
 
-	// Update role and full_name
-	updateQuery := `UPDATE users SET role = COALESCE(NULLIF($1, ''), role), full_name = $2 WHERE id = $3`
-	_, err = h.db.ExecContext(c.Request.Context(), updateQuery, req.Role, req.FullName, id)
+	// Update role, full_name, and org_id
+	updateQuery := `UPDATE users SET role = COALESCE(NULLIF($1, ''), role), full_name = $2, org_id = $3 WHERE id = $4`
+	_, err = h.db.ExecContext(c.Request.Context(), updateQuery, req.Role, req.FullName, req.OrgID, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
 		return
 	}
 
-	// Fetch updated user
-	err = h.db.QueryRowContext(c.Request.Context(), checkQuery, id).Scan(
-		&existingUser.ID, &existingUser.Username, &existingUser.Role, &existingUser.FullName, &existingUser.CreatedAt,
+	// Fetch updated user with org name
+	var orgName *string
+	fullQuery := `
+		SELECT u.id, u.username, u.role, u.full_name, u.org_id, u.created_at, o.name as org_name
+		FROM users u
+		LEFT JOIN organizations o ON u.org_id = o.id
+		WHERE u.id = $1
+	`
+	err = h.db.QueryRowContext(c.Request.Context(), fullQuery, id).Scan(
+		&existingUser.ID, &existingUser.Username, &existingUser.Role, &existingUser.FullName, &existingUser.OrgID, &existingUser.CreatedAt, &orgName,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated user"})
 		return
 	}
 
-	c.JSON(http.StatusOK, existingUser)
+	// Return user with org name
+	type UserWithOrgName struct {
+		ID           int        `json:"id"`
+		Username     string     `json:"username"`
+		Role         models.UserRole `json:"role"`
+		FullName     string     `json:"full_name"`
+		OrgID        *int       `json:"org_id"`
+		OrgName      *string    `json:"org_name,omitempty"`
+		CreatedAt    string     `json:"created_at"`
+	}
+
+	response := UserWithOrgName{
+		ID:        existingUser.ID,
+		Username:  existingUser.Username,
+		Role:      existingUser.Role,
+		FullName:  existingUser.FullName,
+		OrgID:     existingUser.OrgID,
+		OrgName:   orgName,
+		CreatedAt: existingUser.CreatedAt.Format("2006-01-02T15:04:05Z"),
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // Delete removes a user

@@ -139,6 +139,60 @@ func main() {
 		} else {
 			log.Println("Subscribed to Sparkplug B updates")
 		}
+
+		// Subscribe to write commands from external sources (cloud, mobile apps, etc.)
+		if err := mqttClient.Subscribe("sys/write/#", func(topic string, payload []byte) {
+			handleWriteCommand(topic, payload, database, mqttClient)
+		}); err != nil {
+			log.Printf("Warning: Failed to subscribe to write command topic: %v", err)
+		} else {
+			log.Println("Subscribed to write commands from external sources")
+		}
+	}
+
+	// Connect to cloud MQTT broker for receiving write commands from cloud
+	// This is a SECOND connection specifically for cloud broker
+	cloudConfig := getCloudMQTTConfig(database)
+	var cloudMqttClient *mqtt.Client
+	if cloudConfig != nil {
+		log.Printf("[CLOUD MQTT] Connecting to cloud broker: %s:%d", cloudConfig.Host, cloudConfig.Port)
+
+		cloudMqttCfg := mqtt.Config{
+			Host:          cloudConfig.Host,
+			Port:          cloudConfig.Port,
+			ClientID:      fmt.Sprintf("core-api-cloud-%d", time.Now().Unix()),
+			CleanSession:  true,
+			AutoReconnect: true,
+			KeepAlive:     30 * time.Second,
+			Username:      cloudConfig.Username,
+			Password:      cloudConfig.Password,
+		}
+
+		cloudMqttClient = mqtt.NewClient(cloudMqttCfg)
+		if err := cloudMqttClient.Connect(); err != nil {
+			log.Printf("[CLOUD MQTT] Failed to connect to cloud broker: %v", err)
+			log.Println("[CLOUD MQTT] Cloud write commands will not be available")
+			cloudMqttClient = nil
+		} else {
+			log.Println("[CLOUD MQTT] Connected to cloud broker successfully")
+			defer cloudMqttClient.Disconnect(250)
+
+			// Subscribe to write commands from cloud broker
+			cloudWriteTopic := fmt.Sprintf("%s/sys/write/#", cloudConfig.Prefix)
+			if err := cloudMqttClient.Subscribe(cloudWriteTopic, func(topic string, payload []byte) {
+				// Remove MQTT prefix and handle normally
+				// {prefix}/sys/write/do_valvola_1 -> sys/write/do_valvola_1
+				cleanTopic := strings.TrimPrefix(topic, cloudConfig.Prefix+"/")
+				log.Printf("[CLOUD MQTT] Received write command from cloud: %s -> %s", topic, cleanTopic)
+				handleWriteCommand(cleanTopic, payload, database, mqttClient)
+			}); err != nil {
+				log.Printf("[CLOUD MQTT] Failed to subscribe to cloud write topic: %v", err)
+			} else {
+				log.Printf("[CLOUD MQTT] Subscribed to cloud write commands: %s", cloudWriteTopic)
+			}
+		}
+	} else {
+		log.Println("[CLOUD MQTT] Cloud sync disabled, cloud broker connection skipped")
 	}
 
 	log.Println("Industrial Edge Middleware - core-api starting...")
@@ -294,6 +348,7 @@ func main() {
 			backupHandler := handlers.NewBackupHandler(database, mqttClient)
 			system.GET("/backup", middleware.RequireRole(models.RoleAdmin), backupHandler.ExportBackup)
 			system.POST("/restore", middleware.RequireRole(models.RoleAdmin), backupHandler.ImportRestore)
+			system.POST("/restore/restart", middleware.RequireRole(models.RoleAdmin), backupHandler.PostRestore)
 
 			// Automatic backup settings
 			backupHandler.EnsureTimescaleDBStructures()
@@ -681,6 +736,125 @@ func handleSparkplugUpdate(topic string, payload []byte, redisClient *redis.Clie
 	}
 }
 
+// handleWriteCommand handles write commands from external sources (cloud, mobile apps, etc.)
+func handleWriteCommand(topic string, payload []byte, db *sql.DB, mqttClient *mqtt.Client) {
+	log.Printf("[WRITE CMD] Received write command on topic: %s", topic)
+	log.Printf("[WRITE CMD] Payload: %s", string(payload))
+
+	// Parse the topic: sys/write/{orgID}/{site}/{area}/{gateway}/{tagAlias}
+	// OR: {prefix}/.../{tagAlias} (legacy format)
+	parts := strings.Split(topic, "/")
+	if len(parts) < 2 {
+		log.Printf("[WRITE CMD] Invalid topic format, ignoring")
+		return
+	}
+
+	// Extract tag alias (last part)
+	tagAlias := parts[len(parts)-1]
+	log.Printf("[WRITE CMD] Tag alias: %s", tagAlias)
+
+	// Parse the payload - support multiple formats
+	// Format 1: {"value": x, "timestamp": y}
+	// Format 2 (legacy): {"v": x, "ts": y}
+	// Format 3: {"value": x} (timestamp optional)
+	var writeRequest struct {
+		Value     interface{} `json:"value,omitempty"`
+		V         interface{} `json:"v,omitempty"`     // Legacy format
+		Timestamp int64       `json:"timestamp,omitempty"`
+		TS        int64       `json:"ts,omitempty"`        // Legacy format
+	}
+
+	if err := json.Unmarshal(payload, &writeRequest); err != nil {
+		log.Printf("[WRITE CMD] Failed to parse payload: %v", err)
+		return
+	}
+
+	// Extract value (try both "value" and "v" for legacy support)
+	value := writeRequest.Value
+	if value == nil {
+		value = writeRequest.V
+	}
+
+	if value == nil {
+		log.Printf("[WRITE CMD] No value found in payload")
+		return
+	}
+
+	log.Printf("[WRITE CMD] Write value: %v (type: %T)", value, value)
+
+	// Query database to find tag details
+	var tag struct {
+		ID        int
+		GatewayID int
+		Code      string
+		DataType  string
+	}
+
+	// First try to find by exact alias match (case-insensitive)
+	query := `
+		SELECT t.id, t.gateway_id, t.code, t.data_type
+		FROM tags t
+		WHERE LOWER(t.alias) = LOWER($1)
+	`
+
+	err := db.QueryRow(query, tagAlias).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.DataType)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			log.Printf("[WRITE CMD] Tag not found with alias: %s", tagAlias)
+
+			// Try with unslugified alias (replace - with space and vice versa)
+			unslugified := strings.ReplaceAll(tagAlias, "-", " ")
+			slugified := strings.ReplaceAll(strings.ToLower(tagAlias), " ", "-")
+
+			// Try slugified version
+			err = db.QueryRow(query, slugified).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.DataType)
+			if err != nil {
+				// Try unslugified version
+				err = db.QueryRow(query, unslugified).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.DataType)
+				if err != nil {
+					log.Printf("[WRITE CMD] Tag not found with slugified/unslugified alias either")
+					return
+				}
+			}
+			log.Printf("[WRITE CMD] Found tag with slugified alias: %s", slugified)
+		} else {
+			log.Printf("[WRITE CMD] Database error: %v", err)
+			return
+		}
+	}
+
+	log.Printf("[WRITE CMD] Found tag - ID: %d, Gateway: %d, Code: %s, Type: %s",
+		tag.ID, tag.GatewayID, tag.Code, tag.DataType)
+
+	// Build the command payload for the driver
+	cmd := struct {
+		TagID    int         `json:"tag_id"`
+		Code     string      `json:"code"`
+		Value    interface{} `json:"value"`
+		DataType string      `json:"data_type"`
+	}{
+		TagID:    tag.ID,
+		Code:     tag.Code,
+		Value:    value,
+		DataType: tag.DataType,
+	}
+
+	cmdPayload, err := json.Marshal(cmd)
+	if err != nil {
+		log.Printf("[WRITE CMD] Failed to marshal command: %v", err)
+		return
+	}
+
+	// Publish to the driver on sys/command/write/{gatewayID}
+	driverTopic := fmt.Sprintf("sys/command/write/%d", tag.GatewayID)
+	if err := mqttClient.Publish(driverTopic, string(cmdPayload)); err != nil {
+		log.Printf("[WRITE CMD] Failed to publish to driver: %v", err)
+		return
+	}
+
+	log.Printf("[WRITE CMD] Successfully sent write command to driver on topic: %s, payload: %s", driverTopic, string(cmdPayload))
+}
+
 // findTagBySparkplugPath attempts to find a tag ID from Sparkplug path
 // Returns (tagID, orgID) or (0, 0) if not found
 func findTagBySparkplugPath(topicInfo *sparkplug.TopicInfo, metricName string, redisClient *redis.Client, db *sql.DB) (int, int) {
@@ -765,5 +939,107 @@ func startBackupScheduler(backupHandler *handlers.BackupHandler) {
 	for range ticker.C {
 		// Check if we need to run a backup
 		backupHandler.RunScheduledBackup()
+	}
+}
+
+// getCloudMQTTPrefix retrieves the cloud MQTT prefix from system settings
+// Uses the same prefix configured for Cloud Sync (cloud_mqtt_topic)
+// Extracts the prefix from the topic (e.g. "sorical/data/" -> "sorical")
+// Returns empty string if cloud sync is disabled or no topic is configured
+func getCloudMQTTPrefix(db *sql.DB) string {
+	// Check if cloud sync is enabled
+	var cloudSyncEnabled string
+	err := db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_sync_enabled'").Scan(&cloudSyncEnabled)
+	if err != nil || cloudSyncEnabled != "true" {
+		log.Printf("[CLOUD MQTT] Cloud sync disabled, cloud write subscription skipped")
+		return ""
+	}
+
+	// Get the cloud MQTT topic (e.g. "sorical/data/" or "sorical/spBv1.0/")
+	var cloudTopic string
+	err = db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_topic'").Scan(&cloudTopic)
+	if err != nil {
+		log.Printf("[CLOUD MQTT] No cloud topic configured, cloud write subscription skipped: %v", err)
+		return ""
+	}
+
+	if cloudTopic == "" {
+		log.Printf("[CLOUD MQTT] Cloud topic is empty, cloud write subscription skipped")
+		return ""
+	}
+
+	// Extract prefix from topic (e.g. "sorical/data/" -> "sorical")
+	// Split by "/" and take the first part
+	parts := strings.Split(strings.Trim(cloudTopic, "/"), "/")
+	if len(parts) == 0 {
+		log.Printf("[CLOUD MQTT] Invalid cloud topic format, cloud write subscription skipped")
+		return ""
+	}
+
+	prefix := parts[0]
+	log.Printf("[CLOUD MQTT] Using prefix from cloud topic: '%s' (from topic: '%s')", prefix, cloudTopic)
+	return prefix
+}
+
+// CloudMQTTConfig holds the cloud broker connection settings
+type CloudMQTTConfig struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	Prefix   string
+}
+
+// getCloudMQTTConfig retrieves all cloud MQTT settings from system settings
+// Returns the configuration if cloud sync is enabled, otherwise returns nil
+func getCloudMQTTConfig(db *sql.DB) *CloudMQTTConfig {
+	// Check if cloud sync is enabled
+	var cloudSyncEnabled string
+	err := db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_sync_enabled'").Scan(&cloudSyncEnabled)
+	if err != nil || cloudSyncEnabled != "true" {
+		return nil
+	}
+
+	// Get all cloud MQTT settings
+	var host, username, password, topic string
+	var port int
+
+	err = db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_host'").Scan(&host)
+	if err != nil {
+		return nil
+	}
+
+	err = db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_port'").Scan(&port)
+	if err != nil {
+		port = 1883 // Default port
+	}
+
+	err = db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_username'").Scan(&username)
+	if err != nil {
+		username = ""
+	}
+
+	err = db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_password'").Scan(&password)
+	if err != nil {
+		password = ""
+	}
+
+	err = db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_topic'").Scan(&topic)
+	if err != nil || topic == "" {
+		return nil
+	}
+
+	// Extract prefix from topic
+	parts := strings.Split(strings.Trim(topic, "/"), "/")
+	if len(parts) == 0 {
+		return nil
+	}
+
+	return &CloudMQTTConfig{
+		Host:     host,
+		Port:     port,
+		Username: username,
+		Password: password,
+		Prefix:   parts[0],
 	}
 }

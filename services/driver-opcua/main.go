@@ -226,6 +226,11 @@ func main() {
 	mqttClient.Subscribe(writeTopic, driver.handleWriteCommand)
 	log.Printf("[OPC-UA Driver] Subscribed to write topic: %s", writeTopic)
 
+	// Subscribe to direct write commands (from core-api)
+	directWriteTopic := fmt.Sprintf("cmd/write/%d", gatewayID)
+	mqttClient.Subscribe(directWriteTopic, driver.handleWriteCommand)
+	log.Printf("[OPC-UA Driver] Subscribed to direct write topic: %s", directWriteTopic)
+
 	// Subscribe to health events for auto-reload when gateway comes online
 	healthTopic := "sys/health/+"
 	mqttClient.Subscribe(healthTopic, driver.handleHealthMessage)

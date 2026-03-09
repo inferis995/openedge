@@ -61,6 +61,16 @@ export interface BackupFileInfo {
     type: 'full';
 }
 
+export interface ServiceStatus {
+    name: string;
+    status: string; // "healthy", "error"
+}
+
+export interface PostRestoreResponse {
+    message: string;
+    steps: ServiceStatus[];
+}
+
 export const systemApi = {
     reload: async (): Promise<void> => {
         await api.post('/system/reload');
@@ -136,5 +146,11 @@ export const systemApi = {
     // Delete a specific backup file
     deleteBackup: async (filename: string): Promise<void> => {
         await api.delete(`/system/backup/files/${filename}`);
+    },
+
+    // Post-restore service restart
+    postRestoreRestart: async (): Promise<PostRestoreResponse> => {
+        const response = await api.post('/system/restore/restart');
+        return response.data;
     }
 };

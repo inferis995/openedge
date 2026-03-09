@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { systemApi, GlobalSettings, UpdateSettingsRequest, BackupSettings, BackupFileInfo } from '@/api/system';
+import { systemApi, GlobalSettings, UpdateSettingsRequest, BackupSettings, BackupFileInfo, ServiceStatus } from '@/api/system';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -121,6 +121,10 @@ const SystemPage = () => {
         last_status: ''
     });
     const [backupList, setBackupList] = useState<BackupFileInfo[]>([]);
+
+    // Post-restore state
+    const [postRestoreLoading, setPostRestoreLoading] = useState<boolean>(false);
+    const [postRestoreResults, setPostRestoreResults] = useState<ServiceStatus[] | null>(null);
 
     useEffect(() => {
         loadSettings();
@@ -263,6 +267,25 @@ const SystemPage = () => {
             }
         } else {
             e.target.value = '';
+        }
+    };
+
+    const handlePostRestore = async () => {
+        if (!confirm('Questo riavvierà tutti i servizi nell\'ordine corretto. Continuare?')) return;
+
+        setPostRestoreLoading(true);
+        setPostRestoreResults(null);
+        setMessage({ type: 'success', text: 'Riavvio servizi in corso...' });
+
+        try {
+            const response = await systemApi.postRestoreRestart();
+            setPostRestoreResults(response.steps);
+            setMessage({ type: 'success', text: response.message });
+        } catch (error) {
+            console.error(error);
+            setMessage({ type: 'error', text: 'Errore durante il riavvio dei servizi.' });
+        } finally {
+            setPostRestoreLoading(false);
         }
     };
 
@@ -880,6 +903,34 @@ const SystemPage = () => {
                                 disabled={loading}
                                 className="text-sm cursor-pointer h-9"
                             />
+                            <div className="pt-2 border-t border-border">
+                                <Button
+                                    onClick={handlePostRestore}
+                                    disabled={postRestoreLoading || loading}
+                                    variant="outline"
+                                    className="w-full gap-2 h-9"
+                                >
+                                    <RefreshCw className={`h-4 w-4 ${postRestoreLoading ? 'animate-spin' : ''}`} />
+                                    {postRestoreLoading ? 'Riavvio in corso...' : 'Riavvia Servizi (Post-Restore)'}
+                                </Button>
+                                {postRestoreResults && (
+                                    <div className="mt-3 p-3 bg-muted rounded text-xs space-y-1">
+                                        <div className="font-medium mb-2">Stato servizi:</div>
+                                        {postRestoreResults.map((service, idx) => (
+                                            <div key={idx} className="flex items-center gap-2">
+                                                {service.status === 'healthy' ? (
+                                                    <CheckCircle className="h-3 w-3 text-green-500" />
+                                                ) : (
+                                                    <AlertTriangle className="h-3 w-3 text-red-500" />
+                                                )}
+                                                <span className={service.status === 'healthy' ? 'text-green-600' : 'text-red-600'}>
+                                                    {service.name}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                             <p className="text-xs text-destructive flex items-center gap-1.5">
                                 <AlertTriangle className="h-3 w-3 flex-shrink-0" />
                                 Il ripristino sovrascrive la configurazione corrente.

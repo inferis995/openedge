@@ -5,6 +5,8 @@ export interface User {
     username: string;
     role: 'admin' | 'user';
     full_name: string;
+    org_id: number | null;
+    org_name?: string | null;
     created_at: string;
 }
 
@@ -13,12 +15,14 @@ export interface CreateUserRequest {
     password: string;
     role: 'admin' | 'user';
     full_name?: string;
+    org_id?: number | null;
 }
 
 export interface UpdateUserRequest {
     password?: string;
     role?: 'admin' | 'user';
     full_name?: string;
+    org_id?: number | null;
 }
 
 export const usersApi = {

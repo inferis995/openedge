@@ -918,3 +918,100 @@ func (h *BackupHandler) EnsureTimescaleDBStructures() error {
 
 	return nil
 }
+
+// ServiceStatus represents the health status of a service
+type ServiceStatus struct {
+	Name   string `json:"name"`
+	Status string `json:"status"` // "healthy", "starting", "error"
+}
+
+// PostRestoreResponse represents the response from PostRestore
+type PostRestoreResponse struct {
+	Message string          `json:"message"`
+	Steps   []ServiceStatus `json:"steps"`
+}
+
+// PostRestore restarts all services in the correct order after a restore
+func (h *BackupHandler) PostRestore(c *gin.Context) {
+	log.Println("[POST-RESTORE] Starting post-restore service restart...")
+
+	// Services in restart order
+	services := []string{
+		"industrial-postgres",
+		"industrial-redis",
+		"industrial-mosquitto",
+		"industrial-core-api",
+		"industrial-driver-manager",
+		"industrial-engine-historian",
+		"industrial-web-ui",
+	}
+
+	results := make([]ServiceStatus, 0, len(services))
+
+	// Function to restart and wait for a service
+	restartService := func(serviceName string) ServiceStatus {
+		log.Printf("[POST-RESTORE] Restarting %s...", serviceName)
+
+		// Restart the service
+		cmd := exec.Command("docker", "restart", serviceName)
+		if err := cmd.Run(); err != nil {
+			log.Printf("[POST-RESTORE] Failed to restart %s: %v", serviceName, err)
+			return ServiceStatus{Name: serviceName, Status: "error"}
+		}
+
+		// Wait for service to be healthy (max 30 seconds)
+		for i := 0; i < 30; i++ {
+			time.Sleep(2 * time.Second)
+
+			// Check health status
+			cmd = exec.Command("docker", "inspect", "--format={{.State.Health.Status}}", serviceName)
+			output, err := cmd.Output()
+			if err != nil {
+				continue // Service might not be fully started yet
+			}
+
+			status := strings.TrimSpace(string(output))
+			if status == "healthy" {
+				log.Printf("[POST-RESTORE] ✓ %s is healthy", serviceName)
+				return ServiceStatus{Name: serviceName, Status: "healthy"}
+			}
+		}
+
+		log.Printf("[POST-RESTORE] ✗ %s failed to become healthy", serviceName)
+		return ServiceStatus{Name: serviceName, Status: "error"}
+	}
+
+	// Restart all services in order
+	for _, service := range services {
+		status := restartService(service)
+		results = append(results, status)
+
+		// If a service fails to start, log but continue
+		if status.Status == "error" {
+			log.Printf("[POST-RESTORE] Warning: %s failed, continuing with next service", service)
+		}
+	}
+
+	// Check if all services are healthy
+	allHealthy := true
+	for _, r := range results {
+		if r.Status != "healthy" {
+			allHealthy = false
+			break
+		}
+	}
+
+	if allHealthy {
+		log.Println("[POST-RESTORE] ✓ All services restarted successfully")
+		c.JSON(http.StatusOK, PostRestoreResponse{
+			Message: "All services restarted successfully",
+			Steps:   results,
+		})
+	} else {
+		log.Println("[POST-RESTORE] ⚠ Some services failed to restart")
+		c.JSON(http.StatusMultiStatus, PostRestoreResponse{
+			Message: "Post-restore completed with some errors",
+			Steps:   results,
+		})
+	}
+}

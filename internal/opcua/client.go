@@ -334,6 +334,61 @@ func (c *Client) WriteValue(nodeID string, value interface{}, dataType string) e
 	ctx, cancel := context.WithTimeout(context.Background(), c.config.Timeout)
 	defer cancel()
 
+	log.Printf("[OPC-UA DEBUG] WriteValue called - NodeID: %s, DatabaseType: %s, Value: %v (%T)", nodeID, dataType, value, value)
+
+	// First, try to read the current value to see what type it actually is
+	readReq := &ua.ReadRequest{
+		MaxAge: 2000,
+		NodesToRead: []*ua.ReadValueID{
+			{
+				NodeID:      nid,
+				AttributeID: ua.AttributeIDValue,
+			},
+		},
+	}
+
+	readResp, err := c.client.Read(ctx, readReq)
+	if err == nil && len(readResp.Results) > 0 {
+		result := readResp.Results[0]
+		if result.Status == ua.StatusOK && result.Value != nil {
+			log.Printf("[OPC-UA DEBUG] Current value on server: Type=%v, Value=%v", result.Value.Type(), result.Value.Value())
+		}
+	}
+
+	// Try to read the actual DataType from the server to match it exactly
+	// This helps with servers like OpenPLC that have specific type requirements
+	opcuaType := c.readDataType(ctx, nid)
+
+	log.Printf("[OPC-UA DEBUG] Server reports DataType: %s for node %s", opcuaType, nodeID)
+
+	// Special handling for Boolean types: some servers (like OpenPLC) expect booleans as numeric values
+	boolVal, isBool := toBool(value)
+
+	// If we can read the type from server, try to convert to that specific type
+	// SPECIAL CASE: For this OPC UA server, ALL boolean values should be sent as Int16 (numeric 0/1)
+	// regardless of what the server reports as the type. This is required for compatibility.
+	if isBool {
+		log.Printf("[OPC-UA DEBUG] Boolean value detected, converting to Int16 (numeric 0/1) for server compatibility")
+		var numericVal int16
+		if boolVal {
+			numericVal = 1
+		}
+		v, _ = ua.NewVariant(numericVal)
+		log.Printf("[OPC-UA DEBUG] Converted boolean %v to Int16 %d (server requires numeric booleans)", boolVal, numericVal)
+	} else if opcuaType != "Unknown" && opcuaType != "" {
+		log.Printf("[OPC-UA DEBUG] Attempting type conversion from database type '%s' to server type '%s'", dataType, opcuaType)
+		if v2, err2 := convertToVariantByOpcUaType(value, opcuaType); err2 == nil {
+			log.Printf("[OPC-UA DEBUG] Successfully converted value to type %s", opcuaType)
+			v = v2
+		} else {
+			log.Printf("[OPC-UA DEBUG] Type conversion failed: %v, using database type conversion", err2)
+		}
+	} else {
+		log.Printf("[OPC-UA DEBUG] Using database type '%s' for conversion", dataType)
+	}
+
+	log.Printf("[OPC-UA DEBUG] Final variant type: %v, value: %v", v.Type(), v.Value())
+
 	req := &ua.WriteRequest{
 		NodesToWrite: []*ua.WriteValue{
 			{
@@ -345,6 +400,8 @@ func (c *Client) WriteValue(nodeID string, value interface{}, dataType string) e
 			},
 		},
 	}
+
+	log.Printf("[OPC-UA DEBUG] WriteRequest created for node %s with DataValue", nodeID)
 
 	resp, err := c.client.Write(ctx, req)
 	if err != nil {
@@ -373,20 +430,25 @@ func (c *Client) readDataType(ctx context.Context, nodeID *ua.NodeID) string {
 
 	resp, err := c.client.Read(ctx, req)
 	if err != nil || len(resp.Results) == 0 {
+		log.Printf("[OPC-UA DEBUG] Failed to read DataType for node %s: %v", nodeID.String(), err)
 		return "Unknown"
 	}
 
 	result := resp.Results[0]
 	if result.Status != ua.StatusOK || result.Value == nil {
+		log.Printf("[OPC-UA DEBUG] DataType read status for node %s: %v", nodeID.String(), result.Status)
 		return "Unknown"
 	}
 
 	dtNodeID, ok := result.Value.Value().(*ua.NodeID)
 	if !ok {
+		log.Printf("[OPC-UA DEBUG] DataType value for node %s is not a NodeID", nodeID.String())
 		return "Unknown"
 	}
 
-	return dataTypeNodeIDToString(dtNodeID)
+	dataType := dataTypeNodeIDToString(dtNodeID)
+	log.Printf("[OPC-UA DEBUG] Node %s has DataType: %s (NodeID: %s)", nodeID.String(), dataType, dtNodeID.String())
+	return dataType
 }
 
 // countChildren performs a quick browse to count child references
@@ -519,6 +581,93 @@ func convertToVariant(value interface{}, dataType string) (*ua.Variant, error) {
 	}
 }
 
+// convertToVariantByOpcUaType converts a value to an OPC UA Variant based on the exact OPC UA data type
+// This is useful when the server has specific type requirements (e.g., OpenPLC)
+func convertToVariantByOpcUaType(value interface{}, opcuaType string) (*ua.Variant, error) {
+	// Convert boolean true/false to various integer types for compatibility
+	boolVal, isBool := toBool(value)
+
+	switch opcuaType {
+	case "Boolean":
+		if isBool {
+			return ua.NewVariant(boolVal)
+		}
+		return ua.NewVariant(value)
+	case "SByte": // Signed 8-bit integer
+		if isBool {
+			var val int8
+			if boolVal {
+				val = 1
+			}
+			return ua.NewVariant(val)
+		}
+		return ua.NewVariant(value)
+	case "Byte": // Unsigned 8-bit integer
+		if isBool {
+			var val uint8
+			if boolVal {
+				val = 1
+			}
+			return ua.NewVariant(val)
+		}
+		return ua.NewVariant(value)
+	case "Int16", "Int16[]":
+		if isBool {
+			var val int16
+			if boolVal {
+				val = 1
+			}
+			return ua.NewVariant(val)
+		}
+		return ua.NewVariant(value)
+	case "UInt16", "UInt16[]":
+		if isBool {
+			var val uint16
+			if boolVal {
+				val = 1
+			}
+			return ua.NewVariant(val)
+		}
+		return ua.NewVariant(value)
+	case "Int32", "Int32[]", "Int":
+		if isBool {
+			var val int32
+			if boolVal {
+				val = 1
+			}
+			return ua.NewVariant(val)
+		}
+		return ua.NewVariant(value)
+	case "UInt32", "UInt32[]":
+		if isBool {
+			var val uint32
+			if boolVal {
+				val = 1
+			}
+			return ua.NewVariant(val)
+		}
+		return ua.NewVariant(value)
+	case "Float", "Float[]":
+		f, ok := toFloat32(value)
+		if !ok {
+			return nil, fmt.Errorf("cannot convert %v to float32", value)
+		}
+		return ua.NewVariant(f)
+	case "Double", "Double[]":
+		f, ok := toFloat64(value)
+		if !ok {
+			return nil, fmt.Errorf("cannot convert %v to float64", value)
+		}
+		return ua.NewVariant(f)
+	case "String":
+		s := fmt.Sprintf("%v", value)
+		return ua.NewVariant(s)
+	default:
+		// Fallback to standard conversion
+		return ua.NewVariant(value)
+	}
+}
+
 // MapOpcUaDataTypeToTagDataType converts OPC UA data type names to our system data types
 func MapOpcUaDataTypeToTagDataType(opcuaType string) string {
 	switch opcuaType {
@@ -587,6 +736,23 @@ func toFloat32(v interface{}) (float32, bool) {
 		return val, true
 	case int:
 		return float32(val), true
+	default:
+		return 0, false
+	}
+}
+
+func toFloat64(v interface{}) (float64, bool) {
+	switch val := v.(type) {
+	case float64:
+		return val, true
+	case float32:
+		return float64(val), true
+	case int:
+		return float64(val), true
+	case int32:
+		return float64(val), true
+	case int16:
+		return float64(val), true
 	default:
 		return 0, false
 	}
