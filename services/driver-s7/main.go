@@ -200,7 +200,7 @@ func main() {
 			alias+"_Alarm",
 			status == "ACTIVE",
 			"BOOL",
-			192,
+			0, // Quality: 0 = GOOD in internal standard (for UI compatibility)
 			time.Now().UnixMilli(),
 		)
 	}

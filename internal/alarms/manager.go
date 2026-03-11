@@ -53,8 +53,68 @@ func NewManager(db *sql.DB, mqttClient MQTTPublisher, gatewayID int) *Manager {
 	}
 	m.loadGatewayContext()
 	m.LoadDefinitions()
+	m.loadActiveAlarmsFromDB()
 
 	return m
+}
+
+// loadActiveAlarmsFromDB loads currently active alarms from database and restores tracking
+// This ensures alarms are properly cleared even after driver restart
+func (m *Manager) loadActiveAlarmsFromDB() {
+	if m.db == nil {
+		return
+	}
+
+	query := `
+		SELECT ae.tag_id, ae.definition_id, ae.value_at_trigger, ae.trigger_time
+		FROM alarm_events ae
+		JOIN tags t ON ae.tag_id = t.id
+		WHERE t.gateway_id = $1 AND ae.status = 'ACTIVE'
+	`
+	rows, err := m.db.Query(query, m.gatewayID)
+	if err != nil {
+		log.Printf("[ALARM-MANAGER] Error loading active alarms from DB: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	count := 0
+	for rows.Next() {
+		var tagID int
+		var defID int
+		var triggerValue float64
+		var triggerTime time.Time
+
+		if err := rows.Scan(&tagID, &defID, &triggerValue, &triggerTime); err != nil {
+			continue
+		}
+
+		// Find the definition for this alarm
+		defs := m.definitions[tagID]
+		for _, def := range defs {
+			if def.ID == defID {
+				// Restore tracking state with Triggered=true (already fired)
+				if m.activeTracks[tagID] == nil {
+					m.activeTracks[tagID] = make(map[int]*activeAlarmTrack)
+				}
+				m.activeTracks[tagID][defID] = &activeAlarmTrack{
+					Definition:   def,
+					ActiveSince:  triggerTime,
+					Triggered:    true, // Already triggered (loaded from DB)
+					InitialValue: triggerValue,
+					EventID:      0, // We don't have the event ID from this query
+				}
+				count++
+				log.Printf("[ALARM-MANAGER] Restored active alarm tracking: tagID=%d, defID=%d", tagID, defID)
+				break
+			}
+		}
+	}
+
+	log.Printf("[ALARM-MANAGER] Loaded %d active alarms from database", count)
 }
 
 // loadGatewayContext fetches routing info for MQTT topics
@@ -79,8 +139,11 @@ func (m *Manager) loadGatewayContext() {
 // LoadDefinitions reads all enabled alarm definitions for tags in this gateway
 func (m *Manager) LoadDefinitions() {
 	if m.db == nil {
+		log.Printf("[ALARM-MANAGER] Cannot load definitions: db is nil")
 		return
 	}
+
+	log.Printf("[ALARM-MANAGER] Loading definitions for gateway %d...", m.gatewayID)
 
 	rows, err := m.db.Query(`
 		SELECT a.id, a.tag_id, a.alarm_type, a.threshold, a.deadband, a.delay_seconds, a.severity, a.message, a.enabled

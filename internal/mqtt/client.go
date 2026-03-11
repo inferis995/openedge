@@ -3,6 +3,7 @@ package mqtt
 import (
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,11 +30,13 @@ type MessageHandler func(topic string, payload []byte)
 
 // Client represents an MQTT client
 type Client struct {
-	config      Config
-	client      mqtt.Client
-	handlers    map[string]mqtt.MessageHandler
-	handlersMu  sync.RWMutex
-	connectOnce sync.Once
+	config         Config
+	client         mqtt.Client
+	handlers       map[string]MessageHandler // map of topic to handler
+	handlersMu     sync.RWMutex
+	connectOnce    sync.Once
+	subscribedTopics map[string]bool
+	subscribeMu    sync.Mutex
 }
 
 // NewClient creates a new MQTT client with the given configuration
@@ -78,9 +81,13 @@ func NewClient(config Config) *Client {
 	}
 
 	c := &Client{
-		config:   config,
-		handlers: make(map[string]mqtt.MessageHandler),
+		config:           config,
+		handlers:         make(map[string]MessageHandler),
+		subscribedTopics: make(map[string]bool),
 	}
+
+	// Set a single default message handler that dispatches to registered handlers
+	opts.SetDefaultPublishHandler(c.handleIncomingMessage)
 
 	opts.OnConnect = c.onConnect
 	opts.SetConnectionLostHandler(c.onConnectionLost)
@@ -89,6 +96,72 @@ func NewClient(config Config) *Client {
 	c.client = client
 
 	return c
+}
+
+// handleIncomingMessage is the single default handler that dispatches to registered handlers
+func (c *Client) handleIncomingMessage(client mqtt.Client, msg mqtt.Message) {
+	topic := msg.Topic()
+	payload := msg.Payload()
+
+	log.Printf("[MQTT-INcoming] Received message on topic: %s, payload: %s", topic, string(payload))
+
+	// Find matching handler
+	c.handlersMu.RLock()
+	defer c.handlersMu.RUnlock()
+
+	// First, try exact match
+	if handler, ok := c.handlers[topic]; ok {
+		handler(topic, payload)
+		return
+	}
+
+	// Then, try wildcard match
+	for registeredTopic, handler := range c.handlers {
+		if c.topicMatch(registeredTopic, topic) {
+			handler(topic, payload)
+			return
+		}
+	}
+
+	log.Printf("[MQTT] No handler found for topic: %s", topic)
+}
+
+// topicMatch checks if a subscribed topic matches a received topic
+// Supports simple wildcards (+ for single level, # for multi-level)
+func (c *Client) topicMatch(subscribedTopic, receivedTopic string) bool {
+	if subscribedTopic == receivedTopic {
+		return true
+	}
+
+	subParts := strings.Split(subscribedTopic, "/")
+	recvParts := strings.Split(receivedTopic, "/")
+
+	// Multi-level wildcard (#)
+	if subParts[len(subParts)-1] == "#" {
+		if len(subParts) > len(recvParts) {
+			return false
+		}
+		// Check if all parts before # match
+		for i := 0; i < len(subParts)-1; i++ {
+			if subParts[i] != "+" && subParts[i] != recvParts[i] {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Same length required for single-level wildcards (+)
+	if len(subParts) != len(recvParts) {
+		return false
+	}
+
+	for i := range subParts {
+		if subParts[i] != "+" && subParts[i] != recvParts[i] {
+			return false
+		}
+	}
+
+	return true
 }
 
 // Connect establishes a connection to the MQTT broker
@@ -118,15 +191,21 @@ func (c *Client) IsConnected() bool {
 // Subscribe subscribes to a topic with a message handler
 func (c *Client) Subscribe(topic string, handler MessageHandler) error {
 	c.handlersMu.Lock()
-	c.handlers[topic] = func(client mqtt.Client, msg mqtt.Message) {
-		handler(msg.Topic(), msg.Payload())
-	}
+	c.handlers[topic] = handler
 	c.handlersMu.Unlock()
 
-	token := c.client.Subscribe(topic, 0, c.handlers[topic])
+	// Create a wrapper that calls our default handler
+	// This ensures the default handler is properly registered with paho
+	token := c.client.Subscribe(topic, 0, func(client mqtt.Client, msg mqtt.Message) {
+		c.handleIncomingMessage(client, msg)
+	})
 	if token.Wait() && token.Error() != nil {
 		return token.Error()
 	}
+
+	c.subscribeMu.Lock()
+	c.subscribedTopics[topic] = true
+	c.subscribeMu.Unlock()
 
 	log.Printf("[MQTT] Subscribed to topic: %s", topic)
 	return nil
@@ -142,6 +221,10 @@ func (c *Client) Unsubscribe(topic string) error {
 	if token.Wait() && token.Error() != nil {
 		return token.Error()
 	}
+
+	c.subscribeMu.Lock()
+	delete(c.subscribedTopics, topic)
+	c.subscribeMu.Unlock()
 
 	log.Printf("[MQTT] Unsubscribed from topic: %s", topic)
 	return nil
@@ -172,13 +255,21 @@ func (c *Client) PublishWithQoS(topic string, payload interface{}, qos byte, ret
 // onConnect is called when the client connects to the broker
 func (c *Client) onConnect(client mqtt.Client) {
 	log.Println("[MQTT] Connection established")
-	// Re-subscribe to all topics on reconnect
-	c.handlersMu.RLock()
-	defer c.handlersMu.RUnlock()
 
-	for topic := range c.handlers {
-		client.Subscribe(topic, 0, c.handlers[topic])
-		log.Printf("[MQTT] Re-subscribed to topic: %s", topic)
+	// Re-subscribe to all topics on reconnect
+	c.subscribeMu.Lock()
+	defer c.subscribeMu.Unlock()
+
+	for topic := range c.subscribedTopics {
+		// Use explicit handler instead of nil
+		token := client.Subscribe(topic, 0, func(cl mqtt.Client, msg mqtt.Message) {
+			c.handleIncomingMessage(cl, msg)
+		})
+		if token.Wait() && token.Error() != nil {
+			log.Printf("[MQTT] Failed to re-subscribe to %s: %v", topic, token.Error())
+		} else {
+			log.Printf("[MQTT] Re-subscribed to topic: %s", topic)
+		}
 	}
 }
 
