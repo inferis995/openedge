@@ -296,11 +296,16 @@ func (d *Driver) handleHealthMessage(topic string, payload []byte) {
 	// Check if gateway is coming online
 	status := strings.ToLower(strings.TrimSpace(string(payload)))
 	if status == "online" {
-		log.Printf("[DRIVER] Gateway %d is ONLINE - auto-reloading config and tags", d.gatewayID)
-		if err := d.loadConfig(); err != nil {
-			log.Printf("[DRIVER] Auto-reload failed: %v", err)
-		} else {
-			log.Printf("[DRIVER] Auto-reload successful - %d tags loaded", len(d.config.Tags))
+		// Skip if this is our own health message (we just published it)
+		if d.isConnected != nil && *d.isConnected {
+			log.Printf("[DRIVER] Skipping own health message for gateway %d (status: %s)", d.gatewayID, status)
+			return
+		}
+		log.Printf("[DRIVER] Gateway %d is ONLINE - signaling config reload", d.gatewayID)
+		// Use reloadChan to avoid blocking the MQTT handler and ensure thread-safe reload
+		select {
+		case d.reloadChan <- struct{}{}:
+		default:
 		}
 	}
 }

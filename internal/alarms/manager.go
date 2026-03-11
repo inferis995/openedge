@@ -66,7 +66,7 @@ func (m *Manager) loadActiveAlarmsFromDB() {
 	}
 
 	query := `
-		SELECT ae.tag_id, ae.definition_id, ae.value_at_trigger, ae.trigger_time
+		SELECT ae.id, ae.tag_id, ae.definition_id, ae.value_at_trigger, ae.trigger_time
 		FROM alarm_events ae
 		JOIN tags t ON ae.tag_id = t.id
 		WHERE t.gateway_id = $1 AND ae.status = 'ACTIVE'
@@ -83,12 +83,13 @@ func (m *Manager) loadActiveAlarmsFromDB() {
 
 	count := 0
 	for rows.Next() {
+		var eventID int
 		var tagID int
 		var defID int
 		var triggerValue float64
 		var triggerTime time.Time
 
-		if err := rows.Scan(&tagID, &defID, &triggerValue, &triggerTime); err != nil {
+		if err := rows.Scan(&eventID, &tagID, &defID, &triggerValue, &triggerTime); err != nil {
 			continue
 		}
 
@@ -105,10 +106,10 @@ func (m *Manager) loadActiveAlarmsFromDB() {
 					ActiveSince:  triggerTime,
 					Triggered:    true, // Already triggered (loaded from DB)
 					InitialValue: triggerValue,
-					EventID:      0, // We don't have the event ID from this query
+					EventID:      eventID, // Critical: load the event ID for proper clearing
 				}
 				count++
-				log.Printf("[ALARM-MANAGER] Restored active alarm tracking: tagID=%d, defID=%d", tagID, defID)
+				log.Printf("[ALARM-MANAGER] Restored active alarm tracking: tagID=%d, defID=%d, eventID=%d", tagID, defID, eventID)
 				break
 			}
 		}
