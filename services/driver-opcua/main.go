@@ -92,6 +92,7 @@ type Driver struct {
 	config         *GatewayConfig
 	configMu       sync.RWMutex
 	stopChan       chan struct{}
+	reloadChan     chan struct{} // Signal for safe config reload
 	wg             sync.WaitGroup
 	previousValues map[int]interface{}
 	previousMu     sync.RWMutex
@@ -189,6 +190,7 @@ func main() {
 		database:          database,
 		mqttClient:        mqttClient,
 		stopChan:          make(chan struct{}),
+		reloadChan:        make(chan struct{}, 1), // Buffered to avoid blocking
 		previousValues:    make(map[int]interface{}),
 		previousQualities: make(map[int]int),
 		settingsManager:   settingsManager,
@@ -287,8 +289,12 @@ func main() {
 
 func (d *Driver) handleReloadCommand(topic string, payload []byte) {
 	log.Printf("[OPC-UA Driver] Received reload signal via %s", topic)
-	if err := d.loadConfig(); err != nil {
-		log.Printf("[OPC-UA Driver] Reload failed: %v", err)
+	// Signal the poll loop to reload config safely (non-blocking)
+	select {
+	case d.reloadChan <- struct{}{}:
+		log.Printf("[OPC-UA Driver] Reload signal sent to poll loop")
+	default:
+		log.Printf("[OPC-UA Driver] Reload already pending, skipping")
 	}
 }
 
@@ -752,6 +758,12 @@ func (d *Driver) pollLoop() {
 			select {
 			case <-d.stopChan:
 				return
+			case <-d.reloadChan:
+				log.Printf("[OPC-UA Driver] Reloading config safely...")
+				if err := d.loadConfig(); err != nil {
+					log.Printf("[OPC-UA Driver] Reload failed: %v", err)
+				}
+				continue
 			case <-time.After(5 * time.Second):
 				continue
 			}
@@ -857,6 +869,12 @@ func (d *Driver) pollLoop() {
 		select {
 		case <-d.stopChan:
 			return
+		case <-d.reloadChan:
+			log.Printf("[OPC-UA Driver] Reloading config safely...")
+			if err := d.loadConfig(); err != nil {
+				log.Printf("[OPC-UA Driver] Reload failed: %v", err)
+			}
+			continue // Skip the sleep and immediately start new cycle
 		case <-time.After(scanRate):
 		}
 	}
@@ -1085,16 +1103,12 @@ func (d *Driver) configRefreshLoop() {
 			return
 		case <-ticker.C:
 			log.Printf("[OPC-UA Driver] Periodic config refresh - checking for new tags...")
-			if err := d.loadConfig(); err != nil {
-				log.Printf("[OPC-UA Driver] Config refresh failed: %v", err)
-			} else {
-				d.configMu.RLock()
-				tagCount := 0
-				if d.config != nil {
-					tagCount = len(d.config.Tags)
-				}
-				d.configMu.RUnlock()
-				log.Printf("[OPC-UA Driver] Config refresh complete - %d tags loaded", tagCount)
+			// Use reloadChan to trigger safe reload in poll loop
+			select {
+			case d.reloadChan <- struct{}{}:
+				log.Printf("[OPC-UA Driver] Config refresh signal sent to poll loop")
+			default:
+				log.Printf("[OPC-UA Driver] Config refresh already pending, skipping")
 			}
 		}
 	}
