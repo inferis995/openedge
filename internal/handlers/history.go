@@ -807,10 +807,13 @@ func parseInterval(interval string) (string, error) {
 // it ensures the chart always has an initial state at the beginning of the
 // requested time range, even when data is published only on change (RBE).
 //
-// IMPORTANT: The seed value is marked with QualityStale (not QualityGood)
-// because it represents a historical value that predates the requested range.
-// The frontend should render stale data differently (e.g., dashed line) or
-// hide it entirely when the tag is currently offline.
+// For RBE (Report by Exception) drivers, if no new value was published within
+// the query range, it means the value hasn't changed - the seed represents the
+// actual current state and should be displayed as GOOD quality.
+//
+// Offline states are tracked separately via:
+//   - Gateway health events (markTagOffline in historian)
+//   - NULL value markers in tag_history with source='offline'
 //
 // Works for all driver types: Sparkplug B, Modbus, OPC-UA, S7, Redis, MQTT.
 func (h *HistoryHandler) getSeedValue(tagID int, start time.Time) (*HistoryDataPoint, error) {
@@ -835,12 +838,14 @@ func (h *HistoryHandler) getSeedValue(tagID int, start time.Time) (*HistoryDataP
 
 	// Map the seed value to the start of the requested range so the chart
 	// line begins at the left edge.
-	// Quality is STALE because this is a cached value from before the range.
+	// Quality is GOOD because this represents the actual tag state.
+	// For RBE data, if value didn't change, it should display normally.
+	// Only PLC disconnection should show N/A (handled by offline markers).
 	startMs := start.UnixMilli()
 	return &HistoryDataPoint{
 		Timestamp:   startMs,
 		Value:       &value,
-		Quality:     QualityStale, // STALE - not current data
+		Quality:     QualityGood, // GOOD - valid tag state for RBE
 		Source:      "seed",
 		SampleCount: 0,
 	}, nil

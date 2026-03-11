@@ -262,6 +262,10 @@ func main() {
 	driver.wg.Add(1)
 	go driver.healthLoop()
 
+	// Start periodic config refresh (auto-detect new tags every 5 minutes)
+	driver.wg.Add(1)
+	go driver.configRefreshLoop()
+
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -303,6 +307,11 @@ func (d *Driver) handleSettingsReloadCommand(topic string, payload []byte) {
 // handleHealthMessage handles gateway health events for auto-reload
 // Topic format: sys/health/{gateway_id}
 // Payload: "online" or "offline"
+//
+// IMPORTANT: This handler should NOT process health messages for the driver's own gateway
+// to avoid a self-triggered reload loop. The driver publishes its own health status
+// and should not react to it. Auto-reload is only triggered by explicit commands
+// via sys/command/reload/{gateway_id} topic.
 func (d *Driver) handleHealthMessage(topic string, payload []byte) {
 	// Parse topic: sys/health/{gateway_id}
 	parts := strings.Split(topic, "/")
@@ -317,21 +326,20 @@ func (d *Driver) handleHealthMessage(topic string, payload []byte) {
 		return
 	}
 
-	// Only process health events for this driver's gateway
-	if healthGatewayID != d.gatewayID {
+	// CRITICAL: Skip processing health messages for this driver's own gateway
+	// to avoid self-triggered reload loop. The driver publishes its own health
+	// status and should not react to it.
+	// Auto-reload is handled by sys/command/reload/{gateway_id} topic instead.
+	if healthGatewayID == d.gatewayID {
+		// Log for debugging but don't process
+		log.Printf("[OPC-UA Driver] Skipping own health message for gateway %d (status: %s)", d.gatewayID, string(payload))
 		return
 	}
 
-	// Check if gateway is coming online
+	// Process health events for OTHER gateways (if needed in the future)
+	// Currently, we only monitor other gateways for informational purposes
 	status := strings.ToLower(strings.TrimSpace(string(payload)))
-	if status == "online" {
-		log.Printf("[OPC-UA Driver] Gateway %d is ONLINE - auto-reloading config and tags", d.gatewayID)
-		if err := d.loadConfig(); err != nil {
-			log.Printf("[OPC-UA Driver] Auto-reload failed: %v", err)
-		} else {
-			log.Printf("[OPC-UA Driver] Auto-reload successful - %d tags loaded", len(d.config.Tags))
-		}
-	}
+	log.Printf("[OPC-UA Driver] Gateway %d health status: %s (not triggering auto-reload)", healthGatewayID, status)
 }
 
 // WriteCommand represents a write command with full tag info
@@ -796,15 +804,16 @@ func (d *Driver) pollLoop() {
 			if err != nil {
 				log.Printf("[OPC-UA Driver] Read error for tag %d (NodeID: %s): %v", tag.ID, tag.Code, err)
 				// Publish bad quality if changed
+				// Use internal standard: 1 = BAD (0 = GOOD)
 				d.previousMu.RLock()
 				val, exists := d.previousValues[tag.ID]
 				d.previousMu.RUnlock()
 				if !exists {
 					val = 0
 				}
-				if d.shouldPublish(tag.ID, val, 2) {
-					d.publishTagValue(tag, val, 2) // BAD quality
-					d.updateState(tag.ID, val, 2)
+				if d.shouldPublish(tag.ID, val, 1) { // 1 = BAD in internal standard
+					d.publishTagValue(tag, val, 1)
+					d.updateState(tag.ID, val, 1)
 				}
 				continue
 			}
@@ -817,9 +826,17 @@ func (d *Driver) pollLoop() {
 
 			// Evaluate alarms via AlarmManager
 			// Convert OPC-UA quality (0=GOOD, 1=BAD) to industrial-edge standard (192=GOOD, 0=BAD)
+			// Note: Alarm manager expects 192 for GOOD (OPC UA standard)
 			alarmQuality := 192
 			if quality != 0 {
 				alarmQuality = 0 // BAD - will be skipped by alarm manager
+			}
+
+			// For MQTT publish, convert to internal standard (0=GOOD, >0=BAD)
+			// This matches what the UI and historian expect
+			publishQuality := 0
+			if quality != 0 {
+				publishQuality = 1 // BAD
 			}
 			if d.alarmManager != nil {
 				log.Printf("[OPC-UA ALARM-EVAL] tagID=%d (%s), value=%v (type=%T), alarmQuality=%d",
@@ -828,11 +845,12 @@ func (d *Driver) pollLoop() {
 			}
 
 			// Check RBE - only publish if value/quality changed
-			if d.shouldPublish(tag.ID, value, quality) {
-				log.Printf("[OPC-UA Driver] Tag %d (%s): value=%v, quality=%s - PUBLISHING",
-					tag.ID, tag.Alias, value, qualityStr)
-				d.publishTagValue(tag, value, quality)
-				d.updateState(tag.ID, value, quality)
+			// Use publishQuality (0=GOOD, 1=BAD) for internal standard (UI/historian expect this)
+			if d.shouldPublish(tag.ID, value, publishQuality) {
+				log.Printf("[OPC-UA Driver] Tag %d (%s): value=%v, quality=%s (published as %d) - PUBLISHING",
+					tag.ID, tag.Alias, value, qualityStr, publishQuality)
+				d.publishTagValue(tag, value, publishQuality)
+				d.updateState(tag.ID, value, publishQuality)
 			}
 		}
 
@@ -1046,6 +1064,38 @@ func (d *Driver) healthLoop() {
 
 			topic := fmt.Sprintf("sys/health/%d", d.gatewayID)
 			d.mqttClient.PublishWithQoS(topic, status, 1, true)
+		}
+	}
+}
+
+// configRefreshLoop periodically reloads configuration to detect new tags
+// This allows automatic detection of newly added tags without manual reload
+func (d *Driver) configRefreshLoop() {
+	defer d.wg.Done()
+
+	// Refresh every 5 minutes (same as Modbus driver)
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	log.Printf("[OPC-UA Driver] Config refresh loop started (5 minute interval)")
+
+	for {
+		select {
+		case <-d.stopChan:
+			return
+		case <-ticker.C:
+			log.Printf("[OPC-UA Driver] Periodic config refresh - checking for new tags...")
+			if err := d.loadConfig(); err != nil {
+				log.Printf("[OPC-UA Driver] Config refresh failed: %v", err)
+			} else {
+				d.configMu.RLock()
+				tagCount := 0
+				if d.config != nil {
+					tagCount = len(d.config.Tags)
+				}
+				d.configMu.RUnlock()
+				log.Printf("[OPC-UA Driver] Config refresh complete - %d tags loaded", tagCount)
+			}
 		}
 	}
 }

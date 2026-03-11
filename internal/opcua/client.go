@@ -368,8 +368,58 @@ func (c *Client) WriteValue(nodeID string, value interface{}, dataType string) e
 	opcuaType := c.readDataType(ctx, nid)
 	log.Printf("[OPC-UA WRITE] Server DataType attribute: %s", opcuaType)
 
+	// Read the DataType NodeID for servers that require explicit type specification
+	dataTypeNodeID := c.readDataTypeNodeID(ctx, nid)
+	if dataTypeNodeID != nil {
+		log.Printf("[OPC-UA WRITE] Server DataType NodeID: %s", dataTypeNodeID.String())
+	}
+
+	// Special handling for OpenPLC: try to use the exact variant type from the server
+	// OpenPLC can be picky about the exact encoding of boolean values
+	if isBool && readResp != nil && len(readResp.Results) > 0 {
+		result := readResp.Results[0]
+		if result.Status == ua.StatusOK && result.Value != nil {
+			// Create a new variant with the same type as the server value
+			// This preserves the exact encoding that OpenPLC expects
+			serverVariant := result.Value
+			log.Printf("[OPC-UA WRITE] Server variant type: %v, encoding mask: %v",
+				serverVariant.Type(), serverVariant.EncodingMask())
+
+			// Try writing with the same encoding as the server
+			newVariant, _ := ua.NewVariant(boolVal)
+			if newVariant != nil {
+				// Try to match the server's encoding
+				variantsToTry = append([]struct {
+					name    string
+					variant *ua.Variant
+					desc    string
+				}{
+					{
+						name:    "Boolean (server-matched)",
+						variant: newVariant,
+						desc:    "matched from server read",
+					},
+				}, variantsToTry...)
+			}
+		}
+	}
+
 	if isBool {
-		// For boolean values, try multiple numeric encodings
+		// For boolean values, first try using the server's actual OPC UA type
+		// This is the key fix for Boolean type mismatch
+		if opcuaType != "" && opcuaType != "Unknown" && opcuaType != "Custom" {
+			v, err := convertToVariantByOpcUaType(boolVal, opcuaType)
+			if err == nil && v != nil {
+				log.Printf("[OPC-UA WRITE] Using server type '%s' for boolean conversion", opcuaType)
+				variantsToTry = append(variantsToTry,
+					struct{ name string; variant *ua.Variant; desc string }{
+						name: opcuaType, variant: v, desc: fmt.Sprintf("server type %s", opcuaType),
+					},
+				)
+			}
+		}
+
+		// Fallback: try multiple numeric encodings for compatibility
 		var int8Val int8
 		if boolVal {
 			int8Val = 1
@@ -400,7 +450,7 @@ func (c *Client) WriteValue(nodeID string, value interface{}, dataType string) e
 			uint32Val = 1
 		}
 
-		// Try in order of most likely to work
+		// Add fallback variants (only if not already added by server type)
 		variantsToTry = append(variantsToTry,
 			struct{ name string; variant *ua.Variant; desc string }{
 				name: "Boolean", variant: mustVariant(boolVal), desc: "native Go bool",
@@ -425,14 +475,30 @@ func (c *Client) WriteValue(nodeID string, value interface{}, dataType string) e
 			},
 		)
 	} else {
-		// For non-boolean values, use standard conversion
-		v, err := convertToVariant(value, dataType)
+		// For non-boolean values, prefer OPC UA server type if available
+		var v *ua.Variant
+		var err error
+		conversionType := dataType
+
+		if opcuaType != "" && opcuaType != "Unknown" && opcuaType != "Custom" {
+			// Use actual OPC UA type from server - this is the key fix for type mismatch
+			v, err = convertToVariantByOpcUaType(value, opcuaType)
+			conversionType = opcuaType
+			log.Printf("[OPC-UA WRITE] Using server type '%s' for conversion (value: %v -> %T)",
+				opcuaType, value, value)
+		} else {
+			// Fallback to database data type
+			v, err = convertToVariant(value, dataType)
+			log.Printf("[OPC-UA WRITE] Using database type '%s' for conversion (server type: %s)",
+				dataType, opcuaType)
+		}
+
 		if err != nil {
-			return fmt.Errorf("failed to convert value: %w", err)
+			return fmt.Errorf("failed to convert value %v to type %s: %w", value, conversionType, err)
 		}
 		variantsToTry = append(variantsToTry,
 			struct{ name string; variant *ua.Variant; desc string }{
-				name: dataType, variant: v, desc: "standard conversion",
+				name: conversionType, variant: v, desc: fmt.Sprintf("server-type: %s", conversionType),
 			},
 		)
 	}
@@ -440,17 +506,20 @@ func (c *Client) WriteValue(nodeID string, value interface{}, dataType string) e
 	// Try each variant until one succeeds
 	var lastErr error
 	for i, vt := range variantsToTry {
-		log.Printf("[OPC-UA WRITE] Attempt %d/%d: Trying %s (%s)",
-			i+1, len(variantsToTry), vt.name, vt.desc)
+		log.Printf("[OPC-UA WRITE] Attempt %d/%d: Trying %s (%s), Variant.Type=%v",
+			i+1, len(variantsToTry), vt.name, vt.desc, vt.variant.Type())
+
+		// Create DataValue with the variant
+		dataValue := &ua.DataValue{
+			Value: vt.variant,
+		}
 
 		req := &ua.WriteRequest{
 			NodesToWrite: []*ua.WriteValue{
 				{
 					NodeID:      nid,
 					AttributeID: ua.AttributeIDValue,
-					Value: &ua.DataValue{
-						Value: vt.variant,
-					},
+					Value:       dataValue,
 				},
 			},
 		}
@@ -522,6 +591,37 @@ func (c *Client) readDataType(ctx context.Context, nodeID *ua.NodeID) string {
 	dataType := dataTypeNodeIDToString(dtNodeID)
 	log.Printf("[OPC-UA DEBUG] Node %s has DataType: %s (NodeID: %s)", nodeID.String(), dataType, dtNodeID.String())
 	return dataType
+}
+
+// readDataTypeNodeID reads the DataType attribute and returns the NodeID of the data type
+// This is needed for some OPC UA servers that require explicit type specification in writes
+func (c *Client) readDataTypeNodeID(ctx context.Context, nodeID *ua.NodeID) *ua.NodeID {
+	req := &ua.ReadRequest{
+		MaxAge: 2000,
+		NodesToRead: []*ua.ReadValueID{
+			{
+				NodeID:      nodeID,
+				AttributeID: ua.AttributeIDDataType,
+			},
+		},
+	}
+
+	resp, err := c.client.Read(ctx, req)
+	if err != nil || len(resp.Results) == 0 {
+		return nil
+	}
+
+	result := resp.Results[0]
+	if result.Status != ua.StatusOK || result.Value == nil {
+		return nil
+	}
+
+	dtNodeID, ok := result.Value.Value().(*ua.NodeID)
+	if !ok {
+		return nil
+	}
+
+	return dtNodeID
 }
 
 // countChildren performs a quick browse to count child references
@@ -656,85 +756,178 @@ func convertToVariant(value interface{}, dataType string) (*ua.Variant, error) {
 
 // convertToVariantByOpcUaType converts a value to an OPC UA Variant based on the exact OPC UA data type
 // This is useful when the server has specific type requirements (e.g., OpenPLC)
+// IMPORTANT: JSON numbers are always float64, so we need to convert them to the correct type
 func convertToVariantByOpcUaType(value interface{}, opcuaType string) (*ua.Variant, error) {
-	// Convert boolean true/false to various integer types for compatibility
-	boolVal, isBool := toBool(value)
+	// Check if value is actually a bool (not a number that could be converted to bool)
+	_, isActualBool := value.(bool)
+
+	// Helper to convert float64 (from JSON) to numeric types
+	toFloat64Val := func(v interface{}) (float64, bool) {
+		switch val := v.(type) {
+		case float64:
+			return val, true
+		case float32:
+			return float64(val), true
+		case int:
+			return float64(val), true
+		case int64:
+			return float64(val), true
+		case int32:
+			return float64(val), true
+		case int16:
+			return float64(val), true
+		case int8:
+			return float64(val), true
+		case uint:
+			return float64(val), true
+		case uint64:
+			return float64(val), true
+		case uint32:
+			return float64(val), true
+		case uint16:
+			return float64(val), true
+		case uint8:
+			return float64(val), true
+		default:
+			return 0, false
+		}
+	}
 
 	switch opcuaType {
 	case "Boolean":
-		if isBool {
-			return ua.NewVariant(boolVal)
+		if isActualBool {
+			return ua.NewVariant(value.(bool))
+		}
+		// Try to convert numeric to bool (0=false, non-zero=true)
+		if f, ok := toFloat64Val(value); ok {
+			return ua.NewVariant(f != 0)
 		}
 		return ua.NewVariant(value)
-	case "SByte": // Signed 8-bit integer
-		if isBool {
+
+	case "SByte": // Signed 8-bit integer (-128 to 127)
+		// Try numeric conversion first (for JSON float64 values)
+		if f, ok := toFloat64Val(value); ok {
+			return ua.NewVariant(int8(f))
+		}
+		// Then try bool conversion
+		if isActualBool {
 			var val int8
-			if boolVal {
+			if value.(bool) {
 				val = 1
 			}
 			return ua.NewVariant(val)
 		}
 		return ua.NewVariant(value)
-	case "Byte": // Unsigned 8-bit integer
-		if isBool {
+
+	case "Byte": // Unsigned 8-bit integer (0 to 255)
+		if f, ok := toFloat64Val(value); ok {
+			return ua.NewVariant(uint8(f))
+		}
+		if isActualBool {
 			var val uint8
-			if boolVal {
+			if value.(bool) {
 				val = 1
 			}
 			return ua.NewVariant(val)
 		}
 		return ua.NewVariant(value)
+
 	case "Int16", "Int16[]":
-		if isBool {
+		if f, ok := toFloat64Val(value); ok {
+			return ua.NewVariant(int16(f))
+		}
+		if isActualBool {
 			var val int16
-			if boolVal {
+			if value.(bool) {
 				val = 1
 			}
 			return ua.NewVariant(val)
 		}
 		return ua.NewVariant(value)
+
 	case "UInt16", "UInt16[]":
-		if isBool {
+		if f, ok := toFloat64Val(value); ok {
+			return ua.NewVariant(uint16(f))
+		}
+		if isActualBool {
 			var val uint16
-			if boolVal {
+			if value.(bool) {
 				val = 1
 			}
 			return ua.NewVariant(val)
 		}
 		return ua.NewVariant(value)
+
 	case "Int32", "Int32[]", "Int":
-		if isBool {
+		if f, ok := toFloat64Val(value); ok {
+			return ua.NewVariant(int32(f))
+		}
+		if isActualBool {
 			var val int32
-			if boolVal {
+			if value.(bool) {
 				val = 1
 			}
 			return ua.NewVariant(val)
 		}
 		return ua.NewVariant(value)
+
 	case "UInt32", "UInt32[]":
-		if isBool {
+		if f, ok := toFloat64Val(value); ok {
+			return ua.NewVariant(uint32(f))
+		}
+		if isActualBool {
 			var val uint32
-			if boolVal {
+			if value.(bool) {
 				val = 1
 			}
 			return ua.NewVariant(val)
 		}
 		return ua.NewVariant(value)
+
+	case "Int64", "Int64[]":
+		if f, ok := toFloat64Val(value); ok {
+			return ua.NewVariant(int64(f))
+		}
+		if isActualBool {
+			var val int64
+			if value.(bool) {
+				val = 1
+			}
+			return ua.NewVariant(val)
+		}
+		return ua.NewVariant(value)
+
+	case "UInt64", "UInt64[]":
+		if f, ok := toFloat64Val(value); ok {
+			return ua.NewVariant(uint64(f))
+		}
+		if isActualBool {
+			var val uint64
+			if value.(bool) {
+				val = 1
+			}
+			return ua.NewVariant(val)
+		}
+		return ua.NewVariant(value)
+
 	case "Float", "Float[]":
 		f, ok := toFloat32(value)
 		if !ok {
 			return nil, fmt.Errorf("cannot convert %v to float32", value)
 		}
 		return ua.NewVariant(f)
+
 	case "Double", "Double[]":
 		f, ok := toFloat64(value)
 		if !ok {
 			return nil, fmt.Errorf("cannot convert %v to float64", value)
 		}
 		return ua.NewVariant(f)
+
 	case "String":
 		s := fmt.Sprintf("%v", value)
 		return ua.NewVariant(s)
+
 	default:
 		// Fallback to standard conversion
 		return ua.NewVariant(value)

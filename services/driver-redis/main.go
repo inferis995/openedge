@@ -557,19 +557,25 @@ func (d *Driver) poll() {
 			}
 		}
 
-		quality := 192 // GOOD
+		quality := 192 // GOOD (for alarm manager - OPC UA standard)
 		if val == nil {
 			quality = 0 // BAD
 		}
 
-		// Evaluate alarms via AlarmManager
+		// Evaluate alarms via AlarmManager (uses OPC UA standard: 192=GOOD, 0=BAD)
 		if d.alarmManager != nil {
 			d.alarmManager.EvaluateTag(tag.ID, tag.Alias, parsedVal, quality)
 		}
 
+		// Convert quality to internal standard for publish (0=GOOD, >0=BAD)
+		publishQuality := 0
+		if val == nil {
+			publishQuality = 1 // BAD
+		}
+
 		// Check if we should publish (RBE logic)
-		if d.shouldPublish(tag.ID, parsedVal, quality) {
-			d.publishTagValue(tag, parsedVal, timestamp, quality)
+		if d.shouldPublish(tag.ID, parsedVal, publishQuality) {
+			d.publishTagValue(tag, parsedVal, timestamp, publishQuality)
 			d.updatePreviousValue(tag.ID, parsedVal)
 		}
 	}
