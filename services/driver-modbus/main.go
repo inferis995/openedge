@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
@@ -249,6 +250,9 @@ func main() {
 	// Subscribe to legacy format writes (will be set after config load when we know org/site/area)
 	// Format 2: cmd/{org}/{site}/{area}/{gateway}/{alias}
 	// Format 3: spBv1.0/{group}/DCMD/{node}/{device} (Sparkplug B)
+
+	// Start alarm ticker for delay-based alarm triggering
+	go driver.alarmManager.StartTicker(context.Background())
 
 	go driver.run()
 
