@@ -277,30 +277,67 @@ OpenEdge supports multi-tenant deployments with organization-based data isolatio
 
 ## 🚀 Deployment
 
-### Production Deployment
+### Quick Start (Consigliato)
 
 ```bash
-# Build production images
-docker-compose -f docker-compose.yml build
+# 1. Clona il repository
+git clone https://github.com/inferis995/openedge.git
+cd openedge
 
-# Start with production configuration
-docker-compose --env-file .env.prod up -d
+# 2. Avvia tutti i servizi
+docker-compose up -d
 
-# Check service health
+# 3. Attendi che tutti i servizi siano healthy (circa 30-60 secondi)
 docker-compose ps
+
+# 4. Accedi alla Web UI
+# Apri http://localhost:3000 nel browser
+# Login: admin / admin123
 ```
 
-### System Requirements
+### Servizi Disponibili
 
-**Minimum:**
-- CPU: 2 cores
+| Servizio | Porta | URL | Descrizione |
+|----------|-------|-----|-------------|
+| Web UI | 3000 | http://localhost:3000 | Dashboard React |
+| Core API | 8081 | http://localhost:8081 | REST API |
+| MQTT Broker | 18830 | mqtt://localhost:18830 | Mosquitto |
+| PostgreSQL | 5432 | localhost:5432 | TimescaleDB |
+| Redis | 6379 | localhost:6379 | Cache |
+
+### Comandi Utili
+
+```bash
+# Visualizza logs di un servizio
+docker-compose logs -f core-api
+docker-compose logs -f driver-modbus-1
+
+# Riavvia un servizio
+docker-compose restart core-api
+
+# Ferma tutti i servizi
+docker-compose down
+
+# Ferma e rimuovi i dati (reset completo)
+docker-compose down -v
+
+# Ricostruisci le immagini
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+### Requisiti di Sistema
+
+**Minimi:**
+- CPU: 2 core
 - RAM: 4 GB
-- Disk: 20 GB SSD
+- Disco: 20 GB SSD
+- Docker Desktop installato
 
-**Recommended (100+ tags):**
-- CPU: 4 cores
+**Consigliati (100+ tag):**
+- CPU: 4 core
 - RAM: 8 GB
-- Disk: 100 GB SSD
+- Disco: 100 GB SSD
 
 ---
 
