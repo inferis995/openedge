@@ -36,8 +36,8 @@
     <td><img src="img/trend.PNG" alt="Trend & History" width="400"/></td>
   </tr>
   <tr>
-    <td align="center"><b>MQTT Configuration</b></td>
-    <td align="center"><b>MQTT Publishing</b></td>
+    <td align="center"><b>MQTT broker Pub.</b></td>
+    <td align="center"><b>MQTT Monitor</b></td>
   </tr>
   <tr>
     <td><img src="img/mqtt.PNG" alt="MQTT Configuration" width="400"/></td>
