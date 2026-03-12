@@ -1,6 +1,8 @@
-# OpenEdge Industrial Edge Middleware
-
 <div align="center">
+
+<img src="img/icona.png" alt="OpenEdge Logo" width="200"/>
+
+# OpenEdge Industrial Edge Middleware
 
 **Production-Ready Industrial IoT Edge Computing Platform**
 
@@ -11,6 +13,37 @@
 ⚡ **High-Performance** • 🏭 **Industrial-Grade** • 🔒 **Secure** • 📊 **Real-Time Analytics**
 
 </div>
+
+---
+
+## 📸 Screenshots
+
+<table>
+  <tr>
+    <td align="center"><b>Dashboard Gateway</b></td>
+    <td align="center"><b>Tags Management</b></td>
+  </tr>
+  <tr>
+    <td><img src="img/gatway.PNG" alt="Gateway Dashboard" width="400"/></td>
+    <td><img src="img/tag.PNG" alt="Tags Management" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Alarm System</b></td>
+    <td align="center"><b>Trend & History</b></td>
+  </tr>
+  <tr>
+    <td><img src="img/allarm.PNG" alt="Alarm System" width="400"/></td>
+    <td><img src="img/trend.PNG" alt="Trend & History" width="400"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>MQTT Configuration</b></td>
+    <td align="center"><b>MQTT Publishing</b></td>
+  </tr>
+  <tr>
+    <td><img src="img/mqtt.PNG" alt="MQTT Configuration" width="400"/></td>
+    <td><img src="img/mqttpub.PNG" alt="MQTT Publishing" width="400"/></td>
+  </tr>
+</table>
 
 ---
 
@@ -33,6 +66,7 @@
 
 ## 📋 Table of Contents
 
+- [Screenshots](#-screenshots)
 - [Plug-and-Play Setup](#-plug-and-play-setup)
 - [Quick Start](#-quick-start)
 - [Architecture](#-architecture)
@@ -53,7 +87,7 @@
 
 ```bash
 # 1. Clone from GitHub
-git clone https://github.com/your-org/openedge.git
+git clone https://github.com/inferis995/openedge.git
 cd openedge
 
 # 2. Start with default configuration
@@ -89,7 +123,7 @@ No manual database setup, no configuration files to edit, no dependencies to ins
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/openedge.git
+git clone https://github.com/inferis995/openedge.git
 cd openedge
 
 # Copy environment template
@@ -110,7 +144,7 @@ open http://localhost:3000
 
 | Service | Port | Description |
 |---------|------|-------------|
-| Web UI | 80 | React dashboard |
+| Web UI | 3000 | React dashboard |
 | Core API | 8081 | REST API & WebSocket |
 | Mosquitto | 18830 | MQTT broker |
 | PostgreSQL | 5432 | TimescaleDB |
@@ -189,24 +223,6 @@ make migrate-down
 make migrate-build
 ```
 
-### Migration Files
-
-All migration files are located in `migrations/` directory:
-- `001_init_schema.sql` - Core tables (organizations, users, tags, gateways, drivers)
-- `002_add_users.sql` - Authentication and default admin user
-- `003_add_timescaledb.sql` - TimescaleDB extension and time-series functions
-- `004_remove_alarms_table.sql` - Legacy alarm system removal
-- `005-013` - Feature additions (MQTT, OPC UA, audit logs, TimescaleDB hypertables)
-- `014-024` - Advanced features (continuous aggregates, data cleanup, nullable markers)
-
-Each migration follows the goose format:
-```sql
--- +goose Up
-[Your SQL here]
--- +goose Down
-[Rollback SQL here]
-```
-
 ---
 
 ## ⚙️ Configuration
@@ -256,23 +272,6 @@ OpenEdge supports multi-tenant deployments with organization-based data isolatio
 **Organization Types:**
 - **Global Admin** (`org_id=NULL`): Access to all organizations and system-wide configuration
 - **Organization Members**: Access only to their assigned organization's data
-
-**Default Setup:**
-- Default organization named "Default" is created automatically
-- Admin user has global access (no org assignment)
-- Additional users can be assigned to specific organizations
-
-**API Organization Isolation:**
-All API endpoints automatically filter data by organization based on the authenticated user:
-```bash
-# Global admin sees all organizations
-GET /api/organizations
-
-# Regular users see only their organization
-GET /api/organizations  # Returns only their org
-GET /api/tags           # Only tags from their org
-GET /api/gateways       # Only gateways from their org
-```
 
 ---
 
@@ -345,8 +344,6 @@ npm install
 
 ### Makefile Commands
 
-The project includes a Makefile for common development tasks:
-
 ```bash
 # Database migrations
 make migrate          # Apply pending migrations
@@ -367,31 +364,6 @@ go build ./services/...
 cd services/web-ui
 npm run build
 ```
-
-### Run Locally
-
-```bash
-# Start PostgreSQL, Redis, Mosquitto
-docker-compose up -d postgres redis mosquitto
-
-# Start services
-./services/core-api/core-api &
-./services/engine-historian/engine-historian &
-./services/driver-modbus/driver-modbus &
-
-# Start UI
-cd services/web-ui && npm run dev
-```
-
----
-
-## 📖 Documentation
-
-- [Alarm System Guide](docs/alarms.md)
-- [Driver Configuration](docs/drivers.md)
-- [API Reference](docs/api.md)
-- [Deployment Guide](docs/deployment.md)
-- [Troubleshooting](docs/troubleshooting.md)
 
 ---
 
@@ -438,7 +410,6 @@ If drivers cannot connect to MQTT broker:
 If historical data is missing:
 - Verify TimescaleDB extension: `docker-compose exec postgres psql -U industrial_user -d industrial_edge -c "SELECT * FROM pg_extension WHERE extname='timescaledb'"`
 - Check hypertable status: `docker-compose exec postgres psql -U industrial_user -d industrial_edge -c "SELECT * FROM timescaledb_information.hypertables"`
-- Verify compression policy: `docker-compose exec postgres psql -U industrial_user -d industrial_edge -c "SELECT * FROM timescaledb_information.jobs"`
 
 ### Getting Help
 
@@ -476,14 +447,6 @@ Built with:
 - [Eclipse Mosquitto](https://mosquitto.org/) - MQTT broker
 - [React](https://reactjs.org/) - Frontend framework
 - [Sparkplug B](https://sparkplug.eclipse.org/) - Industrial IoT standard
-
----
-
-## 📧 Support
-
-- **Documentation**: [https://docs.openedge.io](https://docs.openedge.io)
-- **Issues**: [GitHub Issues](https://github.com/your-org/openedge/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/openedge/discussions)
 
 ---
 
