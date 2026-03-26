@@ -383,17 +383,37 @@ func (h *BackupHandler) isNonCriticalError(errMsg string) bool {
 
 // ensureCriticalConstraints ensures critical foreign key constraints exist
 func (h *BackupHandler) ensureCriticalConstraints() {
-	// Tags gateway constraint
-	h.db.Exec(`ALTER TABLE tags DROP CONSTRAINT IF EXISTS tags_gateway_id_fkey`)
-	h.db.Exec(`ALTER TABLE tags ADD CONSTRAINT tags_gateway_id_fkey FOREIGN KEY (gateway_id) REFERENCES gateways(id) ON DELETE CASCADE`)
+	type constraint struct {
+		drop string
+		add  string
+		name string
+	}
+	constraints := []constraint{
+		{
+			name: "tags_gateway_id_fkey",
+			drop: `ALTER TABLE tags DROP CONSTRAINT IF EXISTS tags_gateway_id_fkey`,
+			add:  `ALTER TABLE tags ADD CONSTRAINT tags_gateway_id_fkey FOREIGN KEY (gateway_id) REFERENCES gateways(id) ON DELETE CASCADE`,
+		},
+		{
+			name: "alarm_definitions_tag_id_fkey",
+			drop: `ALTER TABLE alarm_definitions DROP CONSTRAINT IF EXISTS alarm_definitions_tag_id_fkey`,
+			add:  `ALTER TABLE alarm_definitions ADD CONSTRAINT alarm_definitions_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE`,
+		},
+		{
+			name: "alarm_events_tag_id_fkey",
+			drop: `ALTER TABLE alarm_events DROP CONSTRAINT IF EXISTS alarm_events_tag_id_fkey`,
+			add:  `ALTER TABLE alarm_events ADD CONSTRAINT alarm_events_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE`,
+		},
+	}
 
-	// Alarm definitions tag constraint
-	h.db.Exec(`ALTER TABLE alarm_definitions DROP CONSTRAINT IF EXISTS alarm_definitions_tag_id_fkey`)
-	h.db.Exec(`ALTER TABLE alarm_definitions ADD CONSTRAINT alarm_definitions_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE`)
-
-	// Alarm events tag constraint
-	h.db.Exec(`ALTER TABLE alarm_events DROP CONSTRAINT IF EXISTS alarm_events_tag_id_fkey`)
-	h.db.Exec(`ALTER TABLE alarm_events ADD CONSTRAINT alarm_events_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE`)
+	for _, c := range constraints {
+		if _, err := h.db.Exec(c.drop); err != nil {
+			log.Printf("[BACKUP] Warning: could not drop constraint %s: %v", c.name, err)
+		}
+		if _, err := h.db.Exec(c.add); err != nil {
+			log.Printf("[BACKUP] Warning: could not add constraint %s: %v", c.name, err)
+		}
+	}
 }
 
 // validateRestoreIntegrity checks database integrity after restore

@@ -33,7 +33,11 @@ func NewAlarmHandler(db *sql.DB, mqttClient MQTTClient) *AlarmHandler {
 // @Failure 500 {object} map[string]string
 // @Router /api/tags/{id}/alarms [get]
 func (h *AlarmHandler) GetTagAlarmConfig(c *gin.Context) {
-	tagID, _ := strconv.Atoi(c.Param("id"))
+	tagID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tag ID"})
+		return
+	}
 
 	rows, err := h.db.Query(`
 		SELECT id, tag_id, alarm_type, threshold, deadband, delay_seconds, severity, message, enabled, created_at, updated_at
@@ -50,13 +54,18 @@ func (h *AlarmHandler) GetTagAlarmConfig(c *gin.Context) {
 	var alarms []models.AlarmDefinition
 	for rows.Next() {
 		var a models.AlarmDefinition
-		err := rows.Scan(
+		if err := rows.Scan(
 			&a.ID, &a.TagID, &a.AlarmType, &a.Threshold, &a.Deadband, &a.DelaySeconds,
 			&a.Severity, &a.Message, &a.Enabled, &a.CreatedAt, &a.UpdatedAt,
-		)
-		if err == nil {
-			alarms = append(alarms, a)
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan alarm definition"})
+			return
 		}
+		alarms = append(alarms, a)
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Query iteration error"})
+		return
 	}
 
 	// Ensure we return an empty array instead of null
@@ -213,7 +222,11 @@ func (h *AlarmHandler) GetAllAlarmCounts(c *gin.Context) {
 // @Failure 500 {object} map[string]string
 // @Router /api/tags/{id}/alarms [put]
 func (h *AlarmHandler) SaveTagAlarmConfig(c *gin.Context) {
-	tagID, _ := strconv.Atoi(c.Param("id"))
+	tagID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid tag ID"})
+		return
+	}
 
 	// Check if user is global admin
 	isGlobalAdmin := middleware.IsGlobalAdmin(c)
@@ -375,13 +388,18 @@ func (h *AlarmHandler) GetActiveAlarms(c *gin.Context) {
 	var events []models.AlarmEvent
 	for rows.Next() {
 		var e models.AlarmEvent
-		err := rows.Scan(
+		if err := rows.Scan(
 			&e.ID, &e.TagID, &e.DefinitionID, &e.Status, &e.AlarmType, &e.Severity,
 			&e.Message, &e.ValueAtTrigger, &e.TriggerTime, &e.ClearTime, &e.BgAckUser, &e.AckTime,
-		)
-		if err == nil {
-			events = append(events, e)
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan alarm event"})
+			return
 		}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Query iteration error"})
+		return
 	}
 
 	// Ensure we return an empty array instead of null
@@ -453,13 +471,18 @@ func (h *AlarmHandler) GetAlarmHistory(c *gin.Context) {
 	var events []models.AlarmEvent
 	for rows.Next() {
 		var e models.AlarmEvent
-		err := rows.Scan(
+		if err := rows.Scan(
 			&e.ID, &e.TagID, &e.DefinitionID, &e.Status, &e.AlarmType, &e.Severity,
 			&e.Message, &e.ValueAtTrigger, &e.TriggerTime, &e.ClearTime, &e.BgAckUser, &e.AckTime,
-		)
-		if err == nil {
-			events = append(events, e)
+		); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan alarm event"})
+			return
 		}
+		events = append(events, e)
+	}
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Query iteration error"})
+		return
 	}
 
 	// Ensure we return an empty array instead of null
@@ -480,7 +503,11 @@ func (h *AlarmHandler) GetAlarmHistory(c *gin.Context) {
 // @Failure 500 {object} map[string]string
 // @Router /api/alarms/{id}/ack [post]
 func (h *AlarmHandler) AcknowledgeAlarm(c *gin.Context) {
-	eventID, _ := strconv.Atoi(c.Param("id"))
+	eventID, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid alarm ID"})
+		return
+	}
 
 	username := "System Admin" // Ideally from auth JWT in a real system
 	if u, exists := c.Get("username"); exists {
