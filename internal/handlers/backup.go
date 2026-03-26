@@ -217,6 +217,19 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 	pgPass := os.Getenv("DB_PASSWORD")
 	pgDB := os.Getenv("DB_NAME")
 
+	// Step 0: Create pre-restore safety backup before dropping any data
+	log.Println("Step 0: Creating pre-restore safety backup...")
+	safetyBackupPath := filepath.Join(tempDir, "safety_backup.sql")
+	safetyCmd := exec.Command("pg_dump", "-h", pgHost, "-U", pgUser, "-d", pgDB,
+		"-F", "p", "--no-owner", "--no-acl", "-f", safetyBackupPath)
+	safetyCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
+	if safetyErr := safetyCmd.Run(); safetyErr != nil {
+		log.Printf("[WARN] Could not create safety backup before restore: %v - aborting to protect existing data", safetyErr)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not create safety backup before restore - aborting"})
+		return
+	}
+	messages = append(messages, "Pre-restore safety backup created")
+
 	// Step 1: Drop and recreate schema for clean restore
 	log.Println("Step 1: Dropping schema public for clean restore...")
 	if _, err := h.db.Exec("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"); err != nil {
@@ -254,8 +267,18 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 	}
 
 	if hasCriticalError {
+		// Attempt recovery from safety backup
+		log.Println("[RECOVERY] Restore failed - attempting recovery from pre-restore safety backup...")
+		recoveryCmd := exec.Command("psql", "-h", pgHost, "-U", pgUser, "-d", pgDB,
+			"-v", "ON_ERROR_STOP=0", "-f", safetyBackupPath)
+		recoveryCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
+		if recoveryErr := recoveryCmd.Run(); recoveryErr != nil {
+			log.Printf("[RECOVERY] Recovery from safety backup also failed: %v", recoveryErr)
+		} else {
+			log.Println("[RECOVERY] Database recovered from safety backup")
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Database restore failed with critical errors",
+			"error":   "Database restore failed with critical errors - recovery attempted from safety backup",
 			"details": append(messages, errorLines...),
 		})
 		return
@@ -532,7 +555,7 @@ func (h *BackupHandler) ListBackups(c *gin.Context) {
 func (h *BackupHandler) DownloadBackup(c *gin.Context) {
 	filename := c.Param("filename")
 
-	// Security: prevent path traversal
+	// Security: prevent path traversal - step 1: base name check
 	cleanFilename := filepath.Base(filename)
 	if cleanFilename != filename {
 		log.Printf("[SECURITY] Path traversal attempt blocked in DownloadBackup: %s", filename)
@@ -545,17 +568,30 @@ func (h *BackupHandler) DownloadBackup(c *gin.Context) {
 		backupPath = "/backups"
 	}
 
-	filePath := filepath.Join(backupPath, filename)
+	// Security: prevent path traversal - step 2: resolved path check
+	basePath, err := filepath.Abs(backupPath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Backup path error"})
+		return
+	}
+	filePath := filepath.Join(basePath, cleanFilename)
+	resolvedPath, err := filepath.Abs(filePath)
+	if err != nil || !strings.HasPrefix(resolvedPath, basePath+string(filepath.Separator)) {
+		log.Printf("[SECURITY] Path traversal blocked in DownloadBackup: %s resolves outside backup dir", filename)
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
 	c.Header("Content-Description", "File Transfer")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
-	c.File(filePath)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", cleanFilename))
+	c.File(resolvedPath)
 }
 
 // DeleteBackup deletes a specific backup file
 func (h *BackupHandler) DeleteBackup(c *gin.Context) {
 	filename := c.Param("filename")
 
-	// Security: prevent path traversal
+	// Security: prevent path traversal - step 1: base name check
 	cleanFilename := filepath.Base(filename)
 	if cleanFilename != filename {
 		log.Printf("[SECURITY] Path traversal attempt blocked in DeleteBackup: %s", filename)
@@ -568,8 +604,21 @@ func (h *BackupHandler) DeleteBackup(c *gin.Context) {
 		backupPath = "/backups"
 	}
 
-	filePath := filepath.Join(backupPath, filename)
-	if err := os.Remove(filePath); err != nil {
+	// Security: prevent path traversal - step 2: resolved path check
+	basePath, pathErr := filepath.Abs(backupPath)
+	if pathErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Backup path error"})
+		return
+	}
+	filePath := filepath.Join(basePath, cleanFilename)
+	resolvedPath, pathErr := filepath.Abs(filePath)
+	if pathErr != nil || !strings.HasPrefix(resolvedPath, basePath+string(filepath.Separator)) {
+		log.Printf("[SECURITY] Path traversal blocked in DeleteBackup: %s resolves outside backup dir", filename)
+		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+		return
+	}
+
+	if err := os.Remove(resolvedPath); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
