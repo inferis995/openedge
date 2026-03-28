@@ -1,8 +1,7 @@
-# OpenEdge API — Skill per Agenti Paperclip
-## NET CARING S.R.L. | IndustrialAI-Ops Platform
+# OpenEdge API — Skill
 
-Questo documento descrive come gli agenti Paperclip devono interagire con
-l'istanza OpenEdge del cliente. Leggi tutto prima di fare qualsiasi chiamata API.
+Questo documento descrive come un agente AI deve interagire con
+un'istanza OpenEdge. Leggi tutto prima di fare qualsiasi chiamata API.
 
 ---
 
@@ -78,7 +77,7 @@ Risposta:
 ```json
 {
   "org_id": 1,
-  "org_name": "SORICAL",
+  "org_name": "MyOrganization",
   "period_hours": 24,
   "generated_at": "2026-03-28T07:00:00Z",
   "active_alarms_count": 3,
@@ -452,5 +451,4 @@ Tutte le risposte di errore seguono questo formato:
 
 ---
 
-*Documento generato automaticamente da NET CARING S.R.L. — IndustrialAI-Ops v1.0*
 *Aggiornare questo file quando vengono aggiunti nuovi endpoint a OpenEdge.*
