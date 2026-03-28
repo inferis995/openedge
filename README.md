@@ -68,6 +68,9 @@
 
 - [Screenshots](#-screenshots)
 - [Quick Start](#-quick-start)
+- [AI Agent Skills](#-ai-agent-skills)
+  - [Deploy & Configure (openedge-ops)](#deploy--configure-openedge-ops)
+  - [Monitor & Query (openedge)](#monitor--query-openedge)
 - [Architecture](#-architecture)
 - [How Drivers Work](#-how-drivers-work)
 - [Database Migrations](#-database-migrations)
@@ -129,6 +132,91 @@ No manual database setup, no configuration files to edit, no dependencies to ins
 
 - **Username:** `admin`
 - **Password:** `admin123` ← change this after first login!
+
+---
+
+## 🤖 AI Agent Skills
+
+OpenEdge ships with AI agent skills that let any compatible agent (Claude Code, OpenCode, OpenClaw and others) deploy, configure and monitor the system autonomously — without manual intervention.
+
+Install the skills with one command:
+
+```bash
+npx github:inferis995/openedge
+```
+
+Or install individually:
+
+```bash
+npx github:inferis995/openedge openedge-ops   # deploy & configure
+npx github:inferis995/openedge openedge        # monitor & query
+```
+
+---
+
+### Deploy & Configure (`openedge-ops`)
+
+The `openedge-ops` skill gives the agent everything it needs to deploy OpenEdge from scratch and configure gateways and tags — including the correct build sequence that ensures drivers work on first use.
+
+**What the agent can do with this skill:**
+
+- Clone the repo and run a verified deploy (`make start`)
+- Check that all 5 driver images are built before creating any gateway
+- Create gateways (Modbus TCP, Siemens S7, OPC UA, MQTT)
+- Import tags in bulk from PLC address format or one by one
+- Diagnose and fix container issues
+
+**Example prompts:**
+
+```
+"Installa OpenEdge su questo server e crea un gateway Modbus su 192.168.1.10"
+
+"Importa questi tag sul gateway PLC-1:
+ Portata:REAL:40001, Livello:REAL:40003, Pompa1:BOOL:00001.0"
+
+"Il driver del gateway non è partito — diagnostica e risolvi"
+```
+
+> The skill enforces a mandatory pre-check: all 5 driver images must exist
+> before gateway creation is attempted. This prevents the most common
+> first-deploy issue where gateways appear to save but the driver never starts.
+
+---
+
+### Monitor & Query (`openedge`)
+
+The `openedge` skill gives the agent read-only access to the live system — alarms, tag values, anomaly detection, and historical data.
+
+**What the agent can do with this skill:**
+
+- Check active alarms and their severity
+- Read real-time tag values
+- Detect anomalies via Z-score on historical data
+- Generate alarm digests for reports
+- Monitor gateway connectivity
+
+**Example prompts:**
+
+```
+"Ci sono allarmi critici attivi in questo momento?"
+
+"Mostrami le anomalie del tag Pressione_Rete nell'ultima settimana"
+
+"Genera un digest degli allarmi delle ultime 24 ore"
+
+"Quali gateway sono offline da più di 30 minuti?"
+```
+
+**Use with cron jobs for autonomous monitoring:**
+
+```bash
+# Claude Code — check alarms every 5 minutes
+/schedule "*/5 * * * *" "controlla allarmi OpenEdge su localhost:8081, notifica se critical"
+
+# Shell cron with OpenClaw
+*/5  * * * * openclaw run openedge "controlla allarmi attivi"
+0    7 * * * openclaw run openedge "genera report giornaliero allarmi"
+```
 
 ---
 
