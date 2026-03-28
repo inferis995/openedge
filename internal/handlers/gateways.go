@@ -704,9 +704,8 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 	if h.mqttClient != nil {
 		topic := fmt.Sprintf("sys/command/reload/%d", gateway.ID)
 		if err := h.mqttClient.Publish(topic, "reload"); err != nil {
-			// Log error but don't fail the request
-			// The MQTT connection might be down temporarily
-			// The driver will still work with old config until reconnected
+			log.Printf("[WARN] Failed to send reload command to gateway %d: %v", gateway.ID, err)
+			// Don't fail the request - the driver will reload on next periodic refresh
 		}
 
 		// If explicitly disabled, forcefully publish offline status so historian records gap and event

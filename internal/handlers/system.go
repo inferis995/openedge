@@ -365,8 +365,8 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 
 	// Handle DB Retention Days setting
 	if req.DBRetentionDays != nil {
-		if *req.DBRetentionDays < 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "db_retention_days cannot be negative"})
+		if *req.DBRetentionDays < 0 || *req.DBRetentionDays > 3650 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "db_retention_days must be between 0 and 3650"})
 			return
 		}
 		if err := h.upsertSetting("db_retention_days", fmt.Sprintf("%d", *req.DBRetentionDays)); err != nil {

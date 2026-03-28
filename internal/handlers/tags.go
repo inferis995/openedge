@@ -719,6 +719,22 @@ func (h *TagsHandler) Write(c *gin.Context) {
 		return
 	}
 
+	// Verify org access (unless global admin)
+	if !middleware.IsGlobalAdmin(c) {
+		orgID, _ := middleware.GetOrganizationID(c)
+		var tagOrgID int
+		err = h.db.QueryRow(`
+			SELECT s.org_id FROM tags t
+			JOIN gateways g ON t.gateway_id = g.id
+			JOIN areas a ON g.area_id = a.id
+			JOIN sites s ON a.site_id = s.id
+			WHERE t.id = $1`, id).Scan(&tagOrgID)
+		if err != nil || tagOrgID != orgID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to this tag"})
+			return
+		}
+	}
+
 	// 2. Publish write command to MQTT
 	if h.mqttClient == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MQTT client not available"})

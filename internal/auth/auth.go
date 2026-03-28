@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -115,7 +116,7 @@ func (s *Service) logAudit(userID *int, username, action, ipAddress, userAgent s
 	// Use background goroutine for logging to not block the request
 	go func() {
 		if _, err := s.db.Exec(query, userID, username, action, ipAddress, userAgent, detailsJSON, success); err != nil {
-			// Log error but don't crash
+			log.Printf("[AUDIT] Failed to write audit log for user %s action %s: %v", username, action, err)
 		}
 	}()
 }
