@@ -270,12 +270,12 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 		// Attempt recovery from safety backup
 		log.Println("[RECOVERY] Restore failed - attempting recovery from pre-restore safety backup...")
 		recoveryCmd := exec.Command("psql", "-h", pgHost, "-U", pgUser, "-d", pgDB,
-			"-v", "ON_ERROR_STOP=0", "-f", safetyBackupPath)
+			"-v", "ON_ERROR_STOP=1", "-f", safetyBackupPath)
 		recoveryCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
-		if recoveryErr := recoveryCmd.Run(); recoveryErr != nil {
-			log.Printf("[RECOVERY] Recovery from safety backup also failed: %v", recoveryErr)
+		if recoveryOutput, recoveryErr := recoveryCmd.CombinedOutput(); recoveryErr != nil {
+			log.Printf("[RECOVERY] Recovery from safety backup failed: %v — output: %s", recoveryErr, string(recoveryOutput))
 		} else {
-			log.Println("[RECOVERY] Database recovered from safety backup")
+			log.Println("[RECOVERY] Database recovered from safety backup successfully")
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Database restore failed with critical errors - recovery attempted from safety backup",
