@@ -26,6 +26,7 @@ export const gatewaysApi = {
             driver_type: data.driver_type,
             scan_rate_ms: data.scan_rate_ms,
             enabled: data.enabled,
+            zero_based: (data as any).zero_based ?? false,
         };
 
         if (data.driver_type === 'MQTT') {

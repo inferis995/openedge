@@ -48,37 +48,39 @@ func ParseAddress(c string, zeroBased bool) (Address, error) {
 	}
 
 	// Standard Modbus mapping
-	// Standard Modbus mapping
 	if val >= 40000 && val <= 49999 {
 		var offset uint16
-		if val == 40000 {
-			offset = 0
-		} else if zeroBased {
-			offset = uint16(val - 40000)
+		if zeroBased {
+			offset = uint16(val - 40000) // 40000→0, 40001→1, ...
 		} else {
-			offset = uint16(val - 40001)
+			if val < 40001 {
+				return Address{}, fmt.Errorf("address %d is invalid in 1-based mode (minimum is 40001)", val)
+			}
+			offset = uint16(val - 40001) // 40001→0, 40002→1, ...
 		}
 		return Address{Type: "holding", Offset: offset, BitOffset: bitOffset}, nil
 	}
 	if val >= 30000 && val <= 39999 {
 		var offset uint16
-		if val == 30000 {
-			offset = 0
-		} else if zeroBased {
-			offset = uint16(val - 30000)
+		if zeroBased {
+			offset = uint16(val - 30000) // 30000→0, 30001→1, ...
 		} else {
-			offset = uint16(val - 30001)
+			if val < 30001 {
+				return Address{}, fmt.Errorf("address %d is invalid in 1-based mode (minimum is 30001)", val)
+			}
+			offset = uint16(val - 30001) // 30001→0, 30002→1, ...
 		}
 		return Address{Type: "input", Offset: offset, BitOffset: bitOffset}, nil
 	}
 	if val >= 10000 && val <= 19999 {
 		var offset uint16
-		if val == 10000 {
-			offset = 0
-		} else if zeroBased {
-			offset = uint16(val - 10000)
+		if zeroBased {
+			offset = uint16(val - 10000) // 10000→0, 10001→1, ...
 		} else {
-			offset = uint16(val - 10001)
+			if val < 10001 {
+				return Address{}, fmt.Errorf("address %d is invalid in 1-based mode (minimum is 10001)", val)
+			}
+			offset = uint16(val - 10001) // 10001→0, 10002→1, ...
 		}
 		return Address{Type: "discrete", Offset: offset}, nil
 	}

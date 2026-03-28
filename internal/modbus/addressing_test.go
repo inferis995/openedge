@@ -7,51 +7,64 @@ import (
 func TestParseAddress(t *testing.T) {
 	tests := []struct {
 		input          string
+		zeroBased      bool
 		expectedType   string
 		expectedOffset uint16
 		expectError    bool
 	}{
-		// Standard Modbus - Holding
-		{"40001", "holding", 0, false},
-		{"40002", "holding", 1, false},
-		{"49999", "holding", 9998, false},
+		// 1-based (standard Modbus, zeroBased=false)
+		{"40001", false, "holding", 0, false},
+		{"40002", false, "holding", 1, false},
+		{"49999", false, "holding", 9998, false},
+		{"30001", false, "input", 0, false},
+		{"30100", false, "input", 99, false},
+		{"40000", false, "", 0, true}, // invalid in 1-based mode
 
-		// Standard Modbus - Input
-		{"30001", "input", 0, false},
-		{"30100", "input", 99, false},
+		// 0-based (zeroBased=true)
+		{"40000", true, "holding", 0, false}, // first register
+		{"40001", true, "holding", 1, false},
+		{"40002", true, "holding", 2, false},
+		{"30000", true, "input", 0, false},
+		{"30001", true, "input", 1, false},
+		{"10000", true, "discrete", 0, false},
+		{"10001", true, "discrete", 1, false},
 
-		// Raw Offsets (The "Tag at 0" fix)
-		{"0", "holding", 0, false},
-		{"1", "holding", 1, false},
-		{"100", "holding", 100, false},
-		{"25", "holding", 25, false},
+		// Raw Offsets (treated as holding, zeroBased irrelevant)
+		{"0", false, "holding", 0, false},
+		{"1", false, "holding", 1, false},
+		{"100", false, "holding", 100, false},
+		{"25", false, "holding", 25, false},
 
 		// Edge cases
-		{"invalid", "", 0, true},
+		{"invalid", false, "", 0, true},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			addr, err := ParseAddress(tt.input, false)
+		name := tt.input
+		if tt.zeroBased {
+			name += "_zerobased"
+		}
+		t.Run(name, func(t *testing.T) {
+			addr, err := ParseAddress(tt.input, tt.zeroBased)
 
 			if tt.expectError {
 				if err == nil {
-					t.Errorf("Expected error for input %s, but got none", tt.input)
+					t.Errorf("Expected error for input %s (zeroBased=%v), but got none", tt.input, tt.zeroBased)
 				}
 				return
 			}
 
 			if err != nil {
-				t.Errorf("Unexpected error for input %s: %v", tt.input, err)
+				t.Errorf("Unexpected error for input %s (zeroBased=%v): %v", tt.input, tt.zeroBased, err)
 				return
 			}
 
 			if addr.Type != tt.expectedType {
-				t.Errorf("Expected type %s, got %s", tt.expectedType, addr.Type)
+				t.Errorf("input=%s zeroBased=%v: expected type %s, got %s", tt.input, tt.zeroBased, tt.expectedType, addr.Type)
 			}
 
 			if addr.Offset != tt.expectedOffset {
-				t.Errorf("Expected offset %d, got %d", tt.expectedOffset, addr.Offset)
+				t.Errorf("input=%s zeroBased=%v: expected offset %d, got %d", tt.input, tt.zeroBased, tt.expectedOffset, addr.Offset)
 			}
 		})
 	}
