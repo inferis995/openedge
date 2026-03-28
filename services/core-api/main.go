@@ -389,6 +389,16 @@ func main() {
 			history.GET("/data-range", historyHandler.GetDataRange)
 		}
 
+		// AI-Ops endpoints (read-only, consumed by Paperclip agents)
+		aiopsHandler := handlers.NewAIopsHandler(database)
+		aiops := api.Group("/aiops")
+		aiops.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			aiops.GET("/summary",       aiopsHandler.GetOrgSummary)
+			aiops.GET("/anomalies",     aiopsHandler.GetTagAnomalies)
+			aiops.GET("/alarms/digest", aiopsHandler.GetAlarmDigest)
+		}
+
 		// Audit endpoints
 		audit := api.Group("/audit")
 		audit.Use(middleware.RequireAuth, middleware.OrganizationContext())
