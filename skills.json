@@ -4,45 +4,14 @@
       "name": "openedge",
       "version": "1.0.0",
       "description": "OpenEdge Industrial IoT Middleware — REST API skill for AI agents",
-      "tags": [
-        "industrial",
-        "iot",
-        "alarms",
-        "historian",
-        "timeseries",
-        "scada"
-      ],
+      "tags": ["industrial", "iot", "alarms", "historian", "timeseries", "scada"],
       "path": "openedge/SKILL.md"
-    },
-    {
-      "name": "openedge-dashboard",
-      "version": "1.0.0",
-      "description": "OpenEdge Dashboard Generator — crea dashboard HTML5 SCADA real-time con MQTT WebSocket",
-      "tags": [
-        "industrial",
-        "iot",
-        "scada",
-        "dashboard",
-        "html5",
-        "mqtt",
-        "realtime",
-        "chart"
-      ],
-      "path": "openedge-dashboard/SKILL.md"
     },
     {
       "name": "openedge-ops",
       "version": "1.0.0",
       "description": "OpenEdge Operations — deploy, container fix, gateway/tag import via shell and API",
-      "tags": [
-        "industrial",
-        "iot",
-        "devops",
-        "docker",
-        "deploy",
-        "import",
-        "scada"
-      ],
+      "tags": ["industrial", "iot", "devops", "docker", "deploy", "import", "scada"],
       "path": "openedge-ops/SKILL.md"
     }
   ]
