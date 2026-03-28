@@ -88,50 +88,44 @@
 
 ## 🎯 Quick Start
 
-**Get OpenEdge running in under 5 minutes:**
+**Prerequisites:** Docker Desktop installed and running.
 
 ```bash
-# 1. Clone the repository
+# 1. Clone
 git clone https://github.com/inferis995/openedge.git
 cd openedge
 
-# 2. Build all images and start services
+# 2. Build driver images + start all services
+#    ⚠️ Use make start — do NOT use docker-compose up directly
 make start
 
-# 3. Open the web UI
-# http://localhost:3000  —  Login: admin / admin123
+# 3. Verify everything is up (wait ~30s after make start)
+curl http://localhost:8081/ready
+# Expected: {"status":"ready","db":"ok","redis":"ok"}
+
+# 4. Verify driver images were built (required before creating gateways)
+docker images | grep industrial-driver
+# Must show 5 images: modbus, s7, opcua, mqtt, redis
 ```
 
-> **Windows users** (no `make`): use the PowerShell script instead:
-> ```powershell
-> .\scripts\start-industrial-edge.ps1
-> ```
+**Windows** (no `make`):
+```powershell
+.\scripts\start-industrial-edge.ps1
+```
 
-**That's it!** The system automatically:
-- ✅ Initializes PostgreSQL with TimescaleDB
-- ✅ Creates all database tables and indexes
-- ✅ Sets up the default admin user
-- ✅ Configures the MQTT broker
-- ✅ Starts Redis caching
-- ✅ Builds all driver images (Modbus, S7, OPC UA, MQTT, Redis)
-- ✅ Launches all microservices
+Open **http://localhost:3000** — Login: `admin` / `admin123`
 
-No manual database setup, no configuration files to edit, no dependencies to install.
+> ⚠️ Change the default password after first login.
 
-### Services Started
+### Services
 
-| Service | Port | Description |
-|---------|------|-------------|
-| Web UI | 3000 | React dashboard |
-| Core API | 8081 | REST API & WebSocket |
-| Mosquitto | 18830 | MQTT broker |
-| PostgreSQL | 5432 | TimescaleDB |
-| Redis | 6379 | Cache & real-time data |
-
-### Default Credentials
-
-- **Username:** `admin`
-- **Password:** `admin123` ← change this after first login!
+| Service | Port |
+|---------|------|
+| Web UI | 3000 |
+| Core API | 8081 |
+| MQTT broker | 18830 |
+| PostgreSQL | 5432 |
+| Redis | 6379 |
 
 ---
 
