@@ -17,8 +17,12 @@ go.work
 # Dependency directories
 vendor/
 
-# Build output
-bin/
+# Build output — Go binaries
+bin/*.exe
+bin/driver-*
+bin/core-api
+bin/engine-historian
+bin/driver-manager
 dist/
 
 # Node.js
