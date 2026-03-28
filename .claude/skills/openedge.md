@@ -1,7 +1,21 @@
+---
+name: openedge
+description: OpenEdge Industrial IoT Middleware — REST API skill for AI agents
+version: 1.0.0
+tags: [industrial, iot, alarms, historian, timeseries, scada]
+---
+
 # OpenEdge API — Skill
 
 Questo documento descrive come un agente AI deve interagire con
 un'istanza OpenEdge. Leggi tutto prima di fare qualsiasi chiamata API.
+
+## Compatibilità
+
+Funziona con qualsiasi agente AI che legge skill files:
+- **Claude Code** — posiziona in `.claude/skills/openedge.md`
+- **OpenClaw** — posiziona in `~/.openclaw/skills/openedge/SKILL.md`
+- **Qualsiasi altro framework** — il file è autonomo, nessuna dipendenza esterna
 
 ---
 
@@ -397,6 +411,55 @@ I tag di tipo BOOL sono salvati come FLOAT:
    GET /api/aiops/anomalies?tag_id={id}&window_hours=24
 3. Se anomaly_count > 0 → analisi Claude + ticket
 ```
+
+---
+
+## 7b. Setup Cron Job
+
+Ogni pattern della sezione 7 può essere eseguito come cron job autonomo.
+L'agente riceve il task, legge questa skill, chiama gli endpoint, e agisce.
+
+### Esempio crontab (Linux/macOS)
+
+```cron
+# OpenEdge AI Agent — cron jobs
+# Variabili di ambiente necessarie:
+#   OPENEDGE_HOST, OPENEDGE_PORT, OPENEDGE_USERNAME, OPENEDGE_PASSWORD, OPENEDGE_ORG_ID
+
+# Alarm Monitor — ogni 5 minuti
+*/5 * * * * /usr/local/bin/openclaw run openedge "controlla allarmi attivi e notifica se critical"
+
+# Gateway Health Monitor — ogni 15 minuti
+*/15 * * * * /usr/local/bin/openclaw run openedge "verifica stato connessione tutti i gateway"
+
+# Anomaly Detector — ogni ora
+0 * * * * /usr/local/bin/openclaw run openedge "rileva anomalie Z-score su tutti i tag attivi delle ultime 24 ore"
+
+# Daily Report — ogni giorno alle 07:00
+0 7 * * * /usr/local/bin/openclaw run openedge "genera report giornaliero allarmi e stato impianto, invia via email"
+```
+
+### Con Claude Code (schedule skill)
+
+```bash
+# Alarm monitor ogni 5 minuti
+/schedule "*/5 * * * *" "controlla allarmi OpenEdge, notifica se ci sono critical attivi"
+
+# Daily report ogni giorno alle 07:00
+/schedule "0 7 * * *" "genera report giornaliero OpenEdge con digest allarmi e summary tag"
+```
+
+### Variabili d'ambiente consigliate
+
+```bash
+export OPENEDGE_HOST=localhost
+export OPENEDGE_PORT=8081
+export OPENEDGE_USERNAME=admin
+export OPENEDGE_PASSWORD=<password>
+export OPENEDGE_ORG_ID=1
+```
+
+L'agente sostituisce `{OPENEDGE_HOST}` ecc. con queste variabili prima di ogni chiamata.
 
 ---
 
