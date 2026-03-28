@@ -35,52 +35,93 @@ OPENEDGE_ORG_ID=1
 
 ## 1. Deploy — Prima installazione
 
-> ⚠️ **CRITICO — leggi prima di procedere**
->
-> NON usare `docker-compose up -d` direttamente.
-> I driver (Modbus, S7, OPC UA, MQTT, Redis) sono immagini Docker che devono
-> essere buildate prima dell'avvio. Se non vengono buildate, quando crei un
-> Gateway dalla UI il driver-manager non trova l'immagine e il container non parte.
->
-> Usa **sempre e solo `make start`** per la prima installazione.
+Segui questi passi **nell'ordine esatto**. Non procedere al passo successivo
+se il precedente non è verificato con successo.
+
+### Passo 1 — Clona il repository
 
 ```bash
-# 1. Clona il repository
 git clone https://github.com/inferis995/openedge.git
 cd openedge
-
-# 2. Build immagini driver + avvio tutti i servizi  ← NON saltare questo step
-make start
-
-# 3. Verifica che tutto sia up (attendi ~30 secondi dopo make start)
-curl http://localhost:8081/ready
-# Atteso: {"status":"ready","db":"ok","redis":"ok"}
-
-# 4. Verifica che le immagini driver siano state buildate
-docker images | grep industrial-driver
-# Devono comparire: industrial-driver-modbus, industrial-driver-s7,
-#                   industrial-driver-opcua, industrial-driver-mqtt, industrial-driver-redis
 ```
 
-`make start` fa automaticamente:
-- **Build** di tutte le immagini Docker (inclusi i 5 driver: Modbus, S7, OPC UA, MQTT, Redis)
-- **Avvio** di PostgreSQL/TimescaleDB, Redis, Mosquitto, core-api, web-ui, driver-manager
-- **Applicazione** di tutte le migration DB
-
-**UI:** `http://localhost:3000` — Login: `admin / admin123`
-
-### Se hai già fatto `docker-compose up` senza `make start`
+### Passo 2 — Build + avvio con make start
 
 ```bash
-# Builda le immagini driver mancanti (senza fermare i servizi)
+make start
+```
+
+`make start` esegue in sequenza:
+1. Build di tutte le immagini Docker (core-api, web-ui, driver-manager, engine-historian)
+2. Build delle 5 immagini driver (Modbus, S7, OPC UA, MQTT, Redis) ← **necessarie per i gateway**
+3. Avvio di tutti i servizi
+4. Applicazione delle migration DB
+
+**Non usare `docker-compose up -d` — salta il build delle immagini driver.**
+
+### Passo 3 — Verifica immagini driver (OBBLIGATORIO prima di creare gateway)
+
+```bash
+docker images | grep industrial-driver
+```
+
+L'output deve mostrare **tutte e 5** queste immagini:
+
+```
+industrial-driver-modbus    latest   ...
+industrial-driver-s7        latest   ...
+industrial-driver-opcua     latest   ...
+industrial-driver-mqtt      latest   ...
+industrial-driver-redis     latest   ...
+```
+
+Se mancano alcune immagini, NON procedere alla creazione del gateway.
+Esegui prima:
+
+```bash
 docker-compose -f docker-compose.yml -f docker-compose.build.yml build
+```
 
-# Oppure solo il driver che ti serve, es. Modbus:
-docker-compose -f docker-compose.yml -f docker-compose.build.yml build driver-modbus
+Poi ricontrolla con `docker images | grep industrial-driver`.
 
-# Non serve ricreare il gateway — driver-manager riprova automaticamente
-# Verifica nei log:
-docker logs industrial-driver-manager --tail 30
+### Passo 4 — Verifica sistema operativo
+
+```bash
+curl http://localhost:8081/ready
+```
+
+Atteso: `{"status":"ready","db":"ok","redis":"ok"}`
+
+Se risponde con errore, attendi 30 secondi e riprova (i container stanno ancora avviandosi).
+
+### Passo 5 — Solo ora puoi creare gateway
+
+Apri `http://localhost:3000` — Login: `admin / admin123`
+
+Crea un gateway dalla UI. Il driver-manager avvierà automaticamente
+il container driver corretto (es. `industrial-driver-modbus`) non appena
+il gateway viene salvato.
+
+Verifica che il driver sia partito:
+
+```bash
+docker ps | grep driver
+# Deve comparire: openedge-driver-modbus-<gateway_id>   Up X seconds
+```
+
+Verifica stato connessione via API:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8081/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin123"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  http://localhost:8081/api/gateways
+# connection_status: "online"  → driver connesso al PLC ✓
+# connection_status: "offline" → driver partito ma PLC non raggiungibile
+# connection_status: "unknown" → driver sta ancora avviandosi, attendi
 ```
 
 ---
