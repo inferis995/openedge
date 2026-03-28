@@ -1,0 +1,51 @@
+# Driver image build definitions
+# These images are built here but NEVER started directly.
+# driver-manager spawns them automatically when you create a Gateway in the UI.
+#
+# Usage:
+#   Build all images (main + drivers):  docker-compose -f docker-compose.yml -f docker-compose.build.yml build
+#   Or simply run:                      make start
+services:
+  driver-modbus:
+    build:
+      context: .
+      dockerfile: services/driver-modbus/Dockerfile
+    image: industrial-driver-modbus:latest
+    networks:
+      - industrial-network
+
+  driver-redis:
+    build:
+      context: .
+      dockerfile: services/driver-redis/Dockerfile
+    image: industrial-driver-redis:latest
+    networks:
+      - industrial-network
+
+  driver-s7:
+    build:
+      context: .
+      dockerfile: services/driver-s7/Dockerfile
+    image: industrial-driver-s7:latest
+    networks:
+      - industrial-network
+
+  driver-mqtt:
+    build:
+      context: .
+      dockerfile: services/driver-mqtt/Dockerfile
+    image: industrial-driver-mqtt:latest
+    networks:
+      - industrial-network
+
+  driver-opcua:
+    build:
+      context: .
+      dockerfile: services/driver-opcua/Dockerfile
+    image: industrial-driver-opcua:latest
+    networks:
+      - industrial-network
+
+networks:
+  industrial-network:
+    driver: bridge

@@ -1,5 +1,10 @@
 # Load environment variables from .env file (copy .env.example to .env)
 # For production: use Docker secrets or external secret management
+#
+# IMPORTANT: Use 'make start' (or the commands in Makefile) to start.
+# This builds driver images first, then starts services.
+# Driver containers (modbus/redis/s7/mqtt/opcua) are NOT started here;
+# they are spawned by driver-manager only when you create a Gateway.
 services:
   postgres:
     image: timescale/timescaledb-ha:pg16
@@ -141,53 +146,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    networks:
-      - industrial-network
-
-  # Driver Images (Built for Driver Manager to spawn)
-  # These are IMAGES ONLY - driver-manager spawns containers with correct GATEWAY_ID
-  driver-modbus:
-    build:
-      context: .
-      dockerfile: services/driver-modbus/Dockerfile
-    image: industrial-driver-modbus:latest
-    profiles: [ "build-only" ] # Never start, only for building image
-    networks:
-      - industrial-network
-
-  driver-redis:
-    build:
-      context: .
-      dockerfile: services/driver-redis/Dockerfile
-    image: industrial-driver-redis:latest
-    profiles: [ "build-only" ] # Never start, only for building image
-    networks:
-      - industrial-network
-
-  driver-s7:
-    build:
-      context: .
-      dockerfile: services/driver-s7/Dockerfile
-    image: industrial-driver-s7:latest
-    profiles: [ "build-only" ] # Never start, only for building image
-    networks:
-      - industrial-network
-
-  driver-mqtt:
-    build:
-      context: .
-      dockerfile: services/driver-mqtt/Dockerfile
-    image: industrial-driver-mqtt:latest
-    profiles: [ "build-only" ] # Never start, only for building image
-    networks:
-      - industrial-network
-
-  driver-opcua:
-    build:
-      context: .
-      dockerfile: services/driver-opcua/Dockerfile
-    image: industrial-driver-opcua:latest
-    profiles: [ "build-only" ] # Never start, only for building image
     networks:
       - industrial-network
 
