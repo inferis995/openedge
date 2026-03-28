@@ -176,7 +176,14 @@
       "Bash(docker restart:*)",
       "Bash(docker:*)",
       "Bash(curl:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(python3:*)",
+      "Bash(date:*)",
+      "Bash(docker exec industrial-postgres psql -U industrial_user -d industrial_edge:*)",
+      "Bash(docker exec industrial-redis redis-cli:*)",
+      "Bash(docker logs industrial-core-api:*)",
+      "Bash(docker logs industrial-postgres:*)",
+      "Bash(docker ps:*)"
     ]
   }
 }
