@@ -1,0 +1,78 @@
+name: Build Skills Index
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '*/SKILL.md'
+  workflow_dispatch:
+
+jobs:
+  build-index:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate skills.json
+        run: |
+          node - <<'EOF'
+          const fs   = require('fs');
+          const path = require('path');
+
+          const skills = [];
+
+          // Scan root dirs for SKILL.md
+          for (const entry of fs.readdirSync('.', { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const skillFile = path.join(entry.name, 'SKILL.md');
+            if (!fs.existsSync(skillFile)) continue;
+
+            const content = fs.readFileSync(skillFile, 'utf8');
+
+            // Parse YAML frontmatter
+            const match = content.match(/^---\n([\s\S]*?)\n---/);
+            if (!match) continue;
+
+            const fm = {};
+            for (const line of match[1].split('\n')) {
+              const [key, ...rest] = line.split(':');
+              if (!key) continue;
+              let val = rest.join(':').trim();
+              // Parse arrays: [a, b, c]
+              if (val.startsWith('[')) {
+                val = val.slice(1,-1).split(',').map(s => s.trim().replace(/^['"]|['"]$/g,''));
+              }
+              fm[key.trim()] = val;
+            }
+
+            if (!fm.name || !fm.description) continue;
+
+            skills.push({
+              name:        fm.name,
+              version:     fm.version || '1.0.0',
+              description: fm.description,
+              tags:        Array.isArray(fm.tags) ? fm.tags : [],
+              path:        skillFile
+            });
+          }
+
+          skills.sort((a, b) => a.name.localeCompare(b.name));
+          fs.writeFileSync('skills.json', JSON.stringify({ skills }, null, 2) + '\n');
+          console.log(`Generated skills.json with ${skills.length} skill(s)`);
+          skills.forEach(s => console.log(`  - ${s.name} v${s.version}`));
+          EOF
+
+      - name: Commit skills.json if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add skills.json
+          if git diff --cached --quiet; then
+            echo "skills.json unchanged, nothing to commit"
+          else
+            git commit -m "chore: regenerate skills.json [skip ci]"
+            git push
+          fi
