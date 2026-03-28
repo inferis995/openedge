@@ -50,17 +50,19 @@ docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \
 # Singolo tag (sostituisci <TAG_ID> con l'ID reale)
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8081/api/tags/<TAG_ID>/current
 
-# Tutti i valori correnti via Redis direttamente
-docker exec industrial-redis redis-cli KEYS "tag:*:value" 2>/dev/null || \
-docker exec industrial-redis redis-cli KEYS "*" | head -30
+# Tutti i valori correnti via Redis direttamente (chiave reale: realtime:{tag_id})
+docker exec industrial-redis redis-cli KEYS "realtime:*" 2>/dev/null | head -30
+
+# Leggere il valore di un tag specifico da Redis
+docker exec industrial-redis redis-cli GET "realtime:<TAG_ID>"
 ```
 
 ### 3. STORICO / GRAFICI DI UN TAG
 
 ```bash
-# Storico ultimi 60 minuti per tag ID X (auto-resampling 10s)
+# Storico ultimi 60 minuti per tag ID X (start/end in formato ISO 8601)
 curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8081/api/history?tag_id=<TAG_ID>&from=$(date -u -d '1 hour ago' +%s)000&to=$(date -u +%s)000&interval=1m" \
+  "http://localhost:8081/api/history?tag_id=<TAG_ID>&start=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)&end=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   | python3 -m json.tool
 
 # Query diretta TimescaleDB - ultimi 100 punti raw
@@ -164,23 +166,7 @@ docker exec industrial-postgres psql -U industrial_user -d industrial_edge -c \
    ORDER BY o.name, s.name, a.name, g.name;"
 ```
 
-### 8. BATCH STORICO PIÙ TAG (per grafici multi-trend)
-
-```bash
-# Batch query per IDs [1,2,3] - ultimi 30 minuti
-curl -s -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  http://localhost:8081/api/history/batch \
-  -d "{
-    \"tag_ids\": [1, 2, 3],
-    \"from\": $(date -u -d '30 minutes ago' +%s)000,
-    \"to\": $(date -u +%s)000,
-    \"interval\": \"1m\",
-    \"aggregation\": \"mean\"
-  }" | python3 -m json.tool
-```
-
-### 9. STATO SISTEMA
+### 8. STATO SISTEMA
 
 ```bash
 # Health check API
@@ -205,7 +191,7 @@ docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" | grep industrial
 3. **Per ricerche per nome**: usa `ILIKE '%nome%'` in SQL o filtra il JSON in output.
 4. **Per valori real-time**: usa `/api/tags/<id>/current` — risponde con `{"v": valore, "ts": timestamp_ms, "q": qualità}`.
 5. **Per grafici**: usa `/api/history` con parametri `from`, `to`, `interval` (es. `10s`, `1m`, `5m`, `1h`). Qualità `q=0` = GOOD.
-6. **Qualità tag**: `0`=GOOD, `1`=BAD, `2`=STALE, `3`=UNCERTAIN.
+6. **Qualità tag** (da `history.go`): `0`=GOOD, `1`=BAD (errore comunicazione), `2`=STALE (ultimo valore noto, timestamp vecchio), `3`=UNCERTAIN (dato non affidabile).
 7. **Severity allarmi**: `info` < `warning` < `critical`.
 8. **Se il container DB non risponde**: controlla con `docker ps | grep postgres`.
 9. **Se la API non risponde**: controlla con `docker ps | grep core-api` e `docker logs industrial-core-api --tail 20`.
