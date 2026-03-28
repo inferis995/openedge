@@ -74,6 +74,8 @@
 - [Configuration](#-configuration)
 - [Deployment](#-deployment)
 - [API Documentation](#-api-documentation)
+  - [Core Endpoints](#core-endpoints)
+  - [AI Agent Integration](#ai-agent-integration-read-only)
 - [Development](#-development)
 - [Troubleshooting](#-troubleshooting)
 - [Contributing](#-contributing)
@@ -229,23 +231,6 @@ ENCRYPTION_KEY= # 32-character key for AES-256
 
 ## 🚀 Deployment
 
-### Quick Start (Recommended)
-
-```bash
-# Clone
-git clone https://github.com/inferis995/openedge.git
-cd openedge
-
-# Build driver images + start all services
-make start
-
-# Check status
-docker-compose ps
-
-# View logs
-make logs
-```
-
 ### Useful Commands
 
 ```bash
@@ -287,18 +272,64 @@ docker-compose down
 
 ## 📚 API Documentation
 
-### REST API Endpoints
+Base URL: `http://localhost:8081`
+
+All endpoints (except `/health` and `/ready`) require JWT authentication:
+
+```bash
+# Login
+TOKEN=$(curl -s -X POST http://localhost:8081/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin123"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# Use token in subsequent requests
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  http://localhost:8081/api/tags
+```
+
+### Core Endpoints
 
 ```
-GET  /api/health          # Health check
-GET  /api/tags            # List all tags
-GET  /api/tags/:id        # Get tag details
-POST /api/tags/:id/write  # Write tag value
-GET  /api/alarms          # List alarms
-GET  /api/history         # Historical data
-GET  /api/system          # System settings
-PUT  /api/system          # Update settings
+GET  /health                      # Server health check
+GET  /ready                       # Full readiness check (DB + Redis)
+
+GET  /api/tags                    # List all tags
+GET  /api/tags/:id                # Get tag details
+GET  /api/tags/:id/current        # Real-time value from Redis
+POST /api/tags/:id/write          # Write value to tag
+
+GET  /api/gateways                # List gateways with connection status
+GET  /api/alarms/active           # Active & acknowledged alarms
+GET  /api/alarms/history          # Alarm history
+GET  /api/history                 # Raw historical data
+GET  /api/history/stats           # Aggregated statistics
+
+GET  /api/system                  # System settings
+PUT  /api/system                  # Update settings
+POST /api/backup                  # Create DB backup
+POST /api/restore                 # Restore from backup
 ```
+
+### AI Agent Integration (read-only)
+
+These endpoints provide optimized responses for AI agents and automation systems — a single call returns everything needed without N+1 queries:
+
+```
+GET  /api/aiops/summary?hours=24
+     # Org-wide snapshot: tag stats, alarm counts, gateway status
+     # Returns: active_alarms_count, critical_alarms_count, total_gateways_count, tags[]
+
+GET  /api/aiops/anomalies?tag_id=5&window_hours=168&baseline_days=30
+     # Z-score anomaly detection on a specific tag
+     # Returns: baseline_mean, baseline_std_dev, anomaly_count, anomalies[]
+
+GET  /api/aiops/alarms/digest?hours=24
+     # Alarm digest grouped by severity — ideal for reports and notifications
+     # Returns: total_fired, still_active, cleared, by_severity{}, alarms[]
+```
+
+All AI-Ops endpoints are read-only, org-scoped, and have a 30-second query timeout.
 
 ### WebSocket
 
