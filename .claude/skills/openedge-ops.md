@@ -35,25 +35,53 @@ OPENEDGE_ORG_ID=1
 
 ## 1. Deploy — Prima installazione
 
+> ⚠️ **CRITICO — leggi prima di procedere**
+>
+> NON usare `docker-compose up -d` direttamente.
+> I driver (Modbus, S7, OPC UA, MQTT, Redis) sono immagini Docker che devono
+> essere buildate prima dell'avvio. Se non vengono buildate, quando crei un
+> Gateway dalla UI il driver-manager non trova l'immagine e il container non parte.
+>
+> Usa **sempre e solo `make start`** per la prima installazione.
+
 ```bash
 # 1. Clona il repository
 git clone https://github.com/inferis995/openedge.git
 cd openedge
 
-# 2. Build immagini driver + avvio tutti i servizi
+# 2. Build immagini driver + avvio tutti i servizi  ← NON saltare questo step
 make start
 
-# 3. Verifica che tutto sia up
+# 3. Verifica che tutto sia up (attendi ~30 secondi dopo make start)
 curl http://localhost:8081/ready
 # Atteso: {"status":"ready","db":"ok","redis":"ok"}
+
+# 4. Verifica che le immagini driver siano state buildate
+docker images | grep industrial-driver
+# Devono comparire: industrial-driver-modbus, industrial-driver-s7,
+#                   industrial-driver-opcua, industrial-driver-mqtt, industrial-driver-redis
 ```
 
 `make start` fa automaticamente:
-- Build di tutte le immagini Docker (inclusi i 5 driver: Modbus, S7, OPC UA, MQTT, Redis)
-- Avvio di PostgreSQL/TimescaleDB, Redis, Mosquitto, core-api, web-ui, driver-manager
-- Applicazione di tutte le migration DB
+- **Build** di tutte le immagini Docker (inclusi i 5 driver: Modbus, S7, OPC UA, MQTT, Redis)
+- **Avvio** di PostgreSQL/TimescaleDB, Redis, Mosquitto, core-api, web-ui, driver-manager
+- **Applicazione** di tutte le migration DB
 
 **UI:** `http://localhost:3000` — Login: `admin / admin123`
+
+### Se hai già fatto `docker-compose up` senza `make start`
+
+```bash
+# Builda le immagini driver mancanti (senza fermare i servizi)
+docker-compose -f docker-compose.yml -f docker-compose.build.yml build
+
+# Oppure solo il driver che ti serve, es. Modbus:
+docker-compose -f docker-compose.yml -f docker-compose.build.yml build driver-modbus
+
+# Non serve ricreare il gateway — driver-manager riprova automaticamente
+# Verifica nei log:
+docker logs industrial-driver-manager --tail 30
+```
 
 ---
 
@@ -112,6 +140,29 @@ curl http://localhost:8081/ready    # {"status":"ready","db":"ok","redis":"ok"} 
 ---
 
 ## 4. Fix problemi comuni
+
+### Problema: gateway creato dalla UI ma il driver non parte
+
+Sintomo: crei un gateway Modbus/S7/OPC UA dalla UI ma il container driver non appare in `docker ps`.
+
+Causa più comune: le immagini driver non sono state buildate (hai usato `docker-compose up` invece di `make start`).
+
+```bash
+# 1. Verifica se le immagini esistono
+docker images | grep industrial-driver
+# Se l'output è vuoto → le immagini non ci sono → builda subito:
+
+# 2. Builda le immagini driver
+docker-compose -f docker-compose.yml -f docker-compose.build.yml build
+
+# 3. Controlla i log del driver-manager per conferma
+docker logs industrial-driver-manager --tail 30
+# Cerca: "starting driver for gateway X" oppure errori "image not found"
+
+# 4. Non serve ricreare il gateway — il driver-manager riprova automaticamente
+#    dopo che l'immagine è disponibile. Attendi ~10 secondi.
+docker ps | grep driver
+```
 
 ### Problema: driver container in crash-loop "GATEWAY_ID required"
 Causa: driver avviato manualmente invece che da driver-manager.
