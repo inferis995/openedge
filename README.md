@@ -67,9 +67,9 @@
 ## 📋 Table of Contents
 
 - [Screenshots](#-screenshots)
-- [Plug-and-Play Setup](#-plug-and-play-setup)
 - [Quick Start](#-quick-start)
 - [Architecture](#-architecture)
+- [How Drivers Work](#-how-drivers-work)
 - [Database Migrations](#-database-migrations)
 - [Configuration](#-configuration)
 - [Deployment](#-deployment)
@@ -81,64 +81,37 @@
 
 ---
 
-## 🎯 Plug-and-Play Setup
+## 🎯 Quick Start
 
-**Get OpenEdge running in under 5 minutes with zero configuration:**
+**Get OpenEdge running in under 5 minutes:**
 
 ```bash
-# 1. Clone from GitHub
+# 1. Clone the repository
 git clone https://github.com/inferis995/openedge.git
 cd openedge
 
-# 2. Start with default configuration
-docker-compose up -d
+# 2. Build all images and start services
+make start
 
-# 3. Access the web UI
-# Open http://localhost:3000 in your browser
-# Login with admin/admin123
+# 3. Open the web UI
+# http://localhost:3000  —  Login: admin / admin123
 ```
+
+> **Windows users** (no `make`): use the PowerShell script instead:
+> ```powershell
+> .\scripts\start-industrial-edge.ps1
+> ```
 
 **That's it!** The system automatically:
 - ✅ Initializes PostgreSQL with TimescaleDB
 - ✅ Creates all database tables and indexes
-- ✅ Sets up default admin user
-- ✅ Configures MQTT broker
+- ✅ Sets up the default admin user
+- ✅ Configures the MQTT broker
 - ✅ Starts Redis caching
+- ✅ Builds all driver images (Modbus, S7, OPC UA, MQTT, Redis)
 - ✅ Launches all microservices
-- ✅ Applies database migrations
 
 No manual database setup, no configuration files to edit, no dependencies to install.
-
----
-
-## ⚡ Quick Start
-
-### Prerequisites
-
-- Docker & Docker Compose
-- Go 1.21+ (for development)
-- Node.js 20+ (for UI development)
-
-### Start with Docker
-
-```bash
-# Clone the repository
-git clone https://github.com/inferis995/openedge.git
-cd openedge
-
-# Copy environment template
-cp .env.example .env
-
-# Start all services
-docker-compose up -d
-
-# Access the web UI
-open http://localhost:3000
-```
-
-**Default Credentials:**
-- Username: `admin`
-- Password: `admin123` (change immediately after first login)
 
 ### Services Started
 
@@ -150,6 +123,11 @@ open http://localhost:3000
 | PostgreSQL | 5432 | TimescaleDB |
 | Redis | 6379 | Cache & real-time data |
 
+### Default Credentials
+
+- **Username:** `admin`
+- **Password:** `admin123` ← change this after first login!
+
 ---
 
 ## 🏗️ Architecture
@@ -160,7 +138,7 @@ open http://localhost:3000
 ├─────────────────────────────────────────────────────────────┤
 │                                                               │
 │  ┌─────────────┐    ┌──────────────┐    ┌──────────────┐  │
-│  │   Drivers   │───▶│ Engine Historian│───▶│  Cloud Sync  │  │
+│  │   Drivers   │───▶│Engine Historian│───▶│  Cloud Sync  │  │
 │  │             │    │              │    │              │  │
 │  │ • Modbus    │    │ • Real-time   │    │ • Sparkplug B│  │
 │  │ • S7        │    │   History     │    │ • Forwarding │  │
@@ -180,47 +158,37 @@ open http://localhost:3000
 
 ---
 
+## ⚙️ How Drivers Work
+
+Drivers (Modbus, S7, OPC UA, MQTT, Redis) are **not started automatically**.
+They are Docker images that `driver-manager` spawns **on demand** when you
+create a Gateway in the web UI.
+
+```
+You create Gateway  →  driver-manager starts driver container with GATEWAY_ID
+You delete Gateway  →  driver-manager stops and removes the container
+```
+
+This means:
+- **0 driver containers** when no gateways are configured — this is normal
+- Each gateway gets its own isolated driver container
+- Driver images must be built before the system starts (handled by `make start`)
+
+---
+
 ## 🗄️ Database Migrations
 
-### Professional Migration System
-
-This project uses **goose**, a professional database migration tool that provides:
-- Version tracking of all database schema changes
-- Safe rollback capabilities
-- Support for complex migration scripts
-- Easy status tracking and debugging
-
-### Migration Strategy
-
-We use a professional two-stage approach:
-
-**1. Initial Setup (First Run)**
-- PostgreSQL automatically runs initialization scripts via `docker-entrypoint-initdb.d`
-- All 24 migrations are applied on first container start
-- Creates complete schema with TimescaleDB hypertables, indexes, and default data
-
-**2. Future Updates (Production)**
-- Goose tracks applied migrations in `goose_db_version` table
-- New migrations are versioned and applied incrementally
-- Supports rollback for safe schema changes
-
-### Migration Commands
+This project uses **goose** for database migrations.
 
 ```bash
 # Check migration status
 make migrate-status
-# Or: go run cmd/migrate/main.go -cmd=status
 
 # Apply pending migrations
 make migrate
-# Or: go run cmd/migrate/main.go -cmd=up
 
 # Rollback last migration
 make migrate-down
-# Or: go run cmd/migrate/main.go -cmd=down
-
-# Build standalone migration binary
-make migrate-build
 ```
 
 ---
@@ -257,87 +225,63 @@ CLOUD_MQTT_TOPIC=
 ENCRYPTION_KEY= # 32-character key for AES-256
 ```
 
-### Alarm Configuration
-
-Alarms are configured per tag with:
-- **Thresholds**: High/Limit limits with hysteresis
-- **Delays**: Time delay before triggering (seconds)
-- **Severity**: Critical, Warning, Info
-- **Actions**: MQTT publish, database logging, UI notifications
-
-### Multi-Tenant Organization System
-
-OpenEdge supports multi-tenant deployments with organization-based data isolation:
-
-**Organization Types:**
-- **Global Admin** (`org_id=NULL`): Access to all organizations and system-wide configuration
-- **Organization Members**: Access only to their assigned organization's data
-
 ---
 
 ## 🚀 Deployment
 
-### Quick Start (Consigliato)
+### Quick Start (Recommended)
 
 ```bash
-# 1. Clona il repository
+# Clone
 git clone https://github.com/inferis995/openedge.git
 cd openedge
 
-# 2. Avvia tutti i servizi
-docker-compose up -d
+# Build driver images + start all services
+make start
 
-# 3. Attendi che tutti i servizi siano healthy (circa 30-60 secondi)
+# Check status
 docker-compose ps
 
-# 4. Accedi alla Web UI
-# Apri http://localhost:3000 nel browser
-# Login: admin / admin123
+# View logs
+make logs
 ```
 
-### Servizi Disponibili
-
-| Servizio | Porta | URL | Descrizione |
-|----------|-------|-----|-------------|
-| Web UI | 3000 | http://localhost:3000 | Dashboard React |
-| Core API | 8081 | http://localhost:8081 | REST API |
-| MQTT Broker | 18830 | mqtt://localhost:18830 | Mosquitto |
-| PostgreSQL | 5432 | localhost:5432 | TimescaleDB |
-| Redis | 6379 | localhost:6379 | Cache |
-
-### Comandi Utili
+### Useful Commands
 
 ```bash
-# Visualizza logs di un servizio
-docker-compose logs -f core-api
-docker-compose logs -f driver-modbus-1
-
-# Riavvia un servizio
-docker-compose restart core-api
-
-# Ferma tutti i servizi
-docker-compose down
-
-# Ferma e rimuovi i dati (reset completo)
-docker-compose down -v
-
-# Ricostruisci le immagini
-docker-compose build --no-cache
-docker-compose up -d
+make start    # First run: build images + start services
+make up       # Start services (if images already built)
+make down     # Stop all services
+make restart  # Stop + start
+make logs     # Follow logs
+make clean    # Stop + delete all data (full reset)
 ```
 
-### Requisiti di Sistema
+### Manual (without make)
 
-**Minimi:**
-- CPU: 2 core
+```bash
+# Build all images including drivers
+docker-compose -f docker-compose.yml -f docker-compose.build.yml build
+
+# Start services
+docker-compose up -d
+
+# Stop
+docker-compose down
+```
+
+### System Requirements
+
+**Minimum:**
+- CPU: 2 cores
 - RAM: 4 GB
-- Disco: 20 GB SSD
-- Docker Desktop installato
+- Disk: 20 GB SSD
+- Docker Desktop installed
 
-**Consigliati (100+ tag):**
-- CPU: 4 core
+**Recommended (100+ tags):**
+- CPU: 4 cores
 - RAM: 8 GB
-- Disco: 100 GB SSD
+- Disk: 100 GB SSD
 
 ---
 
@@ -379,18 +323,6 @@ cd services/web-ui
 npm install
 ```
 
-### Makefile Commands
-
-```bash
-# Database migrations
-make migrate          # Apply pending migrations
-make migrate-status   # Show migration status
-make migrate-down     # Rollback last migration
-make migrate-build    # Build migration binary
-make migrate-docker   # Run migrations in Docker
-make migrate-reset    # Reset all migrations (WARNING: destroys data)
-```
-
 ### Build Services
 
 ```bash
@@ -408,82 +340,60 @@ npm run build
 
 ### Common Issues
 
-**1. Login Fails with "Invalid Credentials"**
+**1. Driver containers crash with "GATEWAY_ID required"**
 
-Even with correct admin/admin123 credentials, login may fail if:
-- Database schema is outdated
-- Run: `docker-compose exec postgres goose -dir ./migrations postgres "user=industrial_user password=industrial_pass dbname=industrial_edge" status`
+This is normal if you ran `docker-compose up -d` directly.
+Driver images must be built before they can be used by driver-manager.
+Use `make start` instead — it builds all images first, then starts services.
+Driver containers are started by driver-manager only when you create a Gateway.
 
-**2. Services Cannot Connect to Database**
+**2. Login fails with "Invalid Credentials"**
+
+Database schema may be outdated. Run:
+```bash
+make migrate-status
+make migrate
+```
+
+**3. Services cannot connect to the database**
 
 Symptom: `failed to ping database: pq: SSL is not enabled on the server`
 
-Solution: Ensure `DB_SSLMODE=disable` is set in docker-compose.yml for all services
+Solution: Ensure `DB_SSLMODE=disable` is set for all services in docker-compose.yml.
 
-**3. Migration Errors**
+**4. Mosquitto connection issues**
 
-If migrations fail to apply:
 ```bash
-# Check current migration status
-make migrate-status
-
-# View PostgreSQL logs
-docker-compose logs postgres
-
-# Reset database (WARNING: destroys all data)
-docker-compose down -v
-docker-compose up -d
+docker-compose ps mosquitto
+docker-compose logs mosquitto
 ```
 
-**4. Mosquitto Connection Issues**
+**5. Full reset (clear all data)**
 
-If drivers cannot connect to MQTT broker:
-- Check Mosquitto is running: `docker-compose ps mosquitto`
-- Verify port 18830 is not in use: `netstat -an | grep 18830`
-- Check logs: `docker-compose logs mosquitto`
-
-**5. Time-Series Data Not Appearing**
-
-If historical data is missing:
-- Verify TimescaleDB extension: `docker-compose exec postgres psql -U industrial_user -d industrial_edge -c "SELECT * FROM pg_extension WHERE extname='timescaledb'"`
-- Check hypertable status: `docker-compose exec postgres psql -U industrial_user -d industrial_edge -c "SELECT * FROM timescaledb_information.hypertables"`
+```bash
+make clean
+make start
+```
 
 ### Getting Help
 
-- Check logs: `docker-compose logs -f [service-name]`
-- Review database status: `make migrate-status`
-- Open an issue on GitHub with detailed error messages
+- Check logs: `make logs` or `docker-compose logs -f [service-name]`
+- Open an issue: https://github.com/inferis995/openedge/issues
 
 ---
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Development Workflow
-
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Commit your changes
+4. Push and open a Pull Request
 
 ---
 
 ## 📜 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## 🙏 Acknowledgments
-
-Built with:
-- [Golang](https://golang.org/) - Core platform
-- [TimescaleDB](https://www.timescale.com/) - Time-series database
-- [Eclipse Mosquitto](https://mosquitto.org/) - MQTT broker
-- [React](https://reactjs.org/) - Frontend framework
-- [Sparkplug B](https://sparkplug.eclipse.org/) - Industrial IoT standard
+MIT License — see [LICENSE](LICENSE).
 
 ---
 
