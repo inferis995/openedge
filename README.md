@@ -1,6 +1,16 @@
 <div align="center">
 
-<img src="img/icona.png" alt="OpenEdge Logo" width="200"/>
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td align="center" width="160">
+      <img src="img/robot.png" alt="OpenEdge AI Agent" width="130"/>
+    </td>
+    <td align="center" width="40"></td>
+    <td align="center" width="220">
+      <img src="img/icona.png" alt="OpenEdge Logo" width="180"/>
+    </td>
+  </tr>
+</table>
 
 # OpenEdge Industrial Edge Middleware
 
@@ -9,8 +19,11 @@
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Supported-2496ED?style=flat&logo=docker)](https://www.docker.com/)
+[![Website](https://img.shields.io/badge/Website-openedges.netlify.app-brightgreen?style=flat&logo=netlify)](https://openedges.netlify.app/)
 
 ⚡ **High-Performance** • 🏭 **Industrial-Grade** • 🔒 **Secure** • 📊 **Real-Time Analytics**
+
+🌐 **[openedges.netlify.app](https://openedges.netlify.app/)**
 
 </div>
 
