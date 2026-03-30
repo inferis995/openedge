@@ -1,6 +1,16 @@
 <div align="center">
 
-<img src="img/icona.png" alt="OpenEdge Logo" width="200"/>
+<table border="0" cellspacing="0" cellpadding="0">
+  <tr>
+    <td align="center" valign="middle" width="160">
+      <img src="img/foto.png" alt="OpenEdge AI Agent" width="130"/>
+    </td>
+    <td align="center" valign="middle" width="40"></td>
+    <td align="center" valign="middle" width="220">
+      <img src="img/icona.png" alt="OpenEdge Logo" width="180"/>
+    </td>
+  </tr>
+</table>
 
 # OpenEdge Industrial Edge Middleware
 
