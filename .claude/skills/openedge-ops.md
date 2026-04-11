@@ -45,6 +45,34 @@ git clone https://github.com/inferis995/openedge.git
 cd openedge
 ```
 
+### Passo 1b — Configura .env (percorsi dati e credenziali)
+
+```bash
+cp .env.example .env
+```
+
+Apri `.env` e scegli dove salvare i dati storici di PostgreSQL e Redis.
+Se non imposti nulla i dati finiscono in `./data/` dentro la cartella del repo.
+
+```bash
+# Default — dati nella cartella del repo (ok per test)
+POSTGRES_DATA_PATH=./data/postgres
+REDIS_DATA_PATH=./data/redis
+
+# Linux/Mac — percorso assoluto consigliato per produzione
+POSTGRES_DATA_PATH=/opt/openedge/data/postgres
+REDIS_DATA_PATH=/opt/openedge/data/redis
+
+# Windows — altra unità
+POSTGRES_DATA_PATH=D:/openedge-data/postgres
+REDIS_DATA_PATH=D:/openedge-data/redis
+```
+
+> ⚠️ **Imposta i percorsi PRIMA di `make start`.**
+> Cambiarli dopo che i dati esistono richiede backup + restore.
+
+Opzionale: cambia password e credenziali nel blocco `DATABASE CONFIGURATION` di `.env`.
+
 ### Passo 2 — Build + avvio con make start
 
 ```bash
@@ -432,14 +460,16 @@ agente riceve task:
 "Installa OpenEdge, crea gateway Modbus su 192.168.1.10, importa questi tag:
  Portata:REAL:40001, Livello:REAL:40003, Pompa:BOOL:00001.0"
 
-1. git clone + make start
-2. aspetta GET /ready == {"status":"ready",...}
-3. login → ottieni TOKEN
-4. POST /api/gateways (Modbus 192.168.1.10)  → ottieni gateway_id
-5. POST /api/tags/import con i tag in formato PLC
-6. GET /api/gateways → verifica connection_status
-7. GET /api/tags/{id}/current → verifica che i valori arrivino
-8. risponde con report stato
+1. git clone
+2. cp .env.example .env → chiedi/imposta POSTGRES_DATA_PATH e REDIS_DATA_PATH
+3. make start
+4. aspetta GET /ready == {"status":"ready",...}
+5. login → ottieni TOKEN
+6. POST /api/gateways (Modbus 192.168.1.10)  → ottieni gateway_id
+7. POST /api/tags/import con i tag in formato PLC
+8. GET /api/gateways → verifica connection_status
+9. GET /api/tags/{id}/current → verifica che i valori arrivino
+10. risponde con report stato
 ```
 
 ---
