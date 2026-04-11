@@ -292,23 +292,42 @@ make migrate-down
 
 ## ⚙️ Configuration
 
+Copy `.env.example` to `.env` and edit before first run:
+
+```bash
+cp .env.example .env
+```
+
+### Data Storage Path
+
+By default data is stored in `./data/` inside the repo folder. To store it on a different drive, set these variables in `.env`:
+
+```bash
+# Windows — store on D: drive
+POSTGRES_DATA_PATH=D:/openedge-data/postgres
+REDIS_DATA_PATH=D:/openedge-data/redis
+
+# Linux/Mac
+POSTGRES_DATA_PATH=/opt/openedge/data/postgres
+REDIS_DATA_PATH=/opt/openedge/data/redis
+```
+
+> ⚠️ Set these **before** running `make start` for the first time. Changing the path after data exists requires a backup + restore.
+
 ### Environment Variables
 
 ```bash
+# Data paths (see above)
+POSTGRES_DATA_PATH=./data/postgres
+REDIS_DATA_PATH=./data/redis
+
 # Database
-DB_HOST=postgres
-DB_PORT=5432
-DB_USER=industrial_user
-DB_PASSWORD=industrial_pass
-DB_NAME=industrial_edge
+POSTGRES_DB=industrial_edge
+POSTGRES_USER=industrial_user
+POSTGRES_PASSWORD=CHANGE_ME_IN_PRODUCTION
 
-# MQTT
-MQTT_HOST=mosquitto
-MQTT_PORT=1883
-
-# Redis
-REDIS_HOST=redis
-REDIS_PORT=6379
+# API
+PORT=8081
 
 # Cloud Sync (Optional)
 CLOUD_SYNC_ENABLED=false
