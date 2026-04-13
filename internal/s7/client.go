@@ -111,7 +111,15 @@ func NewClient(cfg Config) *Client {
 func NewClientFromConfig(connConfig map[string]interface{}) (*Client, error) {
 	ip, ok := connConfig["ip"].(string)
 	if !ok || ip == "" {
-		return nil, fmt.Errorf("missing or invalid 'ip' in connection config")
+		// fallback: UI may send ip_address instead of ip
+		ip, ok = connConfig["ip_address"].(string)
+		if !ok || ip == "" {
+			// fallback: some configs use host
+			ip, ok = connConfig["host"].(string)
+			if !ok || ip == "" {
+				return nil, fmt.Errorf("missing or invalid 'ip' in connection config")
+			}
+		}
 	}
 
 	rack := 0
