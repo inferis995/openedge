@@ -465,7 +465,7 @@ func (c *Client) readArea(area int, dbNumber int, start int, size int, dataType 
 	// Parse data response
 	// Data starts after S7 header + parameter header
 	paramLen := binary.BigEndian.Uint16(response[13:])
-	dataStart := 17 + int(paramLen)
+	dataStart := 19 + int(paramLen)
 
 	if dataStart+4 > n {
 		return nil, fmt.Errorf("data response too short")
@@ -481,10 +481,8 @@ func (c *Client) readArea(area int, dbNumber int, start int, size int, dataType 
 	// transportSizeResp := response[dataStart+1]
 	dataLen := binary.BigEndian.Uint16(response[dataStart+2:])
 
-	// For bit/byte transport, length is in bits, convert to bytes
-	if transportSize == s7TransportBit || transportSize == s7TransportByte {
-		dataLen = (dataLen + 7) / 8
-	}
+	// S7 response length is always in bits — convert to bytes
+	dataLen = (dataLen + 7) / 8
 
 	// Extract data
 	dataOffset := dataStart + 4
@@ -873,8 +871,8 @@ func (c *Client) writeArea(area int, dbNumber int, start int, bitOffset int, dat
 	// Check item return code
 	// Param length
 	paramLen := binary.BigEndian.Uint16(response[13:])
-	// Data starts after param
-	itemReturnCodeOffset := 17 + int(paramLen)
+	// Data starts after S7 header (19 bytes) + params
+	itemReturnCodeOffset := 19 + int(paramLen)
 	if itemReturnCodeOffset >= n {
 		return fmt.Errorf("invalid response format")
 	}
