@@ -538,16 +538,11 @@ func (d *Driver) handleHealthMessage(topic string, payload []byte) {
 		return
 	}
 
-	// Check if gateway is coming online
+	// Ignore own health messages — only react to external "online" events
+	// (e.g. from core-api restoring a gateway). The driver itself publishes
+	// health status from run()/poll(), so reacting to it would deadlock.
 	status := strings.ToLower(strings.TrimSpace(string(payload)))
-	if status == "online" {
-		log.Printf("[DRIVER-S7] Gateway %d is ONLINE - auto-reloading config and tags", d.gatewayID)
-		if err := d.loadConfig(); err != nil {
-			log.Printf("[DRIVER-S7] Auto-reload failed: %v", err)
-		} else {
-			log.Printf("[DRIVER-S7] Auto-reload successful - %d tags loaded", len(d.config.Tags))
-		}
-	}
+	log.Printf("[DRIVER-S7] Health event for gateway %d: %s (ignored — self-published)", healthGatewayID, status)
 }
 
 // WriteCommand represents a write command from MQTT
@@ -776,6 +771,9 @@ func (d *Driver) run() {
 	// Connect to S7 PLC
 	if err := d.connectS7(); err != nil {
 		log.Printf("Initial S7 connection failed: %v (will retry on poll)", err)
+		d.publishHealthStatus("offline")
+	} else {
+		d.publishHealthStatus("online")
 	}
 
 	ticker := time.NewTicker(scanRate)
@@ -835,13 +833,14 @@ func (d *Driver) connectS7() error {
 
 	d.s7Client = client
 	log.Println("Connected to S7 PLC")
-
-	// Publish online status to MQTT health topic
-	healthTopic := fmt.Sprintf("sys/health/%d", d.gatewayID)
-	d.mqttClient.PublishWithQoS(healthTopic, "online", 1, true)
-	log.Printf("[DRIVER] Health status published: online")
-
 	return nil
+}
+
+// publishHealthStatus publishes online/offline to MQTT health topic
+func (d *Driver) publishHealthStatus(status string) {
+	healthTopic := fmt.Sprintf("sys/health/%d", d.gatewayID)
+	d.mqttClient.PublishWithQoS(healthTopic, status, 1, true)
+	log.Printf("[DRIVER] Health status: %s", status)
 }
 
 // poll reads data from the S7 PLC and publishes to MQTT
@@ -870,9 +869,7 @@ func (d *Driver) poll() {
 		if err := d.connectS7(); err != nil {
 			log.Printf("S7 reconnection failed: %v", err)
 
-			// Publish offline status
-			healthTopic := fmt.Sprintf("sys/health/%d", d.gatewayID)
-			d.mqttClient.PublishWithQoS(healthTopic, "offline", 1, true)
+			d.publishHealthStatus("offline")
 
 			// Publish BAD quality for all tags
 			for _, tag := range config.Tags {
@@ -890,6 +887,7 @@ func (d *Driver) poll() {
 			}
 			return
 		}
+		d.publishHealthStatus("online")
 	}
 
 	// Read and publish each tag
