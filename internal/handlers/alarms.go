@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -337,9 +339,18 @@ func (h *AlarmHandler) SaveTagAlarmConfig(c *gin.Context) {
 		return
 	}
 
-	// 3. Notify drivers to reload settings
+	// 3. Notify the driver to reload alarm definitions
 	if h.mqttClient != nil {
-		h.mqttClient.PublishWithQoS("sys/command/settings-reload", "reload", 1, false)
+		var gatewayID int
+		if err := h.db.QueryRow("SELECT gateway_id FROM tags WHERE id = $1", tagID).Scan(&gatewayID); err == nil {
+			topic := fmt.Sprintf("sys/command/reload/%d", gatewayID)
+			log.Printf("[ALARM-HANDLER] Publishing reload to %s for tag %d", topic, tagID)
+			h.mqttClient.PublishWithQoS(topic, "alarm-reload", 1, false)
+		} else {
+			log.Printf("[ALARM-HANDLER] Failed to find gateway for tag %d: %v", tagID, err)
+		}
+	} else {
+		log.Printf("[ALARM-HANDLER] MQTT client is nil, cannot notify driver")
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Alarms saved successfully"})

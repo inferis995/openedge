@@ -508,7 +508,12 @@ func (d *Driver) handleReloadCommand(topic string, payload []byte) {
 
 	log.Printf("Received reload command for gateway %d", d.gatewayID)
 
-	// Signal reload (non-blocking)
+	// Reload alarm definitions immediately (safe from any goroutine)
+	if d.alarmManager != nil {
+		d.alarmManager.LoadDefinitions()
+	}
+
+	// Signal config reload (non-blocking)
 	select {
 	case d.reloadChan <- struct{}{}:
 	default:
