@@ -7,7 +7,7 @@
 # they are spawned by driver-manager only when you create a Gateway.
 services:
   postgres:
-    image: timescale/timescaledb-ha:pg16
+    image: timescale/timescaledb:latest-pg16
     container_name: industrial-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-industrial_edge}
@@ -16,7 +16,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ${POSTGRES_DATA_PATH:-./data/postgres}:/var/lib/postgresql/data
+      - ${POSTGRES_DATA_PATH:-postgres_data}:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge}" ]
@@ -38,7 +38,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - ${REDIS_DATA_PATH:-./data/redis}:/data
+      - ${REDIS_DATA_PATH:-redis_data}:/data
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
@@ -225,8 +225,14 @@ services:
     networks:
       - industrial-network
 
-# Data volumes are now bind mounts configured via .env
-# POSTGRES_DATA_PATH and REDIS_DATA_PATH — see .env.example
+# Named volumes (default) — data persists across restarts, deleted only with 'make clean'
+# To use a path on your disk instead (Linux/Mac only), set in .env:
+#   POSTGRES_DATA_PATH=/opt/openedge/data/postgres
+#   REDIS_DATA_PATH=/opt/openedge/data/redis
+# WARNING: bind mounts do NOT work on Windows due to Docker Desktop permission limitations.
+volumes:
+  postgres_data:
+  redis_data:
 
 networks:
   industrial-network:
