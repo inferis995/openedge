@@ -178,8 +178,13 @@ The `openedge-ops` skill gives the agent everything it needs to deploy OpenEdge 
 ```
 "Installa OpenEdge su questo server e crea un gateway Modbus su 192.168.1.10"
 
-"Importa questi tag sul gateway PLC-1:
+"Importa questi tag Modbus sul gateway PLC-1:
  Portata:REAL:40001, Livello:REAL:40003, Pompa1:BOOL:00001.0"
+
+"Importa questi tag S7 sul gateway PLC-S7:
+ DB1_REAL4 : REAL AT DB1.DBD4;
+ DB1_INT0  : INT  AT DB1.DBW0;
+ M0_0      : BOOL AT M0.0;"
 
 "Il driver del gateway non è partito — diagnostica e risolvi"
 ```
@@ -423,6 +428,44 @@ GET  /api/system                  # System settings
 PUT  /api/system                  # Update settings
 POST /api/backup                  # Create DB backup
 POST /api/restore                 # Restore from backup
+```
+
+### Tag Import Format
+
+Tags are imported via `POST /api/tags/import` using a PLC-style address syntax.
+The format is: `Alias : DataType AT Address;`
+
+**Modbus TCP** — register addresses:
+```
+Portata_Ingresso : REAL AT 40001;   # Holding register 40001 (REAL = 2 registers)
+Livello_Vasca    : REAL AT 40003;   # Holding register 40003
+Pressione        : INT  AT 40005;   # Holding register 40005
+Pompa_On         : BOOL AT 00001.0; # Coil 1, bit 0
+```
+
+**Siemens S7** — DB / Merker / I/O addresses:
+```
+DB1_REAL4 : REAL AT DB1.DBD4;   # DB1, double word offset 4 (float32)
+DB1_REAL8 : REAL AT DB1.DBD8;   # DB1, double word offset 8
+DB1_INT0  : INT  AT DB1.DBW0;   # DB1, word offset 0
+DB1_INT2  : INT  AT DB1.DBW2;   # DB1, word offset 2
+DB1_INT12 : INT  AT DB1.DBW12;  # DB1, word offset 12
+M0_0      : BOOL AT M0.0;       # Merker byte 0, bit 0
+```
+
+Supported data types: `BOOL`, `INT`, `UINT`, `DINT`, `UDINT`, `REAL`, `STRING`, `WORD`
+
+```bash
+curl -s -X POST http://localhost:8081/api/tags/import \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Organization-ID: 1" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "gateway_id": 3,
+    "historize": true,
+    "content": "DB1_REAL4 : REAL AT DB1.DBD4;\nDB1_INT0 : INT AT DB1.DBW0;\nM0_0 : BOOL AT M0.0;"
+  }'
+# Response: {"created": 3, "updated": 0, "errors": []}
 ```
 
 ### AI Agent Integration (read-only)

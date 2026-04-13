@@ -375,6 +375,27 @@ curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
 
 Formato testo: `Alias : Tipodato AT Indirizzo;`
 
+**Modbus TCP** — indirizzi registro:
+```
+Portata_Ingresso : REAL AT 40001;   # registro holding 40001 (REAL = 2 registri)
+Livello_Vasca    : REAL AT 40003;   # registro holding 40003
+Pressione        : INT  AT 40005;   # registro holding 40005
+Pompa_On         : BOOL AT 00001.0; # coil 1, bit 0
+```
+
+**Siemens S7** — indirizzi DB / Merker / I/O:
+```
+DB1_REAL4 : REAL AT DB1.DBD4;   # DB1, double word offset 4 (float32)
+DB1_REAL8 : REAL AT DB1.DBD8;   # DB1, double word offset 8
+DB1_INT0  : INT  AT DB1.DBW0;   # DB1, word offset 0
+DB1_INT2  : INT  AT DB1.DBW2;   # DB1, word offset 2
+DB1_INT12 : INT  AT DB1.DBW12;  # DB1, word offset 12
+M0_0      : BOOL AT M0.0;       # Merker byte 0, bit 0
+```
+
+Tipi dati supportati: `BOOL`, `INT`, `UINT`, `DINT`, `UDINT`, `REAL`, `STRING`, `WORD`
+
+Esempio chiamata API Modbus:
 ```
 POST /api/tags/import
 Authorization: Bearer {TOKEN}
@@ -388,7 +409,19 @@ Content-Type: application/json
 }
 ```
 
-Tipi dati supportati: `BOOL`, `INT`, `UINT`, `DINT`, `UDINT`, `REAL`, `STRING`, `WORD`
+Esempio chiamata API S7:
+```
+POST /api/tags/import
+Authorization: Bearer {TOKEN}
+X-Organization-ID: {ORG_ID}
+Content-Type: application/json
+
+{
+  "gateway_id": 4,
+  "historize": true,
+  "content": "DB1_REAL4 : REAL AT DB1.DBD4;\nDB1_REAL8 : REAL AT DB1.DBD8;\nDB1_INT0 : INT AT DB1.DBW0;\nDB1_INT12 : INT AT DB1.DBW12;\nDB1_INT2 : INT AT DB1.DBW2;\nM0_0 : BOOL AT M0.0;"
+}
+```
 
 Risposta:
 ```json
