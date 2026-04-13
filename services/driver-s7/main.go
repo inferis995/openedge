@@ -835,6 +835,12 @@ func (d *Driver) connectS7() error {
 
 	d.s7Client = client
 	log.Println("Connected to S7 PLC")
+
+	// Publish online status to MQTT health topic
+	healthTopic := fmt.Sprintf("sys/health/%d", d.gatewayID)
+	d.mqttClient.PublishWithQoS(healthTopic, "online", 1, true)
+	log.Printf("[DRIVER] Health status published: online")
+
 	return nil
 }
 
@@ -863,6 +869,10 @@ func (d *Driver) poll() {
 		log.Printf("S7 not connected, attempting reconnection...")
 		if err := d.connectS7(); err != nil {
 			log.Printf("S7 reconnection failed: %v", err)
+
+			// Publish offline status
+			healthTopic := fmt.Sprintf("sys/health/%d", d.gatewayID)
+			d.mqttClient.PublishWithQoS(healthTopic, "offline", 1, true)
 
 			// Publish BAD quality for all tags
 			for _, tag := range config.Tags {
