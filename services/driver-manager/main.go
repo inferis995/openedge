@@ -241,9 +241,9 @@ func (m *Manager) ensureNetwork() error {
 	}
 
 	for _, nw := range networks {
-		if nw.Name == dockerNetworkName {
+		if nw.Name == dockerNetworkName || strings.HasSuffix(nw.Name, "_"+dockerNetworkName) {
 			m.networkID = nw.ID
-			log.Printf("[DRIVER-MANAGER] Found existing Docker network: %s (ID: %s)", dockerNetworkName, nw.ID)
+			log.Printf("[DRIVER-MANAGER] Found existing Docker network: %s (ID: %s)", nw.Name, nw.ID)
 			return nil
 		}
 	}
@@ -480,7 +480,7 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 		// 	NanoCPUs: resources.CPU,
 		// 	Memory:   resources.Memory,
 		// },
-		NetworkMode: container.NetworkMode(dockerNetworkName),
+		NetworkMode: container.NetworkMode(m.networkID),
 		ExtraHosts:  []string{"host.docker.internal:host-gateway"},
 	}
 
