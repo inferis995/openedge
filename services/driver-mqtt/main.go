@@ -567,6 +567,9 @@ func convertStringValue(raw string, dataType string) (interface{}, error) {
 // handleReloadCommand handles reload commands from the system
 func (d *Driver) handleReloadCommand(topic string, payload []byte) {
 	log.Printf("[DRIVER-MQTT] Reload command received: %s", string(payload))
+	if d.alarmManager != nil {
+		d.alarmManager.LoadDefinitions()
+	}
 	select {
 	case d.reloadChan <- struct{}{}:
 	default:

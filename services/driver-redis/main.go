@@ -595,6 +595,9 @@ func (d *Driver) shouldPublish(tagID int, newValue interface{}, quality int) boo
 }
 
 func (d *Driver) handleReloadCommand(topic string, payload []byte) {
+	if d.alarmManager != nil {
+		d.alarmManager.LoadDefinitions()
+	}
 	select {
 	case d.reloadChan <- struct{}{}:
 	default:

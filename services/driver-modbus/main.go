@@ -269,6 +269,9 @@ func main() {
 
 func (d *Driver) handleReloadCommand(topic string, payload []byte) {
 	log.Printf("[DRIVER] Received reload signal via %s", topic)
+	if d.alarmManager != nil {
+		d.alarmManager.LoadDefinitions()
+	}
 	select {
 	case d.reloadChan <- struct{}{}:
 	default:

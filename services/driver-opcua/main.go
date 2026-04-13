@@ -289,6 +289,10 @@ func main() {
 
 func (d *Driver) handleReloadCommand(topic string, payload []byte) {
 	log.Printf("[OPC-UA Driver] Received reload signal via %s", topic)
+	// Reload alarm definitions immediately
+	if d.alarmManager != nil {
+		d.alarmManager.LoadDefinitions()
+	}
 	// Signal the poll loop to reload config safely (non-blocking)
 	select {
 	case d.reloadChan <- struct{}{}:
