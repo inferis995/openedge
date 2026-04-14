@@ -507,6 +507,9 @@ func (h *HistoryHandler) query1mAggregate(tagID int, start, end time.Time, aggFu
 		valueCol = "last_value"
 	}
 
+	// Truncate start to minute boundary so generate_series aligns with 1m buckets
+	alignedStart := start.Truncate(time.Minute)
+
 	query := fmt.Sprintf(`
 		SELECT
 			EXTRACT(EPOCH FROM series.bucket)::BIGINT * 1000 as ts,
@@ -518,7 +521,7 @@ func (h *HistoryHandler) query1mAggregate(tagID int, start, end time.Time, aggFu
 		ORDER BY series.bucket ASC
 	`, valueCol)
 
-	rows, err := h.db.Query(query, tagID, start, end)
+	rows, err := h.db.Query(query, tagID, alignedStart, end)
 	if err != nil {
 		// Fallback to raw query if aggregate doesn't exist yet
 		log.Printf("[HISTORY] 1m aggregate not available, falling back to raw: %v", err)
@@ -573,6 +576,9 @@ func (h *HistoryHandler) query1hAggregate(tagID int, start, end time.Time, aggFu
 		valueCol = "last_value"
 	}
 
+	// Truncate start to hour boundary so generate_series aligns with 1h buckets
+	alignedStart := start.Truncate(time.Hour)
+
 	query := fmt.Sprintf(`
 		SELECT
 			EXTRACT(EPOCH FROM series.bucket)::BIGINT * 1000 as ts,
@@ -584,7 +590,7 @@ func (h *HistoryHandler) query1hAggregate(tagID int, start, end time.Time, aggFu
 		ORDER BY series.bucket ASC
 	`, valueCol)
 
-	rows, err := h.db.Query(query, tagID, start, end)
+	rows, err := h.db.Query(query, tagID, alignedStart, end)
 	if err != nil {
 		log.Printf("[HISTORY] 1h aggregate not available, falling back to 1m: %v", err)
 		return h.query1mAggregate(tagID, start, end, aggFunc)
@@ -638,6 +644,9 @@ func (h *HistoryHandler) query1dAggregate(tagID int, start, end time.Time, aggFu
 		valueCol = "last_value"
 	}
 
+	// Truncate start to day boundary so generate_series aligns with 1d buckets
+	alignedStart := start.Truncate(24 * time.Hour)
+
 	query := fmt.Sprintf(`
 		SELECT
 			EXTRACT(EPOCH FROM series.bucket)::BIGINT * 1000 as ts,
@@ -649,7 +658,7 @@ func (h *HistoryHandler) query1dAggregate(tagID int, start, end time.Time, aggFu
 		ORDER BY series.bucket ASC
 	`, valueCol)
 
-	rows, err := h.db.Query(query, tagID, start, end)
+	rows, err := h.db.Query(query, tagID, alignedStart, end)
 	if err != nil {
 		log.Printf("[HISTORY] 1d aggregate not available, falling back to 1h: %v", err)
 		return h.query1hAggregate(tagID, start, end, aggFunc)
