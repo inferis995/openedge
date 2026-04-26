@@ -16,7 +16,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ${POSTGRES_DATA_PATH:-postgres_data}:/var/lib/postgresql/data
+      - ${POSTGRES_DATA_PATH:-./data/postgres}:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge}" ]
@@ -38,7 +38,7 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - ${REDIS_DATA_PATH:-redis_data}:/data
+      - ${REDIS_DATA_PATH:-./data/redis}:/data
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
@@ -130,7 +130,7 @@ services:
     image: openedge-web-ui:latest
     container_name: industrial-web-ui
     ports:
-      - "3000:80"
+      - "3001:80"
     depends_on:
       core-api:
         condition: service_healthy
@@ -224,15 +224,6 @@ services:
         max-file: "3"
     networks:
       - industrial-network
-
-# Named volumes (default) — data persists across restarts, deleted only with 'make clean'
-# To use a path on your disk instead (Linux/Mac only), set in .env:
-#   POSTGRES_DATA_PATH=/opt/openedge/data/postgres
-#   REDIS_DATA_PATH=/opt/openedge/data/redis
-# WARNING: bind mounts do NOT work on Windows due to Docker Desktop permission limitations.
-volumes:
-  postgres_data:
-  redis_data:
 
 networks:
   industrial-network:
