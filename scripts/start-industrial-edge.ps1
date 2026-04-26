@@ -53,6 +53,32 @@ if ($Clean) {
     exit 0
 }
 
+function Setup-Env {
+    $envFile = Join-Path $RootDir ".env"
+    $envExample = Join-Path $RootDir ".env.example"
+
+    # Create .env from example if it doesn't exist
+    if (-not (Test-Path $envFile)) {
+        Copy-Item $envExample $envFile
+        Write-Host "[setup] Created .env from .env.example" -ForegroundColor Gray
+    }
+
+    # Generate JWT_SECRET if missing or still set to the placeholder value
+    $content = Get-Content $envFile -Raw
+    $needsSecret = (-not ($content -match "(?m)^JWT_SECRET=")) -or ($content -match "(?m)^JWT_SECRET=CHANGE_ME")
+    if ($needsSecret) {
+        # Generate 32 cryptographically secure random bytes → 64 hex chars
+        $bytes = New-Object byte[] 32
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+        $secret = ($bytes | ForEach-Object { $_.ToString("x2") }) -join ""
+
+        # Remove existing placeholder line (if any) and append the new secret
+        $lines = Get-Content $envFile | Where-Object { $_ -notmatch "^JWT_SECRET=" }
+        $lines + "JWT_SECRET=$secret" | Set-Content $envFile
+        Write-Host "[setup] Generated JWT_SECRET and saved to .env" -ForegroundColor Gray
+    }
+}
+
 # --- Main startup ---
 Write-Header "OpenEdge Industrial Edge Middleware"
 
@@ -61,7 +87,10 @@ if (-not (Test-DockerRunning)) {
     exit 1
 }
 
-Write-Host "Step 1/2: Building all images (main services + driver images)..." -ForegroundColor Yellow
+Write-Host "Step 1/3: Configuring environment..." -ForegroundColor Yellow
+Setup-Env
+
+Write-Host "Step 2/3: Building all images (main services + driver images)..." -ForegroundColor Yellow
 Write-Host "This may take several minutes on first run." -ForegroundColor Gray
 docker-compose -f docker-compose.yml -f docker-compose.build.yml build
 if ($LASTEXITCODE -ne 0) {
@@ -69,8 +98,8 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-Write-Host "" 
-Write-Host "Step 2/2: Starting services..." -ForegroundColor Yellow
+Write-Host ""
+Write-Host "Step 3/3: Starting services..." -ForegroundColor Yellow
 docker-compose up -d
 if ($LASTEXITCODE -ne 0) {
     Write-Host "ERROR: Failed to start services." -ForegroundColor Red

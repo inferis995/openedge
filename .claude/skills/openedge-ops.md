@@ -45,40 +45,21 @@ git clone https://github.com/inferis995/openedge.git
 cd openedge
 ```
 
-### Passo 1b — Configura .env (percorsi dati, credenziali e JWT secret)
+### Passo 1b — Configura .env (solo se vuoi personalizzare percorsi o credenziali)
+
+`make start` crea automaticamente `.env` da `.env.example` e genera un `JWT_SECRET` sicuro se non è già presente. **Non devi fare nulla per il JWT.**
+
+Se vuoi personalizzare i percorsi dati o le credenziali DB, crea prima il `.env` e modificalo:
 
 ```bash
 cp .env.example .env
+# Poi modifica i valori che vuoi cambiare
 ```
 
-#### ⚠️ OBBLIGATORIO — Genera e imposta JWT_SECRET
-
-Il backend **si rifiuta di avviarsi** se `JWT_SECRET` non è presente nel `.env`.
-Genera il secret e aggiungilo al file:
+#### Percorsi dati (opzionale)
 
 ```bash
-# Linux / Mac
-echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
-
-# Windows (PowerShell)
-Add-Content .env "JWT_SECRET=$(-join ((48..57+65..90+97..122) | Get-Random -Count 64 | % {[char]$_}))"
-```
-
-Verifica che sia presente:
-```bash
-grep JWT_SECRET .env
-# Atteso: JWT_SECRET=<stringa lunga 64 caratteri hex>
-```
-
-> Non usare mai il valore di esempio (`CHANGE_ME_...`) in produzione.
-> Se il backend si avvia con il valore di esempio si tratta di un `.env` non configurato correttamente.
-
-#### Percorsi dati (PostgreSQL e Redis)
-
-Scegli dove salvare i dati storici. Se non imposti nulla finiscono in `./data/` dentro la cartella del repo.
-
-```bash
-# Default — ok per test/sviluppo
+# Default — ok per test/sviluppo (dati in ./data/ dentro il repo)
 POSTGRES_DATA_PATH=./data/postgres
 REDIS_DATA_PATH=./data/redis
 
@@ -94,7 +75,7 @@ REDIS_DATA_PATH=D:/openedge-data/redis
 > ⚠️ **Imposta i percorsi PRIMA di `make start`.**
 > Cambiarli dopo che i dati esistono richiede backup + restore.
 
-Opzionale: cambia password e credenziali nel blocco `DATABASE CONFIGURATION` di `.env`.
+Opzionale: cambia `POSTGRES_PASSWORD` e le credenziali nel blocco `DATABASE CONFIGURATION` di `.env`.
 
 ### Passo 2 — Build + avvio con make start
 
@@ -505,17 +486,15 @@ agente riceve task:
  Portata:REAL:40001, Livello:REAL:40003, Pompa:BOOL:00001.0"
 
 1. git clone
-2. cp .env.example .env
-3. echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env   ← OBBLIGATORIO
-4. imposta POSTGRES_DATA_PATH e REDIS_DATA_PATH se richiesto
-5. make start
-6. aspetta GET /ready == {"status":"ready",...}
-7. login → ottieni TOKEN
-8. POST /api/gateways (Modbus 192.168.1.10)  → ottieni gateway_id
-9. POST /api/tags/import con i tag in formato PLC
-10. GET /api/gateways → verifica connection_status
-11. GET /api/tags/{id}/current → verifica che i valori arrivino
-12. risponde con report stato
+2. (opzionale) cp .env.example .env e personalizza percorsi/credenziali
+3. make start  ← crea .env e genera JWT_SECRET automaticamente
+4. aspetta GET /ready == {"status":"ready",...}
+5. login → ottieni TOKEN
+6. POST /api/gateways (Modbus 192.168.1.10)  → ottieni gateway_id
+7. POST /api/tags/import con i tag in formato PLC
+8. GET /api/gateways → verifica connection_status
+9. GET /api/tags/{id}/current → verifica che i valori arrivino
+10. risponde con report stato
 ```
 
 ---

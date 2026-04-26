@@ -108,20 +108,11 @@
 git clone https://github.com/inferis995/openedge.git
 cd openedge
 
-# 2. Configure environment (required before first start)
-cp .env.example .env
-
-# Generate a secure JWT secret and add it to .env
-#   Linux / Mac:
-echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
-#   Windows PowerShell (if openssl is not available):
-#   Add-Content .env "JWT_SECRET=$(-join ((48..57+65..90+97..122) | Get-Random -Count 64 | % {[char]$_}))"
-
-# 3. Build driver images + start all services
+# 2. Build + start  (creates .env and generates JWT_SECRET automatically)
 #    ⚠️ Use make start — do NOT use docker-compose up directly
 make start
 
-# 3. Verify everything is up (wait ~30s after make start)
+# 3. Verify everything is up (wait ~30s)
 curl http://localhost:8081/ready
 # Expected: {"status":"ready","db":"ok","redis":"ok"}
 
@@ -138,6 +129,8 @@ docker images | grep industrial-driver
 Open **http://localhost:3000** — Login: `admin` / `admin123`
 
 > ⚠️ Change the default password after first login.
+
+> `make start` automatically creates `.env` from `.env.example` and generates a secure `JWT_SECRET` if not already set. To customise data paths or credentials, edit `.env` before the first run (see [Configuration](#️-configuration)).
 
 ### Services
 
