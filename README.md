@@ -121,9 +121,9 @@ docker images | grep industrial-driver
 # Must show 5 images: modbus, s7, opcua, mqtt, redis
 ```
 
-**Windows** (no `make`):
-```powershell
-.\scripts\start-industrial-edge.ps1
+**Windows** — double-click `openedge.bat` in File Explorer, or run from cmd:
+```cmd
+openedge.bat start
 ```
 
 Open **http://localhost:3000** — Login: `admin` / `admin123`
@@ -356,7 +356,7 @@ ENCRYPTION_KEY= # 32-character key for AES-256
 
 ## 🚀 Deployment
 
-### Useful Commands
+### Linux / Mac
 
 ```bash
 make start    # First run: build images + start services
@@ -367,18 +367,20 @@ make logs     # Follow logs
 make clean    # Stop + delete all data (full reset)
 ```
 
-### Manual (without make)
+### Windows
 
-```bash
-# Build all images including drivers
-docker-compose -f docker-compose.yml -f docker-compose.build.yml build
+Double-click **`openedge.bat`** for the interactive menu, or run from cmd / PowerShell:
 
-# Start services
-docker-compose up -d
-
-# Stop
-docker-compose down
+```cmd
+openedge.bat start    :: build + launch
+openedge.bat stop     :: stop all services
+openedge.bat restart  :: stop + start
+openedge.bat logs     :: follow logs
+openedge.bat status   :: show container status
+openedge.bat clean    :: delete all data (irreversible)
 ```
+
+`openedge.bat` handles `.env` creation and `JWT_SECRET` generation automatically — no prerequisites beyond Docker Desktop.
 
 ### System Requirements
 

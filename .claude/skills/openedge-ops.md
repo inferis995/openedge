@@ -77,19 +77,26 @@ REDIS_DATA_PATH=D:/openedge-data/redis
 
 Opzionale: cambia `POSTGRES_PASSWORD` e le credenziali nel blocco `DATABASE CONFIGURATION` di `.env`.
 
-### Passo 2 — Build + avvio con make start
+### Passo 2 — Build + avvio
 
+**Linux / Mac:**
 ```bash
 make start
 ```
 
-`make start` esegue in sequenza:
-1. Build di tutte le immagini Docker (core-api, web-ui, driver-manager, engine-historian)
-2. Build delle 5 immagini driver (Modbus, S7, OPC UA, MQTT, Redis) ← **necessarie per i gateway**
-3. Avvio di tutti i servizi
-4. Applicazione delle migration DB
+**Windows** (doppio clic su `openedge.bat` oppure da cmd):
+```cmd
+openedge.bat start
+```
 
-**Non usare `docker-compose up -d` — salta il build delle immagini driver.**
+Entrambi eseguono in sequenza:
+1. Creazione `.env` da `.env.example` (se mancante) e generazione `JWT_SECRET`
+2. Build di tutte le immagini Docker (core-api, web-ui, driver-manager, engine-historian)
+3. Build delle 5 immagini driver (Modbus, S7, OPC UA, MQTT, Redis) ← **necessarie per i gateway**
+4. Avvio di tutti i servizi
+5. Applicazione delle migration DB (automatica all'avvio del backend)
+
+**Non usare `docker-compose up -d` direttamente — salta il build delle immagini driver.**
 
 ### Passo 3 — Verifica immagini driver (OBBLIGATORIO prima di creare gateway)
 
