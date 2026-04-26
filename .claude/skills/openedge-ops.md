@@ -104,13 +104,26 @@ cp .env.example .env
 # Poi modifica i valori che vuoi cambiare
 ```
 
-#### Percorsi dati (opzionale)
+#### Percorsi dati — bind mount già implementato
+
+I dati di PostgreSQL e Redis sono salvati su disco dell'host tramite **bind mount**, già configurato in `docker-compose.yml`:
+
+```yaml
+# Estratto da docker-compose.yml (già presente — non modificare)
+postgres:
+  volumes:
+    - ${POSTGRES_DATA_PATH:-./data/postgres}:/var/lib/postgresql/data
+
+redis:
+  volumes:
+    - ${REDIS_DATA_PATH:-./data/redis}:/data
+```
+
+**Default (test/sviluppo):** i dati vanno in `./data/postgres` e `./data/redis` dentro la cartella del repository. Nessuna configurazione necessaria.
+
+Per produzione, imposta percorsi assoluti nel `.env` **prima** del primo `make start`:
 
 ```bash
-# Default — ok per test/sviluppo (dati in ./data/ dentro il repo)
-POSTGRES_DATA_PATH=./data/postgres
-REDIS_DATA_PATH=./data/redis
-
 # Linux/Mac — percorso assoluto consigliato per produzione
 POSTGRES_DATA_PATH=/opt/openedge/data/postgres
 REDIS_DATA_PATH=/opt/openedge/data/redis
@@ -121,7 +134,7 @@ REDIS_DATA_PATH=D:/openedge-data/redis
 ```
 
 > ⚠️ **Imposta i percorsi PRIMA di `make start`.**
-> Cambiarli dopo che i dati esistono richiede backup + restore.
+> Cambiarli dopo che i dati esistono richiede backup + restore del DB.
 
 Opzionale: cambia `POSTGRES_PASSWORD` e le credenziali nel blocco `DATABASE CONFIGURATION` di `.env`.
 
