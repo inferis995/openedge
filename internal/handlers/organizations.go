@@ -4,8 +4,10 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 )
@@ -78,7 +80,15 @@ func (h *OrganizationsHandler) Create(c *gin.Context) {
 // @Failure 500 {object} map[string]string "Server error"
 // @Router /api/organizations [get]
 func (h *OrganizationsHandler) List(c *gin.Context) {
-	rows, err := h.db.Query("SELECT id, name, created_at FROM organizations ORDER BY id")
+	var rows *sql.Rows
+	var err error
+
+	if middleware.IsGlobalAdmin(c) {
+		rows, err = h.db.Query("SELECT id, name, created_at FROM organizations ORDER BY id")
+	} else {
+		orgID, _ := middleware.GetOrganizationID(c)
+		rows, err = h.db.Query("SELECT id, name, created_at FROM organizations WHERE id = $1", orgID)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query organizations"})
 		return
@@ -116,6 +126,16 @@ func (h *OrganizationsHandler) List(c *gin.Context) {
 // @Router /api/organizations/{id} [get]
 func (h *OrganizationsHandler) Get(c *gin.Context) {
 	id := c.Param("id")
+
+	// Non-admin users can only access their own organization
+	if !middleware.IsGlobalAdmin(c) {
+		orgID, _ := middleware.GetOrganizationID(c)
+		requestedID, err := strconv.Atoi(id)
+		if err != nil || requestedID != orgID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			return
+		}
+	}
 
 	var org models.Organization
 	err := h.db.QueryRow(

@@ -250,7 +250,7 @@ func main() {
 		}
 		// Organizations endpoints
 		orgs := api.Group("/organizations")
-		orgs.Use(middleware.RequireAuth)
+		orgs.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
 			orgs.POST("", middleware.RequireRole(models.RoleAdmin), orgsHandler.Create)
 			orgs.GET("", orgsHandler.List)
