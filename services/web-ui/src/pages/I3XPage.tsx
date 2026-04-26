@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, KeyboardEvent } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -18,6 +19,10 @@ import {
     Zap,
     BookOpen,
     ArrowRight,
+    Pencil,
+    Check,
+    X,
+    Send,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { i3xApi, I3XEquipment, I3XProperty, I3XAlarm } from '@/api/i3x';
@@ -117,6 +122,11 @@ export default function I3XPage() {
     const [loadingAlarms, setLoadingAlarms]       = useState(true);
     const [lastRefresh, setLastRefresh]           = useState<Date>(new Date());
 
+    // Write state
+    const [editingPropId, setEditingPropId] = useState<string | null>(null);
+    const [editValue, setEditValue]         = useState('');
+    const [writing, setWriting]             = useState(false);
+
     // Load equipment list + active alarms
     const loadBase = useCallback(async () => {
         setLoadingEquipment(true);
@@ -161,7 +171,59 @@ export default function I3XPage() {
 
     const handleSelectEquipment = (eq: I3XEquipment) => {
         setSelectedEq(eq);
+        setEditingPropId(null);
         loadProperties(eq);
+    };
+
+    const startEdit = (prop: I3XProperty) => {
+        setEditingPropId(prop.id);
+        // Pre-fill with current value if available
+        const cur = prop.current?.value;
+        setEditValue(cur !== null && cur !== undefined ? String(cur) : '');
+    };
+
+    const cancelEdit = () => {
+        setEditingPropId(null);
+        setEditValue('');
+    };
+
+    const confirmWrite = async (prop: I3XProperty) => {
+        setWriting(true);
+        try {
+            // Coerce value to the correct type before sending
+            let coerced: unknown = editValue;
+            if (prop.dataType === 'Float' || prop.dataType === 'Int32') {
+                const n = Number(editValue);
+                if (isNaN(n)) {
+                    toast.error(`Valore non valido per tipo ${prop.dataType}`);
+                    return;
+                }
+                coerced = n;
+            } else if (prop.dataType === 'Boolean') {
+                const lower = editValue.trim().toLowerCase();
+                if (lower !== 'true' && lower !== 'false' && lower !== '1' && lower !== '0') {
+                    toast.error('Per Boolean inserisci: true / false / 1 / 0');
+                    return;
+                }
+                coerced = lower === 'true' || lower === '1';
+            }
+
+            await i3xApi.writePropertyValue(prop.id, coerced);
+            toast.success(`Scrittura inviata a ${prop.name} → ${editValue}`);
+            setEditingPropId(null);
+            setEditValue('');
+            // Refresh properties after a short delay to pick up the new value
+            setTimeout(() => selectedEq && loadProperties(selectedEq), 1500);
+        } catch {
+            toast.error(`Errore nella scrittura di ${prop.name}`);
+        } finally {
+            setWriting(false);
+        }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>, prop: I3XProperty) => {
+        if (e.key === 'Enter') confirmWrite(prop);
+        if (e.key === 'Escape') cancelEdit();
     };
 
     const handleRefresh = () => {
@@ -365,34 +427,107 @@ export default function I3XPage() {
                                                         <TableHead className="text-xs">ID i3X</TableHead>
                                                         <TableHead className="text-xs">Nome</TableHead>
                                                         <TableHead className="text-xs">Tipo</TableHead>
-                                                        <TableHead className="text-xs">Valore</TableHead>
+                                                        <TableHead className="text-xs">Valore live</TableHead>
                                                         <TableHead className="text-xs">Quality</TableHead>
                                                         <TableHead className="text-xs">Timestamp</TableHead>
+                                                        <TableHead className="text-xs w-8"></TableHead>
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
-                                                    {properties.map(prop => (
-                                                        <TableRow key={prop.id}>
-                                                            <TableCell className="font-mono text-xs text-muted-foreground">
-                                                                {prop.id}
-                                                            </TableCell>
-                                                            <TableCell className="font-medium text-sm">
-                                                                {prop.name}
-                                                            </TableCell>
-                                                            <TableCell>
-                                                                <DataTypeBadge type={prop.dataType} />
-                                                            </TableCell>
-                                                            <TableCell className="font-mono text-sm font-semibold">
-                                                                {formatValue(prop.current?.value)}
-                                                            </TableCell>
-                                                            <TableCell>
-                                                                <QualityBadge quality={prop.current?.quality} />
-                                                            </TableCell>
-                                                            <TableCell className="text-xs text-muted-foreground">
-                                                                {formatTs(prop.current?.timestamp)}
-                                                            </TableCell>
-                                                        </TableRow>
-                                                    ))}
+                                                    {properties.map(prop => {
+                                                        const isEditing = editingPropId === prop.id;
+                                                        return (
+                                                            <TableRow
+                                                                key={prop.id}
+                                                                className={cn('group', isEditing && 'bg-primary/5')}
+                                                            >
+                                                                <TableCell className="font-mono text-xs text-muted-foreground">
+                                                                    {prop.id}
+                                                                </TableCell>
+                                                                <TableCell className="font-medium text-sm">
+                                                                    {prop.name}
+                                                                </TableCell>
+                                                                <TableCell>
+                                                                    <DataTypeBadge type={prop.dataType} />
+                                                                </TableCell>
+
+                                                                {/* Value cell: read-only OR inline write input */}
+                                                                <TableCell>
+                                                                    {isEditing ? (
+                                                                        <div className="flex items-center gap-1">
+                                                                            <Input
+                                                                                autoFocus
+                                                                                value={editValue}
+                                                                                onChange={e => setEditValue(e.target.value)}
+                                                                                onKeyDown={e => handleKeyDown(e, prop)}
+                                                                                placeholder={
+                                                                                    prop.dataType === 'Boolean'
+                                                                                        ? 'true / false'
+                                                                                        : prop.dataType === 'Float'
+                                                                                        ? '0.0'
+                                                                                        : prop.dataType === 'Int32'
+                                                                                        ? '0'
+                                                                                        : 'testo'
+                                                                                }
+                                                                                className="h-7 text-xs font-mono w-28 clip-chamfer-sm"
+                                                                                disabled={writing}
+                                                                            />
+                                                                            <Button
+                                                                                size="icon"
+                                                                                variant="ghost"
+                                                                                className="h-7 w-7 text-green-600 hover:bg-green-500/10"
+                                                                                onClick={() => confirmWrite(prop)}
+                                                                                disabled={writing}
+                                                                                title="Conferma scrittura (Enter)"
+                                                                            >
+                                                                                {writing ? (
+                                                                                    <Send size={12} className="animate-pulse" />
+                                                                                ) : (
+                                                                                    <Check size={12} />
+                                                                                )}
+                                                                            </Button>
+                                                                            <Button
+                                                                                size="icon"
+                                                                                variant="ghost"
+                                                                                className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                                                onClick={cancelEdit}
+                                                                                disabled={writing}
+                                                                                title="Annulla (Esc)"
+                                                                            >
+                                                                                <X size={12} />
+                                                                            </Button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="font-mono text-sm font-semibold">
+                                                                            {formatValue(prop.current?.value)}
+                                                                        </span>
+                                                                    )}
+                                                                </TableCell>
+
+                                                                <TableCell>
+                                                                    <QualityBadge quality={prop.current?.quality} />
+                                                                </TableCell>
+                                                                <TableCell className="text-xs text-muted-foreground">
+                                                                    {formatTs(prop.current?.timestamp)}
+                                                                </TableCell>
+
+                                                                {/* Write trigger button */}
+                                                                <TableCell>
+                                                                    {!isEditing && (
+                                                                        <Button
+                                                                            size="icon"
+                                                                            variant="ghost"
+                                                                            className="h-7 w-7 opacity-0 group-hover:opacity-100 hover:bg-primary/10 hover:text-primary"
+                                                                            onClick={() => startEdit(prop)}
+                                                                            title={`Scrivi su ${prop.name}`}
+                                                                        >
+                                                                            <Pencil size={12} />
+                                                                        </Button>
+                                                                    )}
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        );
+                                                    })}
                                                 </TableBody>
                                             </Table>
                                         )}
