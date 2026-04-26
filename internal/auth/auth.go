@@ -40,9 +40,9 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 	var user models.User
 	var passwordHash string
 
-	query := `SELECT id, username, password_hash, role, full_name, org_id, created_at FROM users WHERE username = $1`
+	query := `SELECT id, username, password_hash, role, full_name, org_id, i3x_write, created_at FROM users WHERE username = $1`
 	err := s.db.QueryRowContext(ctx, query, req.Username).Scan(
-		&user.ID, &user.Username, &passwordHash, &user.Role, &user.FullName, &user.OrgID, &user.CreatedAt,
+		&user.ID, &user.Username, &passwordHash, &user.Role, &user.FullName, &user.OrgID, &user.I3xWrite, &user.CreatedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -84,10 +84,11 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 
 func (s *Service) generateToken(user models.User) (string, error) {
 	claims := jwt.MapClaims{
-		"user_id":  user.ID,
-		"username": user.Username,
-		"role":     user.Role,
-		"exp":      time.Now().Add(24 * time.Hour).Unix(),
+		"user_id":   user.ID,
+		"username":  user.Username,
+		"role":      user.Role,
+		"i3x_write": user.I3xWrite,
+		"exp":       time.Now().Add(24 * time.Hour).Unix(),
 	}
 
 	// Include org_id if it's not nil (NULL for global admin)

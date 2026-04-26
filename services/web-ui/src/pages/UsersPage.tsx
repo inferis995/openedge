@@ -28,7 +28,8 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Users, Plus, Trash2, Pencil, Shield, User as UserIcon, Building2 } from 'lucide-react';
+import { Users, Plus, Trash2, Pencil, Shield, User as UserIcon, Building2, Network } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
 
 const UsersPage = () => {
     const [users, setUsers] = useState<User[]>([]);
@@ -47,12 +48,14 @@ const UsersPage = () => {
     const [newRole, setNewRole] = useState<'admin' | 'user'>('user');
     const [newFullName, setNewFullName] = useState('');
     const [newOrgId, setNewOrgId] = useState<number | null>(null);
+    const [newI3xWrite, setNewI3xWrite] = useState(false);
 
     // Form state for edit
     const [editPassword, setEditPassword] = useState('');
     const [editRole, setEditRole] = useState<'admin' | 'user'>('user');
     const [editFullName, setEditFullName] = useState('');
     const [editOrgId, setEditOrgId] = useState<number | null>(null);
+    const [editI3xWrite, setEditI3xWrite] = useState(false);
 
     const { user: currentUser } = useAuthStore();
 
@@ -82,6 +85,7 @@ const UsersPage = () => {
                 role: newRole,
                 full_name: newFullName,
                 org_id: newOrgId,
+                i3x_write: newRole === 'admin' ? true : newI3xWrite,
             };
             await usersApi.create(req);
             setIsCreateOpen(false);
@@ -105,6 +109,7 @@ const UsersPage = () => {
                 role: editRole,
                 full_name: editFullName,
                 org_id: editOrgId,
+                i3x_write: editRole === 'admin' ? true : editI3xWrite,
             };
             if (editPassword) {
                 req.password = editPassword;
@@ -142,6 +147,7 @@ const UsersPage = () => {
         setEditFullName(user.full_name || '');
         setEditPassword('');
         setEditOrgId(user.org_id);
+        setEditI3xWrite(user.i3x_write ?? false);
         setIsEditOpen(true);
     };
 
@@ -151,6 +157,7 @@ const UsersPage = () => {
         setNewRole('user');
         setNewFullName('');
         setNewOrgId(null);
+        setNewI3xWrite(false);
     };
 
     if (isLoading) {
@@ -246,6 +253,23 @@ const UsersPage = () => {
                                     </SelectContent>
                                 </Select>
                             </div>
+                            {newRole !== 'admin' && (
+                                <div className="grid grid-cols-4 items-center gap-4">
+                                    <Label className="text-right flex items-center justify-end gap-1">
+                                        <Network size={13} className="text-muted-foreground" />
+                                        i3X Write
+                                    </Label>
+                                    <div className="col-span-3 flex items-center gap-3">
+                                        <Switch
+                                            checked={newI3xWrite}
+                                            onCheckedChange={setNewI3xWrite}
+                                        />
+                                        <span className="text-sm text-muted-foreground">
+                                            {newI3xWrite ? 'Read + Write' : 'Read only'}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
@@ -273,6 +297,7 @@ const UsersPage = () => {
                             <TableHead>Full Name</TableHead>
                             <TableHead>Role</TableHead>
                             <TableHead>Organization</TableHead>
+                            <TableHead>i3X</TableHead>
                             <TableHead>Created At</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
@@ -315,6 +340,21 @@ const UsersPage = () => {
                                             <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600">
                                                 <Building2 size={12} />
                                                 Global Admin
+                                            </span>
+                                        )}
+                                    </TableCell>
+                                    <TableCell>
+                                        {user.role === 'admin' ? (
+                                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                                                <Network size={11} /> Full
+                                            </span>
+                                        ) : user.i3x_write ? (
+                                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700">
+                                                <Network size={11} /> R+W
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-500">
+                                                <Network size={11} /> Read
                                             </span>
                                         )}
                                     </TableCell>
@@ -410,6 +450,23 @@ const UsersPage = () => {
                                 </SelectContent>
                             </Select>
                         </div>
+                        {editRole !== 'admin' && (
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <Label className="text-right flex items-center justify-end gap-1">
+                                    <Network size={13} className="text-muted-foreground" />
+                                    i3X Write
+                                </Label>
+                                <div className="col-span-3 flex items-center gap-3">
+                                    <Switch
+                                        checked={editI3xWrite}
+                                        onCheckedChange={setEditI3xWrite}
+                                    />
+                                    <span className="text-sm text-muted-foreground">
+                                        {editI3xWrite ? 'Read + Write' : 'Read only'}
+                                    </span>
+                                </div>
+                            </div>
+                        )}
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>

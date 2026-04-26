@@ -24,21 +24,23 @@ type CreateUserRequest struct {
 	Password string          `json:"password" binding:"required,min=6"`
 	Role     models.UserRole `json:"role" binding:"required,oneof=admin user"`
 	FullName string          `json:"full_name"`
-	OrgID    *int            `json:"org_id"` // NULL for global admin, INT for org-scoped user
+	OrgID    *int            `json:"org_id"`
+	I3xWrite bool            `json:"i3x_write"`
 }
 
 // UpdateUserRequest represents the request body for updating a user
 type UpdateUserRequest struct {
-	Password string          `json:"password"` // Optional - only update if provided
+	Password string          `json:"password"`
 	Role     models.UserRole `json:"role" binding:"omitempty,oneof=admin user"`
 	FullName string          `json:"full_name"`
-	OrgID    *int            `json:"org_id"` // Optional - can change organization assignment
+	OrgID    *int            `json:"org_id"`
+	I3xWrite *bool           `json:"i3x_write"` // pointer so omitted ≠ false
 }
 
 // List returns all users
 func (h *UsersHandler) List(c *gin.Context) {
 	query := `
-		SELECT u.id, u.username, u.role, u.full_name, u.org_id, u.created_at, o.name as org_name
+		SELECT u.id, u.username, u.role, u.full_name, u.org_id, u.created_at, u.i3x_write, o.name as org_name
 		FROM users u
 		LEFT JOIN organizations o ON u.org_id = o.id
 		ORDER BY u.id
@@ -51,19 +53,20 @@ func (h *UsersHandler) List(c *gin.Context) {
 	defer rows.Close()
 
 	type UserWithOrgName struct {
-		ID           int        `json:"id"`
-		Username     string     `json:"username"`
-		Role         models.UserRole `json:"role"`
-		FullName     string     `json:"full_name"`
-		OrgID        *int       `json:"org_id"`
-		OrgName      *string    `json:"org_name,omitempty"` // Organization name for display
-		CreatedAt    string     `json:"created_at"`
+		ID        int             `json:"id"`
+		Username  string          `json:"username"`
+		Role      models.UserRole `json:"role"`
+		FullName  string          `json:"full_name"`
+		OrgID     *int            `json:"org_id"`
+		OrgName   *string         `json:"org_name,omitempty"`
+		I3xWrite  bool            `json:"i3x_write"`
+		CreatedAt string          `json:"created_at"`
 	}
 
 	var users []UserWithOrgName
 	for rows.Next() {
 		var user UserWithOrgName
-		if err := rows.Scan(&user.ID, &user.Username, &user.Role, &user.FullName, &user.OrgID, &user.CreatedAt, &user.OrgName); err != nil {
+		if err := rows.Scan(&user.ID, &user.Username, &user.Role, &user.FullName, &user.OrgID, &user.CreatedAt, &user.I3xWrite, &user.OrgName); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan user"})
 			return
 		}
@@ -92,15 +95,16 @@ func (h *UsersHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Insert user with org_id
-	query := `INSERT INTO users (username, password_hash, role, full_name, org_id) VALUES ($1, $2, $3, $4, $5) RETURNING id, created_at`
+	// Insert user
+	query := `INSERT INTO users (username, password_hash, role, full_name, org_id, i3x_write) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`
 	var user models.User
 	user.Username = req.Username
 	user.Role = req.Role
 	user.FullName = req.FullName
 	user.OrgID = req.OrgID
+	user.I3xWrite = req.I3xWrite
 
-	err = h.db.QueryRowContext(c.Request.Context(), query, req.Username, string(hashedPassword), req.Role, req.FullName, req.OrgID).Scan(&user.ID, &user.CreatedAt)
+	err = h.db.QueryRowContext(c.Request.Context(), query, req.Username, string(hashedPassword), req.Role, req.FullName, req.OrgID, req.I3xWrite).Scan(&user.ID, &user.CreatedAt)
 	if err != nil {
 		// Check for unique constraint violation
 		if err.Error() == `pq: duplicate key value violates unique constraint "users_username_key"` {
@@ -131,9 +135,9 @@ func (h *UsersHandler) Update(c *gin.Context) {
 
 	// Check if user exists
 	var existingUser models.User
-	checkQuery := `SELECT id, username, role, full_name, org_id, created_at FROM users WHERE id = $1`
+	checkQuery := `SELECT id, username, role, full_name, org_id, i3x_write, created_at FROM users WHERE id = $1`
 	err = h.db.QueryRowContext(c.Request.Context(), checkQuery, id).Scan(
-		&existingUser.ID, &existingUser.Username, &existingUser.Role, &existingUser.FullName, &existingUser.OrgID, &existingUser.CreatedAt,
+		&existingUser.ID, &existingUser.Username, &existingUser.Role, &existingUser.FullName, &existingUser.OrgID, &existingUser.I3xWrite, &existingUser.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -159,9 +163,17 @@ func (h *UsersHandler) Update(c *gin.Context) {
 		}
 	}
 
-	// Update role, full_name, and org_id
-	updateQuery := `UPDATE users SET role = COALESCE(NULLIF($1, ''), role), full_name = $2, org_id = $3 WHERE id = $4`
-	_, err = h.db.ExecContext(c.Request.Context(), updateQuery, req.Role, req.FullName, req.OrgID, id)
+	// Resolve i3x_write: keep existing value if not provided in the request
+	var existingI3xWrite bool
+	_ = h.db.QueryRowContext(c.Request.Context(), `SELECT i3x_write FROM users WHERE id = $1`, id).Scan(&existingI3xWrite)
+	newI3xWrite := existingI3xWrite
+	if req.I3xWrite != nil {
+		newI3xWrite = *req.I3xWrite
+	}
+
+	// Update role, full_name, org_id, i3x_write
+	updateQuery := `UPDATE users SET role = COALESCE(NULLIF($1, ''), role), full_name = $2, org_id = $3, i3x_write = $4 WHERE id = $5`
+	_, err = h.db.ExecContext(c.Request.Context(), updateQuery, req.Role, req.FullName, req.OrgID, newI3xWrite, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
 		return
@@ -170,28 +182,29 @@ func (h *UsersHandler) Update(c *gin.Context) {
 	// Fetch updated user with org name
 	var orgName *string
 	fullQuery := `
-		SELECT u.id, u.username, u.role, u.full_name, u.org_id, u.created_at, o.name as org_name
+		SELECT u.id, u.username, u.role, u.full_name, u.org_id, u.i3x_write, u.created_at, o.name as org_name
 		FROM users u
 		LEFT JOIN organizations o ON u.org_id = o.id
 		WHERE u.id = $1
 	`
 	err = h.db.QueryRowContext(c.Request.Context(), fullQuery, id).Scan(
-		&existingUser.ID, &existingUser.Username, &existingUser.Role, &existingUser.FullName, &existingUser.OrgID, &existingUser.CreatedAt, &orgName,
+		&existingUser.ID, &existingUser.Username, &existingUser.Role, &existingUser.FullName,
+		&existingUser.OrgID, &existingUser.I3xWrite, &existingUser.CreatedAt, &orgName,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated user"})
 		return
 	}
 
-	// Return user with org name
 	type UserWithOrgName struct {
-		ID           int        `json:"id"`
-		Username     string     `json:"username"`
-		Role         models.UserRole `json:"role"`
-		FullName     string     `json:"full_name"`
-		OrgID        *int       `json:"org_id"`
-		OrgName      *string    `json:"org_name,omitempty"`
-		CreatedAt    string     `json:"created_at"`
+		ID        int             `json:"id"`
+		Username  string          `json:"username"`
+		Role      models.UserRole `json:"role"`
+		FullName  string          `json:"full_name"`
+		OrgID     *int            `json:"org_id"`
+		OrgName   *string         `json:"org_name,omitempty"`
+		I3xWrite  bool            `json:"i3x_write"`
+		CreatedAt string          `json:"created_at"`
 	}
 
 	response := UserWithOrgName{
@@ -201,6 +214,7 @@ func (h *UsersHandler) Update(c *gin.Context) {
 		FullName:  existingUser.FullName,
 		OrgID:     existingUser.OrgID,
 		OrgName:   orgName,
+		I3xWrite:  existingUser.I3xWrite,
 		CreatedAt: existingUser.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 

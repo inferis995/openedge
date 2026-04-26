@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { i3xApi, I3XEquipment, I3XProperty, I3XAlarm } from '@/api/i3x';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { toast } from 'sonner';
 
 // ─── Quality helpers ────────────────────────────────────────────────────────
@@ -112,6 +113,9 @@ const METHOD_COLOR: Record<string, string> = {
 // ─── Main page ───────────────────────────────────────────────────────────────
 
 export default function I3XPage() {
+    const { canI3xWrite } = useAuthStore();
+    const writeAllowed = canI3xWrite();
+
     const [equipment, setEquipment]               = useState<I3XEquipment[]>([]);
     const [selectedEq, setSelectedEq]             = useState<I3XEquipment | null>(null);
     const [properties, setProperties]             = useState<I3XProperty[]>([]);
@@ -430,7 +434,7 @@ export default function I3XPage() {
                                                         <TableHead className="text-xs">Valore live</TableHead>
                                                         <TableHead className="text-xs">Quality</TableHead>
                                                         <TableHead className="text-xs">Timestamp</TableHead>
-                                                        <TableHead className="text-xs w-8"></TableHead>
+                                                        {writeAllowed && <TableHead className="text-xs w-8"></TableHead>}
                                                     </TableRow>
                                                 </TableHeader>
                                                 <TableBody>
@@ -451,9 +455,9 @@ export default function I3XPage() {
                                                                     <DataTypeBadge type={prop.dataType} />
                                                                 </TableCell>
 
-                                                                {/* Value cell: read-only OR inline write input */}
+                                                                {/* Value cell: read-only OR inline write input (only if permitted) */}
                                                                 <TableCell>
-                                                                    {isEditing ? (
+                                                                    {isEditing && writeAllowed ? (
                                                                         <div className="flex items-center gap-1">
                                                                             <Input
                                                                                 autoFocus
@@ -511,20 +515,22 @@ export default function I3XPage() {
                                                                     {formatTs(prop.current?.timestamp)}
                                                                 </TableCell>
 
-                                                                {/* Write trigger button */}
-                                                                <TableCell>
-                                                                    {!isEditing && (
-                                                                        <Button
-                                                                            size="icon"
-                                                                            variant="ghost"
-                                                                            className="h-7 w-7 opacity-0 group-hover:opacity-100 hover:bg-primary/10 hover:text-primary"
-                                                                            onClick={() => startEdit(prop)}
-                                                                            title={`Scrivi su ${prop.name}`}
-                                                                        >
-                                                                            <Pencil size={12} />
-                                                                        </Button>
-                                                                    )}
-                                                                </TableCell>
+                                                                {/* Write trigger button — shown only if caller has i3x_write permission */}
+                                                                {writeAllowed && (
+                                                                    <TableCell>
+                                                                        {!isEditing && (
+                                                                            <Button
+                                                                                size="icon"
+                                                                                variant="ghost"
+                                                                                className="h-7 w-7 opacity-0 group-hover:opacity-100 hover:bg-primary/10 hover:text-primary"
+                                                                                onClick={() => startEdit(prop)}
+                                                                                title={`Scrivi su ${prop.name}`}
+                                                                            >
+                                                                                <Pencil size={12} />
+                                                                            </Button>
+                                                                        )}
+                                                                    </TableCell>
+                                                                )}
                                                             </TableRow>
                                                         );
                                                     })}

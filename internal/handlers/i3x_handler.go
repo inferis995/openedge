@@ -418,7 +418,13 @@ func (h *I3XHandler) GetProperty(c *gin.Context) {
 
 // WritePropertyValue handles PUT /api/i3x/v1/properties/:id/value
 // Sends a write command via MQTT to the owning gateway driver.
+// Requires the caller to have the i3x_write permission (admin always allowed).
 func (h *I3XHandler) WritePropertyValue(c *gin.Context) {
+	if !middleware.HasI3xWrite(c) {
+		c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "i3X write permission required"})
+		return
+	}
+
 	tagID, ok := parseTagID(c.Param("id"))
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Property ID must be in the form tag-{n}"})

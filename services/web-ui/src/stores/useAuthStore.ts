@@ -8,6 +8,7 @@ export interface User {
     username: string;
     role: UserRole;
     full_name: string;
+    i3x_write?: boolean;
 }
 
 interface AuthState {
@@ -17,6 +18,7 @@ interface AuthState {
     logout: () => void;
     isAuthenticated: () => boolean;
     isAdmin: () => boolean;
+    canI3xWrite: () => boolean;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -28,6 +30,10 @@ export const useAuthStore = create<AuthState>()(
             logout: () => set({ token: null, user: null }),
             isAuthenticated: () => !!get().token,
             isAdmin: () => get().user?.role === 'admin',
+            canI3xWrite: () => {
+                const u = get().user;
+                return u?.role === 'admin' || u?.i3x_write === true;
+            },
         }),
         {
             name: 'auth-storage', // key in localStorage

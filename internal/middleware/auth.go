@@ -45,6 +45,24 @@ func RequireAuth(c *gin.Context) {
 	c.Next()
 }
 
+// HasI3xWrite returns true if the caller is allowed to write via the i3X API.
+// Admins always have write access. Regular users need the i3x_write JWT claim set to true.
+func HasI3xWrite(c *gin.Context) bool {
+	if IsGlobalAdmin(c) {
+		return true
+	}
+	claims, exists := c.Get(UserKey)
+	if !exists {
+		return false
+	}
+	mapClaims, ok := claims.(jwt.MapClaims)
+	if !ok {
+		return false
+	}
+	v, _ := mapClaims["i3x_write"].(bool)
+	return v
+}
+
 // RequireRole returns a Gin middleware that checks user role
 func RequireRole(role models.UserRole) gin.HandlerFunc {
 	return func(c *gin.Context) {

@@ -7,6 +7,7 @@ export interface User {
     full_name: string;
     org_id: number | null;
     org_name?: string | null;
+    i3x_write: boolean;
     created_at: string;
 }
 
@@ -16,6 +17,7 @@ export interface CreateUserRequest {
     role: 'admin' | 'user';
     full_name?: string;
     org_id?: number | null;
+    i3x_write?: boolean;
 }
 
 export interface UpdateUserRequest {
@@ -23,6 +25,7 @@ export interface UpdateUserRequest {
     role?: 'admin' | 'user';
     full_name?: string;
     org_id?: number | null;
+    i3x_write?: boolean;
 }
 
 export const usersApi = {
