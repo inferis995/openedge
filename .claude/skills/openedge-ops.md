@@ -45,17 +45,40 @@ git clone https://github.com/inferis995/openedge.git
 cd openedge
 ```
 
-### Passo 1b — Configura .env (percorsi dati e credenziali)
+### Passo 1b — Configura .env (percorsi dati, credenziali e JWT secret)
 
 ```bash
 cp .env.example .env
 ```
 
-Apri `.env` e scegli dove salvare i dati storici di PostgreSQL e Redis.
-Se non imposti nulla i dati finiscono in `./data/` dentro la cartella del repo.
+#### ⚠️ OBBLIGATORIO — Genera e imposta JWT_SECRET
+
+Il backend **si rifiuta di avviarsi** se `JWT_SECRET` non è presente nel `.env`.
+Genera il secret e aggiungilo al file:
 
 ```bash
-# Default — dati nella cartella del repo (ok per test)
+# Linux / Mac
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+
+# Windows (PowerShell)
+Add-Content .env "JWT_SECRET=$(-join ((48..57+65..90+97..122) | Get-Random -Count 64 | % {[char]$_}))"
+```
+
+Verifica che sia presente:
+```bash
+grep JWT_SECRET .env
+# Atteso: JWT_SECRET=<stringa lunga 64 caratteri hex>
+```
+
+> Non usare mai il valore di esempio (`CHANGE_ME_...`) in produzione.
+> Se il backend si avvia con il valore di esempio si tratta di un `.env` non configurato correttamente.
+
+#### Percorsi dati (PostgreSQL e Redis)
+
+Scegli dove salvare i dati storici. Se non imposti nulla finiscono in `./data/` dentro la cartella del repo.
+
+```bash
+# Default — ok per test/sviluppo
 POSTGRES_DATA_PATH=./data/postgres
 REDIS_DATA_PATH=./data/redis
 
@@ -209,6 +232,27 @@ curl http://localhost:8081/ready    # {"status":"ready","db":"ok","redis":"ok"} 
 ---
 
 ## 4. Fix problemi comuni
+
+### Problema: core-api non si avvia — "JWT_SECRET environment variable is required"
+
+Il backend rifiuta di partire se `JWT_SECRET` non è presente nel `.env`.
+
+```bash
+# Verifica se è presente
+grep JWT_SECRET .env
+
+# Se manca o è ancora il valore di esempio (CHANGE_ME_...), genera e aggiungi:
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+
+# Riavvia il backend
+docker-compose restart core-api
+
+# Controlla che ora parta
+docker-compose logs core-api | tail -20
+# Deve comparire: "[AUTH] JWT secret key loaded from environment"
+```
+
+---
 
 ### Problema: gateway creato dalla UI ma il driver non parte
 
@@ -461,15 +505,17 @@ agente riceve task:
  Portata:REAL:40001, Livello:REAL:40003, Pompa:BOOL:00001.0"
 
 1. git clone
-2. cp .env.example .env → chiedi/imposta POSTGRES_DATA_PATH e REDIS_DATA_PATH
-3. make start
-4. aspetta GET /ready == {"status":"ready",...}
-5. login → ottieni TOKEN
-6. POST /api/gateways (Modbus 192.168.1.10)  → ottieni gateway_id
-7. POST /api/tags/import con i tag in formato PLC
-8. GET /api/gateways → verifica connection_status
-9. GET /api/tags/{id}/current → verifica che i valori arrivino
-10. risponde con report stato
+2. cp .env.example .env
+3. echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env   ← OBBLIGATORIO
+4. imposta POSTGRES_DATA_PATH e REDIS_DATA_PATH se richiesto
+5. make start
+6. aspetta GET /ready == {"status":"ready",...}
+7. login → ottieni TOKEN
+8. POST /api/gateways (Modbus 192.168.1.10)  → ottieni gateway_id
+9. POST /api/tags/import con i tag in formato PLC
+10. GET /api/gateways → verifica connection_status
+11. GET /api/tags/{id}/current → verifica che i valori arrivino
+12. risponde con report stato
 ```
 
 ---

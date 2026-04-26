@@ -108,7 +108,16 @@
 git clone https://github.com/inferis995/openedge.git
 cd openedge
 
-# 2. Build driver images + start all services
+# 2. Configure environment (required before first start)
+cp .env.example .env
+
+# Generate a secure JWT secret and add it to .env
+#   Linux / Mac:
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+#   Windows PowerShell (if openssl is not available):
+#   Add-Content .env "JWT_SECRET=$(-join ((48..57+65..90+97..122) | Get-Random -Count 64 | % {[char]$_}))"
+
+# 3. Build driver images + start all services
 #    ⚠️ Use make start — do NOT use docker-compose up directly
 make start
 
@@ -322,6 +331,10 @@ REDIS_DATA_PATH=/opt/openedge/data/redis
 ### Environment Variables
 
 ```bash
+# ⚠️ REQUIRED — generate with: openssl rand -hex 32
+# The application refuses to start if this is missing.
+JWT_SECRET=<your_generated_secret>
+
 # Data paths (see above)
 POSTGRES_DATA_PATH=./data/postgres
 REDIS_DATA_PATH=./data/redis
@@ -528,14 +541,31 @@ npm run build
 
 ### Common Issues
 
-**1. Driver containers crash with "GATEWAY_ID required"**
+**1. Application refuses to start — "JWT_SECRET environment variable is required"**
+
+The API requires a secret key to sign JWT tokens. Generate one and add it to `.env`:
+
+```bash
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+# Then restart:
+make restart
+```
+
+On Windows (PowerShell, if `openssl` is not available):
+```powershell
+Add-Content .env "JWT_SECRET=$(-join ((48..57+65..90+97..122) | Get-Random -Count 64 | % {[char]$_}))"
+```
+
+---
+
+**2. Driver containers crash with "GATEWAY_ID required"**
 
 This is normal if you ran `docker-compose up -d` directly.
 Driver images must be built before they can be used by driver-manager.
 Use `make start` instead — it builds all images first, then starts services.
 Driver containers are started by driver-manager only when you create a Gateway.
 
-**2. Login fails with "Invalid Credentials"**
+**3. Login fails with "Invalid Credentials"**
 
 Database schema may be outdated. Run:
 ```bash
@@ -543,20 +573,20 @@ make migrate-status
 make migrate
 ```
 
-**3. Services cannot connect to the database**
+**4. Services cannot connect to the database**
 
 Symptom: `failed to ping database: pq: SSL is not enabled on the server`
 
 Solution: Ensure `DB_SSLMODE=disable` is set for all services in docker-compose.yml.
 
-**4. Mosquitto connection issues**
+**5. Mosquitto connection issues**
 
 ```bash
 docker-compose ps mosquitto
 docker-compose logs mosquitto
 ```
 
-**5. Full reset (clear all data)**
+**6. Full reset (clear all data)**
 
 ```bash
 make clean
