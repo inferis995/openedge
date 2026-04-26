@@ -43,13 +43,13 @@ const Sidebar = () => {
         { name: 'Trend', path: '/trend', icon: TrendingUp },
         { name: 'Historian', path: '/history', icon: History },
         { name: 'Alarms', path: '/alarms', icon: Bell },
-        { name: 'MQTT Monitor', path: '/mqtt-monitor', icon: Radio },
         { name: 'i3X API',      path: '/i3x',          icon: Network },
     ];
 
     const adminNavItems = [
         { name: 'System', path: '/system', icon: Settings },
         { name: 'Users', path: '/users', icon: Users },
+        { name: 'MQTT Monitor', path: '/mqtt-monitor', icon: Radio },
     ];
 
     return (

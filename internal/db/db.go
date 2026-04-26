@@ -91,6 +91,11 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: i3x_write permission column on users
+	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS i3x_write BOOLEAN NOT NULL DEFAULT false`); err != nil {
+		return fmt.Errorf("failed to add i3x_write column: %w", err)
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

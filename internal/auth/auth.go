@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -13,7 +14,17 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var SecretKey = []byte("industrial-edge-secret-key-change-me-in-production")
+// SecretKey is loaded from JWT_SECRET env var at startup; the process exits if it is not set.
+var SecretKey []byte
+
+func init() {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		log.Fatal("[AUTH] JWT_SECRET environment variable is required. " +
+			"Generate one with: openssl rand -hex 32")
+	}
+	SecretKey = []byte(secret)
+}
 
 type Service struct {
 	db *sql.DB

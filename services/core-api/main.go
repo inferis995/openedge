@@ -246,7 +246,7 @@ func main() {
 		// Auth endpoints (public)
 		auth := api.Group("/auth")
 		{
-			auth.POST("/login", authHandler.Login)
+			auth.POST("/login", middleware.LoginRateLimit(), authHandler.Login)
 		}
 		// Organizations endpoints
 		orgs := api.Group("/organizations")

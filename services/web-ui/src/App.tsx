@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import MainLayout from '@/components/layout/MainLayout';
 import LoginPage from '@/pages/LoginPage';
 import RequireAuth from '@/components/RequireAuth';
+import RequireAdmin from '@/components/RequireAdmin';
 
 import OrganizationsPage from '@/pages/OrganizationsPage';
 import DashboardPage from '@/pages/DashboardPage';
@@ -92,9 +93,14 @@ function App() {
                     <Route path="/trend" element={<TrendPage />} />
                     <Route path="/history" element={<HistoryPage />} />
                     <Route path="/alarms" element={<AlarmsPage />} />
-                    <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
                     <Route path="/i3x" element={<I3XPage />} />
                     <Route path="/users" element={<UsersPage />} />
+                </Route>
+            </Route>
+
+            <Route element={<RequireAdmin />}>
+                <Route element={<LayoutWrapper />}>
+                    <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
                 </Route>
             </Route>
 
