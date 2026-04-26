@@ -41,8 +41,9 @@ func OrganizationContext() gin.HandlerFunc {
 		role, _ := mapClaims["role"].(string)
 		userOrgIDInterface, userHasOrg := mapClaims["org_id"]
 
-		// Check if user is global admin (admin role OR org_id is nil/null)
-		isGlobalAdmin := role == "admin" || !userHasOrg || userOrgIDInterface == nil
+		// Global admin = admin role AND no org_id assigned.
+		// Admin WITH an org_id is org-scoped: treated like a regular user for data filtering.
+		isGlobalAdmin := role == "admin" && (!userHasOrg || userOrgIDInterface == nil)
 
 		// Try header first
 		orgIDStr := c.GetHeader("X-Organization-ID")
@@ -156,7 +157,8 @@ func GetUserID(c *gin.Context) (int, bool) {
 	return int(userIDFloat), true
 }
 
-// IsGlobalAdmin checks if the current user is a global admin
+// IsGlobalAdmin returns true only for admins with no org_id assigned.
+// An admin with an org_id is org-scoped and does NOT qualify as global admin.
 func IsGlobalAdmin(c *gin.Context) bool {
 	claims, exists := c.Get(UserKey)
 	if !exists {
@@ -169,11 +171,10 @@ func IsGlobalAdmin(c *gin.Context) bool {
 	}
 
 	role, _ := mapClaims["role"].(string)
-	if role == "admin" {
-		return true
+	if role != "admin" {
+		return false
 	}
 
-	// Also check if org_id is nil/null
 	userOrgIDInterface, userHasOrg := mapClaims["org_id"]
 	return !userHasOrg || userOrgIDInterface == nil
 }
