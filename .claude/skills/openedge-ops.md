@@ -38,6 +38,54 @@ OPENEDGE_ORG_ID=1
 Segui questi passi **nell'ordine esatto**. Non procedere al passo successivo
 se il precedente non è verificato con successo.
 
+### Passo 0 — Verifica prerequisiti (Docker + make)
+
+#### Docker
+```bash
+docker info
+# Se fallisce: Docker Desktop non è avviato. Avvialo e riprova.
+```
+
+#### make
+```bash
+make --version
+# Atteso: GNU Make 4.x (o superiore)
+```
+
+Se `make` non è installato, installalo in base all'OS:
+
+```bash
+# Linux — Ubuntu / Debian
+sudo apt-get update && sudo apt-get install -y make
+
+# Linux — RHEL / Fedora / CentOS
+sudo dnf install -y make
+
+# Mac — xcode-select include make
+xcode-select --install
+
+# Mac — alternativa con Homebrew
+brew install make
+```
+
+**Windows** — esegui da PowerShell (come Administrator se winget lo richiede):
+```powershell
+winget install GnuWin32.Make
+```
+Poi **chiudi e riapri** il terminale per aggiornare il PATH, quindi verifica:
+```cmd
+make --version
+```
+
+> Se `winget` non è disponibile (Windows < 10 1709), usa Chocolatey:
+> `choco install make` — oppure usa `openedge.bat` come alternativa senza make.
+
+Verifica finale prima di procedere:
+```bash
+docker info >nul 2>&1 && make --version
+# Entrambi devono rispondere senza errori
+```
+
 ### Passo 1 — Clona il repository
 
 ```bash

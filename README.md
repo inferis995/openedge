@@ -101,14 +101,36 @@
 
 ## 🎯 Quick Start
 
-**Prerequisites:** Docker Desktop installed and running.
+### Prerequisites
+
+**1 — Docker Desktop** — [download here](https://www.docker.com/products/docker-desktop/)
+
+**2 — `make`**
+
+| OS | Command |
+|----|---------|
+| **Windows 10/11** | `winget install GnuWin32.Make` then restart the terminal |
+| **Mac** | `xcode-select --install` *(includes make)* |
+| **Ubuntu / Debian** | `sudo apt install make` |
+| **RHEL / Fedora** | `sudo dnf install make` |
+
+> On Windows, after `winget install GnuWin32.Make` you may need to add
+> `C:\Program Files (x86)\GnuWin32\bin` to your PATH manually, or simply
+> restart the terminal — winget updates the PATH automatically in new sessions.
+>
+> **Alternative (no make):** double-click `openedge.bat` in File Explorer
+> (see [Windows](#windows) in the Deployment section).
+
+---
+
+### Start
 
 ```bash
 # 1. Clone
 git clone https://github.com/inferis995/openedge.git
 cd openedge
 
-# 2. Build + start  (creates .env and generates JWT_SECRET automatically)
+# 2. Build + start  (.env and JWT_SECRET created automatically)
 #    ⚠️ Use make start — do NOT use docker-compose up directly
 make start
 
@@ -121,16 +143,9 @@ docker images | grep industrial-driver
 # Must show 5 images: modbus, s7, opcua, mqtt, redis
 ```
 
-**Windows** — double-click `openedge.bat` in File Explorer, or run from cmd:
-```cmd
-openedge.bat start
-```
-
 Open **http://localhost:3000** — Login: `admin` / `admin123`
 
 > ⚠️ Change the default password after first login.
-
-> `make start` automatically creates `.env` from `.env.example` and generates a secure `JWT_SECRET` if not already set. To customise data paths or credentials, edit `.env` before the first run (see [Configuration](#️-configuration)).
 
 ### Services
 
