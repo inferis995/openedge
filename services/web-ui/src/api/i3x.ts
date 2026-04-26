@@ -33,7 +33,9 @@ export interface I3XProperty {
 export interface I3XAlarm {
     id: string;
     propertyId: string;
+    propertyName: string;
     equipmentId: string;
+    equipmentName: string;
     severity: 'Info' | 'Warning' | 'Critical';
     status: 'Active' | 'Acknowledged' | 'Cleared';
     alarmType: string;

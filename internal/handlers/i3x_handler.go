@@ -493,7 +493,7 @@ func (h *I3XHandler) ListAlarms(c *gin.Context) {
 		SELECT e.id, e.tag_id, e.status, e.alarm_type, e.severity,
 		       e.message, e.value_at_trigger, e.trigger_time,
 		       e.clear_time, e.bg_ack_user, e.ack_time,
-		       t.gateway_id
+		       t.gateway_id, t.alias AS tag_name, g.name AS gw_name
 		FROM alarm_events e
 		JOIN tags t ON e.tag_id = t.id
 		JOIN gateways g ON t.gateway_id = g.id
@@ -543,7 +543,7 @@ func (h *I3XHandler) ListAlarmHistory(c *gin.Context) {
 		SELECT e.id, e.tag_id, e.status, e.alarm_type, e.severity,
 		       e.message, e.value_at_trigger, e.trigger_time,
 		       e.clear_time, e.bg_ack_user, e.ack_time,
-		       t.gateway_id
+		       t.gateway_id, t.alias AS tag_name, g.name AS gw_name
 		FROM alarm_events e
 		JOIN tags t ON e.tag_id = t.id
 		JOIN gateways g ON t.gateway_id = g.id
@@ -573,19 +573,20 @@ func (h *I3XHandler) scanAlarmRows(c *gin.Context, rows *sql.Rows) []i3x.Alarm {
 	var items []i3x.Alarm
 	for rows.Next() {
 		var (
-			evtID, tagID, gwID    int
-			status, alarmType     string
-			severity, message     string
-			valueAtTrigger        sql.NullString
-			triggerTime           time.Time
-			clearTime, ackTime    sql.NullTime
-			bgAckUser             sql.NullString
+			evtID, tagID, gwID int
+			status, alarmType  string
+			severity, message  string
+			valueAtTrigger     sql.NullString
+			triggerTime        time.Time
+			clearTime, ackTime sql.NullTime
+			bgAckUser          sql.NullString
+			tagName, gwName    string
 		)
 		if err := rows.Scan(
 			&evtID, &tagID, &status, &alarmType, &severity,
 			&message, &valueAtTrigger, &triggerTime,
 			&clearTime, &bgAckUser, &ackTime,
-			&gwID,
+			&gwID, &tagName, &gwName,
 		); err != nil {
 			log.Printf("[i3X] scanAlarmRows scan error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"code": "SCAN_ERROR", "message": "Failed to read alarm"})
@@ -593,14 +594,16 @@ func (h *I3XHandler) scanAlarmRows(c *gin.Context, rows *sql.Rows) []i3x.Alarm {
 		}
 
 		alarm := i3x.Alarm{
-			ID:          alarmEventID(evtID),
-			PropertyID:  tagPropertyID(tagID),
-			EquipmentID: gwEquipmentID(gwID),
-			Severity:    i3x.MapSeverity(severity),
-			Status:      i3x.MapStatus(status),
-			AlarmType:   alarmType,
-			Message:     message,
-			TriggerTime: triggerTime,
+			ID:            alarmEventID(evtID),
+			PropertyID:    tagPropertyID(tagID),
+			PropertyName:  tagName,
+			EquipmentID:   gwEquipmentID(gwID),
+			EquipmentName: gwName,
+			Severity:      i3x.MapSeverity(severity),
+			Status:        i3x.MapStatus(status),
+			AlarmType:     alarmType,
+			Message:       message,
+			TriggerTime:   triggerTime,
 		}
 		if valueAtTrigger.Valid {
 			alarm.Value = valueAtTrigger.String

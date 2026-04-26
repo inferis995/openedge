@@ -586,8 +586,8 @@ export default function I3XPage() {
                                                     <SeverityIcon severity={alarm.severity} />
                                                 </TableCell>
                                                 <TableCell className="font-mono text-xs text-muted-foreground">{alarm.id}</TableCell>
-                                                <TableCell className="font-mono text-xs text-muted-foreground">{alarm.equipmentId}</TableCell>
-                                                <TableCell className="font-mono text-xs text-muted-foreground">{alarm.propertyId}</TableCell>
+                                                <TableCell className="text-xs">{alarm.equipmentName || alarm.equipmentId}</TableCell>
+                                                <TableCell className="text-xs">{alarm.propertyName || alarm.propertyId}</TableCell>
                                                 <TableCell className="text-xs">{alarm.alarmType}</TableCell>
                                                 <TableCell className="text-sm">{alarm.message}</TableCell>
                                                 <TableCell>
@@ -639,7 +639,7 @@ export default function I3XPage() {
                                                     <TableCell>
                                                         <SeverityIcon severity={alarm.severity} />
                                                     </TableCell>
-                                                    <TableCell className="font-mono text-xs text-muted-foreground">{alarm.propertyId}</TableCell>
+                                                    <TableCell className="text-xs">{alarm.propertyName || alarm.propertyId}</TableCell>
                                                     <TableCell className="text-xs">{alarm.alarmType}</TableCell>
                                                     <TableCell className="text-sm">{alarm.message}</TableCell>
                                                     <TableCell>

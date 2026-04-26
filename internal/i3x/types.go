@@ -79,18 +79,20 @@ type Property struct {
 
 // Alarm represents an alarm event in i3X format
 type Alarm struct {
-	ID          string        `json:"id"`
-	PropertyID  string        `json:"propertyId"`
-	EquipmentID string        `json:"equipmentId"`
-	Severity    AlarmSeverity `json:"severity"`
-	Status      AlarmStatus   `json:"status"`
-	AlarmType   string        `json:"alarmType"`
-	Message     string        `json:"message"`
-	Value       interface{}   `json:"value,omitempty"`
-	TriggerTime time.Time     `json:"triggerTime"`
-	ClearTime   *time.Time    `json:"clearTime,omitempty"`
-	AckTime     *time.Time    `json:"ackTime,omitempty"`
-	AckUser     *string       `json:"ackUser,omitempty"`
+	ID            string        `json:"id"`
+	PropertyID    string        `json:"propertyId"`
+	PropertyName  string        `json:"propertyName"`
+	EquipmentID   string        `json:"equipmentId"`
+	EquipmentName string        `json:"equipmentName"`
+	Severity      AlarmSeverity `json:"severity"`
+	Status        AlarmStatus   `json:"status"`
+	AlarmType     string        `json:"alarmType"`
+	Message       string        `json:"message"`
+	Value         interface{}   `json:"value,omitempty"`
+	TriggerTime   time.Time     `json:"triggerTime"`
+	ClearTime     *time.Time    `json:"clearTime,omitempty"`
+	AckTime       *time.Time    `json:"ackTime,omitempty"`
+	AckUser       *string       `json:"ackUser,omitempty"`
 }
 
 // WritePropertyRequest is the request body for writing a property value
