@@ -130,7 +130,7 @@ services:
     image: openedge-web-ui:latest
     container_name: industrial-web-ui
     ports:
-      - "3001:80"
+      - "${WEB_UI_PORT:-3000}:80"
     depends_on:
       core-api:
         condition: service_healthy
