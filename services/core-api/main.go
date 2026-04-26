@@ -409,6 +409,25 @@ func main() {
 
 		// WebSocket endpoints
 		api.GET("/ws/realtime", realtimeHandler.HandleRealtime)
+
+		// i3X Access API (CESMII standard) – read/write industrial data via
+		// a vendor-neutral REST interface compatible with CESMII i3X v1 spec.
+		i3xHandler := handlers.NewI3XHandler(database, mqttClient, redisClient)
+		i3x := api.Group("/i3x/v1")
+		i3x.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			i3x.GET("/equipment", i3xHandler.ListEquipment)
+			i3x.GET("/equipment/:id", i3xHandler.GetEquipment)
+			i3x.GET("/equipment/:id/properties", i3xHandler.ListEquipmentProperties)
+			i3x.GET("/equipment/:id/properties/:propId", i3xHandler.GetEquipmentProperty)
+
+			i3x.GET("/properties", i3xHandler.ListProperties)
+			i3x.GET("/properties/:id", i3xHandler.GetProperty)
+			i3x.PUT("/properties/:id/value", i3xHandler.WritePropertyValue)
+
+			i3x.GET("/alarms", i3xHandler.ListAlarms)
+			i3x.GET("/alarms/history", i3xHandler.ListAlarmHistory)
+		}
 	}
 
 	// Swagger documentation endpoints
