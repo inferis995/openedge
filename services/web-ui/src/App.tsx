@@ -15,6 +15,7 @@ import HistoryPage from '@/pages/HistoryPage';
 import MqttMonitorPage from '@/pages/MqttMonitorPage';
 import AlarmsPage from '@/pages/AlarmsPage';
 import UsersPage from '@/pages/UsersPage';
+import I3XPage from '@/pages/I3XPage';
 
 import { useEffect, useState, useRef } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -92,6 +93,7 @@ function App() {
                     <Route path="/history" element={<HistoryPage />} />
                     <Route path="/alarms" element={<AlarmsPage />} />
                     <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
+                    <Route path="/i3x" element={<I3XPage />} />
                     <Route path="/users" element={<UsersPage />} />
                 </Route>
             </Route>

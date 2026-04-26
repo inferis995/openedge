@@ -20,6 +20,7 @@ import {
     Moon,
     Sun,
     Bell,
+    Network,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -43,6 +44,7 @@ const Sidebar = () => {
         { name: 'Historian', path: '/history', icon: History },
         { name: 'Alarms', path: '/alarms', icon: Bell },
         { name: 'MQTT Monitor', path: '/mqtt-monitor', icon: Radio },
+        { name: 'i3X API',      path: '/i3x',          icon: Network },
     ];
 
     const adminNavItems = [
