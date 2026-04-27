@@ -321,7 +321,9 @@ All i3X IDs are prefixed strings:
 | Gateway | `gw-{n}` | `gw-2` |
 | Tag / Property | `tag-{n}` | `tag-42` |
 
-#### Quality Codes (OPC-UA)
+#### Quality Codes
+
+These codes apply to **all protocols** (Modbus, S7, OPC UA, MQTT, Redis) — the i3X standard uses OPC-UA numeric encoding regardless of the underlying driver.
 
 | Value | Meaning |
 |-------|---------|
@@ -329,7 +331,7 @@ All i3X IDs are prefixed strings:
 | `64` | Uncertain |
 | `0` | Bad |
 
-> The standard REST API uses `0=Good, 1=Bad`. The i3X API uses OPC-UA codes (`192=Good, 0=Bad`).
+> The standard REST API uses `0=Good, 1=Bad`. The i3X API uses `192=Good, 0=Bad`.
 
 #### Endpoints
 

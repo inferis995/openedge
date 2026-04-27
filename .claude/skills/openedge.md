@@ -97,7 +97,10 @@ Tutti gli ID nell'i3X API sono stringhe con prefisso:
 | Gateway / Equipment | `gw-{n}` | `gw-2` |
 | Tag / Property | `tag-{n}` | `tag-42` |
 
-### 3.2 Quality Codes (OPC-UA — diversi dall'API standard!)
+### 3.2 Quality Codes
+
+Questi codici valgono per **tutti i protocolli** (Modbus, S7, OPC UA, MQTT, Redis).
+Lo standard i3X usa la codifica numerica OPC-UA indipendentemente dal driver sottostante.
 
 | Valore | Significato |
 |--------|-------------|
@@ -105,7 +108,7 @@ Tutti gli ID nell'i3X API sono stringhe con prefisso:
 | `64` | Uncertain |
 | `0` | Bad — problema comunicazione o dato assente |
 
-> ⚠️ L'API standard REST usa `0=Good, 1=Bad`. L'i3X usa codici OPC-UA: `192=Good, 0=Bad`. Non confonderli.
+> ⚠️ L'API standard REST usa `0=Good, 1=Bad`. L'i3X usa `192=Good, 0=Bad`. Non confonderli.
 
 ### 3.3 Data Types
 
