@@ -1,21 +1,26 @@
 ---
 name: openedge
-description: OpenEdge Industrial IoT Middleware — REST API skill for AI agents
-version: 1.0.0
-tags: [industrial, iot, alarms, historian, timeseries, scada]
+description: OpenEdge Industrial IoT Middleware — REST API + i3X Access API skill for AI agents
+version: 2.0.0
+tags: [industrial, iot, alarms, historian, timeseries, scada, i3x, cesmii]
 ---
 
 # OpenEdge API — Skill
 
-Questo documento descrive come un agente AI deve interagire con
-un'istanza OpenEdge. Leggi tutto prima di fare qualsiasi chiamata API.
+Questo documento descrive come un agente AI deve interagire con un'istanza OpenEdge.
+Leggi tutto prima di fare qualsiasi chiamata API.
 
-## Compatibilità
+---
 
-Funziona con qualsiasi agente AI che legge skill files:
-- **Claude Code** — posiziona in `.claude/skills/openedge.md`
-- **OpenClaw** — posiziona in `~/.openclaw/skills/openedge/SKILL.md`
-- **Qualsiasi altro framework** — il file è autonomo, nessuna dipendenza esterna
+## Variabili d'ambiente attese
+
+```bash
+OPENEDGE_HOST=localhost
+OPENEDGE_PORT=8081
+OPENEDGE_USERNAME=admin
+OPENEDGE_PASSWORD=admin123
+OPENEDGE_ORG_ID=1
+```
 
 ---
 
@@ -25,6 +30,7 @@ Tutti gli endpoint (eccetto `/health` e `/ready`) richiedono un JWT Bearer token
 e l'header `X-Organization-ID`.
 
 ### Login
+
 ```
 POST http://{OPENEDGE_HOST}:{OPENEDGE_PORT}/api/auth/login
 Content-Type: application/json
@@ -39,18 +45,20 @@ Risposta:
 
 Il token scade dopo **24 ore**. Rinnova prima di ogni sessione di lavoro.
 
-### Header obbligatori per ogni chiamata
-```
-Authorization: Bearer {TOKEN}
-X-Organization-ID: {OPENEDGE_ORG_ID}
-```
-
 ### Script shell per ottenere TOKEN
+
 ```bash
 TOKEN=$(curl -s -X POST http://{OPENEDGE_HOST}:{OPENEDGE_PORT}/api/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"username":"{OPENEDGE_USERNAME}","password":"{OPENEDGE_PASSWORD}"}' \
   | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+```
+
+### Header obbligatori per ogni chiamata
+
+```
+Authorization: Bearer {TOKEN}
+X-Organization-ID: {OPENEDGE_ORG_ID}
 ```
 
 ---
@@ -62,30 +70,269 @@ GET http://{OPENEDGE_HOST}:{OPENEDGE_PORT}/health
 GET http://{OPENEDGE_HOST}:{OPENEDGE_PORT}/ready
 ```
 
-- `/health` → `{"status":"ok"}` se il server risponde
-- `/ready` → `{"status":"ready","db":"ok","redis":"ok"}` se DB e Redis sono up
+- `/health` → `{"status":"ok"}` — server risponde
+- `/ready` → `{"status":"ready","db":"ok","redis":"ok"}` — tutto up
 
-**Usa `/ready` per verificare che OpenEdge sia completamente operativo prima di fare query.**
-
----
-
-## 3. Endpoint AI-Ops (scopo primario degli agenti)
-
-Questi endpoint sono ottimizzati per gli agenti: una sola chiamata restituisce
-tutto il necessario, senza N query separate.
+**Usa `/ready` per verificare che OpenEdge sia operativo prima di fare query.**
 
 ---
 
-### 3.1 GET /api/aiops/summary — Snapshot organizzazione
+## 3. i3X Access API — Protocollo CESMII Standard
 
-**Quando usarlo:** all'inizio di ogni ciclo di analisi, per avere il quadro completo.
+Il prefisso è `/api/i3x/v1/`. Tutti gli endpoint richiedono auth + org.
 
+Questa è l'API **vendor-neutral** compatibile con la specifica CESMII i3X v1.
+Usa per integrazioni con sistemi esterni, SCADA, o agenti che devono leggere/scrivere
+dati in formato standard senza conoscere la struttura interna di OpenEdge.
+
+### 3.1 ID Format
+
+Tutti gli ID nell'i3X API sono stringhe con prefisso:
+
+| Tipo | Formato | Esempio |
+|------|---------|---------|
+| Organizzazione | `org-{n}` | `org-1` |
+| Sito | `site-{n}` | `site-3` |
+| Area | `area-{n}` | `area-7` |
+| Gateway / Equipment | `gw-{n}` | `gw-2` |
+| Tag / Property | `tag-{n}` | `tag-42` |
+
+### 3.2 Quality Codes (OPC-UA — diversi dall'API standard!)
+
+| Valore | Significato |
+|--------|-------------|
+| `192` | Good — dato affidabile |
+| `64` | Uncertain |
+| `0` | Bad — problema comunicazione o dato assente |
+
+> ⚠️ L'API standard REST usa `0=Good, 1=Bad`. L'i3X usa codici OPC-UA: `192=Good, 0=Bad`. Non confonderli.
+
+### 3.3 Data Types
+
+| i3X | Tipi interni corrispondenti |
+|-----|-----------------------------|
+| `Boolean` | `BOOL` |
+| `Int32` | `INT`, `DINT` |
+| `Float` | `REAL` |
+| `String` | `STRING`, `WORD`, altri |
+
+---
+
+### GET /api/i3x/v1/equipment — Lista equipment
+
+Restituisce la gerarchia completa: org → sito → area → gateway.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  http://localhost:8081/api/i3x/v1/equipment
 ```
-GET /api/aiops/summary?hours=24
+
+Risposta:
+```json
+{
+  "items": [
+    {
+      "id": "org-1",
+      "name": "MyOrganization",
+      "type": "Assembly",
+      "parentId": null,
+      "path": "MyOrganization"
+    },
+    {
+      "id": "site-3",
+      "name": "Sito-Crotone",
+      "type": "Assembly",
+      "parentId": "org-1",
+      "path": "MyOrganization/Sito-Crotone"
+    },
+    {
+      "id": "gw-2",
+      "name": "PLC-Serbatoio1",
+      "type": "Equipment",
+      "parentId": "area-7",
+      "path": "MyOrganization/Sito-Crotone/Zona-A/PLC-Serbatoio1",
+      "attributes": {
+        "driver_type": "MODBUS_TCP",
+        "connection_status": "online",
+        "enabled": true
+      }
+    }
+  ],
+  "total": 5
+}
 ```
 
-Parametri:
-- `hours` (default: 24, min: 1, max: 720) — finestra temporale in ore
+Tipi: `Assembly` = nodo logico (org/site/area), `Equipment` = dispositivo fisico (gateway).
+
+---
+
+### GET /api/i3x/v1/equipment/:id — Dettaglio equipment
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  http://localhost:8081/api/i3x/v1/equipment/gw-2
+```
+
+---
+
+### GET /api/i3x/v1/equipment/:id/properties — Tag di un equipment
+
+Lista tutti i tag (properties) di un gateway, con valore corrente da Redis.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  http://localhost:8081/api/i3x/v1/equipment/gw-2/properties
+```
+
+Risposta:
+```json
+{
+  "items": [
+    {
+      "id": "tag-42",
+      "name": "Portata_Ingresso",
+      "equipmentId": "gw-2",
+      "dataType": "Float",
+      "historize": true,
+      "current": {
+        "value": 42.5,
+        "quality": 192,
+        "timestamp": "2026-04-27T10:30:00Z"
+      }
+    },
+    {
+      "id": "tag-43",
+      "name": "Pompa_On",
+      "equipmentId": "gw-2",
+      "dataType": "Boolean",
+      "historize": true,
+      "current": {
+        "value": true,
+        "quality": 192,
+        "timestamp": "2026-04-27T10:30:01Z"
+      }
+    }
+  ],
+  "total": 2
+}
+```
+
+Se `current` è assente → il tag non ha mai ricevuto un valore (gateway mai connesso).
+
+---
+
+### GET /api/i3x/v1/equipment/:id/properties/:propId — Singola property
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  http://localhost:8081/api/i3x/v1/equipment/gw-2/properties/tag-42
+```
+
+---
+
+### GET /api/i3x/v1/properties — Tutti i tag dell'organizzazione
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  http://localhost:8081/api/i3x/v1/properties
+```
+
+---
+
+### GET /api/i3x/v1/properties/:id — Singola property con valore corrente
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  http://localhost:8081/api/i3x/v1/properties/tag-42
+```
+
+---
+
+### PUT /api/i3x/v1/properties/:id/value — Scrivi valore su un tag
+
+Richiede permesso `i3x_write` nel JWT oppure ruolo `admin`.
+
+```bash
+curl -X PUT \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Organization-ID: 1" \
+  -H "Content-Type: application/json" \
+  -d '{"value": 1}' \
+  http://localhost:8081/api/i3x/v1/properties/tag-43/value
+```
+
+Risposta: `{"message": "Write command sent"}`
+
+Il comando è inviato al driver via MQTT (`cmd/write/{gateway_id}`). La risposta
+arriva in modo asincrono: il valore aggiornato sarà visibile nel campo `current`
+alla prossima lettura dopo che il driver ha eseguito la scrittura sul PLC.
+
+Errori possibili:
+- `403 FORBIDDEN` — utente senza `i3x_write` o accesso a org diversa
+- `503 MQTT_UNAVAILABLE` — broker MQTT non connesso
+
+---
+
+### GET /api/i3x/v1/alarms — Allarmi attivi in formato i3X
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  http://localhost:8081/api/i3x/v1/alarms
+```
+
+Risposta:
+```json
+{
+  "items": [
+    {
+      "id": "alarm-45",
+      "propertyId": "tag-42",
+      "propertyName": "Portata_Ingresso",
+      "equipmentId": "gw-2",
+      "equipmentName": "PLC-Serbatoio1",
+      "severity": "Critical",
+      "status": "Active",
+      "alarmType": "high",
+      "message": "Portata massima superata",
+      "value": 98.7,
+      "triggerTime": "2026-04-27T08:15:00Z",
+      "clearTime": null
+    }
+  ],
+  "total": 1
+}
+```
+
+Status values: `Active`, `Acknowledged`, `Cleared`
+Severity values: `Info`, `Warning`, `Critical`
+
+---
+
+### GET /api/i3x/v1/alarms/history — Storico allarmi
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  http://localhost:8081/api/i3x/v1/alarms/history
+```
+
+Risposta analoga a `/alarms` ma include anche allarmi con status `Cleared`.
+
+---
+
+## 4. AI-Ops API — Endpoint ottimizzati per agenti
+
+Questi endpoint restituiscono tutto in una sola chiamata, senza N query separate.
+
+---
+
+### GET /api/aiops/summary?hours=24 — Snapshot organizzazione
+
+**Quando usarlo:** all'inizio di ogni ciclo di analisi.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  "http://localhost:8081/api/aiops/summary?hours=24"
+```
 
 Risposta:
 ```json
@@ -93,7 +340,7 @@ Risposta:
   "org_id": 1,
   "org_name": "MyOrganization",
   "period_hours": 24,
-  "generated_at": "2026-03-28T07:00:00Z",
+  "generated_at": "2026-04-27T07:00:00Z",
   "active_alarms_count": 3,
   "critical_alarms_count": 1,
   "total_gateways_count": 12,
@@ -116,26 +363,25 @@ Risposta:
 ```
 
 Note:
-- `avg_value`, `min_value`, `max_value` possono essere `null` se il tag non ha dati storici nel periodo (gateway offline)
-- `sample_count` = numero di campioni nel periodo (0 = nessun dato = problema di connettività)
-- `has_alarm` = true se il tag ha avuto almeno un allarme nel periodo
+- `avg/min/max_value` null → gateway offline nel periodo, nessun dato
+- `sample_count = 0` → problema connettività
+- `has_alarm = true` → almeno un allarme nel periodo
 
 ---
 
-### 3.2 GET /api/aiops/anomalies — Rilevamento anomalie Z-score
+### GET /api/aiops/anomalies — Rilevamento anomalie Z-score
 
-**Quando usarlo:** per analisi statistica approfondita su tag specifici sospetti.
-
-```
-GET /api/aiops/anomalies?tag_id=5&window_hours=168&baseline_days=30
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  "http://localhost:8081/api/aiops/anomalies?tag_id=5&window_hours=168&baseline_days=30"
 ```
 
 Parametri:
-- `tag_id` (required) — ID del tag da analizzare
-- `window_hours` (default: 168 = 1 settimana, max: 720) — finestra da analizzare
-- `baseline_days` (default: 30, min: 7, max: 365) — giorni di baseline per calcolare mean/stddev
+- `tag_id` (required)
+- `window_hours` (default: 168 = 1 settimana, max: 720)
+- `baseline_days` (default: 30, min: 7, max: 365)
 
-Risposta normale:
+Risposta:
 ```json
 {
   "tag_id": 5,
@@ -145,7 +391,7 @@ Risposta normale:
   "anomaly_count": 3,
   "anomalies": [
     {
-      "bucket": "2026-03-27T14:00:00Z",
+      "bucket": "2026-04-26T14:00:00Z",
       "value": 51.2,
       "z_score": 5.98,
       "direction": "high"
@@ -154,37 +400,16 @@ Risposta normale:
 }
 ```
 
-Risposta quando non ci sono dati sufficienti per il baseline:
-```json
-{
-  "tag_id": 5,
-  "tag_alias": "Portata_Ingresso",
-  "baseline_mean": 0,
-  "baseline_std_dev": 0,
-  "anomaly_count": 0,
-  "anomalies": [],
-  "note": "baseline stddev too low or no baseline data — anomaly detection not applicable"
-}
-```
-
-Note:
-- Soglia anomalia: `|z_score| >= 2.5` (circa 2.5 deviazioni standard dalla media)
-- `direction`: "high" = valore sopra la norma, "low" = valore sotto la norma
-- Un z_score alto (es. 6.0) indica un'anomalia grave; tra 2.5 e 3.5 potrebbe essere rumore
-- Se `note` è presente, non ci sono dati sufficienti per l'analisi
+Soglia: `|z_score| >= 2.5`. Direction: `high` = sopra la norma, `low` = sotto.
 
 ---
 
-### 3.3 GET /api/aiops/alarms/digest — Digest allarmi per report
+### GET /api/aiops/alarms/digest?hours=24 — Digest allarmi per report
 
-**Quando usarlo:** per generare report giornalieri PDF/email.
-
+```bash
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+  "http://localhost:8081/api/aiops/alarms/digest?hours=24"
 ```
-GET /api/aiops/alarms/digest?hours=24
-```
-
-Parametri:
-- `hours` (default: 24, min: 1, max: 720)
 
 Risposta:
 ```json
@@ -193,11 +418,7 @@ Risposta:
   "total_fired": 8,
   "still_active": 2,
   "cleared": 6,
-  "by_severity": {
-    "info": 2,
-    "warning": 4,
-    "critical": 2
-  },
+  "by_severity": {"info": 2, "warning": 4, "critical": 2},
   "alarms": [
     {
       "severity": "critical",
@@ -206,310 +427,177 @@ Risposta:
       "alarm_type": "high",
       "message": "Pressione massima superata",
       "value_at_trigger": 8.7,
-      "trigger_time": "2026-03-27T22:15:00Z",
+      "trigger_time": "2026-04-26T22:15:00Z",
       "status": "CLEARED",
-      "clear_time": "2026-03-27T23:05:00Z"
+      "clear_time": "2026-04-26T23:05:00Z"
     }
   ]
 }
 ```
 
-Note:
-- `still_active` = allarmi con status ACTIVE o ACKNOWLEDGED
-- `cleared` = allarmi risolti
-- `clear_time` può essere null se l'allarme è ancora attivo
-- Massimo 1000 allarmi per risposta
-
 ---
 
-## 4. Endpoint Standard
+## 5. Endpoint Standard
 
-### 4.1 Allarmi attivi in tempo reale
+### Allarmi attivi
 
 ```
 GET /api/alarms/active
 ```
 
-Risposta: lista di allarmi con status ACTIVE o ACKNOWLEDGED.
-
-```json
-[{
-  "id": 45,
-  "tag_id": 12,
-  "status": "ACTIVE",
-  "alarm_type": "high",
-  "severity": "critical",
-  "message": "Pressione massima superata",
-  "value_at_trigger": 8.7,
-  "trigger_time": "2026-03-27T22:15:00Z"
-}]
-```
-
-**Usa questo per Alarm Monitor (ogni 5 min).**
-
----
-
-### 4.2 Stato gateway (connettività PLC)
+### Stato gateway (connettività PLC)
 
 ```
 GET /api/gateways
 ```
 
-Risposta: lista gateway con stato di connessione live (da Redis).
+`connection_status`: `"online"` | `"offline"` | `"unknown"`
 
-```json
-[{
-  "id": 3,
-  "name": "PLC-Serbatoio1",
-  "driver_type": "MODBUS_TCP",
-  "enabled": true,
-  "connection_status": "online",
-  "last_seen": 1711234567000
-}]
-```
-
-Valori `connection_status`:
-- `"online"` — comunicazione attiva, dati recenti
-- `"offline"` — nessuna comunicazione da più di 30 secondi
-- `"unknown"` — mai connesso da avvio sistema
-
-**Usa questo per Gateway Health Monitor (ogni 15 min).**
-Un gateway offline da più di 30 minuti è un problema da segnalare.
-
----
-
-### 4.3 Valore corrente di un tag (real-time da Redis)
+### Valore corrente tag (da Redis)
 
 ```
 GET /api/tags/{tag_id}/current
 ```
 
-Risposta:
-```json
-{
-  "tag_id": 5,
-  "alias": "Portata_Ingresso",
-  "value": 42.5,
-  "timestamp": 1711234567000,
-  "quality": 0
-}
-```
+Risposta: `{"tag_id":5,"alias":"Portata_Ingresso","value":42.5,"timestamp":1711234567000,"quality":0}`
 
-Quality codes: **0 = Good**, **1 = Bad**
+Quality REST: **0 = Good**, **1 = Bad** (opposto i3X!)
 
----
-
-### 4.4 Statistiche storiche
+### Statistiche storiche
 
 ```
 GET /api/history/stats?tag_id=5&start=1711148167000&end=1711234567000
 ```
 
-Parametri: `tag_id`, `start` (ms unix), `end` (ms unix)
-
-Risposta:
-```json
-{
-  "min_value": 38.1,
-  "max_value": 47.2,
-  "avg_value": 42.5,
-  "std_dev": 1.4,
-  "sample_count": 2880
-}
-```
-
----
-
-### 4.5 Lista tag con gerarchia
+### Tag con gerarchia completa
 
 ```
 GET /api/tags/with-hierarchy
 ```
 
-Risposta: lista completa tag con org/site/area/gateway associato.
-Utile per costruire il contesto iniziale del cliente.
-
----
-
-## 5. Struttura Redis (per riferimento)
-
-I valori real-time sono cachati in Redis. Non accedere direttamente a Redis —
-usa la REST API.
-
-| Chiave Redis | Struttura | Note |
-|---|---|---|
-| `realtime:{tag_id}` | `{"v":42.5,"ts":1711234567000,"q":0}` | TTL 60 giorni; assenza = mai letto |
-| `gateway_health:{gw_id}` | `{"status":"online","last_seen":1711234567000}` | Aggiornato dal driver ogni scan |
-
 ---
 
 ## 6. Regole critiche per interpretare i dati
 
-### 6.1 Gap nel trend = gateway offline, NON errore
-`value = NULL` in tag_history significa che il gateway era offline in quel momento.
-**Non confondere un gap con un dato errato o con 0.**
-Il sistema inserisce esplicitamente marker `source='offline'` per queste finestre.
+### Quality codes — NON confondere i due contesti
 
-### 6.2 Timestamp in MILLISECONDI
-Tutti i timestamp restituiti dalla REST API sono in millisecondi Unix (int64).
-Es: `1711234567000` = `2026-03-23T15:22:47Z`
+| API | Good | Bad |
+|-----|------|-----|
+| REST standard | `0` | `1` |
+| i3X Access API | `192` | `0` |
 
-Nella risposta di `/api/aiops/*` i timestamp sono già in formato ISO 8601 (RFC3339).
+### Timestamp
 
-### 6.3 Valori BOOL
-I tag di tipo BOOL sono salvati come FLOAT:
-- `1.0` = true / ON / contatto chiuso
-- `0.0` = false / OFF / contatto aperto
+- REST standard: millisecondi Unix (`1711234567000`)
+- i3X API e AI-Ops: ISO 8601 (`2026-04-27T10:30:00Z`)
 
-### 6.4 Quality codes (REST API)
-- `0` = Good — dato affidabile
-- `1` = Bad — problema di comunicazione o sensore
+### Valori BOOL
 
-**Nota:** Sparkplug B usa quality 192=Good, 0=Bad (opposto REST API). Non confondere i due contesti.
+Salvati come float: `1.0` = ON, `0.0` = OFF.
+In i3X la property `Boolean` restituisce già `true`/`false`.
 
-### 6.5 Source field in tag_history
+### Gap nel trend = gateway offline, NON errore
+
+`value = NULL` in tag_history = gateway offline in quel momento.
+Il sistema inserisce marker `source='offline'` per queste finestre.
+
+### Source field in tag_history
+
 | source | Significato |
 |--------|-------------|
-| `mqtt` | Dato normale pubblicato dal driver |
+| `mqtt` | Dato normale dal driver |
 | `sparkplug_b` | Dato dal protocollo Sparkplug B |
-| `offline` | Marker: gateway si è disconnesso in questo momento |
+| `offline` | Marker: gateway disconnesso |
 | `seed` | Valore iniettato via REST per continuità trend |
 
 ---
 
-## 7. Pattern operativo raccomandato per gli agenti
+## 7. Quando usare i3X vs API standard
+
+| Scenario | API da usare |
+|----------|-------------|
+| Integrazione con sistema esterno (SCADA, MES, cloud) | **i3X** |
+| Lettura valore corrente di un tag specifico | i3X `GET /properties/{id}` o REST `GET /tags/{id}/current` |
+| Scrittura valore su PLC | **i3X** `PUT /properties/{id}/value` |
+| Lista tag con gerarchia | **i3X** `GET /equipment/{id}/properties` |
+| Analisi anomalie / report | **AI-Ops** |
+| Alarm monitor real-time | AI-Ops o i3X `/alarms` |
+| Dashboard interna OpenEdge | REST standard |
+
+---
+
+## 8. Pattern operativo per agenti
 
 ### Alarm Monitor (ogni 5 min)
+
 ```
-1. GET /api/alarms/active
-2. Se severity=critical AND status=ACTIVE → apri ticket urgente + Telegram
-3. Se solo WARNING → aggiungi nota a ticket giornaliero esistente
-4. Se lista vuota → nessuna azione
+1. GET /api/i3x/v1/alarms
+2. Se severity=Critical AND status=Active → notifica urgente
+3. Se solo Warning → aggiungi nota a ticket giornaliero
+4. Lista vuota → nessuna azione
 ```
 
 ### Gateway Health Monitor (ogni 15 min)
+
 ```
 1. GET /api/gateways
 2. Per ogni gateway: controlla connection_status
-3. Se offline E last_seen > 30 minuti fa → apri ticket
+3. Se offline E last_seen > 30 min → apri ticket
 4. Se torna online → chiudi ticket + notifica recovery
 ```
 
-### Daily Report Agent (ogni giorno alle 07:00)
+### Daily Report (ogni giorno alle 07:00)
+
 ```
 1. GET /api/aiops/alarms/digest?hours=24
 2. GET /api/aiops/summary?hours=24
 3. Genera sezione allarmi dal digest
-4. Genera tabella tag critici dal summary (quelli con has_alarm=true o sample_count=0)
-5. Invia PDF via email
+4. Tabella tag critici (has_alarm=true o sample_count=0)
+5. Invia report
 ```
 
 ### Anomaly Detector (ogni ora)
+
 ```
 1. GET /api/aiops/summary?hours=1
 2. Per tag con has_alarm=false E sample_count > 0:
    GET /api/aiops/anomalies?tag_id={id}&window_hours=24
-3. Se anomaly_count > 0 → analisi Claude + ticket
+3. Se anomaly_count > 0 → analisi + ticket
 ```
 
----
+### Lettura valore e scrittura via i3X
 
-## 7b. Setup Cron Job
-
-Ogni pattern della sezione 7 può essere eseguito come cron job autonomo.
-L'agente riceve il task, legge questa skill, chiama gli endpoint, e agisce.
-
-### Esempio crontab (Linux/macOS)
-
-```cron
-# OpenEdge AI Agent — cron jobs
-# Variabili di ambiente necessarie:
-#   OPENEDGE_HOST, OPENEDGE_PORT, OPENEDGE_USERNAME, OPENEDGE_PASSWORD, OPENEDGE_ORG_ID
-
-# Alarm Monitor — ogni 5 minuti
-*/5 * * * * /usr/local/bin/openclaw run openedge "controlla allarmi attivi e notifica se critical"
-
-# Gateway Health Monitor — ogni 15 minuti
-*/15 * * * * /usr/local/bin/openclaw run openedge "verifica stato connessione tutti i gateway"
-
-# Anomaly Detector — ogni ora
-0 * * * * /usr/local/bin/openclaw run openedge "rileva anomalie Z-score su tutti i tag attivi delle ultime 24 ore"
-
-# Daily Report — ogni giorno alle 07:00
-0 7 * * * /usr/local/bin/openclaw run openedge "genera report giornaliero allarmi e stato impianto, invia via email"
 ```
+# Leggi valore corrente
+GET /api/i3x/v1/properties/tag-42
 
-### Con Claude Code (schedule skill)
-
-```bash
-# Alarm monitor ogni 5 minuti
-/schedule "*/5 * * * *" "controlla allarmi OpenEdge, notifica se ci sono critical attivi"
-
-# Daily report ogni giorno alle 07:00
-/schedule "0 7 * * *" "genera report giornaliero OpenEdge con digest allarmi e summary tag"
-```
-
-### Variabili d'ambiente consigliate
-
-```bash
-export OPENEDGE_HOST=localhost
-export OPENEDGE_PORT=8081
-export OPENEDGE_USERNAME=admin
-export OPENEDGE_PASSWORD=<password>
-export OPENEDGE_ORG_ID=1
-```
-
-L'agente sostituisce `{OPENEDGE_HOST}` ecc. con queste variabili prima di ogni chiamata.
-
----
-
-## 8. Esempi curl completi
-
-```bash
-# Login
-TOKEN=$(curl -s -X POST http://OPENEDGE_HOST:8081/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"PASS"}' \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
-
-# Headers da usare per tutte le chiamate
-HEADERS='-H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1"'
-
-# Health check
-curl http://OPENEDGE_HOST:8081/ready
-
-# Summary ultime 24h
-curl $HEADERS "http://OPENEDGE_HOST:8081/api/aiops/summary?hours=24"
-
-# Anomalie su tag 5 (ultima settimana, baseline 30 giorni)
-curl $HEADERS "http://OPENEDGE_HOST:8081/api/aiops/anomalies?tag_id=5&window_hours=168&baseline_days=30"
-
-# Digest allarmi ultime 24h
-curl $HEADERS "http://OPENEDGE_HOST:8081/api/aiops/alarms/digest?hours=24"
-
-# Allarmi attivi
-curl $HEADERS "http://OPENEDGE_HOST:8081/api/alarms/active"
-
-# Stato gateway
-curl $HEADERS "http://OPENEDGE_HOST:8081/api/gateways"
+# Scrivi valore (richiede i3x_write o admin)
+PUT /api/i3x/v1/properties/tag-43/value
+{"value": 1}
 ```
 
 ---
 
 ## 9. Gestione errori
 
-| HTTP Status | Significato | Azione |
-|---|---|---|
+| HTTP | Significato | Azione |
+|------|-------------|--------|
 | 200 | OK | Procedi |
 | 400 | Parametro non valido | Correggi la richiesta |
-| 401 | Token scaduto o mancante | Rinnova il token con POST /api/auth/login |
-| 403 | Permessi insufficienti | Verifica OPENEDGE_USERNAME e ruolo |
-| 404 | Tag/risorsa non trovata | Verifica tag_id e org_id |
+| 401 | Token scaduto o mancante | Rinnova con POST /api/auth/login |
+| 403 | Permessi insufficienti | Verifica ruolo utente o claim i3x_write |
+| 404 | Risorsa non trovata | Verifica ID e org_id |
+| 503 | MQTT non connesso | Solo per PUT write — broker offline |
 | 500 | Errore server | Logga e riprova dopo 30 secondi |
 
-Tutte le risposte di errore seguono questo formato:
+Tutte le risposte di errore:
 ```json
-{"error": "descrizione dell'errore"}
+{"error": "descrizione"}
+```
+
+Errori i3X (formato esteso):
+```json
+{"code": "FORBIDDEN", "message": "i3X write permission required"}
 ```
 
 ---
