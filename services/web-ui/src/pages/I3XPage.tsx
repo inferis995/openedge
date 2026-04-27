@@ -721,7 +721,7 @@ export default function I3XPage() {
                                 ))}
                             </div>
                             <div className="mt-4 p-3 bg-muted/30 clip-chamfer-sm space-y-2">
-                                <p className="text-xs font-semibold text-muted-foreground">Quality codes (OPC-UA)</p>
+                                <p className="text-xs font-semibold text-muted-foreground">Quality codes (all protocols)</p>
                                 <div className="flex gap-4">
                                     <QualityBadge quality={192} />
                                     <span className="text-xs text-muted-foreground">= 192</span>
