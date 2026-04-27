@@ -38,6 +38,54 @@ OPENEDGE_ORG_ID=1
 Segui questi passi **nell'ordine esatto**. Non procedere al passo successivo
 se il precedente non è verificato con successo.
 
+### Passo 0 — Verifica prerequisiti (Docker + make)
+
+#### Docker
+```bash
+docker info
+# Se fallisce: Docker Desktop non è avviato. Avvialo e riprova.
+```
+
+#### make
+```bash
+make --version
+# Atteso: GNU Make 4.x (o superiore)
+```
+
+Se `make` non è installato, installalo in base all'OS:
+
+```bash
+# Linux — Ubuntu / Debian
+sudo apt-get update && sudo apt-get install -y make
+
+# Linux — RHEL / Fedora / CentOS
+sudo dnf install -y make
+
+# Mac — xcode-select include make
+xcode-select --install
+
+# Mac — alternativa con Homebrew
+brew install make
+```
+
+**Windows** — esegui da PowerShell (come Administrator se winget lo richiede):
+```powershell
+winget install GnuWin32.Make
+```
+Poi **chiudi e riapri** il terminale per aggiornare il PATH, quindi verifica:
+```cmd
+make --version
+```
+
+> Se `winget` non è disponibile (Windows < 10 1709), usa Chocolatey:
+> `choco install make` — oppure usa `openedge.bat` come alternativa senza make.
+
+Verifica finale prima di procedere:
+```bash
+docker info >nul 2>&1 && make --version
+# Entrambi devono rispondere senza errori
+```
+
 ### Passo 1 — Clona il repository
 
 ```bash
@@ -45,20 +93,37 @@ git clone https://github.com/inferis995/openedge.git
 cd openedge
 ```
 
-### Passo 1b — Configura .env (percorsi dati e credenziali)
+### Passo 1b — Configura .env (solo se vuoi personalizzare percorsi o credenziali)
+
+`make start` crea automaticamente `.env` da `.env.example` e genera un `JWT_SECRET` sicuro se non è già presente. **Non devi fare nulla per il JWT.**
+
+Se vuoi personalizzare i percorsi dati o le credenziali DB, crea prima il `.env` e modificalo:
 
 ```bash
 cp .env.example .env
+# Poi modifica i valori che vuoi cambiare
 ```
 
-Apri `.env` e scegli dove salvare i dati storici di PostgreSQL e Redis.
-Se non imposti nulla i dati finiscono in `./data/` dentro la cartella del repo.
+#### Percorsi dati — bind mount già implementato
+
+I dati di PostgreSQL e Redis sono salvati su disco dell'host tramite **bind mount**, già configurato in `docker-compose.yml`:
+
+```yaml
+# Estratto da docker-compose.yml (già presente — non modificare)
+postgres:
+  volumes:
+    - ${POSTGRES_DATA_PATH:-./data/postgres}:/var/lib/postgresql/data
+
+redis:
+  volumes:
+    - ${REDIS_DATA_PATH:-./data/redis}:/data
+```
+
+**Default (test/sviluppo):** i dati vanno in `./data/postgres` e `./data/redis` dentro la cartella del repository. Nessuna configurazione necessaria.
+
+Per produzione, imposta percorsi assoluti nel `.env` **prima** del primo `make start`:
 
 ```bash
-# Default — dati nella cartella del repo (ok per test)
-POSTGRES_DATA_PATH=./data/postgres
-REDIS_DATA_PATH=./data/redis
-
 # Linux/Mac — percorso assoluto consigliato per produzione
 POSTGRES_DATA_PATH=/opt/openedge/data/postgres
 REDIS_DATA_PATH=/opt/openedge/data/redis
@@ -69,23 +134,30 @@ REDIS_DATA_PATH=D:/openedge-data/redis
 ```
 
 > ⚠️ **Imposta i percorsi PRIMA di `make start`.**
-> Cambiarli dopo che i dati esistono richiede backup + restore.
+> Cambiarli dopo che i dati esistono richiede backup + restore del DB.
 
-Opzionale: cambia password e credenziali nel blocco `DATABASE CONFIGURATION` di `.env`.
+Opzionale: cambia `POSTGRES_PASSWORD` e le credenziali nel blocco `DATABASE CONFIGURATION` di `.env`.
 
-### Passo 2 — Build + avvio con make start
+### Passo 2 — Build + avvio
 
+**Linux / Mac:**
 ```bash
 make start
 ```
 
-`make start` esegue in sequenza:
-1. Build di tutte le immagini Docker (core-api, web-ui, driver-manager, engine-historian)
-2. Build delle 5 immagini driver (Modbus, S7, OPC UA, MQTT, Redis) ← **necessarie per i gateway**
-3. Avvio di tutti i servizi
-4. Applicazione delle migration DB
+**Windows** (doppio clic su `openedge.bat` oppure da cmd):
+```cmd
+openedge.bat start
+```
 
-**Non usare `docker-compose up -d` — salta il build delle immagini driver.**
+Entrambi eseguono in sequenza:
+1. Creazione `.env` da `.env.example` (se mancante) e generazione `JWT_SECRET`
+2. Build di tutte le immagini Docker (core-api, web-ui, driver-manager, engine-historian)
+3. Build delle 5 immagini driver (Modbus, S7, OPC UA, MQTT, Redis) ← **necessarie per i gateway**
+4. Avvio di tutti i servizi
+5. Applicazione delle migration DB (automatica all'avvio del backend)
+
+**Non usare `docker-compose up -d` direttamente — salta il build delle immagini driver.**
 
 ### Passo 3 — Verifica immagini driver (OBBLIGATORIO prima di creare gateway)
 
@@ -209,6 +281,27 @@ curl http://localhost:8081/ready    # {"status":"ready","db":"ok","redis":"ok"} 
 ---
 
 ## 4. Fix problemi comuni
+
+### Problema: core-api non si avvia — "JWT_SECRET environment variable is required"
+
+Il backend rifiuta di partire se `JWT_SECRET` non è presente nel `.env`.
+
+```bash
+# Verifica se è presente
+grep JWT_SECRET .env
+
+# Se manca o è ancora il valore di esempio (CHANGE_ME_...), genera e aggiungi:
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
+
+# Riavvia il backend
+docker-compose restart core-api
+
+# Controlla che ora parta
+docker-compose logs core-api | tail -20
+# Deve comparire: "[AUTH] JWT secret key loaded from environment"
+```
+
+---
 
 ### Problema: gateway creato dalla UI ma il driver non parte
 
@@ -461,8 +554,8 @@ agente riceve task:
  Portata:REAL:40001, Livello:REAL:40003, Pompa:BOOL:00001.0"
 
 1. git clone
-2. cp .env.example .env → chiedi/imposta POSTGRES_DATA_PATH e REDIS_DATA_PATH
-3. make start
+2. (opzionale) cp .env.example .env e personalizza percorsi/credenziali
+3. make start  ← crea .env e genera JWT_SECRET automaticamente
 4. aspetta GET /ready == {"status":"ready",...}
 5. login → ottieni TOKEN
 6. POST /api/gateways (Modbus 192.168.1.10)  → ottieni gateway_id

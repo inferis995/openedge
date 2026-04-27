@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"os"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -13,7 +14,17 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var SecretKey = []byte("industrial-edge-secret-key-change-me-in-production")
+// SecretKey is loaded from JWT_SECRET env var at startup; the process exits if it is not set.
+var SecretKey []byte
+
+func init() {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		log.Fatal("[AUTH] JWT_SECRET environment variable is required. " +
+			"Generate one with: openssl rand -hex 32")
+	}
+	SecretKey = []byte(secret)
+}
 
 type Service struct {
 	db *sql.DB
@@ -40,9 +51,9 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 	var user models.User
 	var passwordHash string
 
-	query := `SELECT id, username, password_hash, role, full_name, org_id, created_at FROM users WHERE username = $1`
+	query := `SELECT id, username, password_hash, role, full_name, org_id, i3x_write, created_at FROM users WHERE username = $1`
 	err := s.db.QueryRowContext(ctx, query, req.Username).Scan(
-		&user.ID, &user.Username, &passwordHash, &user.Role, &user.FullName, &user.OrgID, &user.CreatedAt,
+		&user.ID, &user.Username, &passwordHash, &user.Role, &user.FullName, &user.OrgID, &user.I3xWrite, &user.CreatedAt,
 	)
 
 	if err == sql.ErrNoRows {
@@ -84,10 +95,11 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 
 func (s *Service) generateToken(user models.User) (string, error) {
 	claims := jwt.MapClaims{
-		"user_id":  user.ID,
-		"username": user.Username,
-		"role":     user.Role,
-		"exp":      time.Now().Add(24 * time.Hour).Unix(),
+		"user_id":   user.ID,
+		"username":  user.Username,
+		"role":      user.Role,
+		"i3x_write": user.I3xWrite,
+		"exp":       time.Now().Add(24 * time.Hour).Unix(),
 	}
 
 	// Include org_id if it's not nil (NULL for global admin)

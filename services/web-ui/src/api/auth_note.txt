@@ -1,3 +1,0 @@
-// This file is just a note that I need to update all API calls to include Authorization header.
-// I can do this by creating a centralised api/client.ts or just updating existing api/tags.ts etc.
-// The existing `createApi` utility in `api/index.ts` might support this.
