@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -31,6 +32,16 @@ import (
 )
 
 func main() {
+	// Structured logging — LOG_FORMAT=json for production (machine-parseable),
+	// default is text (human-readable for local dev).
+	if os.Getenv("LOG_FORMAT") == "json" {
+		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})))
+		log.SetFlags(0) // disable timestamp prefix — slog adds it
+		log.SetOutput(os.Stdout)
+	}
+
 	// Load configuration from environment variables with defaults
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnvInt("DB_PORT", 5432)
@@ -48,7 +59,8 @@ func main() {
 
 	database, err := db.Connect(cfg)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		slog.Error("failed to connect to database", "error", err)
+		os.Exit(1)
 	}
 	defer database.Close()
 
@@ -67,11 +79,10 @@ func main() {
 
 	redisClient := redis.NewClient(redisCfg)
 	if err := redisClient.Connect(); err != nil {
-		log.Printf("Warning: Failed to connect to Redis: %v", err)
-		log.Println("Current value queries will not be available")
+		slog.Warn("failed to connect to Redis — realtime queries unavailable", "error", err)
 		redisClient = nil
 	} else {
-		log.Println("Redis client connected successfully")
+		slog.Info("Redis connected")
 		defer func() {
 			if redisClient != nil {
 				redisClient.Disconnect()
@@ -98,10 +109,9 @@ func main() {
 
 	mqttClient := mqtt.NewClient(mqttCfg)
 	if err := mqttClient.Connect(); err != nil {
-		log.Printf("Warning: Failed to connect to MQTT broker: %v", err)
-		log.Println("MQTT reload commands will not be available")
+		slog.Warn("failed to connect to MQTT broker — reload commands unavailable", "error", err)
 	} else {
-		log.Println("MQTT client connected successfully")
+		slog.Info("MQTT connected")
 		defer mqttClient.Disconnect(250)
 
 		// Subscribe to gateway health status updates

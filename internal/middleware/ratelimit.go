@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -80,6 +81,7 @@ func LoginRateLimit() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 10 req/min = one every 6 seconds, burst 5
 		if !getLimiter(&visitorsMu, visitors, c.ClientIP(), rate.Every(6*time.Second), 5).Allow() {
+			slog.Warn("login rate limit exceeded", "ip", c.ClientIP())
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error": "Too many login attempts. Please wait before trying again.",
 			})
@@ -95,6 +97,7 @@ func GlobalRateLimit() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 300 req/min = one every 200ms, burst 50
 		if !getLimiter(&globalVisitorsMu, globalVisitors, c.ClientIP(), rate.Every(200*time.Millisecond), 50).Allow() {
+			slog.Warn("global rate limit exceeded", "ip", c.ClientIP(), "path", c.Request.URL.Path)
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error": "Too many requests. Please slow down.",
 			})
