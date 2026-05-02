@@ -260,6 +260,7 @@ func main() {
 
 	// Register routes
 	api := router.Group("/api")
+	api.Use(middleware.GlobalRateLimit())
 	{
 		// Auth endpoints (public)
 		auth := api.Group("/auth")
