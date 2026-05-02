@@ -69,7 +69,8 @@ func (h *SystemHandler) Reload(c *gin.Context) {
 
 	// Publish to system command topic
 	if err := h.mqttClient.Publish("sys/command/reload", string(payloadBytes)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to publish reload command: %v", err)})
+		log.Printf("[SYSTEM] Failed to publish reload command: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to publish reload command"})
 		return
 	}
 

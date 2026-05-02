@@ -71,7 +71,7 @@ func (h *BackupHandler) ExportBackup(c *gin.Context) {
 	log.Printf("[BACKUP] Running pg_dump for host=%s, db=%s, user=%s", pgHost, pgDB, pgUser)
 	if output, err := pgCmd.CombinedOutput(); err != nil {
 		log.Printf("pg_dump error (credentials masked): %s", maskCredentials(string(output), pgPass))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Database backup failed: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Database backup failed"})
 		return
 	}
 
@@ -234,7 +234,7 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 	log.Println("Step 1: Dropping schema public for clean restore...")
 	if _, err := h.db.Exec("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;"); err != nil {
 		log.Printf("Schema reset error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to reset schema: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reset schema"})
 		return
 	}
 	messages = append(messages, "Schema reset complete")

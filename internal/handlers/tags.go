@@ -148,7 +148,7 @@ func (h *TagsHandler) Create(c *gin.Context) {
 
 	if err != nil {
 		log.Printf("[API] Tag Creation DB Error: %v (gateway_id=%d, code=%s, alias=%s, data_type=%s)", err, req.GatewayID, req.Code, req.Alias, req.DataType)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to create tag: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create tag"})
 		return
 	}
 
