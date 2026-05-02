@@ -136,7 +136,30 @@ REDIS_DATA_PATH=D:/openedge-data/redis
 > ⚠️ **Imposta i percorsi PRIMA di `make start`.**
 > Cambiarli dopo che i dati esistono richiede backup + restore del DB.
 
-Opzionale: cambia `POSTGRES_PASSWORD` e le credenziali nel blocco `DATABASE CONFIGURATION` di `.env`.
+#### Variabili obbligatorie per produzione
+
+| Variabile | Default nel .env | Note |
+|-----------|-----------------|------|
+| `JWT_SECRET` | auto-generata da `make start` | Minimo 32 caratteri, genera con `openssl rand -hex 32` |
+| `POSTGRES_PASSWORD` | `CHANGE_ME_IN_PRODUCTION` | **Cambiare obbligatoriamente in produzione** |
+
+> ⚠️ Il sistema rifiuta di avviarsi se `JWT_SECRET` è assente o inferiore a 32 caratteri.
+> Se non usi `make start`, assicurati che entrambe le variabili siano nel `.env`.
+
+#### Variabili opzionali di sicurezza (nuove)
+
+```bash
+# Origin consentite per CORS e WebSocket (default: solo localhost:3000)
+# In produzione: imposta il tuo dominio reale
+ALLOWED_ORIGINS=https://scada.mia-azienda.com
+
+# Swagger UI — disabilitato per default in produzione
+SWAGGER_ENABLED=false
+
+# Formato log: "json" per produzione (compatibile con Loki, Datadog, CloudWatch)
+# Lasciare vuoto per dev locale (output human-readable)
+LOG_FORMAT=json
+```
 
 ### Passo 2 — Build + avvio
 
@@ -284,10 +307,10 @@ curl http://localhost:8081/ready    # {"status":"ready","db":"ok","redis":"ok"} 
 
 ### Problema: core-api non si avvia — "JWT_SECRET environment variable is required"
 
-Il backend rifiuta di partire se `JWT_SECRET` non è presente nel `.env`.
+Il backend rifiuta di partire se `JWT_SECRET` non è presente nel `.env` o è più corto di 32 caratteri.
 
 ```bash
-# Verifica se è presente
+# Verifica se è presente e abbastanza lungo
 grep JWT_SECRET .env
 
 # Se manca o è ancora il valore di esempio (CHANGE_ME_...), genera e aggiungi:
@@ -299,6 +322,26 @@ docker-compose restart core-api
 # Controlla che ora parta
 docker-compose logs core-api | tail -20
 # Deve comparire: "[AUTH] JWT secret key loaded from environment"
+```
+
+### Problema: docker-compose si blocca — "POSTGRES_PASSWORD is required"
+
+Dalla versione con hardening sicurezza, `POSTGRES_PASSWORD` non ha più un valore di fallback.
+Se avvii con `docker-compose up -d` senza un `.env` valido, ottieni:
+
+```
+variable is not set. Defaulting to a blank string.
+Error: POSTGRES_PASSWORD is required — set it in .env
+```
+
+**Soluzione**: usa sempre `make start` (o `openedge.bat start` su Windows) che crea `.env` automaticamente.
+Se preferisci farlo manualmente:
+
+```bash
+cp .env.example .env
+# Cambia POSTGRES_PASSWORD con un valore sicuro
+# make start genera il JWT_SECRET automaticamente
+make start
 ```
 
 ---
