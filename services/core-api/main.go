@@ -200,6 +200,16 @@ func main() {
 	// Create Gin router
 	router := gin.Default()
 
+	// Security headers — applied to every response.
+	// HSTS is intentionally omitted until TLS is configured.
+	router.Use(func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-XSS-Protection", "1; mode=block")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Next()
+	})
+
 	// CORS — origins loaded from ALLOWED_ORIGINS env var (comma-separated).
 	// Default covers localhost dev ports only; set explicitly for production.
 	allowedOrigins := []string{"http://localhost:3000", "http://127.0.0.1:3000"}
@@ -438,8 +448,11 @@ func main() {
 		}
 	}
 
-	// Swagger documentation endpoints
-	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	// Swagger — enabled only when SWAGGER_ENABLED=true (never in production)
+	if os.Getenv("SWAGGER_ENABLED") == "true" {
+		router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+		log.Println("[WARNING] Swagger UI is enabled — disable in production (SWAGGER_ENABLED=true)")
+	}
 
 	// Health check endpoints (unauthenticated, for Docker/Kubernetes probes)
 	router.GET("/health", func(c *gin.Context) {
