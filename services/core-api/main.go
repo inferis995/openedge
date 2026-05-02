@@ -200,9 +200,17 @@ func main() {
 	// Create Gin router
 	router := gin.Default()
 
-	// CORS Configuration
+	// CORS — origins loaded from ALLOWED_ORIGINS env var (comma-separated).
+	// Default covers localhost dev ports only; set explicitly for production.
+	allowedOrigins := []string{"http://localhost:3000", "http://127.0.0.1:3000"}
+	if raw := os.Getenv("ALLOWED_ORIGINS"); raw != "" {
+		allowedOrigins = strings.Split(raw, ",")
+		for i, o := range allowedOrigins {
+			allowedOrigins[i] = strings.TrimSpace(o)
+		}
+	}
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:3004", "http://127.0.0.1:3004", "http://localhost:4000", "http://127.0.0.1:4000", "http://localhost:9090", "http://127.0.0.1:9090", "http://100.97.150.10:9090", "http://100.97.150.10:8081"},
+		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Organization-ID"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -217,7 +225,7 @@ func main() {
 	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient, redisClient)
 	tagsHandler := handlers.NewTagsHandler(database, mqttClient, redisClient)
 	alarmsHandler := handlers.NewAlarmHandler(database, mqttClient)
-	realtimeHandler := handlers.NewRealtimeHandler(redisClient)
+	realtimeHandler := handlers.NewRealtimeHandler(redisClient, allowedOrigins)
 
 	// Create settings manager for publish mode configuration
 	settingsMgr := settings.NewManager(database)
