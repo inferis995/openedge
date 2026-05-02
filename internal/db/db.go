@@ -11,8 +11,11 @@ import (
 
 // Connect establishes a connection to PostgreSQL using the provided configuration
 func Connect(cfg Config) (*sql.DB, error) {
+	// statement_timeout=30s: any query running longer than 30 seconds is
+	// automatically cancelled by PostgreSQL. This protects the connection pool
+	// from slow/hung queries without requiring context plumbing in every handler.
 	connStr := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable options='-c statement_timeout=30000'",
 		cfg.Host,
 		cfg.Port,
 		cfg.User,
