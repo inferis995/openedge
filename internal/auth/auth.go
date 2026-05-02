@@ -23,6 +23,10 @@ func init() {
 		log.Fatal("[AUTH] JWT_SECRET environment variable is required. " +
 			"Generate one with: openssl rand -hex 32")
 	}
+	if len(secret) < 32 {
+		log.Fatal("[AUTH] JWT_SECRET is too short — minimum 32 characters required. " +
+			"Generate a secure one with: openssl rand -hex 32")
+	}
 	SecretKey = []byte(secret)
 }
 
