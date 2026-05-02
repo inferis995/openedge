@@ -22,7 +22,7 @@
 ### TASK 1 — SQL Injection: history aggregation query
 **Priorità**: CRITICO  
 **File**: `internal/handlers/history.go` ~riga 442  
-**Stato**: `[ ]` da fare
+**Stato**: `[x]` DONE
 
 **Problema**:
 ```go
@@ -50,7 +50,7 @@ if !validAgg[sqlAgg] {
 ### TASK 2 — WebSocket: CheckOrigin accetta tutti i domain
 **Priorità**: CRITICO  
 **File**: `internal/handlers/websocket.go` ~riga 29  
-**Stato**: `[ ]` da fare
+**Stato**: `[x]` DONE
 
 **Problema**:
 ```go
@@ -82,7 +82,7 @@ Aggiungere `ALLOWED_ORIGINS=http://localhost:3000` in `.env.example`.
 ### TASK 3 — CORS: origini hardcoded con IP interni
 **Priorità**: IMPORTANTE (da fare subito perché IP privato nel codice)  
 **File**: `services/core-api/main.go` ~riga 204  
-**Stato**: `[ ]` da fare
+**Stato**: `[x]` DONE
 
 **Problema**:
 ```go
@@ -114,7 +114,7 @@ r.Use(cors.New(cors.Config{
 ### TASK 4 — Security Headers HTTP mancanti
 **Priorità**: IMPORTANTE  
 **File**: `services/core-api/main.go` (aggiungere middleware)  
-**Stato**: `[ ]` da fare
+**Stato**: `[x]` DONE
 
 **Problema**: Nessun header di sicurezza nelle response HTTP.
 
@@ -138,7 +138,7 @@ Non aggiungere HSTS finché TLS non è configurato (altrimenti blocca HTTP local
 ### TASK 5 — Error disclosure: errori interni esposti nelle response
 **Priorità**: CRITICO  
 **File**: `internal/handlers/backup.go`, `internal/handlers/history.go`, altri handler  
-**Stato**: `[ ]` da fare
+**Stato**: `[x]` DONE
 
 **Problema**:
 ```go
@@ -169,7 +169,7 @@ Sostituire tutti i `fmt.Sprintf(..., err)` nelle response con questo helper.
 ### TASK 6 — Memory leak: rate limiter visitor map illimitata
 **Priorità**: CRITICO  
 **File**: `internal/middleware/ratelimit.go`  
-**Stato**: `[ ]` da fare
+**Stato**: `[x]` DONE
 
 **Problema**:
 La mappa `visitors` cresce senza limite. Un attaccante con IP spoofing può
@@ -201,7 +201,7 @@ func getVisitor(ip string) *rate.Limiter {
 ### TASK 7 — Swagger esposto in produzione
 **Priorità**: IMPORTANTE  
 **File**: `services/core-api/main.go` ~riga 434  
-**Stato**: `[ ]` da fare
+**Stato**: `[x]` DONE
 
 **Problema**:
 `/swagger/*any` è sempre disponibile, espone tutta la struttura API.
@@ -223,7 +223,7 @@ Aggiungere `SWAGGER_ENABLED=false` in `.env.example`.
 ### TASK 8 — Rate limiting globale (non solo login)
 **Priorità**: IMPORTANTE  
 **File**: `services/core-api/main.go`, `internal/middleware/ratelimit.go`  
-**Stato**: `[ ]` da fare
+**Stato**: `[x]` DONE
 
 **Problema**:
 Solo `/api/auth/login` ha rate limiting. Tutti gli altri endpoint sono illimitati.
@@ -248,7 +248,7 @@ api.Use(middleware.GlobalRateLimit())
 ### TASK 9 — Query DB senza context timeout
 **Priorità**: IMPORTANTE  
 **File**: Molteplici handler  
-**Stato**: `[ ]` da fare
+**Stato**: `[x]` DONE
 
 **Problema**:
 `h.db.QueryRow(...)` senza context timeout. Se il DB è lento o bloccato,
@@ -274,7 +274,7 @@ row := h.db.QueryRowContext(ctx, query, args...)
 ### TASK 10 — docker-compose: password fallback e JWT_SECRET obbligatorio
 **Priorità**: CRITICO  
 **File**: `docker-compose.yml`, `.env.example`  
-**Stato**: `[ ]` da fare
+**Stato**: `[x]` DONE
 
 **Problema**:
 ```yaml
@@ -294,7 +294,7 @@ JWT_SECRET: ${JWT_SECRET}  # se non definito → stringa vuota → firma JWT inv
 ### TASK 11 — Logging strutturato
 **Priorità**: MINORE (ma importante per observability in prod)  
 **File**: Tutto il codebase  
-**Stato**: `[ ]` da fare
+**Stato**: `[x]` DONE
 
 **Problema**:
 Tutti i log usano `log.Printf` — non machine-parseable, difficile da aggregare
