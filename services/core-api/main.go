@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -31,6 +32,16 @@ import (
 )
 
 func main() {
+	// Structured logging — LOG_FORMAT=json for production (machine-parseable),
+	// default is text (human-readable for local dev).
+	if os.Getenv("LOG_FORMAT") == "json" {
+		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})))
+		log.SetFlags(0) // disable timestamp prefix — slog adds it
+		log.SetOutput(os.Stdout)
+	}
+
 	// Load configuration from environment variables with defaults
 	dbHost := getEnv("DB_HOST", "localhost")
 	dbPort := getEnvInt("DB_PORT", 5432)
@@ -48,7 +59,8 @@ func main() {
 
 	database, err := db.Connect(cfg)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		slog.Error("failed to connect to database", "error", err)
+		os.Exit(1)
 	}
 	defer database.Close()
 
@@ -67,11 +79,10 @@ func main() {
 
 	redisClient := redis.NewClient(redisCfg)
 	if err := redisClient.Connect(); err != nil {
-		log.Printf("Warning: Failed to connect to Redis: %v", err)
-		log.Println("Current value queries will not be available")
+		slog.Warn("failed to connect to Redis — realtime queries unavailable", "error", err)
 		redisClient = nil
 	} else {
-		log.Println("Redis client connected successfully")
+		slog.Info("Redis connected")
 		defer func() {
 			if redisClient != nil {
 				redisClient.Disconnect()
@@ -98,10 +109,9 @@ func main() {
 
 	mqttClient := mqtt.NewClient(mqttCfg)
 	if err := mqttClient.Connect(); err != nil {
-		log.Printf("Warning: Failed to connect to MQTT broker: %v", err)
-		log.Println("MQTT reload commands will not be available")
+		slog.Warn("failed to connect to MQTT broker — reload commands unavailable", "error", err)
 	} else {
-		log.Println("MQTT client connected successfully")
+		slog.Info("MQTT connected")
 		defer mqttClient.Disconnect(250)
 
 		// Subscribe to gateway health status updates
@@ -200,9 +210,27 @@ func main() {
 	// Create Gin router
 	router := gin.Default()
 
-	// CORS Configuration
+	// Security headers — applied to every response.
+	// HSTS is intentionally omitted until TLS is configured.
+	router.Use(func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "DENY")
+		c.Header("X-XSS-Protection", "1; mode=block")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Next()
+	})
+
+	// CORS — origins loaded from ALLOWED_ORIGINS env var (comma-separated).
+	// Default covers localhost dev ports only; set explicitly for production.
+	allowedOrigins := []string{"http://localhost:3000", "http://127.0.0.1:3000"}
+	if raw := os.Getenv("ALLOWED_ORIGINS"); raw != "" {
+		allowedOrigins = strings.Split(raw, ",")
+		for i, o := range allowedOrigins {
+			allowedOrigins[i] = strings.TrimSpace(o)
+		}
+	}
 	router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:3004", "http://127.0.0.1:3004", "http://localhost:4000", "http://127.0.0.1:4000", "http://localhost:9090", "http://127.0.0.1:9090", "http://100.97.150.10:9090", "http://100.97.150.10:8081"},
+		AllowOrigins:     allowedOrigins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "X-Organization-ID"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -217,7 +245,7 @@ func main() {
 	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient, redisClient)
 	tagsHandler := handlers.NewTagsHandler(database, mqttClient, redisClient)
 	alarmsHandler := handlers.NewAlarmHandler(database, mqttClient)
-	realtimeHandler := handlers.NewRealtimeHandler(redisClient)
+	realtimeHandler := handlers.NewRealtimeHandler(redisClient, allowedOrigins)
 
 	// Create settings manager for publish mode configuration
 	settingsMgr := settings.NewManager(database)
@@ -242,6 +270,7 @@ func main() {
 
 	// Register routes
 	api := router.Group("/api")
+	api.Use(middleware.GlobalRateLimit())
 	{
 		// Auth endpoints (public)
 		auth := api.Group("/auth")
@@ -430,8 +459,11 @@ func main() {
 		}
 	}
 
-	// Swagger documentation endpoints
-	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	// Swagger — enabled only when SWAGGER_ENABLED=true (never in production)
+	if os.Getenv("SWAGGER_ENABLED") == "true" {
+		router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+		log.Println("[WARNING] Swagger UI is enabled — disable in production (SWAGGER_ENABLED=true)")
+	}
 
 	// Health check endpoints (unauthenticated, for Docker/Kubernetes probes)
 	router.GET("/health", func(c *gin.Context) {

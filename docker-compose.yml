@@ -12,7 +12,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-industrial_edge}
       POSTGRES_USER: ${POSTGRES_USER:-industrial_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — set it in .env}
     ports:
       - "5432:5432"
     volumes:
@@ -95,7 +95,7 @@ services:
       MQTT_PORT: 1883
       PORT: ${PORT:-8081}
       BACKUP_PATH: /backups
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — run 'make start' or set it in .env}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

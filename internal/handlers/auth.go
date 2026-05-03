@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -29,10 +30,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	resp, err := h.service.LoginWithMeta(c.Request.Context(), req, ipAddress, userAgent)
 	if err != nil {
+		slog.Warn("login failed", "username", req.Username, "ip", ipAddress)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 		return
 	}
 
+	slog.Info("login success", "username", req.Username, "ip", ipAddress)
 	c.JSON(http.StatusOK, resp)
 }
 

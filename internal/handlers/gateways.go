@@ -783,7 +783,8 @@ func (h *GatewaysHandler) TestConnection(c *gin.Context) {
 		}
 		conn, err := net.DialTimeout("tcp", hostPort, 2*time.Second)
 		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("OPC UA connection failed to %s: %v", hostPort, err)})
+			log.Printf("[GATEWAY] OPC UA connection test failed for %s: %v", hostPort, err)
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("OPC UA connection failed to %s", hostPort)})
 			return
 		}
 		conn.Close()
@@ -825,7 +826,8 @@ func (h *GatewaysHandler) TestConnection(c *gin.Context) {
 	// Try to connect (timeout 2s)
 	conn, err := net.DialTimeout("tcp", target, 2*time.Second)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Connection failed: %v", err)})
+		log.Printf("[GATEWAY] Connection test failed for %s: %v", target, err)
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": fmt.Sprintf("Connection failed to %s", target)})
 		return
 	}
 	conn.Close()
@@ -893,14 +895,16 @@ func (h *GatewaysHandler) BrowseNodes(c *gin.Context) {
 	})
 
 	if err := client.Connect(); err != nil {
-		c.JSON(http.StatusOK, gin.H{"error": fmt.Sprintf("Failed to connect to OPC UA server: %v", err), "nodes": []interface{}{}})
+		log.Printf("[GATEWAY] OPC UA connect failed for %s: %v", endpoint, err)
+		c.JSON(http.StatusOK, gin.H{"error": "Failed to connect to OPC UA server", "nodes": []interface{}{}})
 		return
 	}
 	defer client.Disconnect()
 
 	nodes, err := client.Browse(req.NodeID)
 	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"error": fmt.Sprintf("Browse failed: %v", err), "nodes": []interface{}{}})
+		log.Printf("[GATEWAY] OPC UA browse failed for node %s: %v", req.NodeID, err)
+		c.JSON(http.StatusOK, gin.H{"error": "OPC UA browse failed", "nodes": []interface{}{}})
 		return
 	}
 

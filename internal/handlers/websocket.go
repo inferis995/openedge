@@ -13,22 +13,36 @@ import (
 
 // RealtimeHandler handles WebSocket connections for real-time updates
 type RealtimeHandler struct {
-	redisClient RedisClient
+	redisClient    RedisClient
+	allowedOrigins map[string]struct{}
 }
 
-// NewRealtimeHandler creates a new real-time handler
-func NewRealtimeHandler(redisClient RedisClient) *RealtimeHandler {
-	return &RealtimeHandler{
-		redisClient: redisClient,
+// NewRealtimeHandler creates a new real-time handler.
+// allowedOrigins is the same list used for HTTP CORS (from ALLOWED_ORIGINS env var).
+func NewRealtimeHandler(redisClient RedisClient, allowedOrigins []string) *RealtimeHandler {
+	h := &RealtimeHandler{
+		redisClient:    redisClient,
+		allowedOrigins: make(map[string]struct{}, len(allowedOrigins)),
 	}
+	for _, o := range allowedOrigins {
+		h.allowedOrigins[o] = struct{}{}
+	}
+	return h
 }
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for now
-	},
+func (h *RealtimeHandler) newUpgrader() websocket.Upgrader {
+	return websocket.Upgrader{
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+		CheckOrigin: func(r *http.Request) bool {
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				return true // same-origin request (no Origin header)
+			}
+			_, ok := h.allowedOrigins[origin]
+			return ok
+		},
+	}
 }
 
 // HandleRealtime handles GET /api/ws/realtime
@@ -45,7 +59,8 @@ func (h *RealtimeHandler) HandleRealtime(c *gin.Context) {
 		return
 	}
 
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	u := h.newUpgrader()
+	conn, err := u.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Printf("[WS] Failed to upgrade connection: %v", err)
 		return

@@ -581,7 +581,27 @@ PUT /api/i3x/v1/properties/tag-43/value
 
 ---
 
-## 9. Gestione errori
+## 9. Rate Limiting
+
+Il sistema applica due livelli di rate limit per IP:
+
+| Limite | Endpoint | Risposta |
+|--------|----------|----------|
+| 10 req/min (burst 5) | `POST /api/auth/login` | `429 Too Many Requests` |
+| 300 req/min (burst 50) | Tutti gli altri `/api/*` | `429 Too Many Requests` |
+
+**Gli agenti devono gestire il 429.** Se ricevi 429, aspetta almeno 1 secondo e riprova con backoff esponenziale. Non ciclare su centinaia di tag senza pausa.
+
+Pattern consigliato per agenti che leggono molti tag:
+```
+# Usa gli endpoint aggregati (una sola chiamata) invece di N chiamate singole
+GET /api/i3x/v1/equipment/{id}/properties   ← tutti i tag del gateway in una volta
+GET /api/aiops/summary                       ← snapshot org completo
+```
+
+---
+
+## 10. Gestione errori
 
 | HTTP | Significato | Azione |
 |------|-------------|--------|
@@ -590,6 +610,7 @@ PUT /api/i3x/v1/properties/tag-43/value
 | 401 | Token scaduto o mancante | Rinnova con POST /api/auth/login |
 | 403 | Permessi insufficienti | Verifica ruolo utente o claim i3x_write |
 | 404 | Risorsa non trovata | Verifica ID e org_id |
+| 429 | Rate limit superato | Aspetta 1s e riprova (backoff esponenziale) |
 | 503 | MQTT non connesso | Solo per PUT write — broker offline |
 | 500 | Errore server | Logga e riprova dopo 30 secondi |
 
@@ -602,6 +623,9 @@ Errori i3X (formato esteso):
 ```json
 {"code": "FORBIDDEN", "message": "i3X write permission required"}
 ```
+
+> Le risposte includono ora header di sicurezza standard (`X-Frame-Options`, `X-Content-Type-Options`, ecc.).
+> I dettagli degli errori interni (path DB, stack trace) non vengono mai esposti nelle response — sono loggati solo server-side.
 
 ---
 

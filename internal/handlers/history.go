@@ -237,17 +237,21 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 	interval := c.Query("interval")      // e.g., "1m", "5m", "1h", "1d"
 	forceRaw := c.Query("raw") == "true" // Force raw data query
 
-	// Map aggregation function
-	aggFunc := "avg"
-	switch agg {
-	case "max":
-		aggFunc = "max"
-	case "min":
-		aggFunc = "min"
-	case "last":
-		aggFunc = "last"
-	case "mean":
-		aggFunc = "avg"
+	// Whitelist agg parameter — only these values are accepted.
+	// aggFunc is later interpolated into SQL via fmt.Sprintf; any unlisted
+	// value must be rejected here before it reaches the query builders.
+	validAgg := map[string]string{
+		"max":  "max",
+		"min":  "min",
+		"last": "last",
+		"mean": "avg",
+		"avg":  "avg",
+		"":     "avg",
+	}
+	aggFunc, ok := validAgg[agg]
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid agg parameter: allowed values are avg, mean, min, max, last"})
+		return
 	}
 
 	// Determine which aggregate level to use
@@ -286,7 +290,7 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 
 	if err != nil {
 		log.Printf("[HISTORY] Query failed for tag %d: %v", tagID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to query history: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query history"})
 		return
 	}
 
@@ -994,7 +998,8 @@ func (h *HistoryHandler) GetTagStats(c *gin.Context) {
 
 	stats, err := h.getTagStats(tagID, startTime, endTime)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get stats: %v", err)})
+		log.Printf("[HISTORY] Failed to get stats for tag %d: %v", tagID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get stats"})
 		return
 	}
 
@@ -1095,7 +1100,7 @@ func (h *HistoryHandler) QueryEvents(c *gin.Context) {
 	rows, err := h.db.Query(query, startTime, endTime)
 	if err != nil {
 		log.Printf("[HISTORY] Failed to query system_events: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to query events: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query events"})
 		return
 	}
 	defer rows.Close()
@@ -1129,7 +1134,7 @@ func (h *HistoryHandler) QueryEvents(c *gin.Context) {
 
 	if err := rows.Err(); err != nil {
 		log.Printf("[HISTORY] Query error after iteration: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Query error: %v", err)})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Query error"})
 		return
 	}
 
