@@ -587,6 +587,7 @@ PUT /api/i3x/v1/properties/tag-43/value
 | 401 | Token scaduto o mancante | Rinnova con POST /api/auth/login |
 | 403 | Permessi insufficienti | Verifica ruolo utente o claim i3x_write |
 | 404 | Risorsa non trovata | Verifica ID e org_id |
+| 429 | Rate limit superato | Attendi ed esegui retry con backoff esponenziale (2s, 4s, 8s) |
 | 503 | MQTT non connesso | Solo per PUT write — broker offline |
 | 500 | Errore server | Logga e riprova dopo 30 secondi |
 
