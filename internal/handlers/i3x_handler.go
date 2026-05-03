@@ -38,12 +38,32 @@ func NewI3XHandler(db *sql.DB, mqttClient MQTTClient, redisClient RedisClient) *
 	return &I3XHandler{db: db, mqttClient: mqttClient, redisClient: redisClient}
 }
 
-// ─── helpers ────────────────────────────────────────────────────────────────
+// ─── ID helpers ──────────────────────────────────────────────────────────────
 
+func orgAssemblyID(id int) string  { return fmt.Sprintf("org-%d", id) }
+func siteAssemblyID(id int) string { return fmt.Sprintf("site-%d", id) }
+func areaAssemblyID(id int) string { return fmt.Sprintf("area-%d", id) }
 func gwEquipmentID(id int) string  { return fmt.Sprintf("gw-%d", id) }
 func tagPropertyID(id int) string  { return fmt.Sprintf("tag-%d", id) }
 func alarmEventID(id int) string   { return fmt.Sprintf("alarm-%d", id) }
-func areaAssemblyID(id int) string { return fmt.Sprintf("area-%d", id) }
+
+func parseOrgID(s string) (int, bool) {
+	s = strings.TrimPrefix(s, "org-")
+	id, err := strconv.Atoi(s)
+	return id, err == nil
+}
+
+func parseSiteID(s string) (int, bool) {
+	s = strings.TrimPrefix(s, "site-")
+	id, err := strconv.Atoi(s)
+	return id, err == nil
+}
+
+func parseAreaID(s string) (int, bool) {
+	s = strings.TrimPrefix(s, "area-")
+	id, err := strconv.Atoi(s)
+	return id, err == nil
+}
 
 func parseGWID(s string) (int, bool) {
 	s = strings.TrimPrefix(s, "gw-")
@@ -55,15 +75,6 @@ func parseTagID(s string) (int, bool) {
 	s = strings.TrimPrefix(s, "tag-")
 	id, err := strconv.Atoi(s)
 	return id, err == nil
-}
-
-// orgFilterClause returns the SQL WHERE fragment and args for organization filtering
-func (h *I3XHandler) orgFilterClause(c *gin.Context) (string, []interface{}) {
-	orgFilter := middleware.GetOrgFilterForQuery(c)
-	if orgFilter == nil {
-		return "1=1", nil
-	}
-	return "s.org_id = $1", []interface{}{*orgFilter}
 }
 
 // currentValueFromRedis reads the current tag value from Redis (best-effort)
@@ -97,51 +108,331 @@ func (h *I3XHandler) currentValueFromRedis(tagID int) *i3x.PropertyValue {
 // ─── Equipment endpoints ─────────────────────────────────────────────────────
 
 // ListEquipment handles GET /api/i3x/v1/equipment
-// Returns all gateways as i3X Equipment objects filtered by organization.
+// Returns the full equipment hierarchy: org → site → area assemblies, then gateways.
 func (h *I3XHandler) ListEquipment(c *gin.Context) {
-	clause, args := h.orgFilterClause(c)
-
-	query := fmt.Sprintf(`
-		SELECT g.id, g.name, g.driver_type, g.scan_rate_ms, g.enabled,
-		       a.id as area_id, a.name as area_name,
-		       s.id as site_id, s.name as site_name,
-		       o.id as org_id, o.name as org_name
-		FROM gateways g
-		JOIN areas a ON g.area_id = a.id
-		JOIN sites s ON a.site_id = s.id
-		JOIN organizations o ON s.org_id = o.id
-		WHERE %s
-		ORDER BY o.name, s.name, a.name, g.name`, clause)
-
-	rows, err := h.db.Query(query, args...)
-	if err != nil {
-		log.Printf("[i3X] ListEquipment query error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query equipment"})
-		return
-	}
-	defer rows.Close()
-
+	orgFilter := middleware.GetOrgFilterForQuery(c)
 	var items []i3x.Equipment
-	for rows.Next() {
+
+	// 1. Organizations
+	{
+		var q string
+		var args []interface{}
+		if orgFilter != nil {
+			q = `SELECT id, name FROM organizations WHERE id = $1 ORDER BY name`
+			args = []interface{}{*orgFilter}
+		} else {
+			q = `SELECT id, name FROM organizations ORDER BY name`
+		}
+		rows, err := h.db.Query(q, args...)
+		if err != nil {
+			log.Printf("[i3X] ListEquipment orgs: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query equipment"})
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id int
+			var name string
+			if err := rows.Scan(&id, &name); err != nil {
+				log.Printf("[i3X] ListEquipment orgs scan: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"code": "SCAN_ERROR", "message": "Failed to read equipment"})
+				return
+			}
+			items = append(items, i3x.Equipment{
+				ID:   orgAssemblyID(id),
+				Name: name,
+				Type: i3x.EquipmentTypeAssembly,
+				Path: name,
+			})
+		}
+	}
+
+	// 2. Sites
+	{
+		var q string
+		var args []interface{}
+		if orgFilter != nil {
+			q = `SELECT s.id, s.name, s.org_id, o.name
+			     FROM sites s JOIN organizations o ON s.org_id = o.id
+			     WHERE s.org_id = $1 ORDER BY o.name, s.name`
+			args = []interface{}{*orgFilter}
+		} else {
+			q = `SELECT s.id, s.name, s.org_id, o.name
+			     FROM sites s JOIN organizations o ON s.org_id = o.id
+			     ORDER BY o.name, s.name`
+		}
+		rows, err := h.db.Query(q, args...)
+		if err != nil {
+			log.Printf("[i3X] ListEquipment sites: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query equipment"})
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var siteID, orgID int
+			var siteName, orgName string
+			if err := rows.Scan(&siteID, &siteName, &orgID, &orgName); err != nil {
+				log.Printf("[i3X] ListEquipment sites scan: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"code": "SCAN_ERROR", "message": "Failed to read equipment"})
+				return
+			}
+			items = append(items, i3x.Equipment{
+				ID:       siteAssemblyID(siteID),
+				Name:     siteName,
+				Type:     i3x.EquipmentTypeAssembly,
+				ParentID: orgAssemblyID(orgID),
+				Path:     fmt.Sprintf("%s / %s", orgName, siteName),
+			})
+		}
+	}
+
+	// 3. Areas
+	{
+		var q string
+		var args []interface{}
+		if orgFilter != nil {
+			q = `SELECT a.id, a.name, a.site_id, s.name, s.org_id, o.name
+			     FROM areas a
+			     JOIN sites s ON a.site_id = s.id
+			     JOIN organizations o ON s.org_id = o.id
+			     WHERE s.org_id = $1 ORDER BY o.name, s.name, a.name`
+			args = []interface{}{*orgFilter}
+		} else {
+			q = `SELECT a.id, a.name, a.site_id, s.name, s.org_id, o.name
+			     FROM areas a
+			     JOIN sites s ON a.site_id = s.id
+			     JOIN organizations o ON s.org_id = o.id
+			     ORDER BY o.name, s.name, a.name`
+		}
+		rows, err := h.db.Query(q, args...)
+		if err != nil {
+			log.Printf("[i3X] ListEquipment areas: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query equipment"})
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var areaID, siteID, orgID int
+			var areaName, siteName, orgName string
+			if err := rows.Scan(&areaID, &areaName, &siteID, &siteName, &orgID, &orgName); err != nil {
+				log.Printf("[i3X] ListEquipment areas scan: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"code": "SCAN_ERROR", "message": "Failed to read equipment"})
+				return
+			}
+			items = append(items, i3x.Equipment{
+				ID:       areaAssemblyID(areaID),
+				Name:     areaName,
+				Type:     i3x.EquipmentTypeAssembly,
+				ParentID: siteAssemblyID(siteID),
+				Path:     fmt.Sprintf("%s / %s / %s", orgName, siteName, areaName),
+			})
+		}
+	}
+
+	// 4. Gateways
+	{
+		var q string
+		var args []interface{}
+		if orgFilter != nil {
+			q = `SELECT g.id, g.name, g.driver_type, g.scan_rate_ms, g.enabled,
+			          a.id, a.name, s.id, s.name, o.id, o.name
+			     FROM gateways g
+			     JOIN areas a ON g.area_id = a.id
+			     JOIN sites s ON a.site_id = s.id
+			     JOIN organizations o ON s.org_id = o.id
+			     WHERE s.org_id = $1
+			     ORDER BY o.name, s.name, a.name, g.name`
+			args = []interface{}{*orgFilter}
+		} else {
+			q = `SELECT g.id, g.name, g.driver_type, g.scan_rate_ms, g.enabled,
+			          a.id, a.name, s.id, s.name, o.id, o.name
+			     FROM gateways g
+			     JOIN areas a ON g.area_id = a.id
+			     JOIN sites s ON a.site_id = s.id
+			     JOIN organizations o ON s.org_id = o.id
+			     ORDER BY o.name, s.name, a.name, g.name`
+		}
+		rows, err := h.db.Query(q, args...)
+		if err != nil {
+			log.Printf("[i3X] ListEquipment gateways: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query equipment"})
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var (
+				gwID, areaID, siteID, orgID int
+				gwName, driverType          string
+				scanRateMs                  int
+				enabled                     bool
+				areaName, siteName, orgName string
+			)
+			if err := rows.Scan(
+				&gwID, &gwName, &driverType, &scanRateMs, &enabled,
+				&areaID, &areaName,
+				&siteID, &siteName,
+				&orgID, &orgName,
+			); err != nil {
+				log.Printf("[i3X] ListEquipment gateways scan: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"code": "SCAN_ERROR", "message": "Failed to read equipment"})
+				return
+			}
+			items = append(items, i3x.Equipment{
+				ID:          gwEquipmentID(gwID),
+				Name:        gwName,
+				Type:        i3x.EquipmentTypeEquipment,
+				Description: driverType,
+				ParentID:    areaAssemblyID(areaID),
+				Path:        fmt.Sprintf("%s / %s / %s / %s", orgName, siteName, areaName, gwName),
+				Attributes: map[string]interface{}{
+					"driver_type":  driverType,
+					"scan_rate_ms": scanRateMs,
+					"enabled":      enabled,
+				},
+			})
+		}
+	}
+
+	if items == nil {
+		items = []i3x.Equipment{}
+	}
+	c.JSON(http.StatusOK, i3x.ListResponse[i3x.Equipment]{Items: items, Total: len(items)})
+}
+
+// GetEquipment handles GET /api/i3x/v1/equipment/:id
+// Accepts org-{n}, site-{n}, area-{n}, or gw-{n} IDs.
+func (h *I3XHandler) GetEquipment(c *gin.Context) {
+	rawID := c.Param("id")
+	orgFilter := middleware.GetOrgFilterForQuery(c)
+
+	switch {
+	case strings.HasPrefix(rawID, "org-"):
+		orgID, ok := parseOrgID(rawID)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Organization ID must be in the form org-{n}"})
+			return
+		}
+		if orgFilter != nil && *orgFilter != orgID {
+			c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
+			return
+		}
+		var name string
+		if err := h.db.QueryRow(`SELECT name FROM organizations WHERE id = $1`, orgID).Scan(&name); err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Organization not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query organization"})
+			return
+		}
+		c.JSON(http.StatusOK, i3x.Equipment{
+			ID:   rawID,
+			Name: name,
+			Type: i3x.EquipmentTypeAssembly,
+			Path: name,
+		})
+
+	case strings.HasPrefix(rawID, "site-"):
+		siteID, ok := parseSiteID(rawID)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Site ID must be in the form site-{n}"})
+			return
+		}
+		var siteName, orgName string
+		var orgID int
+		err := h.db.QueryRow(`
+			SELECT s.name, o.id, o.name
+			FROM sites s JOIN organizations o ON s.org_id = o.id
+			WHERE s.id = $1`, siteID).Scan(&siteName, &orgID, &orgName)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Site not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query site"})
+			return
+		}
+		if orgFilter != nil && *orgFilter != orgID {
+			c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
+			return
+		}
+		c.JSON(http.StatusOK, i3x.Equipment{
+			ID:       rawID,
+			Name:     siteName,
+			Type:     i3x.EquipmentTypeAssembly,
+			ParentID: orgAssemblyID(orgID),
+			Path:     fmt.Sprintf("%s / %s", orgName, siteName),
+		})
+
+	case strings.HasPrefix(rawID, "area-"):
+		areaID, ok := parseAreaID(rawID)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Area ID must be in the form area-{n}"})
+			return
+		}
+		var areaName, siteName, orgName string
+		var siteID, orgID int
+		err := h.db.QueryRow(`
+			SELECT a.name, s.id, s.name, o.id, o.name
+			FROM areas a
+			JOIN sites s ON a.site_id = s.id
+			JOIN organizations o ON s.org_id = o.id
+			WHERE a.id = $1`, areaID).Scan(&areaName, &siteID, &siteName, &orgID, &orgName)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Area not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query area"})
+			return
+		}
+		if orgFilter != nil && *orgFilter != orgID {
+			c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
+			return
+		}
+		c.JSON(http.StatusOK, i3x.Equipment{
+			ID:       rawID,
+			Name:     areaName,
+			Type:     i3x.EquipmentTypeAssembly,
+			ParentID: siteAssemblyID(siteID),
+			Path:     fmt.Sprintf("%s / %s / %s", orgName, siteName, areaName),
+		})
+
+	case strings.HasPrefix(rawID, "gw-"):
+		gwID, ok := parseGWID(rawID)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Equipment ID must be in the form gw-{n}"})
+			return
+		}
 		var (
-			gwID, areaID, siteID, orgID int
 			gwName, driverType          string
 			scanRateMs                  int
 			enabled                     bool
+			areaID, siteID, orgID       int
 			areaName, siteName, orgName string
 		)
-		if err := rows.Scan(
-			&gwID, &gwName, &driverType, &scanRateMs, &enabled,
-			&areaID, &areaName,
-			&siteID, &siteName,
-			&orgID, &orgName,
-		); err != nil {
-			log.Printf("[i3X] ListEquipment scan error: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "SCAN_ERROR", "message": "Failed to read equipment"})
+		err := h.db.QueryRow(`
+			SELECT g.name, g.driver_type, g.scan_rate_ms, g.enabled,
+			       a.id, a.name, s.id, s.name, o.id, o.name
+			FROM gateways g
+			JOIN areas a ON g.area_id = a.id
+			JOIN sites s ON a.site_id = s.id
+			JOIN organizations o ON s.org_id = o.id
+			WHERE g.id = $1`, gwID).Scan(
+			&gwName, &driverType, &scanRateMs, &enabled,
+			&areaID, &areaName, &siteID, &siteName, &orgID, &orgName,
+		)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Equipment not found"})
 			return
 		}
-		items = append(items, i3x.Equipment{
-			ID:          gwEquipmentID(gwID),
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query equipment"})
+			return
+		}
+		if orgFilter != nil && *orgFilter != orgID {
+			c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
+			return
+		}
+		c.JSON(http.StatusOK, i3x.Equipment{
+			ID:          rawID,
 			Name:        gwName,
 			Type:        i3x.EquipmentTypeEquipment,
 			Description: driverType,
@@ -153,75 +444,17 @@ func (h *I3XHandler) ListEquipment(c *gin.Context) {
 				"enabled":      enabled,
 			},
 		})
-	}
-	if items == nil {
-		items = []i3x.Equipment{}
-	}
-	c.JSON(http.StatusOK, i3x.ListResponse[i3x.Equipment]{Items: items, Total: len(items)})
-}
 
-// GetEquipment handles GET /api/i3x/v1/equipment/:id
-// Returns a single gateway in i3X Equipment format.
-func (h *I3XHandler) GetEquipment(c *gin.Context) {
-	gwID, ok := parseGWID(c.Param("id"))
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Equipment ID must be in the form gw-{n}"})
-		return
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "ID must be one of: org-{n}, site-{n}, area-{n}, gw-{n}"})
 	}
-
-	var (
-		gwName, driverType          string
-		scanRateMs                  int
-		enabled                     bool
-		areaID, siteID, orgID       int
-		areaName, siteName, orgName string
-	)
-	err := h.db.QueryRow(`
-		SELECT g.name, g.driver_type, g.scan_rate_ms, g.enabled,
-		       a.id, a.name, s.id, s.name, o.id, o.name
-		FROM gateways g
-		JOIN areas a ON g.area_id = a.id
-		JOIN sites s ON a.site_id = s.id
-		JOIN organizations o ON s.org_id = o.id
-		WHERE g.id = $1`, gwID).Scan(
-		&gwName, &driverType, &scanRateMs, &enabled,
-		&areaID, &areaName, &siteID, &siteName, &orgID, &orgName,
-	)
-	if err == sql.ErrNoRows {
-		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Equipment not found"})
-		return
-	}
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query equipment"})
-		return
-	}
-
-	// Org isolation for non-admins
-	orgFilter := middleware.GetOrgFilterForQuery(c)
-	if orgFilter != nil && *orgFilter != orgID {
-		c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
-		return
-	}
-
-	c.JSON(http.StatusOK, i3x.Equipment{
-		ID:          gwEquipmentID(gwID),
-		Name:        gwName,
-		Type:        i3x.EquipmentTypeEquipment,
-		Description: driverType,
-		ParentID:    areaAssemblyID(areaID),
-		Path:        fmt.Sprintf("%s / %s / %s / %s", orgName, siteName, areaName, gwName),
-		Attributes: map[string]interface{}{
-			"driver_type":  driverType,
-			"scan_rate_ms": scanRateMs,
-			"enabled":      enabled,
-		},
-	})
 }
 
 // ─── Properties on Equipment ─────────────────────────────────────────────────
 
 // ListEquipmentProperties handles GET /api/i3x/v1/equipment/:id/properties
 // Returns all tags for a gateway in i3X Property format, with current values.
+// Only valid for gw-{n} IDs — assemblies do not have properties.
 func (h *I3XHandler) ListEquipmentProperties(c *gin.Context) {
 	gwID, ok := parseGWID(c.Param("id"))
 	if !ok {
@@ -331,18 +564,29 @@ func (h *I3XHandler) GetEquipmentProperty(c *gin.Context) {
 // ListProperties handles GET /api/i3x/v1/properties
 // Returns all tags visible to the caller, with current values from Redis.
 func (h *I3XHandler) ListProperties(c *gin.Context) {
-	clause, args := h.orgFilterClause(c)
+	orgFilter := middleware.GetOrgFilterForQuery(c)
 
-	query := fmt.Sprintf(`
-		SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id
-		FROM tags t
-		JOIN gateways g ON t.gateway_id = g.id
-		JOIN areas a ON g.area_id = a.id
-		JOIN sites s ON a.site_id = s.id
-		WHERE %s
-		ORDER BY t.sort_order ASC, t.id ASC`, clause)
+	var q string
+	var args []interface{}
+	if orgFilter != nil {
+		q = `SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id
+		     FROM tags t
+		     JOIN gateways g ON t.gateway_id = g.id
+		     JOIN areas a ON g.area_id = a.id
+		     JOIN sites s ON a.site_id = s.id
+		     WHERE s.org_id = $1
+		     ORDER BY t.sort_order ASC, t.id ASC`
+		args = []interface{}{*orgFilter}
+	} else {
+		q = `SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id
+		     FROM tags t
+		     JOIN gateways g ON t.gateway_id = g.id
+		     JOIN areas a ON g.area_id = a.id
+		     JOIN sites s ON a.site_id = s.id
+		     ORDER BY t.sort_order ASC, t.id ASC`
+	}
 
-	rows, err := h.db.Query(query, args...)
+	rows, err := h.db.Query(q, args...)
 	if err != nil {
 		log.Printf("[i3X] ListProperties query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query properties"})
@@ -487,10 +731,11 @@ func (h *I3XHandler) WritePropertyValue(c *gin.Context) {
 // ListAlarms handles GET /api/i3x/v1/alarms
 // Returns currently active (non-cleared) alarm events in i3X format.
 func (h *I3XHandler) ListAlarms(c *gin.Context) {
-	clause, args := h.orgFilterClause(c)
+	orgFilter := middleware.GetOrgFilterForQuery(c)
 
-	query := fmt.Sprintf(`
-		SELECT e.id, e.tag_id, e.status, e.alarm_type, e.severity,
+	var q string
+	var args []interface{}
+	baseSelect := `SELECT e.id, e.tag_id, e.status, e.alarm_type, e.severity,
 		       e.message, e.value_at_trigger, e.trigger_time,
 		       e.clear_time, e.bg_ack_user, e.ack_time,
 		       t.gateway_id, t.alias AS tag_name, g.name AS gw_name
@@ -498,11 +743,16 @@ func (h *I3XHandler) ListAlarms(c *gin.Context) {
 		JOIN tags t ON e.tag_id = t.id
 		JOIN gateways g ON t.gateway_id = g.id
 		JOIN areas a ON g.area_id = a.id
-		JOIN sites s ON a.site_id = s.id
-		WHERE %s AND e.status IN ('ACTIVE', 'ACKNOWLEDGED')
-		ORDER BY e.trigger_time DESC`, clause)
+		JOIN sites s ON a.site_id = s.id`
 
-	rows, err := h.db.Query(query, args...)
+	if orgFilter != nil {
+		q = baseSelect + ` WHERE s.org_id = $1 AND e.status IN ('ACTIVE', 'ACKNOWLEDGED') ORDER BY e.trigger_time DESC`
+		args = []interface{}{*orgFilter}
+	} else {
+		q = baseSelect + ` WHERE e.status IN ('ACTIVE', 'ACKNOWLEDGED') ORDER BY e.trigger_time DESC`
+	}
+
+	rows, err := h.db.Query(q, args...)
 	if err != nil {
 		log.Printf("[i3X] ListAlarms query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query alarms"})
@@ -533,14 +783,9 @@ func (h *I3XHandler) ListAlarmHistory(c *gin.Context) {
 		}
 	}
 
-	clause, args := h.orgFilterClause(c)
-	// append LIMIT / OFFSET as next positional args
-	limitPos := len(args) + 1
-	offsetPos := limitPos + 1
-	args = append(args, limit, offset)
+	orgFilter := middleware.GetOrgFilterForQuery(c)
 
-	query := fmt.Sprintf(`
-		SELECT e.id, e.tag_id, e.status, e.alarm_type, e.severity,
+	baseSelect := `SELECT e.id, e.tag_id, e.status, e.alarm_type, e.severity,
 		       e.message, e.value_at_trigger, e.trigger_time,
 		       e.clear_time, e.bg_ack_user, e.ack_time,
 		       t.gateway_id, t.alias AS tag_name, g.name AS gw_name
@@ -548,12 +793,19 @@ func (h *I3XHandler) ListAlarmHistory(c *gin.Context) {
 		JOIN tags t ON e.tag_id = t.id
 		JOIN gateways g ON t.gateway_id = g.id
 		JOIN areas a ON g.area_id = a.id
-		JOIN sites s ON a.site_id = s.id
-		WHERE %s
-		ORDER BY e.trigger_time DESC
-		LIMIT $%d OFFSET $%d`, clause, limitPos, offsetPos)
+		JOIN sites s ON a.site_id = s.id`
 
-	rows, err := h.db.Query(query, args...)
+	var q string
+	var args []interface{}
+	if orgFilter != nil {
+		q = baseSelect + ` WHERE s.org_id = $1 ORDER BY e.trigger_time DESC LIMIT $2 OFFSET $3`
+		args = []interface{}{*orgFilter, limit, offset}
+	} else {
+		q = baseSelect + ` ORDER BY e.trigger_time DESC LIMIT $1 OFFSET $2`
+		args = []interface{}{limit, offset}
+	}
+
+	rows, err := h.db.Query(q, args...)
 	if err != nil {
 		log.Printf("[i3X] ListAlarmHistory query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query alarm history"})
