@@ -570,7 +570,7 @@ func (d *Driver) poll() {
 		// Convert quality to internal standard for publish (0=GOOD, >0=BAD)
 		publishQuality := 0
 		if val == nil {
-			publishQuality = 1 // BAD
+			publishQuality = 2 // BAD (0=GOOD,1=UNCERTAIN,2=BAD), consistent with other drivers
 		}
 
 		// Check if we should publish (RBE logic)

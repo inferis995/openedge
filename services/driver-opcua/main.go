@@ -827,9 +827,9 @@ func (d *Driver) pollLoop() {
 				if !exists {
 					val = 0
 				}
-				if d.shouldPublish(tag.ID, val, 1) { // 1 = BAD in internal standard
-					d.publishTagValue(tag, val, 1)
-					d.updateState(tag.ID, val, 1)
+				if d.shouldPublish(tag.ID, val, 2) { // 2 = BAD (0=GOOD,1=UNCERTAIN,2=BAD), consistent with other drivers
+					d.publishTagValue(tag, val, 2)
+					d.updateState(tag.ID, val, 2)
 				}
 				continue
 			}
@@ -852,7 +852,7 @@ func (d *Driver) pollLoop() {
 			// This matches what the UI and historian expect
 			publishQuality := 0
 			if quality != 0 {
-				publishQuality = 1 // BAD
+				publishQuality = 2 // BAD (0=GOOD,1=UNCERTAIN,2=BAD)
 			}
 			if d.alarmManager != nil {
 				log.Printf("[OPC-UA ALARM-EVAL] tagID=%d (%s), value=%v (type=%T), alarmQuality=%d",
@@ -861,7 +861,7 @@ func (d *Driver) pollLoop() {
 			}
 
 			// Check RBE - only publish if value/quality changed
-			// Use publishQuality (0=GOOD, 1=BAD) for internal standard (UI/historian expect this)
+			// Use publishQuality (0=GOOD, 2=BAD) for internal standard (UI/historian expect this)
 			if d.shouldPublish(tag.ID, value, publishQuality) {
 				log.Printf("[OPC-UA Driver] Tag %d (%s): value=%v, quality=%s (published as %d) - PUBLISHING",
 					tag.ID, tag.Alias, value, qualityStr, publishQuality)

@@ -108,7 +108,7 @@ Lo standard i3X usa la codifica numerica OPC-UA indipendentemente dal driver sot
 | `64` | Uncertain |
 | `0` | Bad — problema comunicazione o dato assente |
 
-> ⚠️ L'API standard REST usa `0=Good, 1=Bad`. L'i3X usa `192=Good, 0=Bad`. Non confonderli.
+> ⚠️ L'API standard REST usa `0=Good, 1=Uncertain, 2=Bad`. L'i3X usa `192=Good, 64=Uncertain, 0=Bad`. Non confonderli.
 
 ### 3.3 Data Types
 
@@ -464,7 +464,7 @@ GET /api/tags/{tag_id}/current
 
 Risposta: `{"tag_id":5,"alias":"Portata_Ingresso","value":42.5,"timestamp":1711234567000,"quality":0}`
 
-Quality REST: **0 = Good**, **1 = Bad** (opposto i3X!)
+Quality REST: **0 = Good**, **1 = Uncertain**, **2 = Bad** (opposto i3X!)
 
 ### Statistiche storiche
 
@@ -484,10 +484,13 @@ GET /api/tags/with-hierarchy
 
 ### Quality codes — NON confondere i due contesti
 
-| API | Good | Bad |
-|-----|------|-----|
-| REST standard | `0` | `1` |
-| i3X Access API | `192` | `0` |
+| API | Good | Uncertain | Bad |
+|-----|------|-----------|-----|
+| REST standard (`q`) | `0` | `1` | `2` |
+| i3X Access API | `192` | `64` | `0` |
+
+> La scala interna `q` dei driver è **0=Good, 1=Uncertain, 2=Bad** (tutti i driver
+> emettono `0` per i valori buoni e `2` in caso di guasto/comunicazione persa).
 
 ### Timestamp
 
