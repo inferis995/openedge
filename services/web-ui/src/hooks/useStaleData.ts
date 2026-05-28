@@ -75,11 +75,13 @@ export function getDataStatus(
     // If device is explicitly offline (DDEATH received after grace period), data is BAD
     if (isDeviceOnline === false) return 'bad';
 
-    // If device is explicitly online (DBIRTH received), check quality
+    // If device is explicitly online (DBIRTH received), check quality.
+    // Quality scale: 0 = GOOD, 1 = UNCERTAIN, 2 = BAD.
     if (isDeviceOnline === true) {
         if (quality === undefined) return 'unknown';
-        if (quality !== 0) return 'bad';
-        return 'good';
+        if (quality === 0) return 'good';
+        if (quality === 1) return 'unknown'; // UNCERTAIN
+        return 'bad';
     }
 
     // Device is unknown (no Sparkplug info or grace period) - use quality only

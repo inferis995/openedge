@@ -763,8 +763,12 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 		s.storeRealtimeValue(tagInfo.ID, mqttPayload)
 		s.broadcastRealtimeUpdate(tagInfo.OrganizationID, tagInfo.ID, mqttPayload)
 
-		// SKIP HISTORIZATION if Historize flag is false or quality is bad
-		if !tagInfo.Historize || legacyQuality != 0 {
+		// Skip only if historization is disabled. Bad/uncertain quality is NOT
+		// skipped here: it must flow through to saveToPostgreSQL so a NULL
+		// 'offline' gap is recorded — same behaviour as the legacy data/# path.
+		// (Previously this also skipped on quality != 0, so in dual/sparkplug
+		// mode comms failures left no gap in the history chart.)
+		if !tagInfo.Historize {
 			continue
 		}
 

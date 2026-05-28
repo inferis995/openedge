@@ -253,14 +253,18 @@ export function useSparkplugDataStatus(deviceId: string, quality: number): {
 
     let status: 'good' | 'bad' | 'unknown';
 
+    // Quality scale: 0 = GOOD, 1 = UNCERTAIN, 2 = BAD.
+    const qualityStatus = (q: number): 'good' | 'bad' | 'unknown' =>
+        q === 0 ? 'good' : q === 1 ? 'unknown' : 'bad';
+
     if (deviceStatus === 'unknown') {
         // No Sparkplug info - fall back to quality
-        status = quality === 0 ? 'good' : 'bad';
+        status = qualityStatus(quality);
     } else if (deviceStatus === 'offline') {
         status = 'bad';
     } else {
         // Device is online
-        status = quality === 0 ? 'good' : 'bad';
+        status = qualityStatus(quality);
     }
 
     return {
