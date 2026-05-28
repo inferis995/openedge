@@ -374,12 +374,10 @@ func parseAddress(address string) (string, uint16, int8, error) {
 	if val >= 10001 && val <= 19999 {
 		return "discrete", uint16(val - 10001), int8(bitOffset), nil
 	}
-	if val >= 1 && val <= 9999 {
-		return "coil", uint16(val - 1), int8(bitOffset), nil
-	}
-
-	// Fallback for raw offsets (< 30000)
-	if val < 30000 {
+	// Bare numeric addresses are read as HOLDING registers at the raw offset
+	// (e.g. "100" -> holding 100). Coils are addressed via the "C" prefix and
+	// discrete inputs via the 1xxxx range, so bare numbers stay holding.
+	if val >= 0 && val < 30000 {
 		return "holding", uint16(val), int8(bitOffset), nil
 	}
 

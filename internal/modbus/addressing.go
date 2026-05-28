@@ -84,18 +84,12 @@ func ParseAddress(c string, zeroBased bool) (Address, error) {
 		}
 		return Address{Type: "discrete", Offset: offset}, nil
 	}
-	if val >= 0 && val <= 9999 {
-		offset := uint16(val)
-		// Standard Modbus starts at 1. If not zero-based, 1 -> 0.
-		// If user explicitly types 0, we treat it as offset 0 regardless of zero-based setting.
-		if val > 0 && !zeroBased {
-			offset = uint16(val - 1)
-		}
-		return Address{Type: "coil", Offset: offset}, nil
-	}
-
-	// Fallback for raw offsets (treated as holding for backward compatibility)
-	if val < 30000 {
+	// Bare numeric addresses (no Modicon range prefix) are read as HOLDING
+	// registers at the raw offset, e.g. "100" -> holding register 100. This is
+	// by far the most common case. Coils and discrete inputs are addressed
+	// through their Modicon ranges (1xxxx -> discrete) or explicit prefixes,
+	// because the 0xxxx coil range is ambiguous with raw offsets.
+	if val >= 0 && val <= 29999 {
 		return Address{Type: "holding", Offset: uint16(val), BitOffset: bitOffset}, nil
 	}
 
