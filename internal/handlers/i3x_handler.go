@@ -558,16 +558,26 @@ func (h *I3XHandler) GetEquipmentProperty(c *gin.Context) {
 
 	var alias, dataType string
 	var historize bool
-	var actualGWID int
+	var actualGWID, ownerOrgID int
 	err := h.db.QueryRow(`
-		SELECT alias, data_type, historize, gateway_id
-		FROM tags WHERE id = $1`, tagID).Scan(&alias, &dataType, &historize, &actualGWID)
+		SELECT t.alias, t.data_type, t.historize, t.gateway_id, s.org_id
+		FROM tags t
+		JOIN gateways g ON t.gateway_id = g.id
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id
+		WHERE t.id = $1`, tagID).Scan(&alias, &dataType, &historize, &actualGWID, &ownerOrgID)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Property not found on this equipment"})
 		return
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query property"})
+		return
+	}
+	// Multi-tenant isolation: the tag's gateway must belong to the caller's org.
+	orgFilter := middleware.GetOrgFilterForQuery(c)
+	if orgFilter != nil && *orgFilter != ownerOrgID {
+		c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
 		return
 	}
 	if actualGWID != gwID {
