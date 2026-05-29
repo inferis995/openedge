@@ -41,6 +41,29 @@ func (h *AlarmHandler) GetTagAlarmConfig(c *gin.Context) {
 		return
 	}
 
+	// Multi-tenant isolation: a non-global user may only read alarm config for
+	// tags that belong to their own organization.
+	if !middleware.IsGlobalAdmin(c) {
+		orgFilter := middleware.GetOrgFilterForQuery(c)
+		if orgFilter == nil || *orgFilter == -1 {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Unable to determine organization"})
+			return
+		}
+		var validTag int
+		err := h.db.QueryRow(`
+			SELECT t.id
+			FROM tags t
+			JOIN gateways g ON t.gateway_id = g.id
+			JOIN areas a ON g.area_id = a.id
+			JOIN sites s ON a.site_id = s.id
+			WHERE t.id = $1 AND s.org_id = $2
+		`, tagID, *orgFilter).Scan(&validTag)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Tag not found or not in organization"})
+			return
+		}
+	}
+
 	rows, err := h.db.Query(`
 		SELECT id, tag_id, alarm_type, threshold, deadband, delay_seconds, severity, message, enabled, created_at, updated_at
 		FROM alarm_definitions
@@ -525,15 +548,36 @@ func (h *AlarmHandler) AcknowledgeAlarm(c *gin.Context) {
 		username = u.(string)
 	}
 
-	result, err := h.db.Exec(`
-		UPDATE alarm_events
-		SET status = 'ACKNOWLEDGED',
-		    bg_ack_user = $1,
-		    ack_time = $2
-		WHERE id = $3
-		  AND ack_time IS NULL
-		  AND clear_time IS NULL
-	`, username, time.Now(), eventID)
+	// Multi-tenant isolation: a non-global user may only acknowledge alarms
+	// whose tag belongs to their own organization.
+	var (
+		result sql.Result
+	)
+	if middleware.IsGlobalAdmin(c) {
+		result, err = h.db.Exec(`
+			UPDATE alarm_events
+			SET status = 'ACKNOWLEDGED', bg_ack_user = $1, ack_time = $2
+			WHERE id = $3 AND ack_time IS NULL AND clear_time IS NULL
+		`, username, time.Now(), eventID)
+	} else {
+		orgFilter := middleware.GetOrgFilterForQuery(c)
+		if orgFilter == nil || *orgFilter == -1 {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Unable to determine organization"})
+			return
+		}
+		result, err = h.db.Exec(`
+			UPDATE alarm_events
+			SET status = 'ACKNOWLEDGED', bg_ack_user = $1, ack_time = $2
+			WHERE id = $3 AND ack_time IS NULL AND clear_time IS NULL
+			  AND tag_id IN (
+				SELECT t.id FROM tags t
+				JOIN gateways g ON t.gateway_id = g.id
+				JOIN areas a ON g.area_id = a.id
+				JOIN sites s ON a.site_id = s.id
+				WHERE s.org_id = $4
+			)
+		`, username, time.Now(), eventID, *orgFilter)
+	}
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to acknowledge alarm"})
