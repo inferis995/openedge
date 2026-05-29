@@ -55,6 +55,9 @@ func (h *HistoryHandler) InitializeRetentionPolicy() {
 		log.Printf("[TIMESCALEDB] Retention policy disabled (db_retention_days = %d)", retentionDays)
 		h.db.Exec(`SELECT remove_retention_policy('tag_history', if_exists => true)`)
 		h.db.Exec(`SELECT remove_retention_policy('system_events', if_exists => true)`)
+		// Also drop rollup retention so nothing is purged when retention is off.
+		h.db.Exec(`SELECT remove_retention_policy('tag_history_1m', if_exists => true)`)
+		h.db.Exec(`SELECT remove_retention_policy('tag_history_1h', if_exists => true)`)
 		return
 	}
 
@@ -78,6 +81,30 @@ func (h *HistoryHandler) InitializeRetentionPolicy() {
 	_, err2 := h.db.Exec(`SELECT add_retention_policy('system_events', make_interval(days => $1::int), if_not_exists => true)`, retentionDays)
 	if err2 != nil {
 		log.Printf("[TIMESCALEDB] Error setting retention policy for system_events: %v", err2)
+	}
+
+	// Rollup retention: keep aggregates LONGER than raw data so long-range
+	// trend charts stay complete after raw rows are purged. The 1-minute
+	// rollup is the main disk consumer (~1440 rows/tag/day), so we cap it;
+	// the 1-hour rollup is kept much longer; the 1-day rollup is tiny
+	// (~1 row/tag/day) and intentionally left unbounded.
+	rollups := []struct {
+		view string
+		days int
+	}{
+		{"tag_history_1m", retentionDays * 3},
+		{"tag_history_1h", retentionDays * 12},
+	}
+	for _, r := range rollups {
+		h.db.Exec(`SELECT remove_retention_policy($1, if_exists => true)`, r.view)
+		if _, err := h.db.Exec(
+			`SELECT add_retention_policy($1, make_interval(days => $2::int), if_not_exists => true)`,
+			r.view, r.days,
+		); err != nil {
+			// Best-effort: the continuous aggregate may not exist yet on a
+			// fresh database; it will be picked up on the next call.
+			log.Printf("[TIMESCALEDB] Note: could not set retention for %s (may not exist yet): %v", r.view, err)
+		}
 	}
 }
 

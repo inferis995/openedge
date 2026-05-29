@@ -155,7 +155,7 @@ SELECT add_compression_policy('tag_history', INTERVAL '7 days', if_not_exists =>
 SELECT add_retention_policy('tag_history', INTERVAL '90 days', if_not_exists => TRUE);
 
 COMMENT ON TABLE tag_history IS 'TimescaleDB hypertable: Time-series historian with automatic compression';
-COMMENT ON COLUMN tag_history.value IS 'Actual tag value. NULL never stored - query returns gap if no data';
+COMMENT ON COLUMN tag_history.value IS 'Actual tag value. NULL = offline/bad-quality marker (source=''offline'') that the query layer turns into a chart gap.';
 
 -- ============================================================================
 -- CONTINUOUS AGGREGATES (Trend Performance)
