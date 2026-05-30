@@ -12,5 +12,9 @@ type Tag struct {
 	Historize         bool      `json:"historize" db:"historize"`
 	HistorizeDeadband float64   `json:"historize_deadband" db:"historize_deadband"`
 	SortOrder         float64   `json:"sort_order" db:"sort_order"`
+	// JsonPath is the dotted path (e.g. "temp" or "data.temperature") used by
+	// the MQTT driver to extract a single field from a JSON payload. Empty =
+	// the whole payload is the value.
+	JsonPath          *string   `json:"json_path,omitempty" db:"json_path"`
 	CreatedAt         time.Time `json:"created_at" db:"created_at"`
 }

@@ -90,6 +90,7 @@ const TagsPage = () => {
         data_type: 'REAL',
         historize: false,
         deadband_value: 0.1,
+        json_path: '',
 
     });
 
@@ -295,6 +296,7 @@ const TagsPage = () => {
             data_type: mapOpcUaDataType(node.data_type),
             historize: false,
             deadband_value: 0.1,
+        json_path: '',
             gateway_id: parseInt(selectedGatewayId!),
         });
         setIsBrowseOpen(false);
@@ -366,6 +368,7 @@ const TagsPage = () => {
                 data_type: 'REAL',
                 historize: false,
                 deadband_value: 0.1,
+        json_path: '',
             });
         } catch (error) {
             console.error('Failed to save tag', error);
@@ -380,6 +383,7 @@ const TagsPage = () => {
             data_type: tag.data_type,
             historize: tag.historize,
             deadband_value: tag.historize_deadband || 0.1,
+            json_path: tag.json_path || '',
         });
         setIsOpen(true);
     };
@@ -439,6 +443,7 @@ const TagsPage = () => {
             data_type: 'REAL',
             historize: false,
             deadband_value: 0.1,
+        json_path: '',
 
         });
         setIsOpen(true);
@@ -971,6 +976,24 @@ const TagsPage = () => {
                                                                 />
                                                             </div>
                                                         )}
+                                                    </div>
+
+                                                    {/* JSON path — MQTT only. The driver uses it to extract one
+                                                        field from JSON payloads like {"temp":22.5,"humidity":55}. */}
+                                                    <div className="grid gap-2 border-t pt-3 mt-2">
+                                                        <Label htmlFor="json_path" className="text-sm flex items-center gap-2">
+                                                            JSON path <span className="text-[10px] font-normal text-muted-foreground">(MQTT only — optional)</span>
+                                                        </Label>
+                                                        <Input
+                                                            id="json_path"
+                                                            value={formData.json_path || ''}
+                                                            onChange={(e) => handleInputChange('json_path', e.target.value)}
+                                                            placeholder="es. temp   oppure   data.values.0.temperature"
+                                                            className="font-mono text-sm"
+                                                        />
+                                                        <p className="text-[10px] text-muted-foreground">
+                                                            Per payload JSON: estrae il campo a questo percorso (notazione dotted). Lascia vuoto se il payload È già il valore.
+                                                        </p>
                                                     </div>
                                                 </div>
                                             </div>

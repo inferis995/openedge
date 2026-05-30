@@ -1,6 +1,7 @@
 package mqtt
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log"
 	"strings"
@@ -14,6 +15,7 @@ import (
 type Config struct {
 	Host          string
 	Port          int
+	Scheme        string // "tcp" (default) or "ssl" for TLS
 	ClientID      string
 	Username      string
 	Password      string
@@ -42,7 +44,16 @@ type Client struct {
 // NewClient creates a new MQTT client with the given configuration
 func NewClient(config Config) *Client {
 	opts := mqtt.NewClientOptions()
-	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", config.Host, config.Port))
+	scheme := config.Scheme
+	if scheme == "" {
+		scheme = "tcp"
+	}
+	opts.AddBroker(fmt.Sprintf("%s://%s:%d", scheme, config.Host, config.Port))
+	if scheme == "ssl" {
+		// Use the system CA bundle by default; callers can extend later if
+		// they need a custom cafile or InsecureSkipVerify.
+		opts.SetTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12})
+	}
 	opts.SetClientID(config.ClientID)
 
 	// Set AutoReconnect - default to true if not specified

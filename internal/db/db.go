@@ -99,6 +99,13 @@ func runAutoMigrations(db *sql.DB) error {
 		return fmt.Errorf("failed to add i3x_write column: %w", err)
 	}
 
+	// Migration: json_path on tags. Used by the MQTT driver to pull a single
+	// field from a JSON payload — e.g. tag.code="factory/sensor/temp" with
+	// json_path="temp" extracts 22.5 from {"temp":22.5,"humidity":55}. Empty
+	// (NULL) keeps the legacy behaviour (whole payload is the value).
+	if _, err := db.Exec(`ALTER TABLE tags ADD COLUMN IF NOT EXISTS json_path TEXT`); err != nil {
+		return fmt.Errorf("failed to add tags.json_path column: %w", err)
+	}
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

@@ -44,6 +44,14 @@ interface ExtendedCreateGatewayDto extends Omit<CreateGatewayDto, 'connection_co
     password?: string;
     cert_file?: string;
     key_file?: string;
+    // MQTT external-broker fields (all optional; empty broker_host = use
+    // OpenEdge's internal broker, the legacy behaviour).
+    broker_host?: string;
+    broker_port?: number;
+    broker_tls?: boolean;
+    broker_username?: string;
+    broker_password?: string;
+    broker_client_id?: string;
 }
 
 const GatewaysPage = () => {
@@ -75,6 +83,13 @@ const GatewaysPage = () => {
         password: '',
         cert_file: '',
         key_file: '',
+        // MQTT external broker (empty host → use internal OpenEdge broker)
+        broker_host: '',
+        broker_port: 1883,
+        broker_tls: false,
+        broker_username: '',
+        broker_password: '',
+        broker_client_id: '',
     });
     const [selectedAreaForCreate, setSelectedAreaForCreate] = useState<string>(
         selectedAreaId ? selectedAreaId.toString() : ''
@@ -100,7 +115,18 @@ const GatewaysPage = () => {
                 key_file: formData.key_file,
             };
         } else if (formData.driver_type === 'MQTT') {
-            connection_config = {};
+            // Optional EXTERNAL MQTT broker the driver subscribes to (the
+            // customer's own broker where PLCs publish). Leave broker_host
+            // empty to keep the legacy behaviour (PLCs publish to OpenEdge's
+            // internal broker).
+            connection_config = {
+                broker_host: formData.broker_host || '',
+                broker_port: formData.broker_port || 1883,
+                broker_tls: !!formData.broker_tls,
+                broker_username: formData.broker_username || '',
+                broker_password: formData.broker_password || '',
+                broker_client_id: formData.broker_client_id || '',
+            };
         }
         return connection_config;
     };
@@ -153,6 +179,13 @@ const GatewaysPage = () => {
             username: '',
             password: '',
             cert_file: '',
+            // MQTT external broker (reset on Add)
+            broker_host: '',
+            broker_port: 1883,
+            broker_tls: false,
+            broker_username: '',
+            broker_password: '',
+            broker_client_id: '',
             key_file: '',
         });
     };
@@ -165,6 +198,8 @@ const GatewaysPage = () => {
         let rack = 0, slot = 2, port = 502, slave_id = 1, ip_address = '';
         let auth_mode = 'Anonymous', username = '', password = '', cert_file = '', key_file = '';
         let endpoint = '';
+        let broker_host = '', broker_port = 1883, broker_tls = false;
+        let broker_username = '', broker_password = '', broker_client_id = '';
 
         if (gateway.connection_config) {
             const config = gateway.connection_config;
@@ -182,6 +217,13 @@ const GatewaysPage = () => {
                 password = config.password || '';
                 cert_file = config.cert_file || '';
                 key_file = config.key_file || '';
+            } else if (gateway.driver_type === 'MQTT') {
+                broker_host = config.broker_host || '';
+                broker_port = config.broker_port || 1883;
+                broker_tls = !!config.broker_tls;
+                broker_username = config.broker_username || '';
+                broker_password = config.broker_password || '';
+                broker_client_id = config.broker_client_id || '';
             }
         }
 
@@ -202,6 +244,12 @@ const GatewaysPage = () => {
             password,
             cert_file,
             key_file,
+            broker_host,
+            broker_port,
+            broker_tls,
+            broker_username,
+            broker_password,
+            broker_client_id,
         });
         setIsOpen(true);
     };
@@ -427,16 +475,63 @@ const GatewaysPage = () => {
                                 )}
 
                                 {formData.driver_type === 'MQTT' && (
-                                    <div className="p-4 bg-emerald-50 dark:bg-emerald-950/30 rounded-md border border-emerald-200 dark:border-emerald-800">
-                                        <p className="font-semibold text-emerald-800 dark:text-emerald-300 mb-2">MQTT Native Driver</p>
-                                        <p className="text-sm text-emerald-700 dark:text-emerald-400 mb-2">
-                                            The PLC publishes data directly to this system's MQTT broker.
-                                        </p>
-                                        <ul className="list-disc list-inside text-xs text-emerald-600 dark:text-emerald-400 space-y-1">
-                                            <li>No IP address needed — the PLC connects to your broker</li>
-                                            <li>Tag <strong>Code</strong> = the PLC's MQTT topic (e.g. <code>wago/sensori/T1</code>)</li>
-                                            <li>Data is automatically bridged to the system format</li>
-                                        </ul>
+                                    <div className="space-y-4">
+                                        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-md border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300">
+                                            <p className="font-semibold mb-1">MQTT Native Driver</p>
+                                            <ul className="list-disc list-inside space-y-0.5 text-emerald-700 dark:text-emerald-400">
+                                                <li>Tag <strong>Code</strong> = the PLC's MQTT topic (e.g. <code>wago/sensori/T1</code>)</li>
+                                                <li>Optionally subscribe to a customer-owned external broker (below).</li>
+                                                <li>For JSON payloads use the tag's <code>json_path</code> field to extract a single field.</li>
+                                            </ul>
+                                        </div>
+
+                                        {/* External broker (optional) */}
+                                        <div className="space-y-3 border rounded-md p-3 bg-muted/30">
+                                            <div>
+                                                <p className="text-sm font-semibold">External broker (optional)</p>
+                                                <p className="text-[11px] text-muted-foreground">
+                                                    Leave the host empty to use OpenEdge's internal broker (the PLC publishes straight to us). Set host/port when the PLCs publish to <strong>their own</strong> broker and OpenEdge should connect to it.
+                                                </p>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-3">
+                                                <div className="col-span-2 grid gap-1">
+                                                    <Label htmlFor="broker_host" className="text-xs">Broker host (IP or hostname)</Label>
+                                                    <Input id="broker_host" value={formData.broker_host || ''}
+                                                        onChange={(e) => handleInputChange('broker_host', e.target.value)}
+                                                        placeholder="es. 192.168.1.40  oppure  mqtt.cliente.local" />
+                                                </div>
+                                                <div className="grid gap-1">
+                                                    <Label htmlFor="broker_port" className="text-xs">Port</Label>
+                                                    <Input id="broker_port" type="number" value={formData.broker_port ?? 1883}
+                                                        onChange={(e) => handleInputChange('broker_port', parseInt(e.target.value) || 1883)} />
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="grid gap-1">
+                                                    <Label htmlFor="broker_username" className="text-xs">Username (optional)</Label>
+                                                    <Input id="broker_username" value={formData.broker_username || ''}
+                                                        onChange={(e) => handleInputChange('broker_username', e.target.value)} autoComplete="off" />
+                                                </div>
+                                                <div className="grid gap-1">
+                                                    <Label htmlFor="broker_password" className="text-xs">Password (optional)</Label>
+                                                    <Input id="broker_password" type="password" value={formData.broker_password || ''}
+                                                        onChange={(e) => handleInputChange('broker_password', e.target.value)} autoComplete="new-password" />
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-3 items-end">
+                                                <div className="grid gap-1">
+                                                    <Label htmlFor="broker_client_id" className="text-xs">Client ID (optional)</Label>
+                                                    <Input id="broker_client_id" value={formData.broker_client_id || ''}
+                                                        onChange={(e) => handleInputChange('broker_client_id', e.target.value)}
+                                                        placeholder="auto-generato se vuoto" />
+                                                </div>
+                                                <label className="flex items-center gap-2 pb-2 cursor-pointer">
+                                                    <Switch checked={!!formData.broker_tls}
+                                                        onCheckedChange={(v) => handleInputChange('broker_tls', v)} />
+                                                    <span className="text-xs">TLS (port 8883 typically)</span>
+                                                </label>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 

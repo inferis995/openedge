@@ -53,7 +53,10 @@ type TagPayload struct {
 type Driver struct {
 	gatewayID      int
 	database       *sql.DB
-	mqttClient     *mqtt.Client // Internal broker (system)
+	mqttClient     *mqtt.Client // Internal broker (system) — used to publish bridged data
+	sourceClient   *mqtt.Client // Optional EXTERNAL broker — used to subscribe to PLC topics.
+	                            // When nil, the driver subscribes on the internal broker
+	                            // (the PLCs publish straight to OpenEdge).
 	config         *GatewayConfig
 	configMu       sync.RWMutex
 	stopChan       chan struct{}
@@ -241,8 +244,15 @@ func (d *Driver) loadConfig() error {
 
 	json.Unmarshal(connConfigBytes, &gateway.ConnectionConfig)
 
-	// Load tags
-	tagsQuery := `SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband FROM tags WHERE gateway_id = $1`
+	// If the gateway's connection_config points to an EXTERNAL MQTT broker
+	// (e.g. the customer's factory broker where PLCs publish), open a second
+	// MQTT client dedicated to source subscriptions. When the field is empty
+	// the driver falls back to subscribing on the internal broker (the PLCs
+	// publish straight to OpenEdge — the legacy behaviour).
+	d.ensureSourceClient(gateway.ConnectionConfig)
+
+	// Load tags (includes optional json_path for JSON payload extraction)
+	tagsQuery := `SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, json_path FROM tags WHERE gateway_id = $1`
 	rows, err := d.database.Query(tagsQuery, d.gatewayID)
 	if err != nil {
 		return fmt.Errorf("failed to load tags: %w", err)
@@ -252,7 +262,7 @@ func (d *Driver) loadConfig() error {
 	var tags []models.Tag
 	for rows.Next() {
 		var t models.Tag
-		rows.Scan(&t.ID, &t.GatewayID, &t.Code, &t.Alias, &t.DataType, &t.Historize, &t.HistorizeDeadband)
+		rows.Scan(&t.ID, &t.GatewayID, &t.Code, &t.Alias, &t.DataType, &t.Historize, &t.HistorizeDeadband, &t.JsonPath)
 		tags = append(tags, t)
 	}
 
@@ -374,6 +384,71 @@ func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataTyp
 	}
 }
 
+// ensureSourceClient lazily opens a dedicated MQTT client to the EXTERNAL
+// broker described by the gateway connection_config. Idempotent — called from
+// every loadConfig, but only creates the client on the first call. Recognised
+// keys (all optional, only broker_host is required to enable the feature):
+//   broker_host, broker_port (default 1883), broker_tls (bool, default false),
+//   broker_username, broker_password, broker_client_id (default auto).
+// When broker_host is empty the driver keeps subscribing on the internal
+// broker, matching the legacy behaviour.
+func (d *Driver) ensureSourceClient(cc map[string]interface{}) {
+	if d.sourceClient != nil {
+		return
+	}
+	host, _ := cc["broker_host"].(string)
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return
+	}
+	port := 1883
+	if v, ok := cc["broker_port"]; ok {
+		switch n := v.(type) {
+		case float64:
+			port = int(n)
+		case int:
+			port = n
+		}
+	}
+	scheme := "tcp"
+	if v, _ := cc["broker_tls"].(bool); v {
+		scheme = "ssl"
+	}
+	username, _ := cc["broker_username"].(string)
+	password, _ := cc["broker_password"].(string)
+	clientID, _ := cc["broker_client_id"].(string)
+	if clientID == "" {
+		clientID = fmt.Sprintf("openedge-mqtt-src-%d", d.gatewayID)
+	}
+
+	log.Printf("[DRIVER-MQTT] Opening EXTERNAL source broker connection: %s://%s:%d (user=%q)", scheme, host, port, username)
+	src := mqtt.NewClient(mqtt.Config{
+		Host:          host,
+		Port:          port,
+		Scheme:        scheme,
+		ClientID:      clientID,
+		Username:      username,
+		Password:      password,
+		CleanSession:  true,
+		AutoReconnect: true,
+		KeepAlive:     30 * time.Second,
+	})
+	if err := src.Connect(); err != nil {
+		log.Printf("[DRIVER-MQTT] WARNING: external source broker connect failed (%v) — falling back to internal broker", err)
+		return
+	}
+	d.sourceClient = src
+}
+
+// subscribeClient returns the MQTT client that should be used for PLC source
+// topic subscriptions: the external one if configured, else the internal one.
+func (d *Driver) subscribeClient() *mqtt.Client {
+	if d.sourceClient != nil {
+		return d.sourceClient
+	}
+	return d.mqttClient
+}
+
 // subscribeToSourceTopics subscribes to all PLC source topics
 func (d *Driver) subscribeToSourceTopics() {
 	d.configMu.RLock()
@@ -393,9 +468,10 @@ func (d *Driver) subscribeToSourceTopics() {
 		newTopics[m.SourceTopic] = true
 	}
 
+	subClient := d.subscribeClient()
 	for topic := range d.subscribedTags {
 		if !newTopics[topic] {
-			d.mqttClient.Unsubscribe(topic)
+			subClient.Unsubscribe(topic)
 			delete(d.subscribedTags, topic)
 			log.Printf("[DRIVER-MQTT] Unsubscribed from removed topic: %s", topic)
 		}
@@ -409,7 +485,7 @@ func (d *Driver) subscribeToSourceTopics() {
 
 		// Capture mapping in closure
 		m := mapping
-		err := d.mqttClient.Subscribe(m.SourceTopic, func(topic string, payload []byte) {
+		err := subClient.Subscribe(m.SourceTopic, func(topic string, payload []byte) {
 			d.handleSourceMessage(m, topic, payload)
 		})
 		if err != nil {
@@ -429,8 +505,14 @@ func (d *Driver) subscribeToSourceTopics() {
 
 // handleSourceMessage processes a message received from a PLC source topic
 func (d *Driver) handleSourceMessage(mapping TagMapping, topic string, payload []byte) {
-	// Parse the incoming value based on data type
-	value, err := parseIncomingValue(payload, mapping.Tag.DataType)
+	// Parse the incoming value based on data type. When the tag has a json_path
+	// configured we first extract that field from the JSON payload (e.g.
+	// {"temp":22.5,"hum":55} + json_path="temp" -> 22.5).
+	jsonPath := ""
+	if mapping.Tag.JsonPath != nil {
+		jsonPath = strings.TrimSpace(*mapping.Tag.JsonPath)
+	}
+	value, err := parseIncomingValue(payload, mapping.Tag.DataType, jsonPath)
 	if err != nil {
 		log.Printf("[DRIVER-MQTT] ERROR parsing value from %s: %v (raw: %s)", topic, err, string(payload))
 		return
@@ -457,11 +539,57 @@ func (d *Driver) handleSourceMessage(mapping TagMapping, topic string, payload [
 	log.Printf("[DRIVER-MQTT] BRIDGED: %s → %s = %v", topic, mapping.Tag.Alias, value)
 }
 
-// parseIncomingValue parses the raw MQTT payload into a typed value
-func parseIncomingValue(payload []byte, dataType string) (interface{}, error) {
+// extractJSONPath traverses a parsed JSON value with a dotted path. Supports
+// nested keys ("a.b.c") and numeric array indices ("data.0.temp"). Returns
+// (nil, false) when the path can't be resolved against the payload shape.
+func extractJSONPath(root interface{}, path string) (interface{}, bool) {
+	cur := root
+	for _, segment := range strings.Split(strings.TrimPrefix(path, "$."), ".") {
+		if segment == "" || segment == "$" {
+			continue
+		}
+		switch node := cur.(type) {
+		case map[string]interface{}:
+			next, ok := node[segment]
+			if !ok {
+				return nil, false
+			}
+			cur = next
+		case []interface{}:
+			idx, err := strconv.Atoi(segment)
+			if err != nil || idx < 0 || idx >= len(node) {
+				return nil, false
+			}
+			cur = node[idx]
+		default:
+			return nil, false
+		}
+	}
+	return cur, true
+}
+
+// parseIncomingValue parses the raw MQTT payload into a typed value. When
+// jsonPath is set, the payload is treated as JSON and only the value at that
+// path is converted (e.g. {"temp":22} + "temp" -> 22). Both dotted ("a.b") and
+// JSONPath-lite ("$.a.b") notations are accepted.
+func parseIncomingValue(payload []byte, dataType, jsonPath string) (interface{}, error) {
 	raw := strings.TrimSpace(string(payload))
 	if raw == "" {
 		return nil, fmt.Errorf("empty payload")
+	}
+
+	// Explicit json_path: parse, traverse, convert. Hard-fail if the path
+	// doesn't resolve so the operator sees the typo in logs.
+	if jsonPath != "" {
+		var root interface{}
+		if err := json.Unmarshal(payload, &root); err != nil {
+			return nil, fmt.Errorf("payload is not JSON (json_path=%q): %w", jsonPath, err)
+		}
+		v, ok := extractJSONPath(root, jsonPath)
+		if !ok {
+			return nil, fmt.Errorf("json_path %q not found in payload", jsonPath)
+		}
+		return convertValue(v, dataType)
 	}
 
 	// Try to parse as JSON first (e.g. {"value": 23.5} or just 23.5)

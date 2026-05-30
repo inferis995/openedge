@@ -41,6 +41,9 @@ export interface Tag {
     data_type: 'BOOL' | 'INT' | 'REAL' | 'DINT' | 'STRING';
     scan_rate_ms?: number;
     historize: boolean;
+    // For MQTT tags whose payload is JSON: dotted path to the field to extract
+    // (e.g. "temp" or "data.temperature"). Empty/undefined = whole payload.
+    json_path?: string | null;
     historize_interval_ms?: number;
     deadband_mode?: 'absolute' | 'percent';
     deadband_value?: number;
@@ -91,6 +94,7 @@ export interface CreateTagDto {
     data_type: 'BOOL' | 'INT' | 'REAL' | 'DINT' | 'STRING';
     historize: boolean;
     deadband_value?: number;
+    json_path?: string; // MQTT only — empty = whole payload
 }
 
 export interface OpcUaNode {

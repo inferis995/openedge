@@ -45,6 +45,9 @@ type CreateTagRequest struct {
 	DataType          string   `json:"data_type" binding:"required"`
 	Historize         *bool    `json:"historize"`
 	HistorizeDeadband *float64 `json:"historize_deadband"`
+	// JsonPath: for MQTT tags whose payload is JSON, extract this dotted path
+	// (e.g. "temp" from {"temp":22}). Empty/omitted = whole payload as value.
+	JsonPath          *string  `json:"json_path"`
 }
 
 // UpdateTagRequest represents the request body for updating a tag
@@ -54,6 +57,7 @@ type UpdateTagRequest struct {
 	DataType          *string  `json:"data_type"`
 	Historize         *bool    `json:"historize"`
 	HistorizeDeadband *float64 `json:"historize_deadband"`
+	JsonPath          *string  `json:"json_path"`
 }
 
 // validateDataType checks if the data_type is valid
@@ -135,16 +139,17 @@ func (h *TagsHandler) Create(c *gin.Context) {
 
 	var tag models.Tag
 	err = h.db.QueryRow(
-		`INSERT INTO tags (gateway_id, code, alias, data_type, historize, historize_deadband, sort_order)
-		 VALUES ($1, $2, $3, $4, $5, $6, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tags WHERE gateway_id = $1))
-		 RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, created_at`,
+		`INSERT INTO tags (gateway_id, code, alias, data_type, historize, historize_deadband, json_path, sort_order)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tags WHERE gateway_id = $1))
+		 RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path, created_at`,
 		req.GatewayID,
 		req.Code,
 		req.Alias,
 		req.DataType,
 		historize,
 		historizeDeadband,
-	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.CreatedAt)
+		req.JsonPath, // nullable; pq stores NULL when nil
+	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.JsonPath, &tag.CreatedAt)
 
 	if err != nil {
 		log.Printf("[API] Tag Creation DB Error: %v (gateway_id=%d, code=%s, alias=%s, data_type=%s)", err, req.GatewayID, req.Code, req.Alias, req.DataType)
@@ -233,7 +238,7 @@ func (h *TagsHandler) List(c *gin.Context) {
 		}
 
 		rows, err = h.db.Query(
-			"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, created_at FROM tags WHERE gateway_id = $1 ORDER BY sort_order ASC, id ASC",
+			"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path, created_at FROM tags WHERE gateway_id = $1 ORDER BY sort_order ASC, id ASC",
 			gatewayID,
 		)
 	} else {
@@ -243,14 +248,14 @@ func (h *TagsHandler) List(c *gin.Context) {
 		if orgFilter == nil {
 			// Global admin - get all tags across all organizations
 			rows, err = h.db.Query(
-				`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.created_at
+				`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.json_path, t.created_at
 				 FROM tags t
 				 ORDER BY t.sort_order ASC, t.id ASC`,
 			)
 		} else {
 			// Regular user - filter by their organization
 			rows, err = h.db.Query(
-				`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.created_at
+				`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.json_path, t.created_at
 				 FROM tags t
 				 JOIN gateways g ON t.gateway_id = g.id
 				 JOIN areas a ON g.area_id = a.id
@@ -272,7 +277,7 @@ func (h *TagsHandler) List(c *gin.Context) {
 	var tags []models.Tag
 	for rows.Next() {
 		var tag models.Tag
-		if err := rows.Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.CreatedAt); err != nil {
+		if err := rows.Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.JsonPath, &tag.CreatedAt); err != nil {
 			log.Printf("[API] Scan error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan tag"})
 			return
@@ -318,9 +323,9 @@ func (h *TagsHandler) Get(c *gin.Context) {
 
 	var tag models.Tag
 	err := h.db.QueryRow(
-		"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, created_at FROM tags WHERE id = $1",
+		"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path, created_at FROM tags WHERE id = $1",
 		id,
-	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.CreatedAt)
+	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.JsonPath, &tag.CreatedAt)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -552,6 +557,17 @@ func (h *TagsHandler) Update(c *gin.Context) {
 		args = append(args, *req.HistorizeDeadband)
 		argPos++
 	}
+	if req.JsonPath != nil {
+		// Empty string clears the path (NULL in DB), so the driver reverts to
+		// using the whole payload as the value.
+		updates = append(updates, "json_path = $"+strconv.Itoa(argPos))
+		if *req.JsonPath == "" {
+			args = append(args, nil)
+		} else {
+			args = append(args, *req.JsonPath)
+		}
+		argPos++
+	}
 
 	if len(updates) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
@@ -564,12 +580,12 @@ func (h *TagsHandler) Update(c *gin.Context) {
 	for i := 1; i < len(updates); i++ {
 		query += ", " + updates[i]
 	}
-	query += " WHERE id = $" + strconv.Itoa(argPos) + " RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, created_at"
+	query += " WHERE id = $" + strconv.Itoa(argPos) + " RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path, created_at"
 
 	var tag models.Tag
 	err = h.db.QueryRow(query, args...).Scan(
 		&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType,
-		&tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.CreatedAt,
+		&tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.JsonPath, &tag.CreatedAt,
 	)
 
 	if err != nil {
