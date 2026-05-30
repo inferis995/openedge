@@ -213,12 +213,11 @@ func (h *SystemHandler) GetSettings(c *gin.Context) {
 	for rows.Next() {
 		var key, value string
 		if err := rows.Scan(&key, &value); err == nil {
-			// Auto-decrypt passwords for the UI/API response
+			// Never return secrets over the wire. Password values are masked to
+			// an empty string; the client leaves the field blank to keep the
+			// stored value unchanged (UpdateSettings skips empty passwords).
 			if strings.Contains(key, "password") {
-				decrypted, err := crypto.Decrypt(value)
-				if err == nil {
-					value = decrypted
-				}
+				value = ""
 			}
 			settings[key] = value
 		}
@@ -344,7 +343,9 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 	}
 
 	// Handle MQTT password setting
-	if req.MQTTPassword != nil {
+	// Empty password = "leave unchanged" (the UI never sees the current secret,
+	// so a blank field must not overwrite the stored value).
+	if req.MQTTPassword != nil && *req.MQTTPassword != "" {
 		if err := h.upsertSetting("mqtt_password", *req.MQTTPassword); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update mqtt_password"})
 			return
@@ -422,7 +423,8 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 	}
 
 	// Handle Cloud MQTT Password
-	if req.CloudMqttPassword != nil {
+	// Empty cloud password = "leave unchanged" (same logic as MQTTPassword).
+	if req.CloudMqttPassword != nil && *req.CloudMqttPassword != "" {
 		if err := h.upsertSetting("cloud_mqtt_password", *req.CloudMqttPassword); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cloud_mqtt_password"})
 			return

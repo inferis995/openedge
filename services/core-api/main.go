@@ -369,7 +369,10 @@ func main() {
 		system.Use(middleware.RequireAuth)
 		{
 			system.POST("/reload", middleware.RequireRole(models.RoleAdmin), systemHandler.Reload)
-			system.GET("/settings", systemHandler.GetSettings)
+			// GET /system/settings used to be open to any authenticated user AND
+			// returned decrypted broker/cloud passwords — a credential leak. Gate
+			// to admin only; the handler also masks passwords (returns empty).
+			system.GET("/settings", middleware.RequireRole(models.RoleAdmin), systemHandler.GetSettings)
 			system.PUT("/settings", middleware.RequireRole(models.RoleAdmin), systemHandler.UpdateSettings)
 			system.GET("/metrics", systemHandler.GetMetrics)
 
