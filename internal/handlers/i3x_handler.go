@@ -47,6 +47,29 @@ func gwEquipmentID(id int) string  { return fmt.Sprintf("gw-%d", id) }
 func tagPropertyID(id int) string  { return fmt.Sprintf("tag-%d", id) }
 func alarmEventID(id int) string   { return fmt.Sprintf("alarm-%d", id) }
 
+// paginationParams reads ?limit and ?offset from the request, clamps limit to
+// a safe range (1..max), and returns the values. Default limit is 200 — a
+// generous page for typical UIs that still bounds payload size for tenants
+// with 10k+ tags.
+func paginationParams(c *gin.Context, defaultLimit, maxLimit int) (int, int) {
+	limit := defaultLimit
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			if n > maxLimit {
+				n = maxLimit
+			}
+			limit = n
+		}
+	}
+	offset := 0
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	return limit, offset
+}
+
 func parseOrgID(s string) (int, bool) {
 	s = strings.TrimPrefix(s, "org-")
 	id, err := strconv.Atoi(s)
@@ -483,10 +506,13 @@ func (h *I3XHandler) ListEquipmentProperties(c *gin.Context) {
 		return
 	}
 
+	// Paginate (a single gateway can carry thousands of tags).
+	limit, offset := paginationParams(c, 500, 5000)
 	rows, err := h.db.Query(`
 		SELECT id, alias, data_type, historize
 		FROM tags WHERE gateway_id = $1
-		ORDER BY sort_order ASC, id ASC`, gwID)
+		ORDER BY sort_order ASC, id ASC
+		LIMIT $2 OFFSET $3`, gwID, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query properties"})
 		return
@@ -565,6 +591,8 @@ func (h *I3XHandler) GetEquipmentProperty(c *gin.Context) {
 // Returns all tags visible to the caller, with current values from Redis.
 func (h *I3XHandler) ListProperties(c *gin.Context) {
 	orgFilter := middleware.GetOrgFilterForQuery(c)
+	// Paginate to avoid unbounded JSON for tenants with thousands of tags.
+	limit, offset := paginationParams(c, 200, 5000)
 
 	var q string
 	var args []interface{}
@@ -575,15 +603,18 @@ func (h *I3XHandler) ListProperties(c *gin.Context) {
 		     JOIN areas a ON g.area_id = a.id
 		     JOIN sites s ON a.site_id = s.id
 		     WHERE s.org_id = $1
-		     ORDER BY t.sort_order ASC, t.id ASC`
-		args = []interface{}{*orgFilter}
+		     ORDER BY t.sort_order ASC, t.id ASC
+		     LIMIT $2 OFFSET $3`
+		args = []interface{}{*orgFilter, limit, offset}
 	} else {
 		q = `SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id
 		     FROM tags t
 		     JOIN gateways g ON t.gateway_id = g.id
 		     JOIN areas a ON g.area_id = a.id
 		     JOIN sites s ON a.site_id = s.id
-		     ORDER BY t.sort_order ASC, t.id ASC`
+		     ORDER BY t.sort_order ASC, t.id ASC
+		     LIMIT $1 OFFSET $2`
+		args = []interface{}{limit, offset}
 	}
 
 	rows, err := h.db.Query(q, args...)

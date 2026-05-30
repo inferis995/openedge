@@ -121,15 +121,22 @@ func MapDataType(internal string) DataType {
 }
 
 // MapQuality converts an internal quality integer and value presence to an OPC-UA quality code.
-// Internally: q=0 is "init/unknown", q=1 is "bad".  A non-nil value with q=0 is treated as Good.
+// Internal scale (after the driver unification): 0 = GOOD, 1 = UNCERTAIN, 2 = BAD.
+// A missing value is always Bad regardless of the stored quality.
 func MapQuality(q int, hasValue bool) Quality {
 	if !hasValue {
 		return QualityBad
 	}
-	if q == 1 {
+	switch q {
+	case 0:
+		return QualityGood
+	case 1:
+		return QualityUncertain
+	default:
+		// 2 (BAD) or any unexpected value — treat as Bad rather than silently
+		// upgrading to Good (the previous behaviour misreported failed reads).
 		return QualityBad
 	}
-	return QualityGood
 }
 
 // MapSeverity converts internal severity strings to i3X AlarmSeverity
