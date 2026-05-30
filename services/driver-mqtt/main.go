@@ -51,12 +51,18 @@ type TagPayload struct {
 
 // Driver is the main MQTT-to-MQTT bridge driver
 type Driver struct {
-	gatewayID      int
-	database       *sql.DB
-	mqttClient     *mqtt.Client // Internal broker (system) — used to publish bridged data
-	sourceClient   *mqtt.Client // Optional EXTERNAL broker — used to subscribe to PLC topics.
-	                            // When nil, the driver subscribes on the internal broker
-	                            // (the PLCs publish straight to OpenEdge).
+	gatewayID    int
+	database     *sql.DB
+	mqttClient   *mqtt.Client // Internal broker (system) — used to publish bridged data
+	sourceClient *mqtt.Client // Optional EXTERNAL broker — used to subscribe to PLC topics.
+	                          // When nil, the driver subscribes on the internal broker
+	                          // (the PLCs publish straight to OpenEdge).
+	// sourceWanted is true when connection_config asks for an external broker.
+	// Used to suppress wrong subscriptions on the internal broker while the
+	// external one is still (re)connecting.
+	sourceWanted   bool
+	sourceRetrying bool // a retry goroutine is already running
+	sourceMu       sync.Mutex
 	config         *GatewayConfig
 	configMu       sync.RWMutex
 	stopChan       chan struct{}
@@ -393,14 +399,20 @@ func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataTyp
 // When broker_host is empty the driver keeps subscribing on the internal
 // broker, matching the legacy behaviour.
 func (d *Driver) ensureSourceClient(cc map[string]interface{}) {
+	d.sourceMu.Lock()
+	defer d.sourceMu.Unlock()
+
 	if d.sourceClient != nil {
 		return
 	}
 	host, _ := cc["broker_host"].(string)
 	host = strings.TrimSpace(host)
 	if host == "" {
+		d.sourceWanted = false
 		return
 	}
+	d.sourceWanted = true
+
 	port := 1883
 	if v, ok := cc["broker_port"]; ok {
 		switch n := v.(type) {
@@ -421,8 +433,7 @@ func (d *Driver) ensureSourceClient(cc map[string]interface{}) {
 		clientID = fmt.Sprintf("openedge-mqtt-src-%d", d.gatewayID)
 	}
 
-	log.Printf("[DRIVER-MQTT] Opening EXTERNAL source broker connection: %s://%s:%d (user=%q)", scheme, host, port, username)
-	src := mqtt.NewClient(mqtt.Config{
+	cfg := mqtt.Config{
 		Host:          host,
 		Port:          port,
 		Scheme:        scheme,
@@ -432,19 +443,69 @@ func (d *Driver) ensureSourceClient(cc map[string]interface{}) {
 		CleanSession:  true,
 		AutoReconnect: true,
 		KeepAlive:     30 * time.Second,
-	})
-	if err := src.Connect(); err != nil {
-		log.Printf("[DRIVER-MQTT] WARNING: external source broker connect failed (%v) — falling back to internal broker", err)
+	}
+
+	log.Printf("[DRIVER-MQTT] Opening EXTERNAL source broker connection: %s://%s:%d (user=%q)", scheme, host, port, username)
+	src := mqtt.NewClient(cfg)
+	if err := src.Connect(); err == nil {
+		d.sourceClient = src
+		return
+	} else {
+		log.Printf("[DRIVER-MQTT] external source broker connect failed (%v) — retrying in background; NOT falling back to internal broker (would subscribe to the wrong place)", err)
+	}
+
+	// Connect failed. Spawn a single background goroutine that keeps trying
+	// with capped backoff. Once it succeeds, set sourceClient and re-run
+	// subscribeToSourceTopics so the bridged data starts flowing.
+	if d.sourceRetrying {
 		return
 	}
-	d.sourceClient = src
+	d.sourceRetrying = true
+	go d.retrySourceConnect(cfg)
+}
+
+// retrySourceConnect keeps trying to reach the external broker. Stops when the
+// driver is stopping. Backoff: 5s, then doubles up to 60s.
+func (d *Driver) retrySourceConnect(cfg mqtt.Config) {
+	backoff := 5 * time.Second
+	for {
+		select {
+		case <-d.stopChan:
+			return
+		case <-time.After(backoff):
+		}
+		src := mqtt.NewClient(cfg)
+		if err := src.Connect(); err != nil {
+			log.Printf("[DRIVER-MQTT] external source broker still unreachable (%v) — next try in %s", err, backoff)
+			if backoff < 60*time.Second {
+				backoff *= 2
+				if backoff > 60*time.Second {
+					backoff = 60 * time.Second
+				}
+			}
+			continue
+		}
+		d.sourceMu.Lock()
+		d.sourceClient = src
+		d.sourceRetrying = false
+		d.sourceMu.Unlock()
+		log.Printf("[DRIVER-MQTT] external source broker recovered — subscribing")
+		d.subscribeToSourceTopics()
+		return
+	}
 }
 
 // subscribeClient returns the MQTT client that should be used for PLC source
-// topic subscriptions: the external one if configured, else the internal one.
+// topic subscriptions. When an external broker is configured but not (yet)
+// connected, returns nil — subscribeToSourceTopics will skip rather than
+// subscribe on the wrong (internal) broker.
 func (d *Driver) subscribeClient() *mqtt.Client {
-	if d.sourceClient != nil {
-		return d.sourceClient
+	d.sourceMu.Lock()
+	wanted := d.sourceWanted
+	src := d.sourceClient
+	d.sourceMu.Unlock()
+	if wanted {
+		return src // may be nil while the retry goroutine is connecting
 	}
 	return d.mqttClient
 }
@@ -469,6 +530,10 @@ func (d *Driver) subscribeToSourceTopics() {
 	}
 
 	subClient := d.subscribeClient()
+	if subClient == nil {
+		log.Printf("[DRIVER-MQTT] external source broker not yet connected — skipping subscribe (will retry automatically)")
+		return
+	}
 	for topic := range d.subscribedTags {
 		if !newTopics[topic] {
 			subClient.Unsubscribe(topic)

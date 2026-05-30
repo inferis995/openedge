@@ -61,7 +61,7 @@ type DataPoint struct {
 type MQTTPayload struct {
 	V  interface{} `json:"v"`  // Value (bool, float64, int)
 	Ts int64       `json:"ts"` // Timestamp in milliseconds
-	Q  int         `json:"q"`  // Quality (0 = good, 1 = bad)
+	Q  int         `json:"q"`  // Quality (0 = GOOD, 1 = UNCERTAIN, 2 = BAD)
 }
 
 // TagInfo holds tag configuration loaded from PostgreSQL
@@ -94,7 +94,7 @@ type PreviousValue struct {
 type RealtimeValue struct {
 	V  interface{} `json:"v"`  // Value
 	Ts int64       `json:"ts"` // Timestamp in milliseconds
-	Q  int         `json:"q"`  // Quality (0 = good, 1 = bad)
+	Q  int         `json:"q"`  // Quality (0 = GOOD, 1 = UNCERTAIN, 2 = BAD)
 }
 
 const (
