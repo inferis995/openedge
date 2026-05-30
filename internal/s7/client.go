@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -168,8 +169,10 @@ func (c *Client) Connect() error {
 	log.Printf("Connecting to S7 PLC at %s:%d (rack=%d, slot=%d)...",
 		c.config.IP, c.config.Port, c.config.Rack, c.config.Slot)
 
-	// Establish TCP connection
-	addr := fmt.Sprintf("%s:%d", c.config.IP, c.config.Port)
+	// Establish TCP connection. net.JoinHostPort correctly brackets IPv6
+	// literals (which contain colons); plain "%s:%d" sprintf produces an
+	// ambiguous address and was flagged by `go vet`.
+	addr := net.JoinHostPort(c.config.IP, strconv.Itoa(c.config.Port))
 	conn, err := net.DialTimeout("tcp", addr, c.config.Timeout)
 	if err != nil {
 		return fmt.Errorf("failed to connect to S7 PLC at %s: %w", addr, err)
