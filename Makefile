@@ -1,4 +1,6 @@
-.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service
+.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca
+
+COMPOSE_ONPREM_TLS = docker-compose -f docker-compose.yml -f docker-compose.onprem-tls.yml --profile backup
 
 ## Create .env from example if missing; auto-generate JWT_SECRET if unset or placeholder
 setup-env:
@@ -57,6 +59,46 @@ install-service:
 ## Remove the systemd service. Data and config are NOT touched.
 uninstall-service:
 	./systemd/install.sh --uninstall
+
+# ── On-prem TLS (internal CA, no internet needed) ───────────────────────────
+## Start the on-prem stack with internal TLS (Caddy `tls internal`).
+## After first start, export the CA with `make export-root-ca` and install
+## it on each operator PC.
+onprem-tls: setup-env
+	$(COMPOSE_ONPREM_TLS) up -d
+	@echo ""
+	@echo "OpenEdge on-prem started with internal TLS."
+	@echo "  Web UI:  https://$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo openedge.local)"
+	@echo "  Next: 'make export-root-ca' then install openedge-root-ca.crt on each operator PC."
+
+## Stop the on-prem TLS stack
+onprem-tls-down:
+	$(COMPOSE_ONPREM_TLS) down
+
+## Export Caddy's internal root CA so operators can trust it in their browsers.
+export-root-ca:
+	@docker exec openedge-caddy cat /data/caddy/pki/authorities/local/root.crt > openedge-root-ca.crt
+	@echo "Wrote openedge-root-ca.crt — install it on each operator PC:"
+	@echo "  Windows: import to 'Trusted Root Certification Authorities' (certmgr.msc)"
+	@echo "  macOS:   double-click → Keychain → trust this cert"
+	@echo "  Linux:   sudo cp openedge-root-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates"
+
+# ── Backup / restore ────────────────────────────────────────────────────────
+## Take a backup right now (out-of-schedule, useful before risky changes).
+backup-now:
+	docker compose --profile backup run --rm \
+	  -e BACKUP_RUN_NOW=true backup
+
+## Copy the most recent backup to a USB key (autodetected under /media/*).
+##   make backup-to-usb USB=/media/myusb   to override the destination.
+backup-to-usb:
+	./scripts/backup-to-usb.sh $(USB)
+
+## Restore from a backup file. DESTRUCTIVE — wipes the live database.
+##   make restore BACKUP=./backups/openedge-20250604T030000Z.dump
+restore:
+	@: $${BACKUP:?BACKUP is required (path to dump file)}
+	./scripts/restore-backup.sh $(BACKUP)
 
 ## Show available targets
 help:

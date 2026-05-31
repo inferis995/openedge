@@ -1,0 +1,43 @@
+# =============================================================================
+# OpenEdge ON-PREM TLS overlay — internal HTTPS for the factory LAN.
+#
+# Use ON TOP of the base file (with the local profile):
+#   docker-compose -f docker-compose.yml -f docker-compose.onprem-tls.yml \
+#                  --profile local up -d
+# Or via the helper target:
+#   make onprem-tls
+#
+# What it gives you:
+#   - Caddy on :443 with a cert auto-issued by its OWN internal CA
+#     (no Let's Encrypt, no internet required, works on a fully air-gapped
+#     network).
+#   - All UI/API traffic goes over HTTPS — required by modern browsers
+#     for clipboard / getUserMedia / etc.
+#
+# One-time setup on each operator PC: import Caddy's root CA so the
+# browser stops complaining. Export it with:
+#     docker exec openedge-caddy \
+#       cat /data/caddy/pki/authorities/local/root.crt > openedge-root-ca.crt
+# Then install that .crt into the OS trust store on each operator PC.
+# After that the UI shows the proper green padlock.
+# =============================================================================
+services:
+  caddy:
+    image: caddy:2
+    container_name: openedge-caddy
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:-openedge.local}
+    volumes:
+      - ./caddy/Caddyfile.onprem:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data       # persisted internal CA + issued cert
+      - caddy-config:/config
+    depends_on:
+      - web-ui
+
+volumes:
+  caddy-data:
+  caddy-config:

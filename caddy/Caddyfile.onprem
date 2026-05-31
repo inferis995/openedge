@@ -1,0 +1,41 @@
+# OpenEdge — on-prem reverse proxy with internal TLS.
+#
+# Used when there is no public DNS / Let's Encrypt — typical on-prem
+# install on a factory LAN. Caddy generates its own CA on first start,
+# issues a cert for ${PUBLIC_HOST} from it, and you install Caddy's root
+# CA into the operator browsers once. After that the UI works over HTTPS
+# without warnings — required by modern browsers for clipboard,
+# camera, getUserMedia, etc.
+#
+# To export Caddy's root CA for manual install on operator PCs:
+#   docker exec openedge-caddy cat /data/caddy/pki/authorities/local/root.crt \
+#     > openedge-root-ca.crt
+# then import it on each PC (Windows: certmgr.msc → Trusted Root CA;
+# macOS: Keychain → System → Certificates; Linux: /usr/local/share/ca-certificates/).
+
+{
+	# `tls internal` everywhere — no ACME calls outbound.
+	auto_https disable_redirects
+	local_certs
+}
+
+{$PUBLIC_HOST:openedge.local} {
+	tls internal
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy web-ui:80 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		header_up X-Forwarded-Host {host}
+	}
+}

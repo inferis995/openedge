@@ -226,6 +226,43 @@ services:
     networks:
       - industrial-network
 
+  # Nightly database backup. Opt-in via the "backup" profile to keep the
+  # base stack minimal for developers; production installs should enable
+  # it (the on-prem TLS overlay enables it automatically).
+  #
+  #   docker compose --profile local --profile backup up -d
+  #
+  # Encryption: leave BACKUP_AGE_RECIPIENT empty to write plaintext
+  # backups (acceptable when /backups is on an encrypted volume). Set it
+  # to an age recipient (`age-keygen -o key.txt && grep public key.txt`)
+  # for backups you intend to copy to a USB key / external NAS.
+  backup:
+    profiles: ["backup"]
+    build:
+      context: ./backup
+    image: openedge-backup:latest
+    container_name: openedge-backup
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-industrial_user}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
+      PGDATABASE: ${POSTGRES_DB:-industrial_edge}
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 3 * * *}
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      TZ: ${TZ:-Europe/Rome}
+    volumes:
+      - ./backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - industrial-network
+
 networks:
   industrial-network:
     driver: bridge
