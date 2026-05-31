@@ -428,6 +428,24 @@ func main() {
 			users.DELETE("/:id", usersHandler.Delete)
 		}
 
+		// Recipe management — operator loads a named set of (tag, value) pairs
+		// in one shot to the PLCs. Scoped to the caller's organization.
+		recipesHandler := handlers.NewRecipesHandler(database, mqttClient)
+		recipes := api.Group("/recipes")
+		recipes.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			recipes.GET("", recipesHandler.List)
+			recipes.POST("", middleware.RequireRole(models.RoleAdmin), recipesHandler.Create)
+			recipes.GET("/:id", recipesHandler.Get)
+			recipes.PUT("/:id", middleware.RequireRole(models.RoleAdmin), recipesHandler.Update)
+			recipes.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), recipesHandler.Delete)
+			// Load: any authenticated org member can trigger; the run is
+			// audited with the actor's user_id + username for accountability.
+			recipes.POST("/:id/load", recipesHandler.Load)
+			recipes.GET("/:id/runs", recipesHandler.Runs)
+		}
+
+
 		// History endpoints (PostgreSQL-based)
 		history := api.Group("/history")
 		history.Use(middleware.RequireAuth, middleware.OrganizationContext())

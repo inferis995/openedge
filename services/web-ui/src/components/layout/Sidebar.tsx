@@ -21,6 +21,7 @@ import {
     Sun,
     Bell,
     Network,
+    ChefHat,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -43,6 +44,7 @@ const Sidebar = () => {
         { name: 'Trend', path: '/trend', icon: TrendingUp },
         { name: 'Historian', path: '/history', icon: History },
         { name: 'Alarms', path: '/alarms', icon: Bell },
+        { name: 'Recipes', path: '/recipes', icon: ChefHat },
         { name: 'i3X API',      path: '/i3x',          icon: Network },
     ];
 

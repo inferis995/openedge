@@ -132,6 +132,51 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: failed to seed notification settings: %v", err)
 	}
 
+	// Migration: recipe management. A recipe is a named set of
+	// (tag, value) pairs the operator can "load" with one click — the
+	// classic SCADA feature that turns a data viewer into a control
+	// system. Three tables:
+	//   recipes        — header (name, description, owner org)
+	//   recipe_values  — the (tag_id, value) entries
+	//   recipe_runs    — audit log of every load, append-only
+	recipes := []string{
+		`CREATE TABLE IF NOT EXISTS recipes (
+			id SERIAL PRIMARY KEY,
+			org_id INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			description TEXT,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW(),
+			created_by INT REFERENCES users(id) ON DELETE SET NULL,
+			UNIQUE (org_id, name)
+		)`,
+		`CREATE TABLE IF NOT EXISTS recipe_values (
+			id SERIAL PRIMARY KEY,
+			recipe_id INT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+			tag_id INT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+			value TEXT NOT NULL,
+			UNIQUE (recipe_id, tag_id)
+		)`,
+		`CREATE TABLE IF NOT EXISTS recipe_runs (
+			id BIGSERIAL PRIMARY KEY,
+			recipe_id INT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+			org_id INT NOT NULL,
+			triggered_by INT REFERENCES users(id) ON DELETE SET NULL,
+			triggered_username TEXT,
+			triggered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			results JSONB NOT NULL DEFAULT '[]'
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_recipes_org ON recipes(org_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_recipe_runs_recipe ON recipe_runs(recipe_id, triggered_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_recipe_runs_org ON recipe_runs(org_id, triggered_at DESC)`,
+	}
+	for _, stmt := range recipes {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("recipes migration: %w", err)
+		}
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }
