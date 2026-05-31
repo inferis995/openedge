@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import LanguageSwitch from '@/components/layout/LanguageSwitch';
 import {
     LayoutDashboard,
     Building2,
@@ -183,6 +184,13 @@ const Sidebar = () => {
                     {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
                     {!collapsed && <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
                 </Button>
+
+                {!collapsed && (
+                    <div className="flex items-center justify-between px-2 py-1 text-xs text-[hsl(var(--sidebar-muted))]">
+                        <span>Language</span>
+                        <LanguageSwitch />
+                    </div>
+                )}
 
                 {/* User Profile */}
                 <div className={cn(

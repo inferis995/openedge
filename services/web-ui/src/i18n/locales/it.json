@@ -1,0 +1,49 @@
+{
+    "common": {
+        "save": "Salva",
+        "cancel": "Annulla",
+        "delete": "Elimina",
+        "edit": "Modifica",
+        "create": "Crea",
+        "loading": "Caricamento...",
+        "search": "Cerca",
+        "actions": "Azioni",
+        "yes": "Sì",
+        "no": "No"
+    },
+    "nav": {
+        "dashboard": "Cruscotto",
+        "organizations": "Organizzazioni",
+        "sites": "Siti",
+        "areas": "Aree",
+        "gateways": "Gateway",
+        "tags": "Tag",
+        "trend": "Andamento",
+        "historian": "Storico",
+        "alarms": "Allarmi",
+        "recipes": "Ricette",
+        "i3x": "API i3X",
+        "users": "Utenti",
+        "edge_agents": "Edge Agent",
+        "plans": "Piani",
+        "system": "Sistema"
+    },
+    "recipes": {
+        "title": "Ricette",
+        "subtitle": "Insiemi denominati di coppie (tag, valore). L'operatore ne carica una con un click e il sistema scrive tutti i valori sui PLC in un'unica operazione. Ogni caricamento è tracciato nell'audit.",
+        "new": "Nuova ricetta",
+        "load": "Carica questa ricetta",
+        "history": "Vedi cronologia",
+        "value_count": "Valori",
+        "load_confirm": "Verranno scritti {{count}} valori sui PLC.",
+        "load_pending": "Scrittura in corso...",
+        "load_success": "Ricetta caricata",
+        "load_partial": "Ricetta caricata parzialmente",
+        "load_failed": "Caricamento ricetta fallito"
+    },
+    "language": {
+        "label": "Lingua",
+        "english": "Inglese",
+        "italian": "Italiano"
+    }
+}

@@ -1,0 +1,49 @@
+{
+    "common": {
+        "save": "Save",
+        "cancel": "Cancel",
+        "delete": "Delete",
+        "edit": "Edit",
+        "create": "Create",
+        "loading": "Loading...",
+        "search": "Search",
+        "actions": "Actions",
+        "yes": "Yes",
+        "no": "No"
+    },
+    "nav": {
+        "dashboard": "Dashboard",
+        "organizations": "Organizations",
+        "sites": "Sites",
+        "areas": "Areas",
+        "gateways": "Gateways",
+        "tags": "Tags",
+        "trend": "Trend",
+        "historian": "Historian",
+        "alarms": "Alarms",
+        "recipes": "Recipes",
+        "i3x": "i3X API",
+        "users": "Users",
+        "edge_agents": "Edge Agents",
+        "plans": "Plans",
+        "system": "System"
+    },
+    "recipes": {
+        "title": "Recipes",
+        "subtitle": "Named sets of (tag, value) pairs. The operator loads one with a click and the system writes every value to the PLCs in one shot. Every load is audited.",
+        "new": "New recipe",
+        "load": "Load this recipe",
+        "history": "View history",
+        "value_count": "Values",
+        "load_confirm": "This will write {{count}} values to the PLCs.",
+        "load_pending": "Writing...",
+        "load_success": "Recipe loaded",
+        "load_partial": "Recipe partially loaded",
+        "load_failed": "Recipe load failed"
+    },
+    "language": {
+        "label": "Language",
+        "english": "English",
+        "italian": "Italian"
+    }
+}

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ralph/industrial-edge-middleware/internal/audit"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/redis/go-redis/v9"
@@ -773,9 +774,31 @@ func (h *TagsHandler) Write(c *gin.Context) {
 	topic := fmt.Sprintf("cmd/write/%d", tag.GatewayID)
 
 	if err := h.mqttClient.Publish(topic, string(payload)); err != nil {
+		audit.Log(c, h.db, audit.Entry{
+			Action:  "tag.write",
+			Success: false,
+			Details: map[string]interface{}{
+				"tag_id": tag.ID, "code": tag.Code, "value": req.Value, "error": err.Error(),
+			},
+		})
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to publish write command"})
 		return
 	}
+
+	// Audit: an operator just wrote a setpoint to a PLC. Goes into
+	// audit_logs with the actor's user_id + username so the QA/maintenance
+	// team can trace "who changed temperature at 03:00?".
+	audit.Log(c, h.db, audit.Entry{
+		Action:  "tag.write",
+		Success: true,
+		Details: map[string]interface{}{
+			"tag_id":     tag.ID,
+			"code":       tag.Code,
+			"data_type":  tag.DataType,
+			"value":      req.Value,
+			"gateway_id": tag.GatewayID,
+		},
+	})
 
 	c.JSON(http.StatusOK, gin.H{"message": "Write command sent"})
 }

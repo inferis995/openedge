@@ -20,6 +20,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/ralph/industrial-edge-middleware/internal/audit"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 )
@@ -398,6 +399,20 @@ func (h *RecipesHandler) Load(c *gin.Context) {
 		// the row. Logged centrally; operator sees the partial UI.
 		fmt.Printf("[RECIPES] failed to finalise run %d: %v\n", runID, err)
 	}
+
+	// Cross-recipe audit row — the recipe_runs table is the detailed
+	// per-tag log, audit_logs is the unified "what did this operator do
+	// across the system?" view that compliance auditors look at.
+	audit.Log(c, h.db, audit.Entry{
+		Action:  "recipe.load",
+		Success: failures == 0,
+		Details: map[string]interface{}{
+			"recipe_id": id,
+			"run_id":    runID,
+			"written":   len(results) - failures,
+			"failed":    failures,
+		},
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"run_id":   runID,
