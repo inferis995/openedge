@@ -106,6 +106,33 @@ func runAutoMigrations(db *sql.DB) error {
 	if _, err := db.Exec(`ALTER TABLE tags ADD COLUMN IF NOT EXISTS json_path TEXT`); err != nil {
 		return fmt.Errorf("failed to add tags.json_path column: %w", err)
 	}
+
+	// Migration: notification channel config. Operator wires email / Telegram
+	// from System → Notifications in the UI; the dispatcher loads these
+	// settings on first use and re-reads them once a minute so admin edits
+	// take effect without restarting core-api.
+	notifSeed := `
+	INSERT INTO global_settings (key, value, description) VALUES
+		('notif_email_enabled', 'false', 'When true, alarm events are dispatched as plain-text email.'),
+		('notif_email_smtp_host', '', 'SMTP relay host (e.g. smtp.gmail.com, smtp.office365.com).'),
+		('notif_email_smtp_port', '587', 'SMTP relay port. 587 = STARTTLS submission, 465 = implicit TLS.'),
+		('notif_email_use_tls', 'false', 'true -> implicit TLS (port 465). false -> STARTTLS (port 587).'),
+		('notif_email_username', '', 'SMTP auth username (often the same as the From address).'),
+		('notif_email_password', '', 'SMTP auth password (or Gmail-style app password).'),
+		('notif_email_from', '', 'From: address of outgoing alerts.'),
+		('notif_email_to', '', 'Comma-separated recipient list.'),
+		('notif_telegram_enabled', 'false', 'When true, alarm events are sent to a Telegram chat.'),
+		('notif_telegram_bot_token', '', 'Telegram bot token from @BotFather.'),
+		('notif_telegram_chat_id', '', 'Numeric chat_id (DM or group). Get it from getUpdates after messaging the bot once.'),
+		('notif_min_severity', 'medium', 'Drop alarm events below this severity (low|medium|high|critical).'),
+		('notif_on_cleared', 'false', 'true -> also notify when an alarm clears, not only when it fires.'),
+		('notif_rate_limit_per_min', '60', 'Global cap (events per minute across all channels) to survive alarm storms.')
+	ON CONFLICT (key) DO NOTHING;`
+	if _, err := db.Exec(notifSeed); err != nil {
+		log.Printf("Warning: failed to seed notification settings: %v", err)
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }
+

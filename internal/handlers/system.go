@@ -245,6 +245,10 @@ type UpdateSettingsRequest struct {
 	CloudMqttUsername     *string  `json:"cloud_mqtt_username"`
 	CloudMqttPassword     *string  `json:"cloud_mqtt_password"`
 	CloudMqttTopic        *string  `json:"cloud_mqtt_topic"`
+	// Notification channel config — flat key→value map of notif_* keys.
+	// Validated to only allow that prefix server-side. Lets the UI add
+	// new channels without bumping the API schema every time.
+	Notifications map[string]string `json:"notifications,omitempty"`
 }
 
 // UpdateSettings updates global settings (admin only)
@@ -438,6 +442,22 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 	}
+
+	// Notification settings are a flat passthrough — we don't validate
+	// each key in code because the notifier itself defends against
+	// missing/invalid combinations (channel marks itself disabled). This
+	// keeps the API surface stable when new notif_* settings are added.
+	for key, val := range req.Notifications {
+		if !strings.HasPrefix(key, "notif_") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "notifications keys must start with 'notif_'"})
+			return
+		}
+		if err := h.upsertSetting(key, val); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update " + key})
+			return
+		}
+	}
+
 
 	// Publish settings-reload command to MQTT
 	if h.mqttClient != nil {

@@ -24,12 +24,19 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
+	"github.com/ralph/industrial-edge-middleware/internal/notifications"
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
+
+// notifDispatcher fans alarm events out to email/Telegram/etc. when
+// the operator has configured at least one channel. Package-level so
+// handleAlarmEvent (which is a free function called from a goroutine)
+// can reach it without threading it through every signature.
+var notifDispatcher *notifications.Dispatcher
 
 func main() {
 	// Structured logging — LOG_FORMAT=json for production (machine-parseable),
@@ -257,10 +264,16 @@ func main() {
 	historyHandler.InitializeRetentionPolicy()
 
 	systemHandler := handlers.NewSystemHandler(database, mqttClient, settingsMgr, historyHandler)
+	notificationsHandler := handlers.NewNotificationsHandler(notifDispatcher)
 
 	// Create auth service and handler
 	authService := auth.NewService(database)
 	authHandler := handlers.NewAuthHandler(authService)
+
+	// Alarm notification fan-out (email, Telegram, ...). Loads its own
+	// settings from global_settings and re-reads them once a minute, so
+	// the admin UI's edits take effect without a restart.
+	notifDispatcher = notifications.NewDispatcher(database)
 
 	// Create users handler
 	usersHandler := handlers.NewUsersHandler(database)
@@ -375,6 +388,10 @@ func main() {
 			system.GET("/settings", middleware.RequireRole(models.RoleAdmin), systemHandler.GetSettings)
 			system.PUT("/settings", middleware.RequireRole(models.RoleAdmin), systemHandler.UpdateSettings)
 			system.GET("/metrics", systemHandler.GetMetrics)
+			// Fire a synthetic alarm to every configured notification channel.
+			// Operator-facing "is my SMTP / Telegram setup actually working?"
+			// button — returns per-channel success/error.
+			system.POST("/notifications/test", middleware.RequireRole(models.RoleAdmin), notificationsHandler.SendTest)
 
 			// Backup & Restore
 			backupHandler := handlers.NewBackupHandler(database, mqttClient)
@@ -649,7 +666,10 @@ func handleDataUpdate(topic string, payload []byte, redisClient *redis.Client) {
 	}
 }
 
-// handleAlarmEvent processes alarm state changes from MQTT drivers
+// handleAlarmEvent processes alarm state changes from MQTT drivers.
+// Beyond persisting the event, it fans the same event out to the
+// notification dispatcher so configured channels (email, Telegram, ...)
+// can reach the operator out-of-band.
 func handleAlarmEvent(topic string, payload []byte, db *sql.DB) {
 	log.Printf("[ALARM] Received event - topic: %s", topic)
 
@@ -666,6 +686,8 @@ func handleAlarmEvent(topic string, payload []byte, db *sql.DB) {
 		Severity       string  `json:"severity"`
 		Message        string  `json:"message"`
 		ValueAtTrigger float64 `json:"value_at_trigger"`
+		Threshold      float64 `json:"threshold"`
+		TagAlias       string  `json:"tag_alias"`
 		Timestamp      int64   `json:"timestamp"`
 	}
 
@@ -675,30 +697,53 @@ func handleAlarmEvent(topic string, payload []byte, db *sql.DB) {
 	}
 
 	eventTime := time.UnixMilli(event.Timestamp)
+	var insertedID int
 
 	if event.Status == "ACTIVE" {
-		// Insert new active alarm
-		_, err := db.Exec(`
-			INSERT INTO alarm_events 
+		err := db.QueryRow(`
+			INSERT INTO alarm_events
 				(tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time)
-			VALUES 
+			VALUES
 				($1, $2, $3, $4, $5, $6, $7, $8)
-		`, event.TagID, event.DefinitionID, "ACTIVE", event.AlarmType, event.Severity, event.Message, event.ValueAtTrigger, eventTime)
+			RETURNING id
+		`, event.TagID, event.DefinitionID, "ACTIVE", event.AlarmType, event.Severity, event.Message, event.ValueAtTrigger, eventTime).
+			Scan(&insertedID)
 		if err != nil {
 			log.Printf("[ALARM] Failed to insert trigger event: %v", err)
 		}
 	} else if event.Status == "CLEARED" {
-		// Update the most recent ACTIVE/ACKNOWLEDGED event for this definition to CLEARED
 		_, err := db.Exec(`
-			UPDATE alarm_events 
+			UPDATE alarm_events
 			SET status = 'CLEARED', clear_time = $1
-			WHERE definition_id = $2 
+			WHERE definition_id = $2
 			  AND tag_id = $3
 			  AND clear_time IS NULL
 		`, eventTime, event.DefinitionID, event.TagID)
 		if err != nil {
 			log.Printf("[ALARM] Failed to update clear event: %v", err)
 		}
+	}
+
+	// Fan-out to email / Telegram / ... — non-blocking; the dispatcher
+	// runs the actual send in a goroutine and applies its own rate-
+	// limiting + severity filter. Tag alias falls back to a synthetic
+	// "tag #<id>" so the notification is still readable when the driver
+	// didn't include the alias.
+	if notifDispatcher != nil {
+		alias := event.TagAlias
+		if alias == "" {
+			alias = fmt.Sprintf("tag #%d", event.TagID)
+		}
+		notifDispatcher.Dispatch(notifications.Event{
+			AlarmID:     insertedID,
+			TagAlias:    alias,
+			Severity:    event.Severity,
+			Status:      event.Status,
+			Threshold:   event.Threshold,
+			Value:       event.ValueAtTrigger,
+			Description: event.Message,
+			OccurredAt:  eventTime.UTC(),
+		})
 	}
 }
 
