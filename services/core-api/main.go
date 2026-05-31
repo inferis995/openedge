@@ -265,6 +265,7 @@ func main() {
 
 	systemHandler := handlers.NewSystemHandler(database, mqttClient, settingsMgr, historyHandler)
 	notificationsHandler := handlers.NewNotificationsHandler(notifDispatcher)
+	diagnosticsHandler := handlers.NewDiagnosticsHandler(database, redisClient)
 
 	// Create auth service and handler
 	authService := auth.NewService(database)
@@ -392,6 +393,10 @@ func main() {
 			// Operator-facing "is my SMTP / Telegram setup actually working?"
 			// button — returns per-channel success/error.
 			system.POST("/notifications/test", middleware.RequireRole(models.RoleAdmin), notificationsHandler.SendTest)
+			// Hardware + service health snapshot. Used by the System /
+			// Diagnostics page so an operator can see disk fill, CPU load,
+			// link errors and the postgres/redis ping in one place.
+			system.GET("/diagnostics", diagnosticsHandler.Get)
 
 			// Backup & Restore
 			backupHandler := handlers.NewBackupHandler(database, mqttClient)

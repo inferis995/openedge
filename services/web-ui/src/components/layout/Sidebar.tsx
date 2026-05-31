@@ -23,6 +23,7 @@ import {
     Bell,
     Network,
     ChefHat,
+    Activity,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -51,6 +52,7 @@ const Sidebar = () => {
 
     const adminNavItems = [
         { name: 'System', path: '/system', icon: Settings },
+        { name: 'Diagnostics', path: '/diagnostics', icon: Activity },
         { name: 'Users', path: '/users', icon: Users },
         { name: 'MQTT Monitor', path: '/mqtt-monitor', icon: Radio },
     ];

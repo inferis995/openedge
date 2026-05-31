@@ -17,6 +17,7 @@ import MqttMonitorPage from '@/pages/MqttMonitorPage';
 import AlarmsPage from '@/pages/AlarmsPage';
 import UsersPage from '@/pages/UsersPage';
 import RecipesPage from '@/pages/RecipesPage';
+import DiagnosticsPage from '@/pages/DiagnosticsPage';
 import I3XPage from '@/pages/I3XPage';
 
 import { useEffect, useState, useRef } from 'react';
@@ -102,6 +103,7 @@ function App() {
 
             <Route element={<RequireAdmin />}>
                 <Route element={<LayoutWrapper />}>
+                    <Route path="/diagnostics" element={<DiagnosticsPage />} />
                     <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
                 </Route>
             </Route>
