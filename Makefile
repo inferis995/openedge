@@ -1,4 +1,4 @@
-.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca
+.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux
 
 COMPOSE_ONPREM_TLS = docker-compose -f docker-compose.yml -f docker-compose.onprem-tls.yml --profile backup
 
@@ -99,6 +99,23 @@ backup-to-usb:
 restore:
 	@: $${BACKUP:?BACKUP is required (path to dump file)}
 	./scripts/restore-backup.sh $(BACKUP)
+
+# ── Controlled on-prem upgrade ──────────────────────────────────────────────
+## Safe upgrade: snapshot → pull → up -d → health probe. Rolls back path
+## documented; the snapshot file path is printed on success.
+update:
+	./scripts/update-onprem.sh
+
+## Show what an upgrade would change, without applying anything.
+update-check:
+	./scripts/update-onprem.sh --check
+
+# ── Operator workstation setup ─────────────────────────────────────────────
+## Configure a Linux PC as an HMI kiosk: browser autostarts in fullscreen.
+##   make kiosk-linux URL=https://openedge.local
+kiosk-linux:
+	@: $${URL:?URL is required (e.g. URL=https://openedge.local)}
+	./scripts/install-kiosk-linux.sh $(URL)
 
 ## Show available targets
 help:
