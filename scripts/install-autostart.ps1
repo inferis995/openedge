@@ -1,5 +1,16 @@
 # Industrial Edge - Setup Windows Task Scheduler for Auto-Start
-# Run this script as Administrator to configure automatic startup
+#
+# DEPRECATED for industrial / unattended use: this script registers a
+# Task Scheduler trigger that fires "at user logon" — it needs a user
+# to log in for the stack to come up, which is wrong for a headless
+# industrial PC that may reboot unattended.
+#
+# For production use prefer:
+#     .\windows\install-service.ps1
+# which registers a proper Windows Service that starts at boot before
+# any login. See windows\README.md for details.
+#
+# This script stays for developer-laptop convenience.
 
 param(
     [switch]$Uninstall

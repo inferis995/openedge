@@ -1,0 +1,63 @@
+# OpenEdge — systemd unit for the on-prem (single-server) deployment.
+#
+# Installation:
+#   sudo cp systemd/openedge.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now openedge.service
+#
+# After install:
+#   sudo systemctl status openedge          # current state
+#   sudo journalctl -u openedge -f          # follow logs
+#   sudo systemctl restart openedge         # restart the whole stack
+#   sudo systemctl stop openedge            # graceful compose down
+#
+# Notes:
+# - Type=oneshot + RemainAfterExit=yes is the correct shape for a
+#   `docker compose up -d` boot script: the compose CLI returns once the
+#   containers are started in detached mode, and we want systemd to mark
+#   the unit "active" rather than "exited".
+# - After=docker.service waits for the Docker daemon. We also wait for
+#   network-online.target because Postgres in a container is useless until
+#   the host has a working network stack (DNS, bridge interfaces, etc.).
+# - Restart logic is on individual containers (`restart: unless-stopped`
+#   in the compose file). systemd's job is the boot/shutdown lifecycle
+#   plus a single retry if the very first `up -d` fails.
+
+[Unit]
+Description=OpenEdge Industrial Middleware (on-prem stack)
+Documentation=https://github.com/inferis995/openedge
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Path to the install directory. Override with:
+#   sudo systemctl edit openedge
+# and set [Service] WorkingDirectory + Environment as needed.
+WorkingDirectory=/opt/openedge
+Environment=COMPOSE_PROFILES=local
+EnvironmentFile=-/opt/openedge/.env
+
+# Start: bring the stack up. Up to 5 minutes for first-run image pulls.
+ExecStart=/usr/bin/docker compose --profile local up -d --remove-orphans
+TimeoutStartSec=300
+
+# Stop: graceful compose down (waits for containers to flush).
+ExecStop=/usr/bin/docker compose --profile local down
+TimeoutStopSec=120
+
+# One automatic retry on first-boot failure (e.g. Docker not quite ready).
+Restart=on-failure
+RestartSec=15
+StartLimitInterval=300
+StartLimitBurst=3
+
+# Logging — journald keeps everything searchable with journalctl -u openedge.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=openedge
+
+[Install]
+WantedBy=multi-user.target

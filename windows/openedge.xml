@@ -1,0 +1,76 @@
+<!--
+  OpenEdge — Windows Service definition (consumed by WinSW).
+
+  WinSW (Windows Service Wrapper) makes a regular CLI command behave like
+  a proper Windows Service that:
+    - starts automatically at boot, before any user logs in;
+    - restarts on failure with exponential backoff;
+    - logs to %INSTALL_DIR%\logs\* with rotation;
+    - reports status to the Service Control Manager.
+
+  The installer (install-service.ps1) downloads WinSW once, copies it to
+  %INSTALL_DIR%\openedge-service.exe, places this XML next to it, then
+  runs `openedge-service.exe install`. Re-running the installer is
+  idempotent and updates the XML in-place.
+
+  Why WinSW instead of Task Scheduler / NSSM:
+    * Task Scheduler "AtLogOn" requires a user login — wrong for headless
+      industrial PCs that may reboot unattended.
+    * NSSM is great but ships only as a 3rd-party binary; WinSW is a
+      single self-contained .NET binary you can also rebuild from source.
+    * WinSW's XML is git-trackable, lives next to the code.
+-->
+<service>
+  <id>OpenEdge</id>
+  <name>OpenEdge Industrial Middleware</name>
+  <description>
+    Runs the OpenEdge on-prem stack via Docker Compose. Starts at boot;
+    survives reboots and power cuts. Logs at %BASE%\logs\openedge.out.log.
+  </description>
+
+  <!-- Run as LocalSystem so the service starts before any interactive
+       login. Docker Desktop's CLI needs the Docker Engine to be reachable;
+       on Windows Server use Docker EE (no Desktop), on Win 10/11 Pro install
+       Docker Desktop with the "Start at startup" option ENABLED so the
+       engine is up by the time this service tries `docker compose up`. -->
+  <serviceaccount>
+    <user>LocalSystem</user>
+  </serviceaccount>
+
+  <!-- The executable is just docker(.exe); WinSW handles the lifecycle. -->
+  <executable>docker</executable>
+  <startarguments>compose --profile local up -d --remove-orphans</startarguments>
+
+  <!-- On stop, gracefully bring the stack down. -->
+  <stopexecutable>docker</stopexecutable>
+  <stoparguments>compose --profile local down</stoparguments>
+
+  <!-- WorkingDirectory is set by the installer to the repo root so that
+       compose finds docker-compose.yml + .env. Keep this placeholder; the
+       installer rewrites it. -->
+  <workingdirectory>%BASE%</workingdirectory>
+
+  <!-- Wait for the Docker service before trying anything. Without this,
+       the stack tries to start before the daemon is ready and fails. -->
+  <depend>com.docker.service</depend>
+
+  <!-- Auto-restart on failure: max 3 attempts in 5 minutes, then give up
+       and let an operator investigate. -->
+  <onfailure action="restart" delay="15 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <onfailure action="restart" delay="120 sec"/>
+  <resetfailure>5 min</resetfailure>
+
+  <!-- Logging — files under %BASE%\logs with size-based rotation. -->
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold> <!-- 10 MB -->
+    <keepFiles>5</keepFiles>
+  </log>
+  <logpath>%BASE%\logs</logpath>
+
+  <!-- One-shot start: docker compose up -d returns immediately when the
+       containers are up. WinSW treats a 0-exit as success and keeps the
+       service in "Running" state until someone calls Stop. -->
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+</service>

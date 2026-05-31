@@ -1,4 +1,4 @@
-.PHONY: build up start down restart logs clean help setup-env
+.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service
 
 ## Create .env from example if missing; auto-generate JWT_SECRET if unset or placeholder
 setup-env:
@@ -46,6 +46,17 @@ logs:
 ## Full reset - DESTROYS ALL DATA (volumes included)
 clean:
 	docker-compose down -v
+
+# ── On-prem service install (industrial PCs, runs at boot, survives reboots) ─
+## Install OpenEdge as a systemd service on Linux. Idempotent.
+##   sudo make install-service           # uses /opt/openedge (default)
+##   sudo make install-service INSTALL_DIR=/home/user/openedge
+install-service:
+	./systemd/install.sh $(INSTALL_DIR)
+
+## Remove the systemd service. Data and config are NOT touched.
+uninstall-service:
+	./systemd/install.sh --uninstall
 
 ## Show available targets
 help:
