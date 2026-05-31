@@ -18,6 +18,7 @@ import AlarmsPage from '@/pages/AlarmsPage';
 import UsersPage from '@/pages/UsersPage';
 import RecipesPage from '@/pages/RecipesPage';
 import DiagnosticsPage from '@/pages/DiagnosticsPage';
+import ReportsPage from '@/pages/ReportsPage';
 import I3XPage from '@/pages/I3XPage';
 
 import { useEffect, useState, useRef } from 'react';
@@ -96,6 +97,7 @@ function App() {
                     <Route path="/history" element={<HistoryPage />} />
                     <Route path="/alarms" element={<AlarmsPage />} />
                     <Route path="/recipes" element={<RecipesPage />} />
+                    <Route path="/reports" element={<ReportsPage />} />
                     <Route path="/i3x" element={<I3XPage />} />
                     <Route path="/users" element={<UsersPage />} />
                 </Route>

@@ -433,6 +433,20 @@ func main() {
 			users.DELETE("/:id", usersHandler.Delete)
 		}
 
+		// CSV reports — operator-facing exports for history, alarms and the
+		// org-wide audit log. Standard ranges + optional tag filter.
+		reportsHandler := handlers.NewReportsHandler(database)
+		reports := api.Group("/reports")
+		reports.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			reports.GET("/history.csv", reportsHandler.HistoryCSV)
+			reports.GET("/alarms.csv", reportsHandler.AlarmsCSV)
+			// Audit log spans every user across the platform, so it is
+			// gated behind global admin only — org admins read their own
+			// scoped events through other UI surfaces.
+			reports.GET("/audit.csv", middleware.RequireRole(models.RoleAdmin), reportsHandler.AuditCSV)
+		}
+
 		// Recipe management — operator loads a named set of (tag, value) pairs
 		// in one shot to the PLCs. Scoped to the caller's organization.
 		recipesHandler := handlers.NewRecipesHandler(database, mqttClient)
