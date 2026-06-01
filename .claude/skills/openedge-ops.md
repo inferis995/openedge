@@ -1,17 +1,25 @@
 ---
 name: openedge-ops
-description: OpenEdge Operations — deploy, container fix, gateway/tag import via shell and API
-version: 1.0.0
-tags: [industrial, iot, devops, docker, deploy, import, scada]
+description: OpenEdge Operations — installa OpenEdge in produzione, risolvi problemi container/driver/DB, gestisci backup/restore, import config (on-prem self-hosted)
+version: 2.0.0
+tags: [industrial, iot, devops, docker, deploy, on-prem, self-hosted, scada, install, troubleshoot]
 requires: [docker, docker-compose, make, curl, git]
 ---
 
-# OpenEdge Ops — Skill
+# OpenEdge Ops — Skill (install + production troubleshooting)
 
-Skill operativa per installare, deployare, fixare e configurare un'istanza OpenEdge.
-Richiede accesso shell al server (docker, make, curl).
+Skill operativa per **installare OpenEdge in produzione** su un PC industriale
+e **risolvere qualunque problema** in esecuzione: container in crash-loop,
+DB lento, driver che non parte, restore di emergenza, import gateway/tag.
 
-Per il monitoraggio dati usa la skill `openedge.md` (sola lettura, no shell).
+OpenEdge in master è un'installazione **on-prem single-tenant**: un solo
+server (di solito in fabbrica), un'unica organizzazione, gli utenti accedono
+solo a quella. Niente multi-tenant, niente cloud SaaS, niente edge agent remoti.
+
+> Questa skill **scrive** sul sistema (avvia/ferma container, modifica config,
+> ripristina backup). Per **leggere** lo stato (ci sono allarmi? gateway
+> offline? quanti critical nelle 24h? impostare cron di check) usa la skill
+> `openedge.md`.
 
 ## Compatibilità
 

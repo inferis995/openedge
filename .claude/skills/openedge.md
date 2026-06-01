@@ -1,13 +1,23 @@
 ---
 name: openedge
-description: OpenEdge Industrial IoT Middleware — REST API + i3X Access API skill for AI agents
-version: 2.0.0
-tags: [industrial, iot, alarms, historian, timeseries, scada, i3x, cesmii]
+description: OpenEdge Industrial IoT Middleware — monitor allarmi, leggi dati real-time, storico, anomalie via REST + i3X (on-prem self-hosted)
+version: 3.0.0
+tags: [industrial, iot, alarms, historian, timeseries, scada, i3x, cesmii, monitoring, on-prem]
 ---
 
-# OpenEdge API — Skill
+# OpenEdge — Skill di monitor
 
-Questo documento descrive come un agente AI deve interagire con un'istanza OpenEdge.
+Questo documento descrive come un agente AI **osserva** un'istanza OpenEdge:
+legge allarmi, valori real-time, storico, salute dei gateway, anomalie.
+
+OpenEdge in master è un'installazione **on-prem single-tenant**: un solo
+server (di solito in fabbrica), un'unica organizzazione, gli utenti del
+cliente accedono solo a quella. Niente multi-tenant, niente cloud SaaS.
+
+> Per **installare / risolvere problemi / configurare** il sistema in
+> produzione, usa la skill `openedge-ops.md`. Questa è solo per "leggere
+> cosa sta succedendo".
+
 Leggi tutto prima di fare qualsiasi chiamata API.
 
 ---
@@ -15,12 +25,17 @@ Leggi tutto prima di fare qualsiasi chiamata API.
 ## Variabili d'ambiente attese
 
 ```bash
-OPENEDGE_HOST=localhost
+OPENEDGE_HOST=localhost            # o l'IP/host del PC industriale
 OPENEDGE_PORT=8081
 OPENEDGE_USERNAME=admin
-OPENEDGE_PASSWORD=admin123
-OPENEDGE_ORG_ID=1
+OPENEDGE_PASSWORD=admin123         # cambiala al primo login
+OPENEDGE_ORG_ID=1                  # in on-prem single-tenant è sempre 1
 ```
+
+L'`OPENEDGE_ORG_ID` in master è **costante** (1) perché c'è una sola
+organizzazione. Lo passi comunque come header `X-Organization-ID: 1` su
+ogni chiamata — il backend usa l'org del token JWT se l'header manca,
+ma includerlo esplicito è più chiaro.
 
 ---
 
@@ -629,6 +644,315 @@ Errori i3X (formato esteso):
 
 > Le risposte includono ora header di sicurezza standard (`X-Frame-Options`, `X-Content-Type-Options`, ecc.).
 > I dettagli degli errori interni (path DB, stack trace) non vengono mai esposti nelle response — sono loggati solo server-side.
+
+---
+
+## 11. Domande tipiche dell'operatore — risposte rapide
+
+Queste sono le domande che un operatore o un on-call fanno mentre stanno
+guardando OpenEdge. Per ognuna l'agente fa **una sola chiamata**,
+estrae il dato, risponde.
+
+### "Ci sono allarmi attivi adesso?"
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/i3x/v1/alarms \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+items = d.get('items', [])
+crit = [a for a in items if a['severity'] == 'Critical']
+warn = [a for a in items if a['severity'] == 'Warning']
+print(f'{len(items)} allarmi attivi: {len(crit)} critical, {len(warn)} warning')
+for a in crit:
+    print(f'  🔴 {a[\"propertyName\"]} ({a[\"equipmentName\"]}) — {a[\"message\"]} — dalle {a[\"triggerTime\"]}')"
+```
+
+### "Quando è scattato l'ultimo critical?"
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/i3x/v1/alarms/history?limit=200" \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+crits = [a for a in d.get('items', []) if a['severity'] == 'Critical']
+if not crits:
+    print('Nessun critical negli ultimi record')
+else:
+    a = crits[0]  # endpoint ritorna più recenti per primi
+    print(f'Ultimo critical: {a[\"propertyName\"]} alle {a[\"triggerTime\"]} — {a[\"message\"]}')"
+```
+
+### "Quanti allarmi nelle ultime 24h e di che tipo?"
+
+Usa il digest AI-Ops — una chiamata, risposta pronta da leggere:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/aiops/alarms/digest?hours=24" \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(f'{d[\"total_fired\"]} allarmi nelle {d[\"period_hours\"]}h — {d[\"still_active\"]} ancora attivi, {d[\"cleared\"]} risolti')
+for sev, n in d['by_severity'].items():
+    if n: print(f'  {sev}: {n}')"
+```
+
+### "Tutti i gateway sono online?"
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/gateways \
+  | python3 -c "
+import sys, json
+gws = json.load(sys.stdin)
+off = [g for g in gws if g.get('connection_status') == 'offline']
+unk = [g for g in gws if g.get('connection_status') == 'unknown']
+on  = [g for g in gws if g.get('connection_status') == 'online']
+print(f'{len(on)}/{len(gws)} gateway online')
+for g in off: print(f'  ❌ {g[\"name\"]} offline')
+for g in unk: print(f'  ⚠ {g[\"name\"]} unknown (driver sta partendo)')"
+```
+
+### "Il sistema sta funzionando? Postgres e Redis ok?"
+
+```bash
+curl -s http://$OPENEDGE_HOST:$OPENEDGE_PORT/ready
+# Atteso: {"status":"ready","db":"ok","redis":"ok"}
+```
+
+Se uno dei due non è `ok`, è un problema di infrastruttura — passa a
+`openedge-ops.md` per il fix.
+
+### "Qual è il valore corrente di [tag X]?"
+
+```bash
+# Se conosci il tag_id (es. 42):
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/tags/42/current
+# {"tag_id":42,"alias":"Portata_Ingresso","value":42.5,"timestamp":...,"quality":0}
+```
+
+Se ricevi `quality: 2` (Bad), il gateway è offline o il driver ha
+perso il PLC — passa a `openedge-ops.md`.
+
+### "Mostrami gli ultimi 60 min di [tag X]"
+
+```bash
+NOW=$(date +%s)000
+PAST=$(( NOW - 60*60*1000 ))
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/history/stats?tag_id=42&start=$PAST&end=$NOW"
+# Ritorna avg/min/max/std-dev/sample_count del periodo
+```
+
+### "C'è qualcosa di anomalo rispetto al normale?"
+
+Per il tag su cui hai il sospetto, usa l'anomaly detector AI-Ops
+(Z-score con baseline a 30 giorni):
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/aiops/anomalies?tag_id=42&window_hours=168&baseline_days=30"
+```
+
+Se `anomaly_count > 0`, riporta i bucket con `|z_score| >= 2.5`.
+
+---
+
+## 12. Cron jobs per monitoring automatizzato
+
+Sul host che ospita OpenEdge (o su un secondo host con accesso di rete),
+imposta cron job che chiamano gli endpoint sopra e notificano via
+email / Telegram / webhook quando trovano qualcosa.
+
+### Setup base
+
+```bash
+# 1. Crea un file con le credenziali (modo 600, mai in git)
+cat > /etc/openedge-monitor.env <<EOF
+OPENEDGE_HOST=localhost
+OPENEDGE_PORT=8081
+OPENEDGE_USERNAME=admin
+OPENEDGE_PASSWORD=<la-tua-password>
+OPENEDGE_ORG_ID=1
+EOF
+chmod 600 /etc/openedge-monitor.env
+
+# 2. Script helper che ottiene un token fresco a ogni esecuzione
+cat > /usr/local/bin/openedge-token.sh <<'EOF'
+#!/bin/bash
+set -e
+source /etc/openedge-monitor.env
+curl -s -X POST "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$OPENEDGE_USERNAME\",\"password\":\"$OPENEDGE_PASSWORD\"}" \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])"
+EOF
+chmod +x /usr/local/bin/openedge-token.sh
+```
+
+### Cron #1 — alert su allarmi critical attivi (ogni 5 min)
+
+```bash
+# /usr/local/bin/openedge-check-critical.sh
+#!/bin/bash
+set -e
+source /etc/openedge-monitor.env
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+
+CRIT=$(curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/i3x/v1/alarms" \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+crits = [a for a in d.get('items', []) if a['severity'] == 'Critical']
+if not crits: sys.exit(0)
+for a in crits:
+    print(f'[CRITICAL] {a[\"propertyName\"]} ({a[\"equipmentName\"]}) — {a[\"message\"]} — {a[\"triggerTime\"]}')")
+
+if [ -n "$CRIT" ]; then
+    # Sostituisci con il tuo canale di notifica
+    echo "$CRIT" | mail -s "[OpenEdge] Critical alarms attivi" oncall@azienda.it
+    # oppure: webhook Slack/Telegram:
+    # curl -s -X POST -d "$CRIT" "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+fi
+```
+
+Crontab:
+```cron
+*/5 * * * * /usr/local/bin/openedge-check-critical.sh >> /var/log/openedge-monitor.log 2>&1
+```
+
+### Cron #2 — alert su gateway offline (ogni 15 min)
+
+```bash
+# /usr/local/bin/openedge-check-gateways.sh
+#!/bin/bash
+set -e
+source /etc/openedge-monitor.env
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+
+OFF=$(curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/gateways" \
+  | python3 -c "
+import sys, json
+gws = json.load(sys.stdin)
+off = [g for g in gws if g.get('connection_status') == 'offline']
+if not off: sys.exit(0)
+for g in off:
+    print(f'[OFFLINE] gateway \"{g[\"name\"]}\" (id={g[\"id\"]}, type={g[\"driver_type\"]})')")
+
+if [ -n "$OFF" ]; then
+    echo "$OFF" | mail -s "[OpenEdge] Gateway offline" oncall@azienda.it
+fi
+```
+
+Crontab:
+```cron
+*/15 * * * * /usr/local/bin/openedge-check-gateways.sh >> /var/log/openedge-monitor.log 2>&1
+```
+
+### Cron #3 — daily report (ogni giorno alle 07:00)
+
+```bash
+# /usr/local/bin/openedge-daily-report.sh
+#!/bin/bash
+set -e
+source /etc/openedge-monitor.env
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+
+REPORT=$(curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/aiops/alarms/digest?hours=24" \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print(f'OpenEdge — sommario 24h')
+print(f'Allarmi totali: {d[\"total_fired\"]} ({d[\"still_active\"]} attivi, {d[\"cleared\"]} risolti)')
+for sev, n in d['by_severity'].items():
+    if n: print(f'  {sev}: {n}')
+print()
+print('Top 5 ultimi allarmi:')
+for a in d['alarms'][:5]:
+    print(f'  [{a[\"severity\"]}] {a[\"tag_alias\"]} alle {a[\"trigger_time\"]} — {a[\"message\"]}')")
+
+echo "$REPORT" | mail -s "[OpenEdge] Daily report $(date +%F)" team@azienda.it
+```
+
+Crontab:
+```cron
+0 7 * * * /usr/local/bin/openedge-daily-report.sh >> /var/log/openedge-monitor.log 2>&1
+```
+
+### Cron #4 — health probe (ogni minuto)
+
+```bash
+# /usr/local/bin/openedge-health.sh
+#!/bin/bash
+source /etc/openedge-monitor.env
+if ! curl -fsS -m 3 "http://$OPENEDGE_HOST:$OPENEDGE_PORT/ready" >/dev/null; then
+    echo "[$(date)] /ready NOT responding" | tee -a /var/log/openedge-health.log
+    # Page on-call
+    curl -s -X POST -d 'OpenEdge /ready down' "https://events.pagerduty.com/integration/XXX/enqueue"
+fi
+```
+
+Crontab:
+```cron
+* * * * * /usr/local/bin/openedge-health.sh
+```
+
+### Anti-spam — dedupe ed escalation
+
+Tutti gli script qui sopra **rinotificano** ogni esecuzione finché la
+condizione persiste. Per evitare spam:
+
+- **Idempotenza con marker file**: salva l'id dell'ultimo alarm
+  notificato e notifica di nuovo solo se cambia.
+- **Escalation a stadi**: prima warning email, dopo 30 min escala a SMS.
+- **Soppressione orari**: aggiungi al cron `&& [ $(date +%H) -ge 7 -a $(date +%H) -le 22 ]` per non svegliare nessuno alle 03:00 (a meno che non sia critical).
+
+Esempio dedupe per i critical:
+
+```bash
+STATE_FILE=/var/lib/openedge-monitor/last-critical-ids
+mkdir -p $(dirname "$STATE_FILE")
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+CURRENT=$(curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/i3x/v1/alarms" \
+  | python3 -c "
+import sys, json
+print(','.join(sorted(a['id'] for a in json.load(sys.stdin).get('items', []) if a['severity']=='Critical')))")
+PREV=$(cat "$STATE_FILE" 2>/dev/null || echo "")
+echo "$CURRENT" > "$STATE_FILE"
+[ "$CURRENT" = "$PREV" ] && exit 0   # niente cambiato → niente notifica
+# ... resto invio notifica ...
+```
+
+---
+
+## 13. Flusso operativo riassunto per l'agente monitor
+
+```
+Domanda dell'utente: "qualcosa non va?"
+   │
+   ▼
+1. GET /ready                                   → sistema up?
+2. GET /api/i3x/v1/alarms                       → critical attivi?
+3. GET /api/gateways                            → gateway offline?
+4. GET /api/aiops/summary?hours=1               → tag senza sample / sotto media?
+   │
+   ▼
+Sintesi:
+  ✅ tutto ok → "Nessun problema rilevato negli ultimi 60 min"
+  ⚠ warning → elenca i gateway/tag con problemi, suggerisci a cosa guardare
+  🔴 critical → riporta titolo + timestamp, richiama l'umano (non risolvere da solo)
+```
+
+L'agente monitor **non scrive** sui PLC e **non riavvia** servizi. Quei
+gesti sono riservati alla skill `openedge-ops.md`.
 
 ---
 
