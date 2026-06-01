@@ -17,6 +17,35 @@ export interface GlobalSettings {
     cloud_mqtt_username?: string;
     cloud_mqtt_password?: string;
     cloud_mqtt_topic?: string;
+<<<<<<< HEAD
+=======
+    edge_broker_host?: string;
+    edge_broker_port?: string;
+    edge_broker_tls?: string;
+    // Notification channel settings — flat passthrough from the server's
+    // global_settings table. Strings everywhere (the DB type is text);
+    // boolean-ish fields come as "true"/"false".
+    notif_email_enabled?: string;
+    notif_email_smtp_host?: string;
+    notif_email_smtp_port?: string;
+    notif_email_use_tls?: string;
+    notif_email_username?: string;
+    notif_email_password?: string;
+    notif_email_from?: string;
+    notif_email_to?: string;
+    notif_telegram_enabled?: string;
+    notif_telegram_bot_token?: string;
+    notif_telegram_chat_id?: string;
+    notif_min_severity?: string;
+    notif_on_cleared?: string;
+    notif_rate_limit_per_min?: string;
+    // Backup schedule + retention + encryption (operator-editable).
+    backup_enabled?: string;
+    backup_schedule?: string;
+    backup_retention_days?: string;
+    backup_age_recipient?: string;
+    deployment_mode?: string; // 'onprem' | 'cloud' (from the server env)
+>>>>>>> df01b1b (feat(ui): notifications + backup config panels in System page)
 }
 
 export interface UpdateSettingsRequest {
@@ -36,6 +65,45 @@ export interface UpdateSettingsRequest {
     cloud_mqtt_username?: string;
     cloud_mqtt_password?: string;
     cloud_mqtt_topic?: string;
+<<<<<<< HEAD
+=======
+    edge_broker_host?: string;
+    edge_broker_port?: number;
+    edge_broker_tls?: boolean;
+    // Flat key→value map of `notif_*` settings — flexible enough to add
+    // new channels later without bumping this interface.
+    notifications?: Record<string, string>;
+    // Same flat-passthrough pattern for backup_* settings.
+    backup?: Record<string, string>;
+}
+
+// What the operator edits in the Notifications panel. We keep the shape
+// flat (one key per setting) to match the backend's notif_* catalog.
+export interface NotificationSettings {
+    notif_email_enabled?: string;
+    notif_email_smtp_host?: string;
+    notif_email_smtp_port?: string;
+    notif_email_use_tls?: string;
+    notif_email_username?: string;
+    notif_email_password?: string;
+    notif_email_from?: string;
+    notif_email_to?: string;
+    notif_telegram_enabled?: string;
+    notif_telegram_bot_token?: string;
+    notif_telegram_chat_id?: string;
+    notif_min_severity?: string;
+    notif_on_cleared?: string;
+    notif_rate_limit_per_min?: string;
+}
+
+// Per-channel result of the "Send test" button. ok=false rolls up to a
+// red badge + the per-channel error message; partial success (email ok,
+// telegram missing chat_id) is rendered as a list rather than a single
+// pass/fail so the operator sees which one to fix.
+export interface NotificationTestResult {
+    ok: boolean;
+    errors: string[];
+>>>>>>> df01b1b (feat(ui): notifications + backup config panels in System page)
 }
 
 export interface PublishMetrics {
@@ -83,6 +151,29 @@ export const systemApi = {
 
     updateSettings: async (settings: UpdateSettingsRequest): Promise<void> => {
         await api.put('/system/settings', settings);
+    },
+
+    // Save the notification panel as a single PUT. Empty secret values
+    // ("password", "token", ...) are filtered out at this layer so the
+    // server-side rule "empty secret = leave stored value untouched"
+    // works even if a UI bug ever drops the placeholder.
+    updateNotifications: async (notifications: NotificationSettings): Promise<void> => {
+        const cleaned: Record<string, string> = {};
+        Object.entries(notifications).forEach(([k, v]) => {
+            if (v === undefined || v === null) return;
+            const isSecret = /(password|token|secret|private|api_key)/.test(k);
+            if (isSecret && v === '') return;
+            cleaned[k] = v;
+        });
+        await api.put('/system/settings', { notifications: cleaned });
+    },
+
+    // Fire a synthetic alarm into every enabled channel and return the
+    // per-channel result so the panel can show "email OK, telegram chat
+    // not found" rather than a generic failure.
+    testNotifications: async (): Promise<NotificationTestResult> => {
+        const response = await api.post('/system/notifications/test');
+        return response.data;
     },
 
     getMetrics: async (): Promise<PublishMetrics> => {

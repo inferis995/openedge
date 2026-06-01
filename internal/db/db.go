@@ -125,8 +125,17 @@ func runAutoMigrations(db *sql.DB) error {
 		('notif_telegram_bot_token', '', 'Telegram bot token from @BotFather.'),
 		('notif_telegram_chat_id', '', 'Numeric chat_id (DM or group). Get it from getUpdates after messaging the bot once.'),
 		('notif_min_severity', 'medium', 'Drop alarm events below this severity (low|medium|high|critical).'),
+<<<<<<< HEAD
 		('notif_on_cleared', 'false', 'true -> also notify when an alarm clears, not only when it fires.'),
 		('notif_rate_limit_per_min', '60', 'Global cap (events per minute across all channels) to survive alarm storms.')
+=======
+		('notif_on_cleared', 'false', 'true → also notify when an alarm clears, not only when it fires.'),
+		('notif_rate_limit_per_min', '60', 'Global cap (events per minute across all channels) to survive alarm storms.'),
+		('backup_enabled', 'true', 'When true, the nightly pg_dump runs on the configured schedule.'),
+		('backup_schedule', '0 3 * * *', 'Cron expression (UTC) for the nightly backup. Default: 03:00 every day.'),
+		('backup_retention_days', '30', 'Older dump files are auto-pruned after this many days.'),
+		('backup_age_recipient', '', 'age public key. When set, every dump is encrypted; safe to copy off-host. Leave empty for plaintext (acceptable on encrypted disks).')
+>>>>>>> df01b1b (feat(ui): notifications + backup config panels in System page)
 	ON CONFLICT (key) DO NOTHING;`
 	if _, err := db.Exec(notifSeed); err != nil {
 		log.Printf("Warning: failed to seed notification settings: %v", err)

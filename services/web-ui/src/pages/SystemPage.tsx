@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { systemApi, GlobalSettings, UpdateSettingsRequest, BackupSettings, BackupFileInfo, ServiceStatus } from '@/api/system';
+import NotificationsSettings from '@/components/system/NotificationsSettings';
+import BackupConfig from '@/components/system/BackupConfig';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -669,6 +671,23 @@ const SystemPage = () => {
 
                     {/* Right Column */}
                     <div className="space-y-6">
+                        {/* Notifications panel — email + Telegram, severity filter,
+                            rate limit, "send test" with per-channel result. The
+                            component owns its own save/state. */}
+                        <NotificationsSettings
+                            initial={settings ?? undefined}
+                            onSaved={loadSettings}
+                        />
+
+                        {/* Backup panel — schedule, retention, age encryption.
+                            Settings persist immediately but the cron schedule
+                            is read at container start, so the panel surfaces
+                            the "restart backup container" hint. */}
+                        <BackupConfig
+                            initial={settings}
+                            onSaved={loadSettings}
+                        />
+
                         {/* MQTT Publish Mode Configuration */}
                         <Card className="border-border shadow-sm bg-card">
                             <CardHeader className="pb-4 border-b border-border">

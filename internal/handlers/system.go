@@ -213,10 +213,11 @@ func (h *SystemHandler) GetSettings(c *gin.Context) {
 	for rows.Next() {
 		var key, value string
 		if err := rows.Scan(&key, &value); err == nil {
-			// Never return secrets over the wire. Password values are masked to
-			// an empty string; the client leaves the field blank to keep the
-			// stored value unchanged (UpdateSettings skips empty passwords).
-			if strings.Contains(key, "password") {
+			// Never return secrets over the wire. Mask anything that looks
+			// like a credential (password / token / api_key / secret /
+			// private). Empty values on the client mean "leave the stored
+			// value unchanged" in UpdateSettings.
+			if isSecretKey(key) {
 				value = ""
 			}
 			settings[key] = value
@@ -224,6 +225,21 @@ func (h *SystemHandler) GetSettings(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, settings)
+}
+
+// isSecretKey identifies settings whose values must never leave the server
+// in cleartext via GET /settings. The masking is keyword-based on the
+// setting NAME (we don't introspect values) so the rule is auditable in
+// one place. The UI sends back an empty string when the operator hasn't
+// edited the field, and the UPDATE skips empty secret values so the
+// stored credential is preserved.
+func isSecretKey(key string) bool {
+	for _, marker := range []string{"password", "token", "secret", "private", "api_key"} {
+		if strings.Contains(key, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // UpdateSettingsRequest represents the request body for updating settings
@@ -249,6 +265,31 @@ type UpdateSettingsRequest struct {
 	// Validated to only allow that prefix server-side. Lets the UI add
 	// new channels without bumping the API schema every time.
 	Notifications map[string]string `json:"notifications,omitempty"`
+	// Backup schedule + retention + encryption — same flat-passthrough
+	// pattern as Notifications. Keys must start with backup_.
+	Backup map[string]string `json:"backup,omitempty"`
+}
+
+// applyPrefixedSettings is the shared upsert loop for flat-passthrough
+// setting groups (notifications, backup, …). It enforces a key prefix,
+// preserves secrets when the incoming value is empty, and surfaces any
+// DB error as a 500 to the caller. Returns a sentinel error so the
+// caller knows the response has already been written and stops.
+func (h *SystemHandler) applyPrefixedSettings(c *gin.Context, prefix string, in map[string]string) error {
+	for key, val := range in {
+		if !strings.HasPrefix(key, prefix) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": prefix + "* keys required (got: " + key + ")"})
+			return fmt.Errorf("rejected")
+		}
+		if isSecretKey(key) && val == "" {
+			continue
+		}
+		if err := h.upsertSetting(key, val); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update " + key})
+			return err
+		}
+	}
+	return nil
 }
 
 // UpdateSettings updates global settings (admin only)
@@ -443,6 +484,7 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
+<<<<<<< HEAD
 	// Notification settings are a flat passthrough — we don't validate
 	// each key in code because the notifier itself defends against
 	// missing/invalid combinations (channel marks itself disabled). This
@@ -456,6 +498,66 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update " + key})
 			return
 		}
+=======
+	// Handle public edge broker endpoint (used by edge agent installers)
+	if req.EdgeBrokerHost != nil {
+		if err := h.upsertSetting("edge_broker_host", *req.EdgeBrokerHost); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edge_broker_host"})
+			return
+		}
+	}
+	if req.EdgeBrokerPort != nil {
+		if *req.EdgeBrokerPort < 1 || *req.EdgeBrokerPort > 65535 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "edge_broker_port must be between 1 and 65535"})
+			return
+		}
+		if err := h.upsertSetting("edge_broker_port", fmt.Sprintf("%d", *req.EdgeBrokerPort)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edge_broker_port"})
+			return
+		}
+	}
+	if req.EdgeBrokerTLS != nil {
+		val := "false"
+		if *req.EdgeBrokerTLS {
+			val = "true"
+		}
+		if err := h.upsertSetting("edge_broker_tls", val); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edge_broker_tls"})
+			return
+		}
+	}
+
+	if req.EdgeImageMosquitto != nil {
+		if err := h.upsertSetting("edge_image_mosquitto", *req.EdgeImageMosquitto); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edge_image_mosquitto"})
+			return
+		}
+	}
+	if req.EdgeImageUpdater != nil {
+		if err := h.upsertSetting("edge_image_updater", *req.EdgeImageUpdater); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edge_image_updater"})
+			return
+		}
+	}
+	if req.EdgeCosignPubkey != nil {
+		if err := h.upsertSetting("edge_cosign_pubkey", *req.EdgeCosignPubkey); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edge_cosign_pubkey"})
+			return
+		}
+	}
+
+	// Notification + backup settings are flat passthroughs: a map of
+	// key→value where the key must start with the expected prefix. This
+	// keeps the API surface stable when new sub-settings are added —
+	// the schema doesn't bump every time. Secret keys (token, password,
+	// ...) preserve the stored value when the incoming string is empty,
+	// matching GetSettings which blanks them on read.
+	if err := h.applyPrefixedSettings(c, "notif_", req.Notifications); err != nil {
+		return // handler already wrote the error
+	}
+	if err := h.applyPrefixedSettings(c, "backup_", req.Backup); err != nil {
+		return
+>>>>>>> df01b1b (feat(ui): notifications + backup config panels in System page)
 	}
 
 
