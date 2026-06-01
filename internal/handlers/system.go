@@ -484,82 +484,18 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
-<<<<<<< HEAD
-	// Notification settings are a flat passthrough — we don't validate
-	// each key in code because the notifier itself defends against
-	// missing/invalid combinations (channel marks itself disabled). This
-	// keeps the API surface stable when new notif_* settings are added.
-	for key, val := range req.Notifications {
-		if !strings.HasPrefix(key, "notif_") {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "notifications keys must start with 'notif_'"})
-			return
-		}
-		if err := h.upsertSetting(key, val); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update " + key})
-			return
-		}
-=======
-	// Handle public edge broker endpoint (used by edge agent installers)
-	if req.EdgeBrokerHost != nil {
-		if err := h.upsertSetting("edge_broker_host", *req.EdgeBrokerHost); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edge_broker_host"})
-			return
-		}
-	}
-	if req.EdgeBrokerPort != nil {
-		if *req.EdgeBrokerPort < 1 || *req.EdgeBrokerPort > 65535 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "edge_broker_port must be between 1 and 65535"})
-			return
-		}
-		if err := h.upsertSetting("edge_broker_port", fmt.Sprintf("%d", *req.EdgeBrokerPort)); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edge_broker_port"})
-			return
-		}
-	}
-	if req.EdgeBrokerTLS != nil {
-		val := "false"
-		if *req.EdgeBrokerTLS {
-			val = "true"
-		}
-		if err := h.upsertSetting("edge_broker_tls", val); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edge_broker_tls"})
-			return
-		}
-	}
-
-	if req.EdgeImageMosquitto != nil {
-		if err := h.upsertSetting("edge_image_mosquitto", *req.EdgeImageMosquitto); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edge_image_mosquitto"})
-			return
-		}
-	}
-	if req.EdgeImageUpdater != nil {
-		if err := h.upsertSetting("edge_image_updater", *req.EdgeImageUpdater); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edge_image_updater"})
-			return
-		}
-	}
-	if req.EdgeCosignPubkey != nil {
-		if err := h.upsertSetting("edge_cosign_pubkey", *req.EdgeCosignPubkey); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update edge_cosign_pubkey"})
-			return
-		}
-	}
-
 	// Notification + backup settings are flat passthroughs: a map of
 	// key→value where the key must start with the expected prefix. This
-	// keeps the API surface stable when new sub-settings are added —
-	// the schema doesn't bump every time. Secret keys (token, password,
-	// ...) preserve the stored value when the incoming string is empty,
-	// matching GetSettings which blanks them on read.
+	// keeps the API surface stable when new sub-settings are added.
+	// Secret keys (token, password, ...) preserve the stored value when
+	// the incoming string is empty, matching GetSettings which blanks
+	// them on read.
 	if err := h.applyPrefixedSettings(c, "notif_", req.Notifications); err != nil {
-		return // handler already wrote the error
+		return
 	}
 	if err := h.applyPrefixedSettings(c, "backup_", req.Backup); err != nil {
 		return
->>>>>>> df01b1b (feat(ui): notifications + backup config panels in System page)
 	}
-
 
 	// Publish settings-reload command to MQTT
 	if h.mqttClient != nil {

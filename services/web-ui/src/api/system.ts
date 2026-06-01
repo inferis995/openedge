@@ -17,11 +17,6 @@ export interface GlobalSettings {
     cloud_mqtt_username?: string;
     cloud_mqtt_password?: string;
     cloud_mqtt_topic?: string;
-<<<<<<< HEAD
-=======
-    edge_broker_host?: string;
-    edge_broker_port?: string;
-    edge_broker_tls?: string;
     // Notification channel settings — flat passthrough from the server's
     // global_settings table. Strings everywhere (the DB type is text);
     // boolean-ish fields come as "true"/"false".
@@ -45,7 +40,6 @@ export interface GlobalSettings {
     backup_retention_days?: string;
     backup_age_recipient?: string;
     deployment_mode?: string; // 'onprem' | 'cloud' (from the server env)
->>>>>>> df01b1b (feat(ui): notifications + backup config panels in System page)
 }
 
 export interface UpdateSettingsRequest {
@@ -65,11 +59,6 @@ export interface UpdateSettingsRequest {
     cloud_mqtt_username?: string;
     cloud_mqtt_password?: string;
     cloud_mqtt_topic?: string;
-<<<<<<< HEAD
-=======
-    edge_broker_host?: string;
-    edge_broker_port?: number;
-    edge_broker_tls?: boolean;
     // Flat key→value map of `notif_*` settings — flexible enough to add
     // new channels later without bumping this interface.
     notifications?: Record<string, string>;
@@ -103,7 +92,6 @@ export interface NotificationSettings {
 export interface NotificationTestResult {
     ok: boolean;
     errors: string[];
->>>>>>> df01b1b (feat(ui): notifications + backup config panels in System page)
 }
 
 export interface PublishMetrics {

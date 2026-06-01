@@ -47,7 +47,7 @@ const ExportCard = ({ icon, title, description, onExport, extraControls, busy, d
 );
 
 const ReportsPage = () => {
-    const { isGlobalAdmin } = useAuthStore();
+    const { isAdmin } = useAuthStore();
 
     const [start, setStart] = useState(defaultStart());
     const [end, setEnd] = useState(defaultEnd());
@@ -154,7 +154,7 @@ const ReportsPage = () => {
                     onExport={() => download('/reports/alarms.csv', `alarms-${Date.now()}.csv`, {})}
                 />
 
-                {isGlobalAdmin() && (
+                {isAdmin() && (
                     <ExportCard
                         icon={<ShieldCheck size={16} />}
                         title="Audit log"
