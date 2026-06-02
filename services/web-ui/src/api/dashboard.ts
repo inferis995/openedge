@@ -97,6 +97,30 @@ export interface ShiftBlock {
     alarms_this_shift: number;
 }
 
+// OEESnapshot è la "card lampante" della dashboard — Availability ×
+// Performance × Quality, ognuno con la propria source ("tag" = calcolato
+// da tag configurati; "fallback" = euristica out-of-the-box).
+export interface OEESnapshot {
+    oee: number;
+    availability: number;
+    performance: number;
+    quality: number;
+    availability_source: 'tag' | 'fallback';
+    performance_source: 'tag' | 'fallback';
+    quality_source: 'tag' | 'fallback';
+    window_minutes: number;
+    target?: number;
+    critical_downtime_min: number;
+    pieces_produced?: number;
+    pieces_good?: number;
+    target_pieces_per_hour?: number;
+}
+
+export interface OEEHistoryPoint {
+    bucket: string;
+    oee: number;
+}
+
 export interface DashboardOverview {
     generated_at: string;
     system: SystemStatus;
@@ -107,11 +131,25 @@ export interface DashboardOverview {
     kpi: KPIWidget[];
     shift?: ShiftBlock | null;
     maintenance?: MaintenanceBlock | null;
+    oee?: OEESnapshot | null;
 }
 
 export const dashboardApi = {
     overview: async (): Promise<DashboardOverview> => {
         const r = await api.get('/dashboard/overview');
+        return r.data;
+    },
+};
+
+// Endpoint OEE dedicato — usato dalla sparkline "ultimi 7 giorni" sotto
+// la card grande. Quello dentro overview è solo lo snapshot corrente.
+export const oeeApi = {
+    snapshot: async (): Promise<OEESnapshot> => {
+        const r = await api.get('/oee');
+        return r.data;
+    },
+    history: async (): Promise<OEEHistoryPoint[]> => {
+        const r = await api.get('/oee/history');
         return r.data;
     },
 };

@@ -136,7 +136,13 @@ func runAutoMigrations(db *sql.DB) error {
 		('kpi_target_bad_quality_1h',  '0',   'Tag in errore massimi tollerati nell''ultima ora.'),
 		('kpi_target_writes_24h_min',  '0',   'Soglia minima write PLC nelle 24h (good_when=up). Sotto = warning.'),
 		('kpi_target_recipe_loads_24h_min', '0', 'Soglia minima caricamenti ricette nelle 24h.'),
-		('kpi_target_logins_24h_min',  '0',   'Soglia minima login nelle 24h.')
+		('kpi_target_logins_24h_min',  '0',   'Soglia minima login nelle 24h.'),
+		('oee_window_minutes',         '480', 'Finestra di calcolo OEE in minuti (default 480 = 8h, un turno).'),
+		('oee_target',                 '85',  'Target OEE in %% (ISO 22400: 85%% = world-class). Sotto = rosso.'),
+		('oee_run_time_tag',           '0',   'tag_id del segnale "macchina in marcia" (BOOL/0-1). 0 = fallback su uptime allarmi.'),
+		('oee_produced_tag',           '0',   'tag_id del contatore pezzi prodotti (monotono crescente). 0 = fallback su quality samples.'),
+		('oee_good_tag',               '0',   'tag_id del contatore pezzi buoni (monotono crescente). 0 = fallback.'),
+		('oee_target_pieces_per_hour', '0',   'Rate target di produzione (pezzi/ora) — usato per il calcolo Performance.')
 	ON CONFLICT (key) DO NOTHING;`
 	if _, err := db.Exec(notifSeed); err != nil {
 		log.Printf("Warning: failed to seed notification settings: %v", err)

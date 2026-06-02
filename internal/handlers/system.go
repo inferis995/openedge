@@ -271,6 +271,10 @@ type UpdateSettingsRequest struct {
 	// KPI targets per la dashboard — stesso pattern. Keys must start
 	// with kpi_target_. Lasciare vuoto un target = nessuna soglia.
 	KPITargets map[string]string `json:"kpi_targets,omitempty"`
+	// OEE config (window minutes, target %, produzione tag IDs). Stesso
+	// flat-passthrough — keys must start with oee_. Settando i tag id si
+	// passa dalla modalità fallback a quella "tag-driven" (vedi oee.go).
+	OEE map[string]string `json:"oee,omitempty"`
 }
 
 // applyPrefixedSettings is the shared upsert loop for flat-passthrough
@@ -500,6 +504,9 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 	if err := h.applyPrefixedSettings(c, "kpi_target_", req.KPITargets); err != nil {
+		return
+	}
+	if err := h.applyPrefixedSettings(c, "oee_", req.OEE); err != nil {
 		return
 	}
 

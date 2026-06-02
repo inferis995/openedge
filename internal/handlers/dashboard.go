@@ -21,6 +21,10 @@ import (
 type DashboardHandler struct {
 	db        *sql.DB
 	startedAt time.Time
+	// OEE è opzionale: quando popolato (vedi main.go), la dashboard include
+	// lo snapshot OEE corrente nel payload. Tenuto fuori dal costruttore
+	// per non creare dipendenze obbligatorie tra handler.
+	OEE *OEEHandler
 }
 
 // NewDashboardHandler costruisce l'handler e cattura l'uptime di processo.
@@ -39,6 +43,10 @@ type DashboardOverview struct {
 	KPI         []KPIWidget     `json:"kpi"`
 	Shift       *ShiftBlock     `json:"shift,omitempty"`
 	Maintenance *MaintenanceBlock `json:"maintenance,omitempty"`
+	// OEE è la "card lampante" della dashboard. Sempre presente nella
+	// risposta — quando i tag di produzione non sono configurati, mostra
+	// valori derivati dai fallback euristici (quality + downtime).
+	OEE         *OEESnapshot    `json:"oee,omitempty"`
 }
 
 // MaintenanceBlock è il widget "manutenzione in corso" della dashboard.
@@ -171,6 +179,10 @@ func (h *DashboardHandler) Overview(c *gin.Context) {
 	resp.KPI = append(resp.KPI, EvaluateAll(h.db)...)
 	resp.Shift = h.currentShift()
 	resp.Maintenance = h.currentMaintenance()
+	if h.OEE != nil {
+		s := h.OEE.compute()
+		resp.OEE = &s
+	}
 	c.JSON(http.StatusOK, resp)
 }
 

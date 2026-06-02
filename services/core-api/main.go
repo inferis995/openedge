@@ -516,10 +516,23 @@ func main() {
 			maintenance.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), maintenanceHandler.Delete)
 		}
 
+		// OEE (Overall Equipment Effectiveness) — la metrica regina della
+		// produzione. Lampante in dashboard come card grande; calcolato
+		// con fallback euristici così funziona out-of-the-box, e diventa
+		// "vero" quando admin configura i tag di produzione via System.
+		oeeHandler := handlers.NewOEEHandler(database)
+		oeeGrp := api.Group("/oee")
+		oeeGrp.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			oeeGrp.GET("", oeeHandler.Snapshot)
+			oeeGrp.GET("/history", oeeHandler.History)
+		}
+
 		// Dashboard overview — un singolo endpoint che aggrega tutto
 		// quello che la pagina dashboard mostra (system / alarms / gateways
-		// / operations / activity timeline / KPI). Refresh ogni 30s lato UI.
+		// / operations / activity timeline / KPI / OEE). Refresh ogni 30s.
 		dashboardHandler := handlers.NewDashboardHandler(database)
+		dashboardHandler.OEE = oeeHandler
 		dashboard := api.Group("/dashboard")
 		dashboard.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{

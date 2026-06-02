@@ -1311,4 +1311,97 @@ Crontab (ogni venerdì alle 12:00 — pianifica per il sabato successivo):
 
 ---
 
+## 13. OEE — Overall Equipment Effectiveness
+
+OEE = **Availability × Performance × Quality** (standard ISO 22400). È la
+metrica regina della produzione manifatturiera. OpenEdge mostra l'OEE nella
+**card "lampante"** in cima alla dashboard, sempre presente, anche senza
+configurazione (fallback euristici).
+
+### 13.1 Le due modalità di calcolo
+
+**Modalità "fallback" (out-of-the-box, nessuna configurazione):**
+- Availability = `1 - (durata totale allarmi CRITICAL / finestra)`
+- Performance  = % campioni con `quality = 0` nella finestra (proxy: se i
+  sensori riportano dati buoni, l'impianto sta lavorando regolarmente)
+- Quality      = stesso fallback di Performance (in attesa che si configuri
+  il tag "pezzi buoni")
+
+I numeri sono "indicativi della salute generale", **non KPI di produzione veri**.
+
+**Modalità "tag-driven" (admin configura i tag in System → OEE):**
+- Availability = % campioni di `oee_run_time_tag` con valore > 0
+- Performance  = `pieces_produced / (target_pph × ore_finestra)` × 100
+- Quality      = `pieces_good / pieces_produced` × 100
+
+Ogni componente porta un badge `tag` o `auto` nella card UI, così l'operatore
+sa quali numeri sono "veri" e quali "indicativi".
+
+### 13.2 Settings OEE
+
+Tutti accessibili via PUT `/api/system/settings` con prefisso `oee_*`:
+
+| Chiave | Default | Significato |
+|---|---|---|
+| `oee_window_minutes` | `480` | Finestra di calcolo in minuti (480 = 8h un turno). |
+| `oee_target` | `85` | Target OEE % (ISO: 85 = world-class, 65-85 tipico). |
+| `oee_run_time_tag` | `0` | tag_id "macchina in marcia" (BOOL/0-1). 0 = fallback. |
+| `oee_produced_tag` | `0` | tag_id contatore pezzi prodotti (monotono). 0 = fallback. |
+| `oee_good_tag` | `0` | tag_id contatore pezzi buoni (monotono). 0 = fallback. |
+| `oee_target_pieces_per_hour` | `0` | Rate target (pezzi/ora) per il calcolo Performance. |
+
+### 13.3 Configurare OEE per una linea reale
+
+Esempio: linea di assemblaggio con tag PLC:
+- `Linea1.MachineRunning` (BOOL) → tag_id = 42
+- `Linea1.PiecesCounter` (DINT crescente) → tag_id = 51
+- `Linea1.GoodPiecesCounter` (DINT) → tag_id = 52
+- Target 120 pezzi/ora, target OEE 80%, finestra 8h
+
+```bash
+source /etc/openedge-monitor.env
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "oee": {
+      "oee_window_minutes": "480",
+      "oee_target": "80",
+      "oee_run_time_tag": "42",
+      "oee_produced_tag": "51",
+      "oee_good_tag": "52",
+      "oee_target_pieces_per_hour": "120"
+    }
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings
+```
+
+Verifica subito:
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee | python3 -m json.tool
+```
+
+I tre `*_source` devono passare da `"fallback"` a `"tag"`.
+
+### 13.4 Tornare al fallback
+
+Settare i tag id a `"0"` riporta la singola componente in modalità fallback —
+utile per testare la card senza un PLC reale, o per "spegnere" temporaneamente
+una componente che dà numeri strani.
+
+### 13.5 Errori comuni
+
+- **OEE = 0** in modalità tag: controlla che `oee_produced_tag` riceva
+  campioni nella finestra (probabilmente il PLC non sta inviando, vedi sezione
+  "Tag con quality≠0").
+- **Performance = 100% in fallback**: nessun dato nella finestra → il proxy
+  "tutto OK" è scelto di proposito invece di un 0 fuorviante.
+- **Counter rolling-over**: i contatori PLC che resettano a fine turno fanno
+  apparire Performance/Quality negativi. Soluzione: usare un tag derivato
+  monotono o un counter a 32-bit con periodo lungo.
+
+---
+
 *Aggiornare questo file quando vengono aggiunti nuovi endpoint operativi a OpenEdge.*

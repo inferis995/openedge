@@ -811,6 +811,54 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_I
 
 Se `anomaly_count > 0`, riporta i bucket con `|z_score| >= 2.5`.
 
+### "Qual è l'OEE adesso? Stiamo sopra il target?"
+
+OEE = Availability × Performance × Quality (ISO 22400). Sempre presente
+nella dashboard, calcolato con fallback euristici se i tag di produzione
+non sono configurati (badge "auto" sulle componenti). Una sola call:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+band = 'world-class' if d['oee']>=85 else 'tipico' if d['oee']>=65 else 'da migliorare' if d['oee']>=40 else 'CRITICO'
+print(f'OEE {d[\"window_minutes\"]//60}h: {d[\"oee\"]:.1f}%  [{band}]')
+print(f'  Availability: {d[\"availability\"]:.1f}% ({d[\"availability_source\"]})')
+print(f'  Performance : {d[\"performance\"]:.1f}% ({d[\"performance_source\"]})')
+print(f'  Quality     : {d[\"quality\"]:.1f}% ({d[\"quality_source\"]})')
+if d.get('target') is not None:
+    met = '✓ sopra target' if d['oee']>=d['target'] else '✗ sotto target'
+    print(f'  Target ≥ {d[\"target\"]}%  {met}')
+if d.get('critical_downtime_min',0)>0:
+    print(f'  Downtime critical nella finestra: {d[\"critical_downtime_min\"]:.0f} min')
+if d.get('pieces_produced',0)>0:
+    print(f'  Pezzi prodotti: {d[\"pieces_produced\"]:.0f}  buoni: {d.get(\"pieces_good\",0):.0f}')"
+```
+
+Se tutte e tre le `*_source` valgono `"fallback"`, l'OEE è in modalità
+euristica — comunica esplicitamente all'operatore "OEE in modalità
+indicativa (tag di produzione non configurati). Per OEE reale,
+configura i tag in System → OEE oppure passami questi tag id e li
+configuro io con la skill ops."
+
+### Trend OEE ultimi 7 giorni
+
+Per il digest del lunedì mattina:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/history \
+  | python3 -c "
+import sys, json
+pts = json.load(sys.stdin)
+print('OEE ultimi 7 giorni:')
+for p in pts:
+    bar = '█' * int(p['oee']/5) if p['oee']>0 else '·'
+    print(f\"  {p['bucket'][:10]}  {p['oee']:5.1f}%  {bar}\")"
+```
+
 ### "Quali KPI di produzione abbiamo configurato? Valori correnti?"
 
 I custom KPI (pezzi/turno, kWh, OEE component, ecc.) appaiono nello
@@ -874,7 +922,16 @@ Response shape:
      "value":6.4, "unit":"/g", "trend":"down", "delta_pct":-18,
      "good_when":"down"},
     ...
-  ]
+  ],
+  "shift":       {/* turno corrente o null */},
+  "maintenance": {/* finestra in corso o null */},
+  "oee": {
+    "oee": 78.3, "availability": 91.2, "performance": 88.5, "quality": 97.1,
+    "availability_source": "tag", "performance_source": "tag", "quality_source": "tag",
+    "window_minutes": 480, "target": 85,
+    "critical_downtime_min": 42, "pieces_produced": 920, "pieces_good": 893,
+    "target_pieces_per_hour": 120
+  }
 }
 ```
 

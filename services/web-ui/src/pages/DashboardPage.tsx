@@ -2,11 +2,11 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
     Activity, AlertTriangle, Bell, BellOff, ChefHat, CheckCircle2, Clock, Cpu,
-    Database, FileText, LogIn, Mail, MessageCircle, Pencil, Radio, ShieldAlert,
+    Database, FileText, Gauge, LogIn, Mail, MessageCircle, Pencil, Radio, ShieldAlert,
     TrendingDown, TrendingUp, UserCircle, Users, Wifi, Wrench, XCircle, ArrowUpRight,
 } from 'lucide-react';
 
-import { dashboardApi, ActivityEvent, AlarmSummary, KPIWidget } from '@/api/dashboard';
+import { dashboardApi, oeeApi, ActivityEvent, AlarmSummary, KPIWidget, OEESnapshot, OEEHistoryPoint } from '@/api/dashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
@@ -482,6 +482,170 @@ const SystemCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard
     );
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// OEE card — la "lampante" del cruscotto. ISO 22400 dice: 85%+ world-class,
+// 60-85% accettabile, <60% problemi. Coloriamo l'OEE in base a queste fasce
+// e mostriamo le tre componenti A/P/Q come barre con il proprio numerino.
+// La sparkline 7g sotto la card è caricata via /api/oee/history (separato dal
+// dashboard overview per non pesare ogni 30s su 7 calcoli OEE giornalieri).
+// ─────────────────────────────────────────────────────────────────────────────
+const oeeBand = (v: number): { tone: string; ring: string; label: string } => {
+    if (v >= 85) return { tone: 'text-emerald-500', ring: 'border-emerald-500/40 bg-emerald-500/5', label: 'World-class' };
+    if (v >= 65) return { tone: 'text-amber-500',   ring: 'border-amber-500/40 bg-amber-500/5',     label: 'Tipico' };
+    if (v >= 40) return { tone: 'text-orange-500',  ring: 'border-orange-500/40 bg-orange-500/5',   label: 'Da migliorare' };
+    return         { tone: 'text-red-500',     ring: 'border-red-500/40 bg-red-500/5',         label: 'Critico' };
+};
+
+const OEEHistorySpark = ({ data }: { data: OEEHistoryPoint[] }) => {
+    if (!data.length) return null;
+    const max = 100;
+    const w = 280, h = 48, step = w / (data.length - 1 || 1);
+    const points = data.map((d, i) => {
+        const x = i * step;
+        const y = h - (d.oee / max) * (h - 4) - 2;
+        return `${x},${y}`;
+    }).join(' ');
+    return (
+        <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-12">
+            {/* Riferimento 85% (world-class) */}
+            <line x1="0" y1={h - 0.85 * (h - 4) - 2} x2={w} y2={h - 0.85 * (h - 4) - 2}
+                  stroke="currentColor" strokeWidth="0.5" strokeDasharray="2,2" className="text-emerald-500/40" />
+            <polyline fill="none" stroke="currentColor" strokeWidth="1.5" points={points} className="text-primary" />
+            <polyline fill="currentColor" opacity="0.1" points={`0,${h} ${points} ${w},${h}`} className="text-primary" />
+        </svg>
+    );
+};
+
+const OEEComponentBar = ({
+    label, value, source,
+}: { label: string; value: number; source: 'tag' | 'fallback' }) => {
+    const band = oeeBand(value);
+    return (
+        <div className="space-y-1">
+            <div className="flex items-baseline justify-between text-xs">
+                <span className="text-muted-foreground uppercase tracking-wider font-semibold">{label}</span>
+                <div className="flex items-center gap-1.5">
+                    <span className={`font-mono font-bold text-base ${band.tone}`}>{value.toFixed(1)}%</span>
+                    <Badge variant="outline" className="text-[9px] font-normal h-4 px-1 leading-none">
+                        {source === 'tag' ? 'tag' : 'auto'}
+                    </Badge>
+                </div>
+            </div>
+            <div className="w-full h-2 bg-muted rounded overflow-hidden">
+                <div className={`h-2 rounded transition-all ${
+                    value >= 85 ? 'bg-emerald-500'
+                    : value >= 65 ? 'bg-amber-500'
+                    : value >= 40 ? 'bg-orange-500'
+                    : 'bg-red-500'
+                }`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+            </div>
+        </div>
+    );
+};
+
+const OEECard = ({ o }: { o: OEESnapshot }) => {
+    const navigate = useNavigate();
+    const band = oeeBand(o.oee);
+    const windowH = (o.window_minutes / 60).toFixed(o.window_minutes % 60 === 0 ? 0 : 1);
+
+    // History sparkline — query separata (più lenta del refresh dashboard).
+    const { data: history } = useQuery({
+        queryKey: ['oee-history'],
+        queryFn: oeeApi.history,
+        refetchInterval: 5 * 60_000, // 5 minuti — l'OEE giornaliero non si muove più velocemente di così
+        placeholderData: (prev) => prev,
+    });
+
+    const targetMet = o.target !== undefined ? o.oee >= o.target : null;
+    // Tutte e tre le fonti sono fallback? Mostriamo un suggerimento gentile
+    // "configura i tag di produzione per OEE reale" — è il modo onesto di
+    // segnalare che i numeri sono "indicativi" ma derivati dal sistema.
+    const allFallback =
+        o.availability_source === 'fallback' &&
+        o.performance_source  === 'fallback' &&
+        o.quality_source      === 'fallback';
+
+    return (
+        <Card className={`border-2 ${band.ring}`}>
+            <CardContent className="p-5">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+                    {/* Sinistra: OEE grande + label fascia */}
+                    <div className="lg:col-span-4 flex items-center gap-4">
+                        <div className={`p-3 rounded-xl ${band.ring} border`}>
+                            <Gauge size={36} className={band.tone} />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">OEE {windowH}h</span>
+                                <Badge variant="outline" className={`text-[10px] ${band.tone} border-current`}>
+                                    {band.label}
+                                </Badge>
+                            </div>
+                            <div className="flex items-baseline gap-1 mt-1">
+                                <span className={`text-5xl font-bold tracking-tight ${band.tone}`}>{o.oee.toFixed(1)}</span>
+                                <span className="text-2xl font-semibold text-muted-foreground">%</span>
+                            </div>
+                            {o.target !== undefined && (
+                                <p className={`text-xs mt-1 ${targetMet ? 'text-emerald-500' : 'text-red-500'}`}>
+                                    Target ≥ {o.target}%  {targetMet ? '✓' : '✗'}
+                                </p>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Centro: 3 barre A/P/Q */}
+                    <div className="lg:col-span-5 space-y-3">
+                        <OEEComponentBar label="Availability" value={o.availability} source={o.availability_source} />
+                        <OEEComponentBar label="Performance"  value={o.performance}  source={o.performance_source} />
+                        <OEEComponentBar label="Quality"      value={o.quality}      source={o.quality_source} />
+                    </div>
+
+                    {/* Destra: sparkline 7g + numeri di diagnostica */}
+                    <div className="lg:col-span-3 space-y-2">
+                        <div>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">Trend 7g</p>
+                            <OEEHistorySpark data={history ?? []} />
+                        </div>
+                        <div className="text-xs space-y-0.5 text-muted-foreground">
+                            {o.critical_downtime_min > 0 && (
+                                <div className="flex justify-between">
+                                    <span>Downtime critical</span>
+                                    <span className="font-mono">{o.critical_downtime_min.toFixed(0)} min</span>
+                                </div>
+                            )}
+                            {o.pieces_produced !== undefined && o.pieces_produced > 0 && (
+                                <div className="flex justify-between">
+                                    <span>Pezzi prodotti</span>
+                                    <span className="font-mono">{o.pieces_produced.toFixed(0)}</span>
+                                </div>
+                            )}
+                            {o.pieces_good !== undefined && o.pieces_good > 0 && (
+                                <div className="flex justify-between">
+                                    <span>Pezzi buoni</span>
+                                    <span className="font-mono">{o.pieces_good.toFixed(0)}</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Nudge configurazione — visibile solo se tutto è in fallback */}
+                {allFallback && (
+                    <button
+                        type="button"
+                        onClick={() => navigate('/system')}
+                        className="mt-4 w-full text-xs text-muted-foreground hover:text-foreground transition-colors text-left flex items-center gap-2 px-3 py-2 rounded border border-dashed border-border hover:border-primary/40">
+                        <ArrowUpRight size={12} />
+                        Calcolo OEE in modalità euristica (badge "auto"). Configura i tag di produzione in
+                        <span className="text-primary underline ml-1">System → OEE</span>
+                        per valori reali.
+                    </button>
+                )}
+            </CardContent>
+        </Card>
+    );
+};
+
 const useDashboard = () => {
     return useQuery({
         queryKey: ['dashboard-overview'],
@@ -530,6 +694,10 @@ const DashboardPage = () => {
                     </div>
                 </Clickable>
             )}
+
+            {/* OEE card — "lampante": prima cosa che l'operatore vede dopo lo
+                status bar. Sempre presente (anche se in modalità fallback). */}
+            {data.oee && <OEECard o={data.oee} />}
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 {data.kpi.map((k) => <KPICard key={k.key} k={k} />)}

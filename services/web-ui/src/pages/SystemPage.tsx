@@ -3,6 +3,7 @@ import { systemApi, GlobalSettings, UpdateSettingsRequest, BackupSettings, Backu
 import NotificationsSettings from '@/components/system/NotificationsSettings';
 import BackupConfig from '@/components/system/BackupConfig';
 import KPITargets from '@/components/system/KPITargets';
+import OEESettings from '@/components/system/OEESettings';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -692,6 +693,14 @@ const SystemPage = () => {
                         {/* Target sui KPI della dashboard. Vuoto = nessun
                             target → valore neutro. */}
                         <KPITargets
+                            initial={settings}
+                            onSaved={loadSettings}
+                        />
+
+                        {/* OEE — finestra, target e tag di produzione.
+                            Tutto opzionale: con NONE in tutti i tag il
+                            calcolo OEE in dashboard usa fallback euristici. */}
+                        <OEESettings
                             initial={settings}
                             onSaved={loadSettings}
                         />

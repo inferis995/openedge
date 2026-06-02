@@ -45,6 +45,14 @@ export interface GlobalSettings {
     kpi_target_writes_24h_min?: string;
     kpi_target_recipe_loads_24h_min?: string;
     kpi_target_logins_24h_min?: string;
+    // OEE configuration. Senza tag_id la card OEE in dashboard usa
+    // fallback euristici; impostando i tag id (>0) passa in modalità reale.
+    oee_window_minutes?: string;
+    oee_target?: string;
+    oee_run_time_tag?: string;
+    oee_produced_tag?: string;
+    oee_good_tag?: string;
+    oee_target_pieces_per_hour?: string;
     deployment_mode?: string; // 'onprem' | 'cloud' (from the server env)
 }
 
@@ -72,6 +80,8 @@ export interface UpdateSettingsRequest {
     backup?: Record<string, string>;
     // KPI target thresholds (kpi_target_*).
     kpi_targets?: Record<string, string>;
+    // OEE config (oee_*) — finestra, target, tag_ids di produzione.
+    oee?: Record<string, string>;
 }
 
 // What the operator edits in the Notifications panel. We keep the shape
@@ -176,6 +186,12 @@ export const systemApi = {
     // che le chiavi inizino con kpi_target_ e fa upsert in global_settings.
     updateKPITargets: async (targets: Record<string, string>): Promise<void> => {
         await api.put('/system/settings', { kpi_targets: targets });
+    },
+
+    // Salva la configurazione OEE — finestra, target %, tag IDs.
+    // Settando i tag id a 0 si torna in modalità fallback euristica.
+    updateOEE: async (oee: Record<string, string>): Promise<void> => {
+        await api.put('/system/settings', { oee });
     },
 
     getMetrics: async (): Promise<PublishMetrics> => {
