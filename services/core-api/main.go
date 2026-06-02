@@ -464,6 +464,15 @@ func main() {
 			recipes.GET("/:id/runs", recipesHandler.Runs)
 		}
 
+		// Dashboard overview — un singolo endpoint che aggrega tutto
+		// quello che la pagina dashboard mostra (system / alarms / gateways
+		// / operations / activity timeline / KPI). Refresh ogni 30s lato UI.
+		dashboardHandler := handlers.NewDashboardHandler(database)
+		dashboard := api.Group("/dashboard")
+		dashboard.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			dashboard.GET("/overview", dashboardHandler.Overview)
+		}
 
 		// History endpoints (PostgreSQL-based)
 		history := api.Group("/history")
