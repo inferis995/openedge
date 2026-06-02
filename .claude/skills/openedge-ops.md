@@ -988,4 +988,140 @@ non si vedono in chiaro nemmeno via API.
 
 ---
 
+## 11. Turni & Operatori
+
+OpenEdge sa "che turno è adesso" e "chi è l'operatore di servizio" —
+tutto configurabile da UI (pagina **Turni**) e da API.
+
+### 11.1 Concetti
+
+- **Turno** (`shifts` table): nome + start_time + end_time + weekdays[]
+  + active. `start_time > end_time` significa turno notte che incrocia
+  la mezzanotte (es. 22:00-06:00) e viene gestito automaticamente.
+- **Assegnazione** (`shift_assignments` table): un utente di OpenEdge
+  è responsabile di un turno tra `valid_from` e `valid_to` (null =
+  indeterminato).
+- **Turno corrente**: il primo turno attivo i cui weekdays includono
+  oggi (o ieri per i turni notte continuati dopo mezzanotte) e il cui
+  intervallo orario contiene `NOW()`.
+
+Al primo avvio la migration seeda 3 turni default — **Mattina 06-14,
+Pomeriggio 14-22, Notte 22-06**, tutti lun-ven. Modificabili/disattivabili
+da subito.
+
+### 11.2 Domande tipiche
+
+```bash
+# "Che turno è adesso? Chi è di servizio?"
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/shifts/current \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+if not d.get('shift'):
+    print('Nessun turno in corso'); sys.exit(0)
+s = d['shift']
+h, m = divmod(d['time_left_min'], 60)
+ops = ', '.join(o['username'] for o in d['operators']) or '(nessuno designato)'
+print(f'Turno: {s[\"name\"]} ({s[\"start_time\"]}-{s[\"end_time\"]})')
+print(f'Resta: {h}h {m}m')
+print(f'Operatori: {ops}')"
+```
+
+```bash
+# Lista tutti i turni
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/shifts | python3 -m json.tool
+```
+
+### 11.3 Creare un turno custom
+
+```bash
+# Turno notte solo nel weekend, attivo
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Notte weekend",
+    "start_time": "22:00",
+    "end_time": "06:00",
+    "weekdays": [5, 6, 0],
+    "active": true
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/shifts
+```
+
+`weekdays` è **0=Domenica, 1=Lunedì, ..., 6=Sabato**. Per turno notte
+del venerdì che continua sabato mattina, metti `5` (venerdì) — il
+sistema sa che si estende oltre mezzanotte.
+
+### 11.4 Modifica/disattiva un turno
+
+```bash
+# Cambiare l'orario o disattivare temporaneamente
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Mattina",
+    "start_time": "07:00",
+    "end_time": "15:00",
+    "weekdays": [1,2,3,4,5],
+    "active": true
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/shifts/1
+
+# Eliminare un turno (CASCADE elimina anche le assegnazioni)
+curl -X DELETE -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/shifts/3
+```
+
+### 11.5 Assegnare un operatore a un turno
+
+```bash
+# Mario Rossi (user_id=5) responsabile del turno "Mattina" (id=1) da oggi
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{"user_id": 5}' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/shifts/1/assignments
+
+# Con date specifiche
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{"user_id": 7, "valid_from": "2026-06-01", "valid_to": "2026-08-31"}' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/shifts/1/assignments
+
+# Lista assegnamenti di un turno
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/shifts/1/assignments
+
+# Rimuovere un'assegnazione (id ottenuto dalla lista)
+curl -X DELETE -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/shifts/assignments/42
+```
+
+### 11.6 Setup completo "3 turni × 3 squadre" in uno script
+
+```bash
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+URL=http://$OPENEDGE_HOST:$OPENEDGE_PORT
+
+# Assumiamo i 3 turni di default già seeded (id 1, 2, 3).
+# Squadra A su Mattina, B su Pomeriggio, C su Notte.
+for SHIFT_ID in 1 2 3; do
+    # 4 operatori per squadra: cambia i user_id con i tuoi
+    for USER_ID in 10 11 12 13; do
+        curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
+          -H 'Content-Type: application/json' \
+          -d "{\"user_id\": $USER_ID}" \
+          "$URL/api/shifts/$SHIFT_ID/assignments"
+    done
+done
+echo "Setup turni × operatori completato."
+```
+
+Da qui in poi la dashboard di ogni utente mostra correttamente "turno
+corrente: X, finisce tra Yh Zm, allarmi durante questo turno: N" e gli
+operatori designati appaiono nel widget.
+
+---
+
 *Aggiornare questo file quando vengono aggiunti nuovi endpoint operativi a OpenEdge.*

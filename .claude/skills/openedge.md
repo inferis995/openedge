@@ -748,6 +748,40 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_I
 # Ritorna avg/min/max/std-dev/sample_count del periodo
 ```
 
+### "Che turno è adesso? Chi è di servizio?"
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/shifts/current \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+if not d.get('shift'):
+    print('Nessun turno in corso (orario fuori range / giorno non coperto)'); sys.exit(0)
+s = d['shift']
+h, m = divmod(d['time_left_min'], 60)
+ops = ', '.join(o['username'] for o in d['operators']) or '(nessun operatore designato)'
+print(f'Turno: {s[\"name\"]} ({s[\"start_time\"]}-{s[\"end_time\"]})')
+print(f'Restano: {h}h {m}m')
+print(f'Operatori: {ops}')"
+```
+
+### "Quanti allarmi sono scattati durante il turno corrente?"
+
+Il backend lo calcola già lato dashboard:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/dashboard/overview \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+sh = d.get('shift')
+if not sh:
+    print('Nessun turno in corso'); sys.exit(0)
+print(f'Turno \"{sh[\"name\"]}\": {sh[\"alarms_this_shift\"]} allarmi scattati')"
+```
+
 ### "C'è qualcosa di anomalo rispetto al normale?"
 
 Per il tag su cui hai il sospetto, usa l'anomaly detector AI-Ops
@@ -1076,6 +1110,63 @@ Crontab (ogni 4 ore):
 ```cron
 0 */4 * * * /usr/local/bin/openedge-kpi-threshold.sh >> /var/log/openedge-monitor.log 2>&1
 ```
+
+### Cron #7 — report fine turno automatico
+
+Quando finisce un turno (es. alle 14:00 per il Mattina, 22:00 per il
+Pomeriggio, 06:00 per il Notte), invia un riassunto agli operatori
+designati: nome turno, durata, allarmi scattati, ricette caricate.
+
+Approccio semplice: cron multipli, uno per ora di fine turno. Niente
+schedulazione dinamica — basta riflettere nel crontab gli orari dei
+tuoi turni reali.
+
+```bash
+# /usr/local/bin/openedge-shift-end-report.sh
+#!/bin/bash
+set -e
+source /etc/openedge-monitor.env
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+
+# Il turno che è FINITO un attimo fa (NOW() - 1min cade ancora dentro)
+# verrà ritornato come "current" se chiamiamo qualche secondo prima del
+# fine. Se chiamiamo dopo il fine, /current può essere null — quindi
+# usiamo /api/dashboard/overview che cattura `shift` quando il cron
+# parte ESATTAMENTE all'orario fine (sotto un minuto è ok).
+REPORT=$(curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/dashboard/overview" \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+sh = d.get('shift')
+if not sh:
+    sys.exit(0)
+ops = d['operations']
+print(f'OpenEdge — fine turno {sh[\"name\"]}')
+print(f'Allarmi scattati nel turno: {sh[\"alarms_this_shift\"]}')
+print(f'Operatori in servizio: {\", \".join(sh.get(\"operators\", [])) or \"-\"}')
+print()
+print('Attività durante il turno (ultime 24h, approssimazione):')
+print(f'  Ricette caricate: {ops[\"recipe_loads_24h\"]}')
+print(f'  Write PLC: {ops[\"writes_24h\"]}')")
+
+[ -z "$REPORT" ] && exit 0
+echo "$REPORT" | mail -s "[OpenEdge] Fine turno" capoturno@azienda.it
+```
+
+Crontab — un'entry per ogni ora di fine dei tuoi turni:
+
+```cron
+# Mattina finisce alle 14:00
+59 13 * * 1-5 /usr/local/bin/openedge-shift-end-report.sh >> /var/log/openedge-monitor.log 2>&1
+# Pomeriggio finisce alle 22:00
+59 21 * * 1-5 /usr/local/bin/openedge-shift-end-report.sh >> /var/log/openedge-monitor.log 2>&1
+# Notte finisce alle 06:00
+59 5 * * 2-6 /usr/local/bin/openedge-shift-end-report.sh >> /var/log/openedge-monitor.log 2>&1
+```
+
+(Notte di venerdì→sabato finisce sabato mattina, quindi il cron del
+turno notte è sabato come "day-of-week" — adatta ai tuoi turni.)
 
 ### Anti-spam — dedupe ed escalation
 
