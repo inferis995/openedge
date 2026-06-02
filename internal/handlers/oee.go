@@ -520,6 +520,14 @@ func (h *OEEHandler) computeQuality(start, end time.Time, produced float64, cfg 
 
 // OEEProfile è la row del DB. La uso sia per CRUD che per il calcolo
 // (via config()).
+//
+// Nota sul scoping: i 3 tag OEE (run_time/produced/good) possono essere
+// su gateway DIVERSI nella stessa org. Per la matematica A/P/Q il calcolo
+// legge tag_history[tag_id], niente vincolo gateway. Per gli allarmi
+// (loss tree), lo "scope" del profilo viene calcolato dinamicamente
+// come l'unione dei gateway dei suoi 3 tag — vedi oee_losses.go.
+// Il campo GatewayID resta nello schema per back-compat ma non è più
+// usato dal worker loss tree.
 type OEEProfile struct {
 	ID                  int     `json:"id"`
 	OrgID               int     `json:"org_id"`

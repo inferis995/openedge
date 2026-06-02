@@ -1323,6 +1323,30 @@ Quando 0 profili sono configurati, la dashboard usa il calcolo OEE
 esistenti). Appena crei il primo profilo, la dashboard passa
 automaticamente in modalità multi-profilo.
 
+### 13.0a Tag su gateway diversi (multi-PLC per profilo)
+
+**I 3 tag OEE di un profilo possono essere su gateway DIVERSI** della
+stessa organizzazione. Esempio:
+
+```
+Profilo "Linea Assemblaggio":
+  run_time_tag    → tag su Gateway 1 (PLC S7)
+  produced_tag    → tag su Gateway 2 (PLC Modbus)
+  good_tag        → tag su Gateway 3 (sensore MQTT)
+```
+
+Il calcolo A/P/Q funziona automaticamente: ogni tag viene letto da
+`tag_history` indipendentemente dal suo gateway. Niente vincolo.
+
+**Scope automatico per allarmi (loss tree)**: il "perimetro" del profilo
+per gli allarmi viene calcolato dinamicamente come l'unione dei gateway
+dei suoi 3 tag. Un allarme critical su un tag di Gateway 1, 2 o 3 conterà
+come breakdown di "Linea Assemblaggio". Un allarme su Gateway 4 (es. altra
+linea o infrastruttura) NON viene attribuito a questo profilo.
+
+Profili "fallback puri" (nessun tag configurato) non ricevono alcun
+allarme nel loss tree — evita over-attribution prima della configurazione.
+
 ### 13.0 Quando creare un profilo OEE
 
 - **1 sola linea / 1 sola macchina** → 1 profilo basta

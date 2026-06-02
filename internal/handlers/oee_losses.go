@@ -14,9 +14,20 @@
 //   - no_run_tag (segmentazione tag_history): rimandato a future iterations
 //   - production_defect (gap pieces_produced vs pieces_good): facoltativo
 //
-// Scope per profilo: un loss_event appartiene a un profilo se:
-//   - profile.gateway_id != null E alarm.tag_id appartiene a quel gateway, oppure
-//   - profile.gateway_id == null (alarm globale: tutti i profili lo vedono)
+// Scope per profilo (calcolato dinamicamente, non da un campo statico):
+//   - Per ogni profilo, l'insieme dei gateway dei suoi 3 tag OEE
+//     (run_time_tag, produced_tag, good_tag) definisce il "perimetro"
+//     del profilo
+//   - Un allarme critical "appartiene" al profilo se il suo tag è su uno
+//     di quei gateway
+//   - Profilo senza tag configurati (full fallback) → nessun allarme
+//     associato (eviterebbe over-attribution su un profilo non ancora
+//     configurato)
+//
+// Questo permette di avere profili con tag su gateway diversi (es.
+// running su PLC1, counter su PLC2, good su PLC3) — il loss tree si
+// scopa automaticamente all'unione di quei 3 gateway.
+//
 // Per maintenance: vale per tutti i profili abilitati (plant-wide).
 package handlers
 
@@ -264,8 +275,14 @@ func PopulateLossEvents(db *sql.DB, now time.Time) error {
 			continue
 		}
 		for _, p := range profiles {
-			// Scope check: se il profilo ha gateway_id, deve combaciare.
-			if p.gatewayID != nil && a.gatewayID != *p.gatewayID {
+			// Scope dinamico: l'allarme appartiene al profilo se il suo
+			// tag è su uno dei gateway dei 3 tag OEE del profilo. Profili
+			// senza tag configurati (gatewayIDs vuoto) non ricevono alcun
+			// allarme — evita over-attribution su profili "fallback puri".
+			if len(p.gatewayIDs) == 0 {
+				continue
+			}
+			if !p.gatewayIDs[a.gatewayID] {
 				continue
 			}
 			if _, err := db.Exec(`
@@ -340,25 +357,49 @@ func PopulateLossEvents(db *sql.DB, now time.Time) error {
 	return nil
 }
 
-// loadEnabledProfilesForLosses carica i profili in forma minimale per il
-// worker — id + gateway_id sono sufficienti per il scoping.
+// loadEnabledProfilesForLosses carica i profili in forma minimale per
+// il worker. Per ogni profilo calcola anche l'insieme dei gateway dei
+// suoi 3 tag OEE — è il "perimetro" del profilo per lo scoping degli
+// allarmi.
 type profileLite struct {
-	id        int
-	gatewayID *int
+	id         int
+	gatewayIDs map[int]bool // set di gateway_id dei tag OEE del profilo
 }
 
 func loadEnabledProfilesForLosses(db *sql.DB) ([]profileLite, error) {
-	rows, err := db.Query(`SELECT id, gateway_id FROM oee_profiles WHERE enabled = true`)
+	// Una sola query con LEFT JOIN sui 3 tag per estrarre i loro gateway.
+	// Risultato: una riga per profilo con i tre gateway (NULL se tag non
+	// configurato).
+	rows, err := db.Query(`
+		SELECT p.id,
+			rt.gateway_id, pt.gateway_id, gt.gateway_id
+		FROM oee_profiles p
+		LEFT JOIN tags rt ON rt.id = p.run_time_tag_id
+		LEFT JOIN tags pt ON pt.id = p.produced_tag_id
+		LEFT JOIN tags gt ON gt.id = p.good_tag_id
+		WHERE p.enabled = true`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []profileLite
 	for rows.Next() {
-		var p profileLite
-		if err := rows.Scan(&p.id, &p.gatewayID); err == nil {
-			out = append(out, p)
+		var id int
+		var rtGw, ptGw, gtGw sql.NullInt64
+		if err := rows.Scan(&id, &rtGw, &ptGw, &gtGw); err != nil {
+			continue
 		}
+		gws := map[int]bool{}
+		if rtGw.Valid {
+			gws[int(rtGw.Int64)] = true
+		}
+		if ptGw.Valid {
+			gws[int(ptGw.Int64)] = true
+		}
+		if gtGw.Valid {
+			gws[int(gtGw.Int64)] = true
+		}
+		out = append(out, profileLite{id: id, gatewayIDs: gws})
 	}
 	return out, nil
 }
