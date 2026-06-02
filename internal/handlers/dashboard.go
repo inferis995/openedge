@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 // DashboardHandler aggrega lo stato del sistema in una sola response.
@@ -35,6 +36,22 @@ type DashboardOverview struct {
 	Operations  OperationsBlock `json:"operations"`
 	Activity    []ActivityEvent `json:"activity"`
 	KPI         []KPIWidget     `json:"kpi"`
+	Shift       *ShiftBlock     `json:"shift,omitempty"`
+}
+
+// ShiftBlock è il widget "turno corrente" della dashboard. Nil se non
+// c'è alcun turno in corso (es. domenica o orario fuori da tutti i turni
+// configurati).
+type ShiftBlock struct {
+	ShiftID     int       `json:"shift_id"`
+	Name        string    `json:"name"`
+	StartedAt   time.Time `json:"started_at"`
+	EndsAt      time.Time `json:"ends_at"`
+	TimeLeftMin int       `json:"time_left_min"`
+	Operators   []string  `json:"operators"`
+	// Alarms scattati durante questo turno (utile per il dashboard
+	// "questo turno vs precedente"). Calcolato server-side.
+	AlarmsThisShift int `json:"alarms_this_shift"`
 }
 
 // SystemStatus risponde alla domanda "è tutto su?".
@@ -130,8 +147,119 @@ func (h *DashboardHandler) Overview(c *gin.Context) {
 	resp.Operations = h.operations()
 	resp.Activity = h.activity()
 	resp.KPI = h.kpis()
+	resp.Shift = h.currentShift()
 	c.JSON(http.StatusOK, resp)
 }
+
+// currentShift riusa la stessa logica di ShiftsHandler.Current ma rende
+// solo i campi che la dashboard mostra (nome + tempo restante + operatori
+// + conteggio allarmi del turno). Nil se nessun turno è in corso.
+func (h *DashboardHandler) currentShift() *ShiftBlock {
+	shifts := NewShiftsHandler(h.db)
+	now := time.Now().UTC()
+	weekday := int(now.Weekday())
+	prevWeekday := (weekday + 6) % 7
+	nowMin := now.Hour()*60 + now.Minute()
+
+	rows, err := h.db.Query(`
+		SELECT id, name, start_time::text, end_time::text, weekdays, active
+		FROM shifts WHERE active = true`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		id        int
+		name      string
+		startMin  int
+		endMin    int
+		wraps     bool
+		startedAt time.Time
+		endsAt    time.Time
+	}
+	var found *candidate
+	for rows.Next() {
+		var s Shift
+		var weekdays pq.Int64Array
+		if err := rows.Scan(&s.ID, &s.Name, &s.StartTime, &s.EndTime, &weekdays, &s.Active); err != nil {
+			continue
+		}
+		s.StartTime = trimSeconds(s.StartTime)
+		s.EndTime = trimSeconds(s.EndTime)
+		s.Weekdays = int64sToInts(weekdays)
+		s.Wraps = wrapsMidnight(s.StartTime, s.EndTime)
+		sMin := minutesOfDay(s.StartTime)
+		eMin := minutesOfDay(s.EndTime)
+
+		startMinResolved := -1
+		if !s.Wraps && contains(s.Weekdays, weekday) && nowMin >= sMin && nowMin < eMin {
+			startMinResolved = sMin
+		} else if s.Wraps && contains(s.Weekdays, weekday) && nowMin >= sMin {
+			startMinResolved = sMin
+		} else if s.Wraps && contains(s.Weekdays, prevWeekday) && nowMin < eMin {
+			startMinResolved = sMin - 24*60
+		}
+		if startMinResolved < 0 {
+			continue
+		}
+		startedAt := time.Date(now.Year(), now.Month(), now.Day(),
+			startMinResolved/60, ((startMinResolved%60)+60)%60, 0, 0, time.UTC)
+		if startMinResolved < 0 {
+			startedAt = startedAt.Add(-24 * time.Hour)
+		}
+		endMin := eMin
+		if s.Wraps && startMinResolved >= 0 {
+			endMin += 24 * 60
+		}
+		endsAt := time.Date(startedAt.Year(), startedAt.Month(), startedAt.Day(),
+			endMin/60, endMin%60, 0, 0, time.UTC)
+		found = &candidate{id: s.ID, name: s.Name, startMin: startMinResolved, endMin: endMin, wraps: s.Wraps, startedAt: startedAt, endsAt: endsAt}
+		break
+	}
+	if found == nil {
+		_ = shifts // riservato per uso futuro
+		return nil
+	}
+
+	out := &ShiftBlock{
+		ShiftID:     found.id,
+		Name:        found.name,
+		StartedAt:   found.startedAt,
+		EndsAt:      found.endsAt,
+		TimeLeftMin: int(found.endsAt.Sub(now).Minutes()),
+		Operators:   []string{},
+	}
+
+	// Operatori designati per oggi (string list — basta lo username per
+	// la card "turno corrente"; il dettaglio sta nella pagina Shifts).
+	opsRows, err := h.db.Query(`
+		SELECT u.username FROM shift_assignments a
+		JOIN users u ON u.id = a.user_id
+		WHERE a.shift_id = $1
+		  AND a.valid_from <= CURRENT_DATE
+		  AND (a.valid_to IS NULL OR a.valid_to >= CURRENT_DATE)
+		ORDER BY u.username`, found.id)
+	if err == nil {
+		defer opsRows.Close()
+		for opsRows.Next() {
+			var u string
+			if err := opsRows.Scan(&u); err == nil {
+				out.Operators = append(out.Operators, u)
+			}
+		}
+	}
+
+	// Allarmi scattati dall'inizio di questo turno.
+	_ = h.db.QueryRow(`
+		SELECT COUNT(*) FROM alarm_events
+		WHERE trigger_time >= $1 AND trigger_time <= $2`,
+		found.startedAt, now,
+	).Scan(&out.AlarmsThisShift)
+
+	return out
+}
+
 
 func (h *DashboardHandler) system() SystemStatus {
 	dbOk := h.db.Ping() == nil

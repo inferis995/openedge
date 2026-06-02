@@ -181,6 +181,48 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: shifts (turni). Definizione orari di lavoro + assegnamento
+	// operatori. weekdays è un array di int (0=Domenica, 1=Lunedì, ..., 6=Sabato)
+	// per gestire turni che vanno solo lun-ven o solo weekend. start_time può
+	// essere maggiore di end_time (turno notte che incrocia mezzanotte: 22-06).
+	shifts := []string{
+		`CREATE TABLE IF NOT EXISTS shifts (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			start_time TIME NOT NULL,
+			end_time TIME NOT NULL,
+			weekdays INT[] NOT NULL DEFAULT '{1,2,3,4,5}',
+			active BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS shift_assignments (
+			id SERIAL PRIMARY KEY,
+			shift_id INT NOT NULL REFERENCES shifts(id) ON DELETE CASCADE,
+			user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			valid_from DATE NOT NULL DEFAULT CURRENT_DATE,
+			valid_to DATE,
+			UNIQUE (shift_id, user_id, valid_from)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_shift_assignments_shift ON shift_assignments(shift_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_shift_assignments_user ON shift_assignments(user_id)`,
+		// Seed dei 3 turni standard se non ce ne sono — così l'utente vede
+		// subito qualcosa nella UI e può modificarli/disattivarli.
+		`INSERT INTO shifts (name, start_time, end_time, weekdays, active)
+		SELECT 'Mattina',   '06:00', '14:00', '{1,2,3,4,5}', true
+		WHERE NOT EXISTS (SELECT 1 FROM shifts LIMIT 1)`,
+		`INSERT INTO shifts (name, start_time, end_time, weekdays, active)
+		SELECT 'Pomeriggio','14:00', '22:00', '{1,2,3,4,5}', true
+		WHERE NOT EXISTS (SELECT 1 FROM shifts WHERE name = 'Pomeriggio')`,
+		`INSERT INTO shifts (name, start_time, end_time, weekdays, active)
+		SELECT 'Notte',     '22:00', '06:00', '{1,2,3,4,5}', true
+		WHERE NOT EXISTS (SELECT 1 FROM shifts WHERE name = 'Notte')`,
+	}
+	for _, stmt := range shifts {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("shifts migration: %w", err)
+		}
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

@@ -464,6 +464,24 @@ func main() {
 			recipes.GET("/:id/runs", recipesHandler.Runs)
 		}
 
+		// Shifts (turni): definizione + assegnazione operatori + detection
+		// turno corrente. Le rotte di lettura sono accessibili a chiunque
+		// sia autenticato (utili sia per admin che per operatore), le
+		// scritture sono ristrette a admin.
+		shiftsHandler := handlers.NewShiftsHandler(database)
+		shifts := api.Group("/shifts")
+		shifts.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			shifts.GET("", shiftsHandler.List)
+			shifts.GET("/current", shiftsHandler.Current)
+			shifts.POST("", middleware.RequireRole(models.RoleAdmin), shiftsHandler.Create)
+			shifts.PUT("/:id", middleware.RequireRole(models.RoleAdmin), shiftsHandler.Update)
+			shifts.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), shiftsHandler.Delete)
+			shifts.GET("/:id/assignments", shiftsHandler.ListAssignments)
+			shifts.POST("/:id/assignments", middleware.RequireRole(models.RoleAdmin), shiftsHandler.CreateAssignment)
+			shifts.DELETE("/assignments/:aid", middleware.RequireRole(models.RoleAdmin), shiftsHandler.DeleteAssignment)
+		}
+
 		// Dashboard overview — un singolo endpoint che aggrega tutto
 		// quello che la pagina dashboard mostra (system / alarms / gateways
 		// / operations / activity timeline / KPI). Refresh ogni 30s lato UI.
