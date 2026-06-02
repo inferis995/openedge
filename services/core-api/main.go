@@ -542,6 +542,10 @@ func main() {
 			// 24h se non specificato.
 			oeeHistoryHandler := handlers.NewOEEHistoryHandler(database, oeeHandler)
 			oeeGrp.GET("/history-v2", oeeHistoryHandler.History)
+			// Matrice "OEE per turno × giorno" — aggregata da oee_history
+			// con join sui turni. Funziona dopo che il cron ha popolato
+			// le ore con shift_id stampato.
+			oeeGrp.GET("/by-shift", oeeHistoryHandler.ByShift)
 		}
 
 		// Cron worker OEE: ogni ora salva snapshot per profilo; a

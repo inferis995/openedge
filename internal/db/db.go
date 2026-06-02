@@ -367,6 +367,21 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration aggiuntiva: respect_shifts + respect_maintenance per
+	// profilo OEE. Quando true (default), il calcolo Availability divide
+	// per Planned Production Time (PPT = window - pause turni -
+	// finestre di manutenzione) invece di wall clock. Risultato: una
+	// linea che non lavora di domenica non viene penalizzata.
+	oeeProfilesAlter := []string{
+		`ALTER TABLE oee_profiles ADD COLUMN IF NOT EXISTS respect_shifts BOOLEAN DEFAULT TRUE`,
+		`ALTER TABLE oee_profiles ADD COLUMN IF NOT EXISTS respect_maintenance BOOLEAN DEFAULT TRUE`,
+	}
+	for _, stmt := range oeeProfilesAlter {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("oee profiles alter: %w", err)
+		}
+	}
+
 	// Seed delle 6 Big Losses standard ISO 22400-2. Servono al loss tree
 	// del commit 3 ma le creiamo già ora — niente downside e schema completo.
 	lossSeed := `

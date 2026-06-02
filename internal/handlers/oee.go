@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 )
 
 // OEEHandler espone gli endpoint /api/oee*.
@@ -47,12 +48,14 @@ func NewOEEHandler(db *sql.DB) *OEEHandler {
 // quale tag, su quale finestra, contro quale target. Usato sia per i
 // profili (letto dal DB) che per la modalità legacy (letto dai settings).
 type oeeConfig struct {
-	WindowMin     int
-	Target        float64 // target OEE % (0 = nessun target)
-	RunTimeTagID  int     // 0 = fallback
-	ProducedTagID int     // 0 = fallback
-	GoodTagID     int     // 0 = fallback
-	TargetPPH     float64 // pezzi/ora atteso
+	WindowMin          int
+	Target             float64 // target OEE % (0 = nessun target)
+	RunTimeTagID       int     // 0 = fallback
+	ProducedTagID      int     // 0 = fallback
+	GoodTagID          int     // 0 = fallback
+	TargetPPH          float64 // pezzi/ora atteso
+	RespectShifts      bool    // true → Availability divide per PPT, no per wall clock
+	RespectMaintenance bool    // true → finestre manutenzione sottratte da PPT
 }
 
 // OEESnapshot è un calcolo OEE singolo (per un profilo o per la modalità
@@ -382,6 +385,11 @@ func (h *OEEHandler) computeSnapshotAt(end time.Time, cfg oeeConfig) OEESnapshot
 
 // computeAvailability — tag-driven se cfg.RunTimeTagID > 0, altrimenti
 // fallback su downtime allarmi critical.
+//
+// Quando cfg.RespectShifts=true, il denominatore non è più la wall clock
+// window ma il Planned Production Time (vedi computePPT): si esclude il
+// tempo fuori turno e le finestre di manutenzione. Una linea che non
+// lavora di domenica non viene così penalizzata.
 func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (float64, string, float64) {
 	if cfg.RunTimeTagID > 0 {
 		var total, running int
@@ -413,15 +421,26 @@ func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (f
 	if downSec < 0 {
 		downSec = 0
 	}
-	windowSec := float64(cfg.WindowMin * 60)
-	availability := 100.0
-	if windowSec > 0 {
-		availability = (1 - downSec/windowSec) * 100
-		if availability < 0 {
-			availability = 0
-		}
+	downMin := downSec / 60
+
+	// Denominatore: PPT se respect_shifts/maintenance, altrimenti wall clock.
+	pptMin := float64(cfg.WindowMin)
+	if cfg.RespectShifts || cfg.RespectMaintenance {
+		pptMin = h.computePPT(start, end, cfg)
 	}
-	return availability, "fallback", downSec / 60
+	if pptMin <= 0 {
+		// Nessun tempo pianificato di produzione → Availability = 100%
+		// (non c'è "expected production" da fallire).
+		return 100, "fallback", 0
+	}
+	availability := (1 - downMin/pptMin) * 100
+	if availability < 0 {
+		availability = 0
+	}
+	if availability > 100 {
+		availability = 100
+	}
+	return availability, "fallback", downMin
 }
 
 // computePerformance — tag-driven se cfg.ProducedTagID > 0 && cfg.TargetPPH > 0.
@@ -502,28 +521,32 @@ func (h *OEEHandler) computeQuality(start, end time.Time, produced float64, cfg 
 // OEEProfile è la row del DB. La uso sia per CRUD che per il calcolo
 // (via config()).
 type OEEProfile struct {
-	ID                  int      `json:"id"`
-	OrgID               int      `json:"org_id"`
-	Name                string   `json:"name"`
-	Description         string   `json:"description,omitempty"`
-	AreaID              *int     `json:"area_id,omitempty"`
-	AreaName            string   `json:"area_name,omitempty"`
-	GatewayID           *int     `json:"gateway_id,omitempty"`
-	RunTimeTagID        *int     `json:"run_time_tag_id,omitempty"`
-	ProducedTagID       *int     `json:"produced_tag_id,omitempty"`
-	GoodTagID           *int     `json:"good_tag_id,omitempty"`
-	TargetPiecesPerHour float64  `json:"target_pieces_per_hour"`
-	WindowMinutes       int      `json:"window_minutes"`
-	TargetOEE           float64  `json:"target_oee"`
-	DisplayOrder        int      `json:"display_order"`
-	Enabled             bool     `json:"enabled"`
+	ID                  int     `json:"id"`
+	OrgID               int     `json:"org_id"`
+	Name                string  `json:"name"`
+	Description         string  `json:"description,omitempty"`
+	AreaID              *int    `json:"area_id,omitempty"`
+	AreaName            string  `json:"area_name,omitempty"`
+	GatewayID           *int    `json:"gateway_id,omitempty"`
+	RunTimeTagID        *int    `json:"run_time_tag_id,omitempty"`
+	ProducedTagID       *int    `json:"produced_tag_id,omitempty"`
+	GoodTagID           *int    `json:"good_tag_id,omitempty"`
+	TargetPiecesPerHour float64 `json:"target_pieces_per_hour"`
+	WindowMinutes       int     `json:"window_minutes"`
+	TargetOEE           float64 `json:"target_oee"`
+	DisplayOrder        int     `json:"display_order"`
+	Enabled             bool    `json:"enabled"`
+	RespectShifts       bool    `json:"respect_shifts"`
+	RespectMaintenance  bool    `json:"respect_maintenance"`
 }
 
 func (p OEEProfile) config() oeeConfig {
 	cfg := oeeConfig{
-		WindowMin: p.WindowMinutes,
-		Target:    p.TargetOEE,
-		TargetPPH: p.TargetPiecesPerHour,
+		WindowMin:          p.WindowMinutes,
+		Target:             p.TargetOEE,
+		TargetPPH:          p.TargetPiecesPerHour,
+		RespectShifts:      p.RespectShifts,
+		RespectMaintenance: p.RespectMaintenance,
 	}
 	if p.RunTimeTagID != nil {
 		cfg.RunTimeTagID = *p.RunTimeTagID
@@ -546,7 +569,8 @@ func (h *OEEHandler) loadEnabledProfiles() []OEEProfile {
 			p.area_id, COALESCE(a.name,''),
 			p.gateway_id, p.run_time_tag_id, p.produced_tag_id, p.good_tag_id,
 			p.target_pieces_per_hour, p.window_minutes, p.target_oee,
-			p.display_order, p.enabled
+			p.display_order, p.enabled,
+			COALESCE(p.respect_shifts, true), COALESCE(p.respect_maintenance, true)
 		FROM oee_profiles p
 		LEFT JOIN areas a ON a.id = p.area_id
 		WHERE p.enabled = true
@@ -578,7 +602,8 @@ func (h *OEEHandler) loadProfile(id int) (OEEProfile, error) {
 			p.area_id, COALESCE(a.name,''),
 			p.gateway_id, p.run_time_tag_id, p.produced_tag_id, p.good_tag_id,
 			p.target_pieces_per_hour, p.window_minutes, p.target_oee,
-			p.display_order, p.enabled
+			p.display_order, p.enabled,
+			COALESCE(p.respect_shifts, true), COALESCE(p.respect_maintenance, true)
 		FROM oee_profiles p
 		LEFT JOIN areas a ON a.id = p.area_id
 		WHERE p.id = $1`, id,
@@ -588,6 +613,7 @@ func (h *OEEHandler) loadProfile(id int) (OEEProfile, error) {
 		&p.GatewayID, &p.RunTimeTagID, &p.ProducedTagID, &p.GoodTagID,
 		&p.TargetPiecesPerHour, &p.WindowMinutes, &p.TargetOEE,
 		&p.DisplayOrder, &p.Enabled,
+		&p.RespectShifts, &p.RespectMaintenance,
 	)
 	return p, err
 }
@@ -599,7 +625,8 @@ func (h *OEEHandler) ListProfiles(c *gin.Context) {
 			p.area_id, COALESCE(a.name,''),
 			p.gateway_id, p.run_time_tag_id, p.produced_tag_id, p.good_tag_id,
 			p.target_pieces_per_hour, p.window_minutes, p.target_oee,
-			p.display_order, p.enabled
+			p.display_order, p.enabled,
+			COALESCE(p.respect_shifts, true), COALESCE(p.respect_maintenance, true)
 		FROM oee_profiles p
 		LEFT JOIN areas a ON a.id = p.area_id
 		ORDER BY p.display_order, p.name`)
@@ -638,6 +665,8 @@ type ProfileRequest struct {
 	TargetOEE           float64 `json:"target_oee"`
 	DisplayOrder        int     `json:"display_order"`
 	Enabled             *bool   `json:"enabled,omitempty"`
+	RespectShifts       *bool   `json:"respect_shifts,omitempty"`
+	RespectMaintenance  *bool   `json:"respect_maintenance,omitempty"`
 }
 
 // CreateProfile POST /api/oee/profiles — admin only.
@@ -662,6 +691,14 @@ func (h *OEEHandler) CreateProfile(c *gin.Context) {
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
+	respectShifts := true
+	if req.RespectShifts != nil {
+		respectShifts = *req.RespectShifts
+	}
+	respectMaint := true
+	if req.RespectMaintenance != nil {
+		respectMaint = *req.RespectMaintenance
+	}
 
 	var id int
 	err := h.db.QueryRow(`
@@ -669,13 +706,13 @@ func (h *OEEHandler) CreateProfile(c *gin.Context) {
 			org_id, name, description, area_id, gateway_id,
 			run_time_tag_id, produced_tag_id, good_tag_id,
 			target_pieces_per_hour, window_minutes, target_oee,
-			display_order, enabled
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			display_order, enabled, respect_shifts, respect_maintenance
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		RETURNING id`,
 		orgID, req.Name, req.Description, req.AreaID, req.GatewayID,
 		req.RunTimeTagID, req.ProducedTagID, req.GoodTagID,
 		req.TargetPiecesPerHour, req.WindowMinutes, req.TargetOEE,
-		req.DisplayOrder, enabled,
+		req.DisplayOrder, enabled, respectShifts, respectMaint,
 	).Scan(&id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -711,17 +748,27 @@ func (h *OEEHandler) UpdateProfile(c *gin.Context) {
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
+	respectShifts := true
+	if req.RespectShifts != nil {
+		respectShifts = *req.RespectShifts
+	}
+	respectMaint := true
+	if req.RespectMaintenance != nil {
+		respectMaint = *req.RespectMaintenance
+	}
 	_, err = h.db.Exec(`
 		UPDATE oee_profiles SET
 			name=$2, description=$3, area_id=$4, gateway_id=$5,
 			run_time_tag_id=$6, produced_tag_id=$7, good_tag_id=$8,
 			target_pieces_per_hour=$9, window_minutes=$10, target_oee=$11,
-			display_order=$12, enabled=$13, updated_at=NOW()
+			display_order=$12, enabled=$13,
+			respect_shifts=$14, respect_maintenance=$15,
+			updated_at=NOW()
 		WHERE id=$1`,
 		id, req.Name, req.Description, req.AreaID, req.GatewayID,
 		req.RunTimeTagID, req.ProducedTagID, req.GoodTagID,
 		req.TargetPiecesPerHour, req.WindowMinutes, req.TargetOEE,
-		req.DisplayOrder, enabled,
+		req.DisplayOrder, enabled, respectShifts, respectMaint,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -803,6 +850,165 @@ func clamp01(v float64) float64 {
 		return 1
 	}
 	return v
+}
+
+// ── Planned Production Time (PPT) ───────────────────────────────────────
+//
+// PPT = window - tempo fuori turno - finestre di manutenzione.
+// È il denominatore "vero" di Availability: una linea che non lavora
+// di domenica non viene penalizzata; una manutenzione programmata non
+// fa crollare l'OEE.
+//
+// Quando nessun turno è definito nel sistema, PPT = window (fallback):
+// le installazioni che non hanno configurato turni continuano a vedere
+// il comportamento "wall clock" di prima.
+
+// computePPT ritorna i minuti di Planned Production Time in [start, end].
+// Se cfg.RespectShifts=false, ritorna semplicemente la durata della
+// finestra. Se cfg.RespectMaintenance=true, sottrae anche le finestre
+// di manutenzione attive nell'intervallo.
+func (h *OEEHandler) computePPT(start, end time.Time, cfg oeeConfig) float64 {
+	windowMin := end.Sub(start).Minutes()
+	if windowMin <= 0 {
+		return 0
+	}
+	var totalMin float64
+	if cfg.RespectShifts {
+		totalMin = h.sumShiftIntersections(start, end)
+		// Se non esiste nessun turno attivo nel sistema, fallback a wall
+		// clock — altrimenti installazioni senza turni vedrebbero PPT=0
+		// e Availability sempre 100% (sbagliato).
+		if totalMin == 0 && !h.hasActiveShifts() {
+			totalMin = windowMin
+		}
+	} else {
+		totalMin = windowMin
+	}
+	if cfg.RespectMaintenance {
+		maintMin := h.sumMaintenanceIntersections(start, end)
+		totalMin -= maintMin
+		if totalMin < 0 {
+			totalMin = 0
+		}
+	}
+	return totalMin
+}
+
+// sumShiftIntersections somma le durate dei segmenti di turno che
+// intersecano la finestra [start, end]. Itera giorno per giorno;
+// per ogni giorno proietta ogni turno attivo su quel weekday in
+// timestamp UTC e calcola l'intersezione con [start, end].
+//
+// Per turni "wrap midnight" (es. 22-06), si proiettano normalmente:
+// shiftEnd = day + endMin + 24h. L'intersezione con la finestra del
+// giorno successivo viene contata nell'iterazione del giorno corrente.
+func (h *OEEHandler) sumShiftIntersections(start, end time.Time) float64 {
+	type shiftRow struct {
+		startMin, endMin int
+		weekdays         []int
+		wraps            bool
+	}
+	rows, err := h.db.Query(`
+		SELECT start_time::text, end_time::text, weekdays
+		FROM shifts WHERE active = true`)
+	if err != nil {
+		return 0
+	}
+	defer rows.Close()
+	var shifts []shiftRow
+	for rows.Next() {
+		var startS, endS string
+		var weekdays pq.Int64Array
+		if err := rows.Scan(&startS, &endS, &weekdays); err != nil {
+			continue
+		}
+		startS = trimSeconds(startS)
+		endS = trimSeconds(endS)
+		shifts = append(shifts, shiftRow{
+			startMin: minutesOfDay(startS),
+			endMin:   minutesOfDay(endS),
+			weekdays: int64sToInts(weekdays),
+			wraps:    wrapsMidnight(startS, endS),
+		})
+	}
+	if len(shifts) == 0 {
+		return 0
+	}
+
+	total := 0.0
+	// Itero giorno per giorno. dayCursor parte dal giorno di "start"
+	// (mezzanotte UTC) e va fino a "end" — con margine 1 giorno per
+	// coprire turni wrap.
+	dayCursor := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+	for !dayCursor.After(end) {
+		weekday := int(dayCursor.Weekday()) // 0=Sun .. 6=Sat
+		for _, s := range shifts {
+			if !contains(s.weekdays, weekday) {
+				continue
+			}
+			shiftStart := dayCursor.Add(time.Duration(s.startMin) * time.Minute)
+			shiftEnd := dayCursor.Add(time.Duration(s.endMin) * time.Minute)
+			if s.wraps {
+				shiftEnd = shiftEnd.Add(24 * time.Hour)
+			}
+			// Intersezione [max(shiftStart, start), min(shiftEnd, end)]
+			iStart := shiftStart
+			if start.After(iStart) {
+				iStart = start
+			}
+			iEnd := shiftEnd
+			if end.Before(iEnd) {
+				iEnd = end
+			}
+			if iEnd.After(iStart) {
+				total += iEnd.Sub(iStart).Minutes()
+			}
+		}
+		dayCursor = dayCursor.Add(24 * time.Hour)
+	}
+	return total
+}
+
+// sumMaintenanceIntersections somma le durate delle finestre di
+// manutenzione che intersecano [start, end]. Una finestra che inizia
+// prima/termina dopo conta solo per la parte interna alla finestra.
+func (h *OEEHandler) sumMaintenanceIntersections(start, end time.Time) float64 {
+	rows, err := h.db.Query(`
+		SELECT start_at, end_at FROM maintenance_windows
+		WHERE start_at < $2 AND end_at > $1`,
+		start, end,
+	)
+	if err != nil {
+		return 0
+	}
+	defer rows.Close()
+	total := 0.0
+	for rows.Next() {
+		var ms, me time.Time
+		if err := rows.Scan(&ms, &me); err != nil {
+			continue
+		}
+		iStart := ms
+		if start.After(iStart) {
+			iStart = start
+		}
+		iEnd := me
+		if end.Before(iEnd) {
+			iEnd = end
+		}
+		if iEnd.After(iStart) {
+			total += iEnd.Sub(iStart).Minutes()
+		}
+	}
+	return total
+}
+
+// hasActiveShifts indica se almeno un turno attivo esiste nel sistema.
+// Usato per il fallback "PPT=window quando non ci sono turni".
+func (h *OEEHandler) hasActiveShifts() bool {
+	var n int
+	_ = h.db.QueryRow(`SELECT COUNT(*) FROM shifts WHERE active = true`).Scan(&n)
+	return n > 0
 }
 
 // ── dashboard integration ───────────────────────────────────────────────

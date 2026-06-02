@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { OEEHistoryChart } from '@/components/oee/OEEHistoryChart';
+import { OEEShiftMatrix } from '@/components/oee/OEEShiftMatrix';
 
 // OEEProfilesPage — gestione multi-profilo OEE.
 // Vista a 2 livelli: lista profili (table) + dialog editor (wizard riusato
@@ -204,6 +205,8 @@ const ProfileEditor = ({
     const [windowMin, setWindowMin]       = useState(480);
     const [targetOEE, setTargetOEE]       = useState(85);
     const [enabled, setEnabled]           = useState(true);
+    const [respectShifts, setRespectShifts]           = useState(true);
+    const [respectMaintenance, setRespectMaintenance] = useState(true);
     const [saving, setSaving]             = useState(false);
 
     useEffect(() => {
@@ -219,10 +222,13 @@ const ProfileEditor = ({
             setWindowMin(initial.window_minutes);
             setTargetOEE(initial.target_oee);
             setEnabled(initial.enabled);
+            setRespectShifts(initial.respect_shifts ?? true);
+            setRespectMaintenance(initial.respect_maintenance ?? true);
         } else {
             setName(''); setDescription(''); setAreaId(null);
             setRunId(null); setProdId(null); setGoodId(null);
             setPph(0); setWindowMin(480); setTargetOEE(85); setEnabled(true);
+            setRespectShifts(true); setRespectMaintenance(true);
         }
     }, [open, initial]);
 
@@ -245,6 +251,8 @@ const ProfileEditor = ({
                 target_oee: targetOEE,
                 display_order: initial?.display_order ?? 0,
                 enabled,
+                respect_shifts: respectShifts,
+                respect_maintenance: respectMaintenance,
             };
             if (initial) {
                 await oeeApi.updateProfile(initial.id, payload);
@@ -346,6 +354,43 @@ const ProfileEditor = ({
                         </div>
                     </div>
 
+                    {/* Planned Production Time — toggles per Availability "vera"
+                        (esclude tempo fuori turno + finestre di manutenzione) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 border border-dashed border-border rounded-md bg-muted/20">
+                        <div className="flex items-start gap-3">
+                            <Switch
+                                id="respect-shifts"
+                                checked={respectShifts}
+                                onCheckedChange={setRespectShifts}
+                            />
+                            <div>
+                                <Label htmlFor="respect-shifts" className="cursor-pointer">
+                                    Considera turni
+                                </Label>
+                                <p className="text-[11px] text-muted-foreground">
+                                    Availability divide per Planned Production Time, non per wall clock.
+                                    Linee ferme di domenica non vengono penalizzate.
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex items-start gap-3">
+                            <Switch
+                                id="respect-maint"
+                                checked={respectMaintenance}
+                                onCheckedChange={setRespectMaintenance}
+                            />
+                            <div>
+                                <Label htmlFor="respect-maint" className="cursor-pointer">
+                                    Considera manutenzioni
+                                </Label>
+                                <p className="text-[11px] text-muted-foreground">
+                                    Finestre di manutenzione programmata sottratte dal PPT — non
+                                    abbassano l'OEE.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Banner auto-detect quando tutto è ancora vuoto */}
                     {usingFallback && allTags.length > 0 && (
                         <div className="flex items-start gap-2 text-xs px-3 py-2 rounded border border-primary/20 bg-primary/5">
@@ -372,7 +417,14 @@ const ProfileEditor = ({
                             allTags={allTags}
                             currentId={runId}
                             onChange={setRunId}
-                            keywords={['running', 'marcia', 'run_state', 'in_marcia', 'machine_run', 'plc_run']}
+                            keywords={[
+                                // IT — comuni in fabbriche italiane
+                                'marcia', 'in_marcia', 'macchina_on', 'linea_on', 'stato_macchina', 'stato', 'attiva', 'attivo', 'avvio', 'start',
+                                // EN — convenzioni internazionali
+                                'running', 'run_state', 'machine_run', 'plc_run', 'is_running', 'in_run', 'run_ok', 'enable',
+                                // Abbreviazioni PLC
+                                's1', 's2', 'st1', 'st2', 'st_run', 'on_off',
+                            ]}
                         />
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -384,7 +436,14 @@ const ProfileEditor = ({
                                     allTags={allTags}
                                     currentId={prodId}
                                     onChange={setProdId}
-                                    keywords={['produced', 'pezzi_prodotti', 'counter', 'pieces_count', 'production_count', 'totalcount', 'totalizzatore']}
+                                    keywords={[
+                                        // IT
+                                        'pezzi_prodotti', 'totalizzatore', 'totale', 'produzione', 'prodotti', 'pz_tot', 'tot_pz', 'pz_prodotti',
+                                        // EN
+                                        'produced', 'production_count', 'pieces_count', 'piece_count', 'totalcount', 'total_pieces', 'pcs_produced',
+                                        // Abbreviazioni
+                                        'cont', 'counter', 'count', 'tot', 'pcs', 'pz', 'qty_tot',
+                                    ]}
                                 />
                             </div>
                             <div className="space-y-1">
@@ -408,7 +467,14 @@ const ProfileEditor = ({
                             allTags={allTags}
                             currentId={goodId}
                             onChange={setGoodId}
-                            keywords={['good', 'pezzi_buoni', 'ok_count', 'conformi', 'good_pieces', 'goodpiecescount', 'buoni_ok']}
+                            keywords={[
+                                // IT
+                                'pezzi_buoni', 'buoni', 'conformi', 'pz_ok', 'ok_pz', 'pz_buoni', 'buoni_ok', 'qualita_ok',
+                                // EN
+                                'good', 'good_pieces', 'good_count', 'goodpiecescount', 'good_pcs', 'pcs_good', 'ok_count', 'pass_count',
+                                // Abbreviazioni
+                                'ok', 'pass',
+                            ]}
                             optional
                         />
                     </div>
@@ -510,6 +576,7 @@ const OEEProfilesPage = () => {
                 <TabsList>
                     <TabsTrigger value="profiles">Profili</TabsTrigger>
                     <TabsTrigger value="history">Storia</TabsTrigger>
+                    <TabsTrigger value="by-shift">Per turno</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="profiles" className="space-y-4 mt-4">
@@ -551,6 +618,10 @@ const OEEProfilesPage = () => {
 
                 <TabsContent value="history" className="space-y-4 mt-4">
                     <HistoryTab profiles={profiles ?? []} />
+                </TabsContent>
+
+                <TabsContent value="by-shift" className="space-y-4 mt-4">
+                    <ByShiftTab profiles={profiles ?? []} />
                 </TabsContent>
             </Tabs>
 
@@ -602,6 +673,41 @@ const HistoryTab = ({ profiles }: { profiles: OEEProfile[] }) => {
             </div>
 
             <OEEHistoryChart profileId={selected} target={target} />
+        </div>
+    );
+};
+
+// Tab Per turno: matrice turni × giorni con OEE colorato.
+const ByShiftTab = ({ profiles }: { profiles: OEEProfile[] }) => {
+    const [selected, setSelected] = useState<number | null>(null);
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+                <Label className="text-xs">Profilo:</Label>
+                <Select
+                    value={selected === null ? 'rollup' : String(selected)}
+                    onValueChange={(v) => setSelected(v === 'rollup' ? null : parseInt(v, 10))}
+                >
+                    <SelectTrigger className="w-72"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="rollup">
+                            <span className="font-medium">Rollup Fabbrica</span>
+                        </SelectItem>
+                        {profiles.map((p) => (
+                            <SelectItem key={p.id} value={String(p.id)}>
+                                {p.name}
+                                {p.area_name && <span className="text-muted-foreground ml-2 text-xs">[{p.area_name}]</span>}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                    Confronto OEE tra turni — la KPI più richiesta dalla direzione.
+                    I dati appaiono dopo che il cron ha popolato almeno un'ora dentro un turno attivo.
+                </p>
+            </div>
+
+            <OEEShiftMatrix profileId={selected} />
         </div>
     );
 };

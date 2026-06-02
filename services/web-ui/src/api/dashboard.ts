@@ -178,6 +178,10 @@ export interface OEEProfile {
     target_oee: number;
     display_order: number;
     enabled: boolean;
+    // Quando true (default), Availability divide per Planned Production
+    // Time (window - pause turni - manutenzioni) invece di wall clock.
+    respect_shifts: boolean;
+    respect_maintenance: boolean;
 }
 
 export interface OEEProfileRequest {
@@ -193,6 +197,22 @@ export interface OEEProfileRequest {
     target_oee: number;
     display_order: number;
     enabled: boolean;
+    respect_shifts?: boolean;
+    respect_maintenance?: boolean;
+}
+
+// Riga della matrice "OEE per turno × giorno".
+export interface OEEShiftRow {
+    profile_id?: number;
+    shift_id: number;
+    shift_name: string;
+    date: string; // YYYY-MM-DD
+    oee: number;
+    availability: number;
+    performance: number;
+    quality: number;
+    hours: number;
+    bucket_start: string;
 }
 
 export interface DashboardOverview {
@@ -260,6 +280,14 @@ export const oeeApi = {
         bucket: 'hour' | 'day' | 'shift';
     }): Promise<OEEHistoryRow[]> => {
         const r = await api.get('/oee/history-v2', { params });
+        return r.data;
+    },
+    byShift: async (params: {
+        profile_id?: number | null;
+        from: string;
+        to: string;
+    }): Promise<OEEShiftRow[]> => {
+        const r = await api.get('/oee/by-shift', { params });
         return r.data;
     },
 };

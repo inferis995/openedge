@@ -1495,7 +1495,37 @@ Parametri:
 - `from`, `to`: RFC3339 oppure YYYY-MM-DD (mezzanotte UTC)
 - `bucket`: `hour` | `day` | `shift` (shift sarà popolato dal commit successivo)
 
-### 13.7 Errori comuni
+### 13.7 OEE per turno + Planned Production Time
+
+Quando i turni sono configurati (vedi §11), ogni profilo OEE può
+calcolare l'Availability rispetto al **Planned Production Time** invece
+che alla wall clock window: PPT = window − pause turni − manutenzioni.
+Risultato: una linea che non lavora di domenica non viene penalizzata.
+
+Per default i profili nuovi hanno `respect_shifts=true` e
+`respect_maintenance=true`. Disattivabili per profilo via UI o API.
+
+```bash
+# Crea profilo che NON considera i turni (calcolo wall clock 24/7)
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Server Room","respect_shifts":false,"respect_maintenance":true,
+       "window_minutes":1440,"target_oee":99,"display_order":99,"enabled":true}' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/profiles
+```
+
+Matrice OEE per turno × giorno (la KPI #1 richiesta dalla direzione):
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/by-shift?profile_id=1&from=2026-05-26&to=2026-06-02" \
+  | python3 -m json.tool
+```
+
+Risposta: array di `{shift_id, shift_name, date, oee, availability, performance, quality, hours}`.
+Aggregato da `oee_history` (bucket=hour) con `JOIN shifts`.
+
+### 13.8 Errori comuni
 
 - **OEE = 0** in modalità tag: controlla che `oee_produced_tag` riceva
   campioni nella finestra (probabilmente il PLC non sta inviando, vedi sezione
