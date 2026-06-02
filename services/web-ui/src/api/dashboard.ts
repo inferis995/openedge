@@ -75,6 +75,16 @@ export interface KPIWidget {
     good_when: 'up' | 'down';
 }
 
+export interface ShiftBlock {
+    shift_id: number;
+    name: string;
+    started_at: string;
+    ends_at: string;
+    time_left_min: number;
+    operators: string[];
+    alarms_this_shift: number;
+}
+
 export interface DashboardOverview {
     generated_at: string;
     system: SystemStatus;
@@ -83,6 +93,7 @@ export interface DashboardOverview {
     operations: OperationsBlock;
     activity: ActivityEvent[];
     kpi: KPIWidget[];
+    shift?: ShiftBlock | null;
 }
 
 export const dashboardApi = {

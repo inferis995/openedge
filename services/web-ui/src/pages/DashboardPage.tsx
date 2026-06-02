@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import {
-    Activity, AlertTriangle, Bell, BellOff, ChefHat, CheckCircle2, Cpu,
+    Activity, AlertTriangle, Bell, BellOff, ChefHat, CheckCircle2, Clock, Cpu,
     Database, FileText, LogIn, Mail, MessageCircle, Pencil, Radio, ShieldAlert,
-    TrendingDown, TrendingUp, Wifi, XCircle,
+    TrendingDown, TrendingUp, UserCircle, Users, Wifi, XCircle,
 } from 'lucide-react';
 
 import { dashboardApi, ActivityEvent, AlarmSummary, KPIWidget } from '@/api/dashboard';
@@ -274,6 +274,80 @@ const RecentAlarmsCard = ({ alarms }: { alarms: AlarmSummary[] }) => (
     </Card>
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Shift card — turno corrente con countdown e operatori in servizio.
+// Card grande in alto perché è la prima cosa che l'operatore deve vedere
+// quando apre la dashboard ("sono nel mio turno? quanto manca? chi è con me?").
+// ─────────────────────────────────────────────────────────────────────────────
+const ShiftCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>['data']> }) => {
+    if (!data.shift) {
+        return (
+            <Card className="border-dashed">
+                <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                        <Clock size={14} /> Turno corrente
+                    </CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm text-muted-foreground py-4 text-center">
+                    Nessun turno in corso adesso.
+                </CardContent>
+            </Card>
+        );
+    }
+    const s = data.shift;
+    const totalMin = Math.max(1, Math.round((new Date(s.ends_at).getTime() - new Date(s.started_at).getTime()) / 60_000));
+    const passedMin = Math.max(0, totalMin - s.time_left_min);
+    const progress = Math.min(100, Math.round((passedMin / totalMin) * 100));
+    const leftHours = Math.floor(s.time_left_min / 60);
+    const leftMins = s.time_left_min % 60;
+    const leftLabel = leftHours > 0 ? `${leftHours}h ${leftMins}m` : `${leftMins}m`;
+
+    return (
+        <Card>
+            <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+                <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                    <Clock size={14} /> Turno corrente
+                </CardTitle>
+                <Badge className="bg-emerald-500/10 text-emerald-500 border-none">in corso</Badge>
+            </CardHeader>
+            <CardContent className="space-y-3">
+                <div className="flex items-baseline justify-between">
+                    <span className="text-xl font-bold tracking-tight">{s.name}</span>
+                    <span className="text-xs text-muted-foreground font-mono">
+                        {new Date(s.started_at).toISOString().slice(11, 16)}–{new Date(s.ends_at).toISOString().slice(11, 16)}
+                    </span>
+                </div>
+                {/* progress bar */}
+                <div className="space-y-1">
+                    <div className="w-full h-2 bg-muted rounded">
+                        <div className="h-2 rounded bg-primary" style={{ width: `${progress}%` }} />
+                    </div>
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>{progress}% completato</span>
+                        <span>Restano {leftLabel}</span>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                    <Users size={14} className="text-muted-foreground" />
+                    {s.operators.length === 0
+                        ? <span className="text-muted-foreground">Nessun operatore designato</span>
+                        : s.operators.map((u) => (
+                            <span key={u} className="inline-flex items-center gap-1">
+                                <UserCircle size={14} /> {u}
+                            </span>
+                        ))}
+                </div>
+                <div className="flex items-center justify-between text-xs pt-1 border-t">
+                    <span className="text-muted-foreground">Allarmi durante questo turno</span>
+                    <span className={`font-semibold ${s.alarms_this_shift > 0 ? 'text-orange-500' : 'text-emerald-500'}`}>
+                        {s.alarms_this_shift}
+                    </span>
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
+
 const SystemCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>['data']> }) => {
     const s = data.system;
     const dot = (ok: boolean) => (
@@ -343,6 +417,10 @@ const DashboardPage = () => {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 {data.kpi.map((k) => <KPICard key={k.key} k={k} />)}
             </div>
+
+            {/* Turno corrente — riga a sé sopra le 3 card metriche, perché è
+                l'informazione più "operativa" che l'operatore vuole vedere subito. */}
+            <ShiftCard data={data} />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <AlarmsCard      data={data} />

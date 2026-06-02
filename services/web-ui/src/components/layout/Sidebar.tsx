@@ -25,6 +25,7 @@ import {
     ChefHat,
     Activity,
     FileText,
+    Clock,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -49,6 +50,7 @@ const Sidebar = () => {
         { name: 'Alarms', path: '/alarms', icon: Bell },
         { name: 'Recipes', path: '/recipes', icon: ChefHat },
         { name: 'Reports', path: '/reports', icon: FileText },
+        { name: 'Turni', path: '/shifts', icon: Clock },
         { name: 'i3X API',      path: '/i3x',          icon: Network },
     ];
 
