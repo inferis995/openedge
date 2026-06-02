@@ -546,6 +546,13 @@ func main() {
 			// con join sui turni. Funziona dopo che il cron ha popolato
 			// le ore con shift_id stampato.
 			oeeGrp.GET("/by-shift", oeeHistoryHandler.ByShift)
+
+			// Loss tree + Pareto cause + MTBF/MTTR. Popolato in automatico
+			// dal cron worker (PopulateLossEvents).
+			lossesHandler := handlers.NewLossesHandler(database)
+			oeeGrp.GET("/loss-tree", lossesHandler.LossTree)
+			oeeGrp.GET("/loss-categories", lossesHandler.ListCategories)
+			oeeGrp.GET("/profiles/:id/reliability", lossesHandler.MTBFMTTR)
 		}
 
 		// Cron worker OEE: ogni ora salva snapshot per profilo; a
@@ -1324,6 +1331,11 @@ func runOEECronWorker(db *sql.DB, oee *handlers.OEEHandler) {
 				log.Printf("[OEE-CRON] hourly snapshot failed: %v", err)
 			} else {
 				log.Printf("[OEE-CRON] hourly snapshot ok @ %s", u.Format("2006-01-02 15:00"))
+			}
+			// Loss events: ogni ora cattura allarmi critical chiusi nelle
+			// ultime 2h + maintenance setup. Idempotente.
+			if err := handlers.PopulateLossEvents(db, u); err != nil {
+				log.Printf("[OEE-CRON] populate loss events failed: %v", err)
 			}
 			// Mezzanotte UTC: aggregazione giornaliera del giorno precedente.
 			if u.Hour() == 0 {

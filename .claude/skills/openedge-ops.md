@@ -1525,7 +1525,35 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_I
 Risposta: array di `{shift_id, shift_name, date, oee, availability, performance, quality, hours}`.
 Aggregato da `oee_history` (bucket=hour) con `JOIN shifts`.
 
-### 13.8 Errori comuni
+### 13.8 Loss tree + Pareto cause + MTBF/MTTR
+
+Auto-popolato dal cron worker — niente data entry operatore. Logica:
+- Allarme critical chiuso → categoria `breakdown` (un evento per profilo)
+- Maintenance window con titolo contenente "setup"/"cambio"/"changeover" → `setup`
+- Maintenance "pura" (titolo neutro) → esclusa dal PPT, no loss event
+- Scope per profilo: profilo con `gateway_id` set vede solo allarmi su tag di quel gateway; profilo senza gateway vede tutti gli allarmi
+
+Endpoint:
+
+```bash
+# Loss tree (Pareto cause)
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/loss-tree?profile_id=1&from=2026-05-26&to=2026-06-02" \
+  | python3 -m json.tool
+
+# MTBF/MTTR per profilo
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/profiles/1/reliability?from=2026-05-26&to=2026-06-02"
+
+# Categorie disponibili (6 Big Losses ISO 22400-2)
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/loss-categories
+```
+
+MTBF = uptime / num_breakdowns dove uptime = planned_min(oee_history) - repair_min.
+MTTR = sum(breakdown_duration) / num_breakdowns.
+
+### 13.9 Errori comuni
 
 - **OEE = 0** in modalità tag: controlla che `oee_produced_tag` riceva
   campioni nella finestra (probabilmente il PLC non sta inviando, vedi sezione

@@ -290,7 +290,43 @@ export const oeeApi = {
         const r = await api.get('/oee/by-shift', { params });
         return r.data;
     },
+    // Loss tree (Six Big Losses) + Pareto cause + MTBF/MTTR.
+    lossTree: async (params: {
+        profile_id: number;
+        from: string;
+        to: string;
+    }): Promise<{ categories: OEELossCategoryAgg[]; total_minutes: number }> => {
+        const r = await api.get('/oee/loss-tree', { params });
+        return r.data;
+    },
+    reliability: async (id: number, from: string, to: string): Promise<OEEReliability> => {
+        const r = await api.get(`/oee/profiles/${id}/reliability`, { params: { from, to } });
+        return r.data;
+    },
 };
+
+export interface OEELossCategoryAgg {
+    category_id: number;
+    code: string;
+    pillar: 'availability' | 'performance' | 'quality';
+    display_label: string;
+    color: string;
+    events_count: number;
+    total_minutes: number;
+    percent_of_total: number;
+}
+
+export interface OEEReliability {
+    profile_id: number;
+    from: string;
+    to: string;
+    breakdown_count: number;
+    total_run_min: number;
+    total_repair_min: number;
+    mtbf_minutes: number;
+    mtbf_hours: number;
+    mttr_minutes: number;
+}
 
 // Riga del rollup persistito — più informazioni del semplice
 // OEEHistoryPoint (include A/P/Q, pieces, shift).

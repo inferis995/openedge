@@ -397,6 +397,36 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: failed to seed loss categories: %v", err)
 	}
 
+	// Migration: oee_loss_events. Singolo evento di perdita registrato dal
+	// cron worker, agganciato a una causa (allarme critical, maintenance,
+	// run_tag=0). Popolato per profilo: ogni profilo "vede" gli eventi che
+	// gli appartengono via gateway_id (o tutti, se il profilo non ha scope).
+	// UNIQUE (profile_id, source, source_ref) garantisce idempotenza.
+	lossEvents := []string{
+		`CREATE TABLE IF NOT EXISTS oee_loss_events (
+			id BIGSERIAL PRIMARY KEY,
+			profile_id INT NOT NULL REFERENCES oee_profiles(id) ON DELETE CASCADE,
+			category_id INT NOT NULL REFERENCES oee_loss_categories(id),
+			start_at TIMESTAMPTZ NOT NULL,
+			end_at TIMESTAMPTZ NOT NULL,
+			duration_min DOUBLE PRECISION NOT NULL,
+			source TEXT NOT NULL CHECK (source IN ('alarm','maintenance','no_run_tag')),
+			source_ref BIGINT,
+			notes TEXT,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			UNIQUE (profile_id, source, source_ref)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_oee_loss_events_lookup
+			ON oee_loss_events(profile_id, start_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_oee_loss_events_cat
+			ON oee_loss_events(profile_id, category_id, start_at)`,
+	}
+	for _, stmt := range lossEvents {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("oee loss events migration: %w", err)
+		}
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

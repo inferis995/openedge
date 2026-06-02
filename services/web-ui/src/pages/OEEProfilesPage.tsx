@@ -28,6 +28,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { OEEHistoryChart } from '@/components/oee/OEEHistoryChart';
 import { OEEShiftMatrix } from '@/components/oee/OEEShiftMatrix';
+import { OEELossPareto } from '@/components/oee/OEELossPareto';
 
 // OEEProfilesPage — gestione multi-profilo OEE.
 // Vista a 2 livelli: lista profili (table) + dialog editor (wizard riusato
@@ -577,6 +578,7 @@ const OEEProfilesPage = () => {
                     <TabsTrigger value="profiles">Profili</TabsTrigger>
                     <TabsTrigger value="history">Storia</TabsTrigger>
                     <TabsTrigger value="by-shift">Per turno</TabsTrigger>
+                    <TabsTrigger value="losses">Loss &amp; Pareto</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="profiles" className="space-y-4 mt-4">
@@ -622,6 +624,10 @@ const OEEProfilesPage = () => {
 
                 <TabsContent value="by-shift" className="space-y-4 mt-4">
                     <ByShiftTab profiles={profiles ?? []} />
+                </TabsContent>
+
+                <TabsContent value="losses" className="space-y-4 mt-4">
+                    <LossesTab profiles={profiles ?? []} />
                 </TabsContent>
             </Tabs>
 
@@ -708,6 +714,52 @@ const ByShiftTab = ({ profiles }: { profiles: OEEProfile[] }) => {
             </div>
 
             <OEEShiftMatrix profileId={selected} />
+        </div>
+    );
+};
+
+// Tab Loss & Pareto: richiede un profilo specifico (non rollup, perché
+// le perdite sono per profilo). Mostra MTBF/MTTR + Pareto delle 6 cause.
+const LossesTab = ({ profiles }: { profiles: OEEProfile[] }) => {
+    const [selected, setSelected] = useState<number | null>(
+        profiles.length > 0 ? profiles[0].id : null,
+    );
+    const selectedProfile = profiles.find((p) => p.id === selected);
+
+    if (profiles.length === 0) {
+        return (
+            <div className="py-12 text-center text-sm text-muted-foreground border border-dashed rounded-md">
+                Crea almeno un profilo OEE per visualizzare il loss tree.
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+                <Label className="text-xs">Profilo:</Label>
+                <Select
+                    value={selected !== null ? String(selected) : ''}
+                    onValueChange={(v) => setSelected(parseInt(v, 10))}
+                >
+                    <SelectTrigger className="w-72"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        {profiles.map((p) => (
+                            <SelectItem key={p.id} value={String(p.id)}>
+                                {p.name}
+                                {p.area_name && <span className="text-muted-foreground ml-2 text-xs">[{p.area_name}]</span>}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                    Auto-popolato dal cron: allarmi critical → breakdown, manutenzioni "setup"/"cambio" → setup.
+                </p>
+            </div>
+
+            {selectedProfile && (
+                <OEELossPareto profileId={selectedProfile.id} profileName={selectedProfile.name} />
+            )}
         </div>
     );
 };
