@@ -93,6 +93,148 @@ type OEEHistoryPoint struct {
 	OEE    float64   `json:"oee"`
 }
 
+// TagTestResult è il "lo provi prima di salvare" della config OEE:
+// dato un tag id + un ruolo ("running" o "counter"), il backend legge
+// gli ultimi N campioni e dice all'admin "sì, questo tag funziona per
+// quel ruolo" o "no, ecco perché". Niente più "configuro a caso e
+// guardo se la dashboard mostra numeri sensati 8 ore dopo".
+type TagTestResult struct {
+	TagID        int     `json:"tag_id"`
+	Alias        string  `json:"alias"`
+	Code         string  `json:"code"`
+	DataType     string  `json:"data_type"`
+	SamplesCount int     `json:"samples_count"`
+	CurrentValue float64 `json:"current_value"`
+	FirstValue   float64 `json:"first_value"`
+	LastValue    float64 `json:"last_value"`
+	MinValue     float64 `json:"min_value"`
+	MaxValue     float64 `json:"max_value"`
+	Delta        float64 `json:"delta"`
+	// IsMonotonic: per ruolo "counter" — il valore non decresce mai
+	// nei campioni esaminati. False = il tag fa rollover o non è un
+	// counter (es. è già un rate).
+	IsMonotonic bool `json:"is_monotonic"`
+	// IsBoolish: per ruolo "running" — il tag oscilla tra 0 e qualcosa
+	// di non-zero. True = ok come BOOL. False = è un analogico continuo.
+	IsBoolish bool `json:"is_boolish"`
+	// Warnings: avvisi non bloccanti (es. "nessun campione nelle ultime 24h"
+	// o "valore costante da 1h: macchina ferma?")
+	Warnings []string `json:"warnings"`
+	// Ok: verdetto sintetico "questo tag va bene per il ruolo richiesto".
+	Ok bool `json:"ok"`
+}
+
+// TestTag GET /api/oee/test-tag/:id?role=running|counter — verdetto
+// "questo tag funziona per il ruolo?" usato dal wizard OEE per dare
+// feedback verde/giallo/rosso prima di salvare la config.
+func (h *OEEHandler) TestTag(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tag id"})
+		return
+	}
+	role := c.Query("role")
+	if role != "running" && role != "counter" {
+		role = "counter"
+	}
+
+	out := TagTestResult{TagID: id, Warnings: []string{}}
+
+	// Metadati tag
+	var alias sql.NullString
+	if err := h.db.QueryRow(`
+		SELECT COALESCE(alias,''), code, data_type FROM tags WHERE id = $1`,
+		id,
+	).Scan(&alias, &out.Code, &out.DataType); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "tag not found"})
+		return
+	}
+	out.Alias = alias.String
+
+	// Ultimi N campioni (ordine crescente per check monotonic).
+	rows, err := h.db.Query(`
+		SELECT value FROM tag_history WHERE tag_id = $1
+		ORDER BY time DESC LIMIT 50`, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "tag_history query failed"})
+		return
+	}
+	defer rows.Close()
+
+	var vals []float64
+	for rows.Next() {
+		var v float64
+		if rows.Scan(&v) == nil {
+			vals = append(vals, v)
+		}
+	}
+	out.SamplesCount = len(vals)
+	if len(vals) == 0 {
+		out.Warnings = append(out.Warnings, "Nessun campione nelle ultime ore — il tag riceve dati?")
+		out.Ok = false
+		c.JSON(http.StatusOK, out)
+		return
+	}
+
+	// vals[0] è il più recente; rovesciamo per analisi cronologica.
+	for i, j := 0, len(vals)-1; i < j; i, j = i+1, j-1 {
+		vals[i], vals[j] = vals[j], vals[i]
+	}
+
+	out.FirstValue = vals[0]
+	out.LastValue = vals[len(vals)-1]
+	out.CurrentValue = out.LastValue
+	out.Delta = out.LastValue - out.FirstValue
+
+	out.MinValue = vals[0]
+	out.MaxValue = vals[0]
+	monotonic := true
+	zeros, nonzeros := 0, 0
+	for i, v := range vals {
+		if v < out.MinValue {
+			out.MinValue = v
+		}
+		if v > out.MaxValue {
+			out.MaxValue = v
+		}
+		if i > 0 && v < vals[i-1] {
+			monotonic = false
+		}
+		if v == 0 {
+			zeros++
+		} else {
+			nonzeros++
+		}
+	}
+	out.IsMonotonic = monotonic
+	out.IsBoolish = zeros > 0 && nonzeros > 0 && out.MinValue >= 0 && out.MaxValue <= 1.0001
+
+	switch role {
+	case "running":
+		out.Ok = out.IsBoolish
+		if !out.IsBoolish {
+			if out.MinValue == out.MaxValue {
+				out.Warnings = append(out.Warnings,
+					"Valore costante: il tag non cambia stato. Macchina ferma o tag sbagliato.")
+			} else if out.MaxValue > 1 {
+				out.Warnings = append(out.Warnings,
+					"Valori > 1: sembra un analogico, non un BOOL on/off. Per running serve 0/1.")
+			}
+		}
+	case "counter":
+		out.Ok = monotonic && out.Delta > 0
+		if !monotonic {
+			out.Warnings = append(out.Warnings,
+				"Il valore decresce in alcuni punti: counter resettato a fine turno? Usa un counter monotono.")
+		}
+		if out.Delta == 0 && monotonic {
+			out.Warnings = append(out.Warnings,
+				"Counter fermo nei campioni esaminati: linea non sta producendo o tag sbagliato.")
+		}
+	}
+	c.JSON(http.StatusOK, out)
+}
+
 // History ritorna l'OEE per ognuno degli ultimi 7 giorni, ricalcolato.
 // Implementazione semplice: 7 chiamate a compute() proiettate indietro
 // nel tempo. Ok fino a window=8h (i dati ci sono); per finestre più

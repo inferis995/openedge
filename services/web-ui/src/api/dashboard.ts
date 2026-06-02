@@ -121,6 +121,25 @@ export interface OEEHistoryPoint {
     oee: number;
 }
 
+// Risultato di "lo provi prima di salvare" per il wizard OEE.
+export interface OEETagTestResult {
+    tag_id: number;
+    alias: string;
+    code: string;
+    data_type: string;
+    samples_count: number;
+    current_value: number;
+    first_value: number;
+    last_value: number;
+    min_value: number;
+    max_value: number;
+    delta: number;
+    is_monotonic: boolean;
+    is_boolish: boolean;
+    warnings: string[];
+    ok: boolean;
+}
+
 export interface DashboardOverview {
     generated_at: string;
     system: SystemStatus;
@@ -150,6 +169,10 @@ export const oeeApi = {
     },
     history: async (): Promise<OEEHistoryPoint[]> => {
         const r = await api.get('/oee/history');
+        return r.data;
+    },
+    testTag: async (tagId: number, role: 'running' | 'counter'): Promise<OEETagTestResult> => {
+        const r = await api.get(`/oee/test-tag/${tagId}`, { params: { role } });
         return r.data;
     },
 };

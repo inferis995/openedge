@@ -526,6 +526,9 @@ func main() {
 		{
 			oeeGrp.GET("", oeeHandler.Snapshot)
 			oeeGrp.GET("/history", oeeHandler.History)
+			// Test pre-config: verifica che un tag sia adatto al ruolo
+			// (running BOOL o counter monotono) prima che l'admin salvi.
+			oeeGrp.GET("/test-tag/:id", oeeHandler.TestTag)
 		}
 
 		// Dashboard overview — un singolo endpoint che aggrega tutto
