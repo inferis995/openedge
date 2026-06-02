@@ -1313,6 +1313,292 @@ echo "$CURRENT" > "$STATE_FILE"
 
 ---
 
+## 11c. Anomaly detection contestuale (il vero valore dell'agente)
+
+Il Z-score di `/api/aiops/anomalies` è cheap e veloce — lo lasciamo
+correre in background. Il vero valore dell'agente è il **ragionamento
+contestuale**: correlare il drop di OEE con il cambio formato di mercoledì,
+spiegare perché gli allarmi temperatura aumentano sempre nel turno notte,
+suggerire quale tag controllare quando la Performance crolla.
+
+Cose che un Z-score statistico **non sa fare** e che l'agente fa nativamente:
+
+1. **Correlazioni cross-dominio**: "OEE giù + 3 allarmi P5 + manutenzione
+   settimana scorsa = probabile usura cuscinetto P5"
+2. **Pattern temporali**: "Performance crolla sempre il lunedì mattina
+   = cold-start, considera pre-heat 30 min prima del turno"
+3. **Spiegazione in linguaggio naturale**: non "z=-2.3 su tag #47", ma
+   "Linea A è sotto target da 6h, coincide con il turno del nuovo
+   operatore Marco, verificare formazione su cambio formato"
+4. **Indagine ad-hoc free-form**: il caporeparto chiede "perché ieri
+   alle 14 OEE è crollato?" e l'agente capisce, pulla dati, risponde
+
+L'architettura ideale è **due livelli**:
+
+- OpenEdge fa il filtro grezzo (Z-score + soglie alert) → flagga eventi
+- Agente Claude fa l'interpretazione → spiega + suggerisce azione
+
+### 11c.1 Pattern "digest mattina" (cron giornaliero 07:00)
+
+Ogni mattina alle 07:00, prima del turno mattina, raccogli stato delle
+ultime 24h e mandalo via email/Telegram al capo turno. L'agente non
+riceve dati grezzi: riceve le risposte degli endpoint API e li sintetizza.
+
+**Setup cron**:
+
+```bash
+# /etc/cron.d/openedge-morning-digest
+0 7 * * * monitor /usr/local/bin/openedge-morning-digest.sh
+```
+
+**Script** che raccoglie i dati e li passa all'agente:
+
+```bash
+#!/bin/bash
+# /usr/local/bin/openedge-morning-digest.sh
+source /etc/openedge-monitor.env
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+H() { echo "-H Authorization:Bearer $TOKEN -H X-Organization-ID:$OPENEDGE_ORG_ID"; }
+BASE="http://$OPENEDGE_HOST:$OPENEDGE_PORT/api"
+
+OUT=$(mktemp)
+{
+  echo "=== AIOPS SUMMARY (24h) ==="
+  curl -s $(H) "$BASE/aiops/summary?hours=24"
+  echo
+  echo "=== ALARMS DIGEST (24h) ==="
+  curl -s $(H) "$BASE/aiops/alarms/digest?hours=24"
+  echo
+  echo "=== ANOMALIES (Z-score) ==="
+  curl -s $(H) "$BASE/aiops/anomalies?hours=24"
+  echo
+  echo "=== DASHBOARD OVERVIEW ==="
+  curl -s $(H) "$BASE/dashboard/overview"
+  echo
+  echo "=== OEE OVERVIEW ==="
+  curl -s $(H) "$BASE/oee"
+  echo
+  echo "=== OEE LOSS TREE ULTIMO PROFILO ==="
+  # Per ogni profilo abilitato, raccogli il loss tree ultime 24h
+  PROFILES=$(curl -s $(H) "$BASE/oee/profiles" | python3 -c "import sys,json; print(' '.join(str(p['id']) for p in json.load(sys.stdin) if p['enabled']))")
+  FROM=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+  TO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  for pid in $PROFILES; do
+    echo "--- PROFILE $pid ---"
+    curl -s $(H) "$BASE/oee/loss-tree?profile_id=$pid&from=$FROM&to=$TO"
+  done
+} > "$OUT"
+
+# Invia il digest all'agente (Claude Code CLI o agent SDK).
+# L'agente legge $OUT e produce il digest sintetico.
+claude --skill openedge \
+  --prompt "$(cat <<EOF
+Sei l'agente monitor di OpenEdge. Analizza i dati nel file allegato
+e genera un digest sintetico (max 300 parole) per il capo turno mattina.
+
+Cerca specificamente:
+- Anomalie rispetto al pattern "tipico" (es. allarmi raddoppiati,
+  OEE sceso di >5pp vs media settimana scorsa)
+- Correlazioni: allarmi che coincidono con cali OEE
+- Eventi nel turno notte da segnalare al turno mattina
+- 1-3 azioni concrete raccomandate
+
+Formato:
+1. STATO COMPLESSIVO (1 frase, verde/giallo/rosso)
+2. EVENTI CHIAVE (3-5 bullet)
+3. AZIONI RACCOMANDATE (1-3 bullet, concrete, con tag/macchina specifica)
+4. DOMANDE APERTE (se ce ne sono — invita il capo turno a indagare)
+
+Tono: tecnico ma diretto, niente "potrebbe essere", o concrete o non scriverlo.
+EOF
+)" --file "$OUT" \
+  | mail -s "OpenEdge — Digest mattina $(date +%d/%m)" $CAPO_TURNO_EMAIL
+
+rm "$OUT"
+```
+
+Esempio output atteso:
+
+```
+STATO: GIALLO
+
+EVENTI CHIAVE:
+- Linea A: OEE turno notte 67% (target 80%, settimana scorsa media 78%)
+- 4 allarmi critical su Gateway 2 nelle ultime 6h, tutti su tag
+  "Pressa5.Temperature" — 2x del normale
+- Manutenzione programmata "Cambio stampo L2" completata alle 04:15
+- Linea B: zero allarmi, OEE 84% in linea con target
+
+AZIONI RACCOMANDATE:
+- Controllare circuito raffreddamento Pressa 5 prima dell'avvio del
+  turno mattina — temperatura ha sfiorato 95°C 3 volte
+- Verificare con operatore Linea A turno notte se ci sono stati
+  microstop non registrati (Performance 71%)
+
+DOMANDE APERTE:
+- L'aumento allarmi temperatura coincide con la pulizia filtri di
+  martedì? — Vale la pena ricontrollare i filtri.
+```
+
+### 11c.2 Pattern "digest fine turno" (handover)
+
+A fine turno, prima del passaggio consegne, l'agente confronta i KPI del
+turno appena finito vs media degli ultimi 7 turni dello stesso tipo
+(mattina vs mattina, notte vs notte).
+
+```bash
+# Cron: ogni fine turno (06:00, 14:00, 22:00 in CET)
+0 5,13,21 * * * monitor /usr/local/bin/openedge-shift-handover.sh
+```
+
+```bash
+#!/bin/bash
+# /usr/local/bin/openedge-shift-handover.sh
+source /etc/openedge-monitor.env
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+H() { echo "-H Authorization:Bearer $TOKEN -H X-Organization-ID:$OPENEDGE_ORG_ID"; }
+BASE="http://$OPENEDGE_HOST:$OPENEDGE_PORT/api"
+
+# Detect turno corrente
+SHIFT=$(curl -s $(H) "$BASE/shifts/current")
+SHIFT_ID=$(echo "$SHIFT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('shift',{}).get('id',''))")
+[ -z "$SHIFT_ID" ] && exit 0
+
+# OEE per turno ultimi 7 giorni per confronto
+FROM=$(date -u -d '7 days ago' +%Y-%m-%d)
+TO=$(date -u +%Y-%m-%d)
+DATA=$(mktemp)
+{
+  echo "=== TURNO CORRENTE ==="
+  echo "$SHIFT"
+  echo
+  echo "=== OEE PER TURNO ULTIMI 7 GIORNI ==="
+  curl -s $(H) "$BASE/oee/by-shift?from=$FROM&to=$TO"
+  echo
+  echo "=== ALARMS DURING SHIFT ==="
+  curl -s $(H) "$BASE/aiops/alarms/digest?hours=8"
+} > "$DATA"
+
+claude --skill openedge --prompt "$(cat <<EOF
+Analizza i dati allegati. Sei l'agente OpenEdge a fine turno.
+
+Confronta il turno corrente (shift_id $SHIFT_ID, fine turno è adesso)
+con la media degli stessi turni nei 7 giorni precedenti.
+
+Produci un handover report (max 200 parole) per il capo turno
+entrante. Formato:
+
+TURNO USCENTE: [nome turno, ore lavorate, KPI principali]
+
+CONFRONTO vs MEDIA 7gg:
+- OEE: corrente X% vs media Y% → meglio/peggio di Z%
+- Allarmi: corrente N vs media M
+- Cause fermo principali: ...
+
+ATTENZIONE per turno entrante:
+- [1-2 cose specifiche da monitorare per chi entra adesso]
+
+Tono: stile "passaggio consegne" reale, schietto.
+EOF
+)" --file "$DATA" \
+  | mail -s "OpenEdge — Handover turno $(date +%d/%m\ %H:%M)" $CAPO_TURNO_EMAIL
+
+rm "$DATA"
+```
+
+### 11c.3 Pattern "indagine ad-hoc" (operatore via chat)
+
+Quando il caporeparto chiede via Slack/Teams/CLI "perché OEE Linea B è
+crollato giovedì alle 14:00?", l'agente sa pullare tutti i dati rilevanti
+nello stesso intervallo. È l'uso "interattivo" della skill — niente cron,
+ogni richiesta è on-demand.
+
+Sequenza tipica che l'agente deve eseguire:
+
+```bash
+# 1. Identifica il profilo di "Linea B"
+curl -s $(H) "$BASE/oee/profiles" | jq '.[] | select(.name | test("Linea B"; "i"))'
+# → ottieni profile_id
+
+# 2. OEE history orario per quel giorno
+curl -s $(H) "$BASE/oee/history-v2?profile_id=$PID&from=2026-06-12T00:00:00Z&to=2026-06-13T00:00:00Z&bucket=hour"
+# → verifica il drop alle 14
+
+# 3. Allarmi nello stesso intervallo
+curl -s $(H) "$BASE/i3x/v1/alarms/history?from=2026-06-12T13:00:00Z&to=2026-06-12T15:00:00Z"
+
+# 4. Manutenzioni
+curl -s $(H) "$BASE/maintenance?from=2026-06-12&to=2026-06-12"
+
+# 5. Loss events del giorno
+curl -s $(H) "$BASE/oee/loss-tree?profile_id=$PID&from=2026-06-12T00:00:00Z&to=2026-06-13T00:00:00Z"
+
+# 6. Turno che era attivo + chi era operatore
+curl -s $(H) "$BASE/shifts/current"  # ovviamente al momento giusto se backfill
+```
+
+Poi sintetizza in linguaggio naturale con CITAZIONI dei dati che ha letto.
+**Non inventare causalità** — se i dati non sono conclusivi, dirlo
+esplicitamente ("non ci sono allarmi che spieghino il drop, vale la pena
+parlare con l'operatore del turno").
+
+Pattern del prompt utente tipico:
+- "perché OEE di X è basso oggi?"
+- "cosa è successo ieri alle 14?"
+- "ci sono pattern strani nell'ultima settimana?"
+- "Linea A è peggio di Linea B questa settimana, perché?"
+
+### 11c.4 Pattern "weekly review" (domenica sera)
+
+Una volta a settimana, l'agente fa un review più approfondito: confronta
+la settimana col mese precedente, identifica trend (non eventi singoli)
+e propone 1-3 cose da indagare nella settimana che inizia.
+
+```bash
+0 20 * * 0 monitor /usr/local/bin/openedge-weekly-review.sh
+```
+
+L'output va al direttore di produzione, non al capo turno. Formato più
+strategico:
+
+```
+PRODUZIONE — settimana 23 (3-9 giugno) vs media maggio
+
+OEE FABBRICA: 76% (+2 vs maggio)
+- Linea A: 81% (+5) — best settimana del mese
+- Linea B: 71% (-3) — terzo trend negativo consecutivo, da indagare
+- Linea C: 78% (stabile)
+
+LOSS TREE (ore totali fermo):
+1. Breakdown:    14h (-3h vs maggio) — meglio
+2. Setup:         9h (+2h)            — peggio, troppe code di cambio formato?
+3. Minor stop:    6h                  — invariato
+
+AZIONI WEEK-AHEAD:
+1. Indagine Linea B: trend negativo da 3 settimane, MTBF sceso da 48h
+   a 31h → controllo manutenzione preventiva pompe entro mercoledì
+2. Setup time aumentato 28% — vale la pena timing dettagliato sui
+   prossimi 5 cambi formato per capire dove si perde
+3. Allarmi alta priorità invariati → nessuna emergenza
+```
+
+### 11c.5 Quando NON usare l'agente per anomaly detection
+
+- **Real-time critical**: il Z-score in OpenEdge è già istantaneo, l'agente
+  ha latenza di secondi/minuti + costo token. Per "macchina ferma adesso"
+  basta l'alarm dispatcher esistente.
+- **Trigger automatici di azione**: l'LLM è probabilistico. Se la regola
+  è "se temperatura > 90 ferma la pompa", scrivila come alarm rule, non
+  delegarla al ragionamento dell'agente.
+- **Decisioni di sicurezza**: per qualsiasi cosa che impatti safety
+  (interlock, blocchi, allarmi vita), lascia che decida un PLC o un
+  alarm rule deterministico, non un LLM.
+
+L'agente è ottimo per **diagnosi** e **interpretazione**, non per
+**controllo in tempo reale**.
+
+---
+
 ## 13. Flusso operativo riassunto per l'agente monitor
 
 ```
