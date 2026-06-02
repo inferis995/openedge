@@ -618,4 +618,249 @@ agente riceve task:
 
 ---
 
+## 10. Configurazione settings da API
+
+Tutti i settings sono in `global_settings` (tabella) ed editabili via:
+
+- **UI** → System (cards Notifications, Backup, MQTT, ecc.)
+- **API** → `GET/PUT /api/system/settings` (richiede JWT admin)
+
+Pattern PUT generale (validato server-side):
+
+```bash
+TOKEN=$(/usr/local/bin/openedge-token.sh)   # vedi openedge.md sezione 12
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"<gruppo>": {"<chiave>": "<valore>"}}' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings
+```
+
+Le chiavi "secret" (`*password`, `*token`, `*secret`, `*private`, `*api_key`)
+in **GET** ritornano stringa vuota (mascherate) e in **PUT** se sono vuote
+**preservano il valore stored**. Significa: re-mandare la password solo
+quando vuoi davvero cambiarla.
+
+### 10.1 Notifiche email — Gmail
+
+Pre-requisito: 2FA attivo + **app password** generata da
+https://myaccount.google.com/apppasswords (16 caratteri).
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{
+    "notifications": {
+      "notif_email_enabled": "true",
+      "notif_email_smtp_host": "smtp.gmail.com",
+      "notif_email_smtp_port": "587",
+      "notif_email_use_tls": "false",
+      "notif_email_username": "alerts@tuaazienda.it",
+      "notif_email_password": "abcd efgh ijkl mnop",
+      "notif_email_from": "alerts@tuaazienda.it",
+      "notif_email_to": "operatore1@cliente.it, operatore2@cliente.it",
+      "notif_min_severity": "high",
+      "notif_on_cleared": "false",
+      "notif_rate_limit_per_min": "60"
+    }
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings
+```
+
+`port 587 + use_tls=false` = STARTTLS (default e raccomandato).
+`port 465 + use_tls=true` = TLS implicito (per server legacy).
+
+### 10.2 Notifiche email — Office 365
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{
+    "notifications": {
+      "notif_email_enabled": "true",
+      "notif_email_smtp_host": "smtp.office365.com",
+      "notif_email_smtp_port": "587",
+      "notif_email_use_tls": "false",
+      "notif_email_username": "alerts@tuaazienda.onmicrosoft.com",
+      "notif_email_password": "<password-account>",
+      "notif_email_from": "alerts@tuaazienda.onmicrosoft.com",
+      "notif_email_to": "team@cliente.it",
+      "notif_min_severity": "high"
+    }
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings
+```
+
+> Office 365 richiede che SMTP AUTH sia abilitato per l'account
+> (Microsoft 365 admin center → Active users → mailbox properties).
+
+### 10.3 Notifiche email — SMTP interno aziendale (Postfix/Exim)
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{
+    "notifications": {
+      "notif_email_enabled": "true",
+      "notif_email_smtp_host": "mail.azienda.local",
+      "notif_email_smtp_port": "25",
+      "notif_email_use_tls": "false",
+      "notif_email_username": "",
+      "notif_email_password": "",
+      "notif_email_from": "openedge@azienda.local",
+      "notif_email_to": "manutenzione@azienda.local",
+      "notif_min_severity": "medium"
+    }
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings
+```
+
+(Porta 25 senza auth è ok solo se il relay è sulla stessa LAN privata e
+non autentica.)
+
+### 10.4 Notifiche Telegram
+
+Setup bot (una volta sola):
+1. Apri Telegram, cerca `@BotFather`, manda `/newbot`, scegli nome → ricevi token.
+2. Manda un messaggio al bot (DM) **o** aggiungilo a un gruppo e manda un messaggio nel gruppo.
+3. Recupera `chat_id`:
+```bash
+curl -s "https://api.telegram.org/bot<TOKEN>/getUpdates" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result'][-1]['message']['chat']['id'])"
+# Numero negativo = gruppo, positivo = DM
+```
+
+Salvalo in OpenEdge:
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{
+    "notifications": {
+      "notif_telegram_enabled": "true",
+      "notif_telegram_bot_token": "1234567:ABCdefGHIjklMNOpqrSTUvwxYZ",
+      "notif_telegram_chat_id": "-1001234567890",
+      "notif_min_severity": "medium"
+    }
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings
+```
+
+### 10.5 Send test — verifica end-to-end
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/notifications/test
+```
+
+Risposta su successo totale:
+```json
+{"ok": true, "errors": []}
+```
+
+Risposta su fallimento parziale:
+```json
+{"ok": false, "errors": ["email: connection refused", "telegram: chat not found"]}
+```
+
+Il test bypassa il rate limiter e il filtro severity — utile per
+verificare le credenziali subito dopo averle salvate.
+
+### 10.6 Backup automatici
+
+Tre cose persistono in `global_settings` (lette dal container backup al
+boot, quindi serve `docker compose restart backup` dopo un PUT):
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{
+    "backup": {
+      "backup_enabled": "true",
+      "backup_schedule": "0 3 * * *",
+      "backup_retention_days": "30",
+      "backup_age_recipient": "age1abcdef..."
+    }
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings
+docker compose restart backup
+```
+
+`backup_schedule` è un'espressione cron (UTC). Preset comuni:
+- `0 3 * * *` — ogni notte alle 03:00 (raccomandato)
+- `0 */6 * * *` — ogni 6 ore
+- `0 */12 * * *` — ogni 12 ore
+
+`backup_age_recipient` è la chiave **pubblica** age (non segreta) — usala
+per cifrare i dump che lasciano il server (USB, NAS off-site).
+Genera il keypair OFF dal server:
+```bash
+age-keygen -o /percorso/sicuro/age-key.txt
+grep '^# public key:' /percorso/sicuro/age-key.txt   # questa va in backup_age_recipient
+# la chiave privata (age-key.txt) custodiscila — senza non si decifrano i backup
+```
+
+Lascia vuoto per backup in chiaro (ok se `./backups/` è su disco cifrato
+e non esce mai dal server).
+
+Comandi pronti:
+```bash
+make backup-now                                  # backup ad-hoc
+make backup-to-usb USB=/media/usbkey              # copia ultimo backup su USB
+make restore BACKUP=./backups/openedge-...dump   # restore (distruttivo!)
+```
+
+### 10.7 Filtri allarmi — come non spammare
+
+Tre chiavi globali che si applicano a TUTTI i canali (email + Telegram):
+
+| Chiave | Valori | Effetto |
+|---|---|---|
+| `notif_min_severity` | low / medium / high / critical | Eventi sotto la soglia → scartati silenziosamente |
+| `notif_on_cleared` | true / false | Se false (default) notifica solo su ACTIVE, non su CLEARED |
+| `notif_rate_limit_per_min` | 1-1000 | Cap globale token-bucket — protezione anti-flood durante alarm storm |
+
+Esempio "no spam — solo critical + 30/min":
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{
+    "notifications": {
+      "notif_min_severity": "critical",
+      "notif_on_cleared": "false",
+      "notif_rate_limit_per_min": "30"
+    }
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings
+```
+
+### 10.8 Altri settings utili da API
+
+```bash
+# Cambia retention storico
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"db_retention_days": 60}' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings
+
+# Cambia publish mode (dual / sparkplug_only / legacy_only)
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"publish_mode": "sparkplug_only"}' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings
+
+# Cambia broker MQTT da interno a esterno (es. broker cliente)
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{
+    "mqtt_broker_mode": "external",
+    "mqtt_external_host": "10.0.0.50",
+    "mqtt_external_port": 1883,
+    "mqtt_username": "openedge",
+    "mqtt_password": "<segreta>"
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings
+```
+
+### 10.9 Leggere lo stato corrente
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings \
+  | python3 -m json.tool
+```
+
+I valori segreti (password/token) tornano sempre come stringa vuota —
+non si vedono in chiaro nemmeno via API.
+
+---
+
 *Aggiornare questo file quando vengono aggiunti nuovi endpoint operativi a OpenEdge.*
