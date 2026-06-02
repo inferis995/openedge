@@ -38,6 +38,17 @@ type DashboardOverview struct {
 	Activity    []ActivityEvent `json:"activity"`
 	KPI         []KPIWidget     `json:"kpi"`
 	Shift       *ShiftBlock     `json:"shift,omitempty"`
+	Maintenance *MaintenanceBlock `json:"maintenance,omitempty"`
+}
+
+// MaintenanceBlock è il widget "manutenzione in corso" della dashboard.
+// Nil se non c'è alcuna finestra attiva adesso.
+type MaintenanceBlock struct {
+	ID      int       `json:"id"`
+	Title   string    `json:"title"`
+	StartAt time.Time `json:"start_at"`
+	EndAt   time.Time `json:"ends_at"`
+	Reason  string    `json:"reason,omitempty"`
 }
 
 // ShiftBlock è il widget "turno corrente" della dashboard. Nil se non
@@ -155,7 +166,29 @@ func (h *DashboardHandler) Overview(c *gin.Context) {
 	resp.Activity = h.activity()
 	resp.KPI = h.applyTargets(h.kpis())
 	resp.Shift = h.currentShift()
+	resp.Maintenance = h.currentMaintenance()
 	c.JSON(http.StatusOK, resp)
+}
+
+// currentMaintenance ritorna la prima finestra in corso adesso o nil.
+// Solo per il widget dashboard — la pagina dedicata usa
+// /api/maintenance per la lista completa.
+func (h *DashboardHandler) currentMaintenance() *MaintenanceBlock {
+	var w MaintenanceBlock
+	var reason sql.NullString
+	err := h.db.QueryRow(`
+		SELECT id, title, start_at, end_at, reason
+		FROM maintenance_windows
+		WHERE NOW() BETWEEN start_at AND end_at
+		ORDER BY start_at LIMIT 1`,
+	).Scan(&w.ID, &w.Title, &w.StartAt, &w.EndAt, &reason)
+	if err != nil {
+		return nil
+	}
+	if reason.Valid {
+		w.Reason = reason.String
+	}
+	return &w
 }
 
 // currentShift riusa la stessa logica di ShiftsHandler.Current ma rende

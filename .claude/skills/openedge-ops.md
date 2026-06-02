@@ -1124,4 +1124,87 @@ operatori designati appaiono nel widget.
 
 ---
 
+## 12. Finestre di Manutenzione
+
+Le finestre di manutenzione permettono di silenziare le notifiche
+durante fermate pianificate. Gli allarmi continuano a essere registrati
+in DB per audit, ma email/Telegram NON escono finché la finestra è attiva.
+
+Fattore #1 di customer complaints nei deploy industriali: notifiche spam
+durante una sostituzione programmata di un cuscinetto. Risolto.
+
+### 12.1 Creare una finestra
+
+```bash
+# Manutenzione domani dalle 22 alle 02 del giorno dopo
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "Sostituzione cuscinetto motore linea 2",
+    "start_at": "2026-06-05T22:00:00Z",
+    "end_at": "2026-06-06T02:00:00Z",
+    "reason": "Manutenzione programmata trimestrale"
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/maintenance
+```
+
+Timestamps in **RFC3339 UTC**. La UI converte da local time automaticamente.
+
+### 12.2 Lista finestre
+
+```bash
+# Tutte (passate + future + attive)
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/maintenance
+
+# Solo quelle attive adesso
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/maintenance?active=true"
+```
+
+### 12.3 Modifica / elimina
+
+```bash
+# Modifica orario di una finestra
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "title": "Manutenzione linea 2",
+    "start_at": "2026-06-05T23:00:00Z",
+    "end_at": "2026-06-06T03:00:00Z",
+    "reason": "Esteso di 1h"
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/maintenance/3
+
+# Cancellare (anche in corso — termina subito il silenziamento)
+curl -X DELETE -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/maintenance/3
+```
+
+### 12.4 Manutenzione ricorrente
+
+L'API non ha (volutamente) il concetto di "ricorrenza" — un cron locale
+copre il caso d'uso senza appesantire lo schema.
+
+```bash
+# /usr/local/bin/openedge-weekly-maintenance.sh
+# Crea ogni sabato una finestra notturna 22-04 per il backup esteso
+#!/bin/bash
+source /etc/openedge-monitor.env
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+START=$(date -u -d 'next Saturday 22:00' +%Y-%m-%dT%H:%M:%SZ)
+END=$(date -u -d 'next Saturday 22:00 + 6 hours' +%Y-%m-%dT%H:%M:%SZ)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d "{\"title\":\"Backup esteso settimanale\",\"start_at\":\"$START\",\"end_at\":\"$END\",\"reason\":\"Automatico\"}" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/maintenance"
+```
+
+Crontab (ogni venerdì alle 12:00 — pianifica per il sabato successivo):
+```cron
+0 12 * * 5 /usr/local/bin/openedge-weekly-maintenance.sh
+```
+
+---
+
 *Aggiornare questo file quando vengono aggiunti nuovi endpoint operativi a OpenEdge.*

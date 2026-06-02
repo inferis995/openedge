@@ -229,6 +229,30 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: maintenance windows. Periodi di manutenzione programmata
+	// durante i quali le notifiche email/Telegram sono silenziate (gli
+	// allarmi restano comunque in DB per audit). Reduce drasticamente il
+	// numero di "alarm spam" durante interventi e fermate pianificate —
+	// fattore #1 di customer complaints nei deploy industriali.
+	maintenance := []string{
+		`CREATE TABLE IF NOT EXISTS maintenance_windows (
+			id SERIAL PRIMARY KEY,
+			title TEXT NOT NULL,
+			start_at TIMESTAMPTZ NOT NULL,
+			end_at TIMESTAMPTZ NOT NULL,
+			reason TEXT,
+			created_by INT REFERENCES users(id) ON DELETE SET NULL,
+			created_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_maintenance_windows_range
+			ON maintenance_windows(start_at, end_at)`,
+	}
+	for _, stmt := range maintenance {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("maintenance windows migration: %w", err)
+		}
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

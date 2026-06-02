@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
     Activity, AlertTriangle, Bell, BellOff, ChefHat, CheckCircle2, Clock, Cpu,
     Database, FileText, LogIn, Mail, MessageCircle, Pencil, Radio, ShieldAlert,
-    TrendingDown, TrendingUp, UserCircle, Users, Wifi, XCircle, ArrowUpRight,
+    TrendingDown, TrendingUp, UserCircle, Users, Wifi, Wrench, XCircle, ArrowUpRight,
 } from 'lucide-react';
 
 import { dashboardApi, ActivityEvent, AlarmSummary, KPIWidget } from '@/api/dashboard';
@@ -509,6 +509,27 @@ const DashboardPage = () => {
             </div>
 
             <StatusBar data={data} />
+
+            {/* Banner manutenzione in corso — sopra ai KPI così è
+                impossibile non vederla: spiega anche perché le notifiche
+                potrebbero non arrivare. */}
+            {data.maintenance && (
+                <Clickable to="/maintenance">
+                    <div className="rounded-md border border-amber-500/40 bg-amber-500/5 px-4 py-3 flex items-start gap-3">
+                        <Wrench size={20} className="text-amber-500 mt-0.5" />
+                        <div className="flex-1">
+                            <p className="font-semibold text-amber-500">
+                                Manutenzione in corso: {data.maintenance.title}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                Le notifiche email/Telegram sono silenziate fino a{' '}
+                                {new Date(data.maintenance.ends_at).toLocaleString('it-IT')}
+                                {data.maintenance.reason && ` — ${data.maintenance.reason}`}
+                            </p>
+                        </div>
+                    </div>
+                </Clickable>
+            )}
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 {data.kpi.map((k) => <KPICard key={k.key} k={k} />)}

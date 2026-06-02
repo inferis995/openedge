@@ -79,6 +79,14 @@ export interface KPIWidget {
     target_met?: boolean;
 }
 
+export interface MaintenanceBlock {
+    id: number;
+    title: string;
+    start_at: string;
+    ends_at: string;
+    reason?: string;
+}
+
 export interface ShiftBlock {
     shift_id: number;
     name: string;
@@ -98,6 +106,7 @@ export interface DashboardOverview {
     activity: ActivityEvent[];
     kpi: KPIWidget[];
     shift?: ShiftBlock | null;
+    maintenance?: MaintenanceBlock | null;
 }
 
 export const dashboardApi = {

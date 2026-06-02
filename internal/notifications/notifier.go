@@ -56,6 +56,12 @@ type Dispatcher struct {
 	notifyOnCleared bool
 	rateLimit       *rateLimiter
 
+	// MaintenanceCheck è opzionale: quando settata e ritorna true il
+	// Dispatch silenzia le notifiche (gli allarmi restano in DB però).
+	// Usata per integrare maintenance_windows senza creare un import
+	// cycle handlers ↔ notifications.
+	MaintenanceCheck func() bool
+
 	// Settings are re-fetched on this cadence so the admin UI doesn't
 	// require a restart to apply changes.
 	refreshInterval time.Duration
@@ -96,6 +102,13 @@ func (d *Dispatcher) Dispatch(e Event) {
 	}
 	if !d.rateLimit.allow() {
 		log.Printf("[NOTIF] rate-limited, dropping alarm %d (%s)", e.AlarmID, e.Severity)
+		return
+	}
+	// Maintenance window check — silenziamo le notifiche durante le
+	// finestre di manutenzione programmata. Il check è fail-open: se la
+	// callback non è settata o crasha, l'evento esce comunque.
+	if d.MaintenanceCheck != nil && d.MaintenanceCheck() {
+		log.Printf("[NOTIF] maintenance window active, skipping alarm %d (%s)", e.AlarmID, e.Severity)
 		return
 	}
 

@@ -766,6 +766,23 @@ print(f'Restano: {h}h {m}m')
 print(f'Operatori: {ops}')"
 ```
 
+### "Siamo in manutenzione adesso? Le notifiche sono silenziate?"
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/maintenance?active=true" \
+  | python3 -c "
+import sys, json
+ws = json.load(sys.stdin)
+if not ws:
+    print('Nessuna manutenzione attiva — notifiche regolari'); sys.exit(0)
+for w in ws:
+    print(f'⚠ Manutenzione: {w[\"title\"]} fino a {w[\"end_at\"]}')
+    if w.get('reason'): print(f'  Motivazione: {w[\"reason\"]}')
+print()
+print('Email/Telegram NON escono finché c''è una finestra attiva.')"
+```
+
 ### "Quanti allarmi sono scattati durante il turno corrente?"
 
 Il backend lo calcola già lato dashboard:

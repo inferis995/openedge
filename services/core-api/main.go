@@ -275,6 +275,13 @@ func main() {
 	// settings from global_settings and re-reads them once a minute, so
 	// the admin UI's edits take effect without a restart.
 	notifDispatcher = notifications.NewDispatcher(database)
+	// Wire la verifica maintenance window: il dispatcher silenzia le
+	// notifiche durante una finestra attiva ma continua a registrare
+	// l'allarme in DB. Closure cattura il db handle (handlers.IsInMaintenance
+	// resta puro — niente package state).
+	notifDispatcher.MaintenanceCheck = func() bool {
+		return handlers.IsInMaintenance(database)
+	}
 
 	// Create users handler
 	usersHandler := handlers.NewUsersHandler(database)
@@ -480,6 +487,20 @@ func main() {
 			shifts.GET("/:id/assignments", shiftsHandler.ListAssignments)
 			shifts.POST("/:id/assignments", middleware.RequireRole(models.RoleAdmin), shiftsHandler.CreateAssignment)
 			shifts.DELETE("/assignments/:aid", middleware.RequireRole(models.RoleAdmin), shiftsHandler.DeleteAssignment)
+		}
+
+		// Maintenance windows (finestre di manutenzione programmata).
+		// Lettura per chiunque sia autenticato (la dashboard mostra il
+		// badge "manutenzione in corso"), scritture admin-only. Quando
+		// una finestra è attiva il notifier silenzia email/Telegram.
+		maintenanceHandler := handlers.NewMaintenanceHandler(database)
+		maintenance := api.Group("/maintenance")
+		maintenance.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			maintenance.GET("", maintenanceHandler.List)
+			maintenance.POST("", middleware.RequireRole(models.RoleAdmin), maintenanceHandler.Create)
+			maintenance.PUT("/:id", middleware.RequireRole(models.RoleAdmin), maintenanceHandler.Update)
+			maintenance.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), maintenanceHandler.Delete)
 		}
 
 		// Dashboard overview — un singolo endpoint che aggrega tutto
