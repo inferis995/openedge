@@ -762,7 +762,96 @@ Se `anomaly_count > 0`, riporta i bucket con `|z_score| >= 2.5`.
 
 ---
 
-## 12. Cron jobs per monitoring automatizzato
+## 11b. Dashboard overview — KPI in una sola call
+
+Per rispondere a "come va il sistema in generale?" senza fare N query
+separate, usa **`GET /api/dashboard/overview`**. Una chiamata → tutto
+quello che la pagina Cruscotto mostra:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/dashboard/overview
+```
+
+Response shape:
+```json
+{
+  "generated_at": "2026-06-04T07:00:00Z",
+  "system":     {"ready": true, "db_ok": true, "api_uptime_sec": 86400},
+  "alarms":     {
+    "active_by_level": {"critical": 1, "high": 3, "medium": 8, "low": 0},
+    "active_total": 12, "last_24h_fired": 45,
+    "trend_7d": [{"bucket": "...", "count": 5}, ...],
+    "recent_top5": [...]
+  },
+  "gateways":   {"online": 12, "offline": 0, "unknown": 0},
+  "operations": {
+    "notif_email_enabled": true, "notif_telegram_enabled": false,
+    "notif_min_severity": "high",
+    "recipe_loads_24h": 4, "writes_24h": 28, "logins_24h": 6
+  },
+  "activity":   [/* 12 eventi recenti fusi (alarm/recipe/write/login) */],
+  "kpi": [
+    {"key":"alarms_per_day", "label":"Allarmi al giorno",
+     "value":6.4, "unit":"/g", "trend":"down", "delta_pct":-18,
+     "good_when":"down"},
+    ...
+  ]
+}
+```
+
+### Risposta sintetica con un solo Python inline
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/dashboard/overview \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+a = d['alarms']['active_by_level']
+ops = d['operations']
+print(f'Sistema: {\"OK\" if d[\"system\"][\"ready\"] else \"DOWN\"} (uptime {d[\"system\"][\"api_uptime_sec\"]//3600}h)')
+print(f'Allarmi attivi: {a[\"critical\"]} critical, {a[\"high\"]} high, {a[\"medium\"]} medium')
+print(f'Ultime 24h: {ops[\"recipe_loads_24h\"]} ricette, {ops[\"writes_24h\"]} write PLC, {ops[\"logins_24h\"]} login')
+print()
+print('KPI principali:')
+for k in d['kpi']:
+    arrow = '↑' if k['trend']=='up' else '↓' if k['trend']=='down' else '→'
+    good = ((k['trend']=='up' and k['good_when']=='up') or (k['trend']=='down' and k['good_when']=='down'))
+    sign = '✓' if good or k['trend']=='flat' else '⚠'
+    print(f'  {sign} {k[\"label\"]}: {k[\"value\"]}{k[\"unit\"]} {arrow} {abs(k[\"delta_pct\"]):.0f}%')"
+```
+
+Output esempio:
+```
+Sistema: OK (uptime 24h)
+Allarmi attivi: 1 critical, 3 high, 8 medium
+Ultime 24h: 4 ricette, 28 write PLC, 6 login
+
+KPI principali:
+  ✓ Allarmi al giorno: 6.4/g ↓ 18%
+  ⚠ Critical attivi: 1 → 0%
+  ✓ Write PLC (24h): 28 ↑ 22%
+  ✓ Ricette caricate (24h): 4 ↑ 33%
+  → Login (24h): 6 → 0%
+  ✓ Tag in errore (1h): 0 → 0%
+```
+
+### KPI disponibili in `kpi[]`
+
+| key | Cosa misura | `good_when` |
+|---|---|---|
+| `alarms_per_day` | Media giornaliera ultimi 7gg | down (meno è meglio) |
+| `open_critical` | Critical attivi adesso (snapshot) | down |
+| `writes_24h` | Comandi write PLC nelle 24h | up (più attività = più uso) |
+| `recipe_loads_24h` | Ricette caricate nelle 24h | up |
+| `logins_24h` | Login operatori nelle 24h | flat (informativo) |
+| `bad_quality_1h` | Tag con quality > 0 nell'ultima ora | down (meno è meglio) |
+
+Trend: `up` se delta% > +2, `down` se < -2, `flat` altrimenti (sotto il
+rumore). `delta_pct` confronta col periodo immediatamente precedente
+della stessa durata.
+
 
 Sul host che ospita OpenEdge (o su un secondo host con accesso di rete),
 imposta cron job che chiamano gli endpoint sopra e notificano via
@@ -902,6 +991,90 @@ fi
 Crontab:
 ```cron
 * * * * * /usr/local/bin/openedge-health.sh
+```
+
+### Cron #5 — KPI digest mattutino (ogni giorno alle 06:30)
+
+Usa l'endpoint unificato `/api/dashboard/overview` per inviare un sommario
+KPI giornaliero a chi gestisce l'impianto. Una sola call, output denso.
+
+```bash
+# /usr/local/bin/openedge-kpi-digest.sh
+#!/bin/bash
+set -e
+source /etc/openedge-monitor.env
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+
+REPORT=$(curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/dashboard/overview" \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+a = d['alarms']
+o = d['operations']
+sys_ok = d['system']['ready']
+print('OpenEdge — sommario giornaliero')
+print(f'Sistema: {\"OK\" if sys_ok else \"DOWN\"}  Uptime: {d[\"system\"][\"api_uptime_sec\"]//3600}h')
+print(f'Allarmi attivi: {a[\"active_total\"]} ({a[\"active_by_level\"][\"critical\"]} critical, {a[\"active_by_level\"][\"high\"]} high)')
+print(f'Allarmi nelle 24h: {a[\"last_24h_fired\"]} totali')
+print()
+print('Attività operatori (24h):')
+print(f'  Ricette caricate: {o[\"recipe_loads_24h\"]}')
+print(f'  Write PLC:        {o[\"writes_24h\"]}')
+print(f'  Login:            {o[\"logins_24h\"]}')
+print()
+print('KPI con variazione rispetto al periodo precedente:')
+for k in d['kpi']:
+    arrow = '↑' if k['trend']=='up' else '↓' if k['trend']=='down' else '→'
+    if k['trend'] == 'flat': continue
+    print(f'  {k[\"label\"]}: {k[\"value\"]}{k[\"unit\"]} {arrow} {abs(k[\"delta_pct\"]):.0f}%')
+")
+
+echo "$REPORT" | mail -s "[OpenEdge] KPI digest $(date +%F)" team@azienda.it
+# o Telegram bot:
+# curl -s -X POST "https://api.telegram.org/bot<TOKEN>/sendMessage" \
+#   --data-urlencode "chat_id=<CHAT>" \
+#   --data-urlencode "text=$REPORT"
+```
+
+Crontab:
+```cron
+30 6 * * * /usr/local/bin/openedge-kpi-digest.sh >> /var/log/openedge-monitor.log 2>&1
+```
+
+### Cron #6 — soglia KPI custom (controllo per-business-rule)
+
+Quando l'utente dice *"avvisami se gli allarmi al giorno superano N"* o
+*"avvisami se i tag in errore superano 5"* — leggi il KPI specifico dalla
+response e confrontalo con la soglia.
+
+```bash
+# /usr/local/bin/openedge-kpi-threshold.sh
+#!/bin/bash
+set -e
+source /etc/openedge-monitor.env
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+THRESHOLD=10   # personalizza per il tuo impianto
+
+ALARMS=$(curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/dashboard/overview" \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for k in d['kpi']:
+    if k['key'] == 'alarms_per_day':
+        print(int(k['value']))
+        break")
+
+if [ "$ALARMS" -gt "$THRESHOLD" ]; then
+    echo "[ALERT] Allarmi giornalieri = $ALARMS (soglia $THRESHOLD)" \
+      | mail -s "[OpenEdge] Soglia KPI superata" oncall@azienda.it
+fi
+```
+
+Crontab (ogni 4 ore):
+```cron
+0 */4 * * * /usr/local/bin/openedge-kpi-threshold.sh >> /var/log/openedge-monitor.log 2>&1
 ```
 
 ### Anti-spam — dedupe ed escalation
