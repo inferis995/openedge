@@ -162,6 +162,20 @@ const KPICard = ({ k }: { k: KPIWidget }) => {
     const valueStr = Number.isInteger(k.value) ? k.value.toString() : k.value.toFixed(2);
     const destination = KPI_DESTINATION[k.key];
 
+    // Colore del valore principale: target_met (se definito) prende
+    // precedenza sul trend. Se nessun target è configurato, il valore
+    // resta neutro (foreground) e si lascia parlare solo la freccia trend.
+    const valueColor = k.target_met === true
+        ? 'text-emerald-500'
+        : k.target_met === false
+        ? 'text-red-500'
+        : 'text-foreground';
+
+    // Label del target: ≤ N (good_when=down) / ≥ N (good_when=up).
+    const targetLabel = k.target !== undefined
+        ? `${k.good_when === 'down' ? '≤' : '≥'} ${k.target}${k.unit}`
+        : null;
+
     return (
         <Clickable to={destination}>
             <Card className="border-border h-full">
@@ -171,16 +185,22 @@ const KPICard = ({ k }: { k: KPIWidget }) => {
                         {destination && <ArrowUpRight size={12} className="text-muted-foreground opacity-60" />}
                     </div>
                     <div className="flex items-baseline gap-2">
-                        <span className="text-3xl font-bold tracking-tight">{valueStr}</span>
+                        <span className={`text-3xl font-bold tracking-tight ${valueColor}`}>{valueStr}</span>
                         {k.unit && <span className="text-sm text-muted-foreground">{k.unit}</span>}
                     </div>
-                    {Arrow && (
-                        <div className={`flex items-center gap-1 text-xs ${trendColor}`}>
-                            <Arrow size={14} />
-                            <span>{Math.abs(k.delta_pct).toFixed(0)}% vs periodo precedente</span>
-                        </div>
-                    )}
-                    {!Arrow && <div className="text-xs text-muted-foreground">—</div>}
+                    <div className="flex items-center justify-between text-xs">
+                        {Arrow ? (
+                            <div className={`flex items-center gap-1 ${trendColor}`}>
+                                <Arrow size={12} />
+                                <span>{Math.abs(k.delta_pct).toFixed(0)}%</span>
+                            </div>
+                        ) : <span className="text-muted-foreground">—</span>}
+                        {targetLabel && (
+                            <span className={`font-mono ${k.target_met ? 'text-emerald-500' : 'text-red-500'}`}>
+                                Target {targetLabel}
+                            </span>
+                        )}
+                    </div>
                 </CardContent>
             </Card>
         </Clickable>

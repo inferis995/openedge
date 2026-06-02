@@ -268,6 +268,9 @@ type UpdateSettingsRequest struct {
 	// Backup schedule + retention + encryption — same flat-passthrough
 	// pattern as Notifications. Keys must start with backup_.
 	Backup map[string]string `json:"backup,omitempty"`
+	// KPI targets per la dashboard — stesso pattern. Keys must start
+	// with kpi_target_. Lasciare vuoto un target = nessuna soglia.
+	KPITargets map[string]string `json:"kpi_targets,omitempty"`
 }
 
 // applyPrefixedSettings is the shared upsert loop for flat-passthrough
@@ -494,6 +497,9 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 	if err := h.applyPrefixedSettings(c, "backup_", req.Backup); err != nil {
+		return
+	}
+	if err := h.applyPrefixedSettings(c, "kpi_target_", req.KPITargets); err != nil {
 		return
 	}
 

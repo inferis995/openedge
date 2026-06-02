@@ -9,6 +9,7 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -126,13 +127,19 @@ type ActivityEvent struct {
 // Il design dei KPI è volutamente uniforme — l'operatore guarda il valore
 // e la freccia e capisce in 1 secondo se siamo meglio o peggio.
 type KPIWidget struct {
-	Key       string  `json:"key"`        // identificatore stabile per il frontend
-	Label     string  `json:"label"`      // etichetta human-friendly
-	Value     float64 `json:"value"`
-	Unit      string  `json:"unit"`
-	Trend     string  `json:"trend"`      // up | down | flat
-	DeltaPct  float64 `json:"delta_pct"`  // % vs periodo precedente
-	GoodWhen  string  `json:"good_when"`  // "up" o "down" — guida il colore
+	Key       string   `json:"key"`        // identificatore stabile per il frontend
+	Label     string   `json:"label"`      // etichetta human-friendly
+	Value     float64  `json:"value"`
+	Unit      string   `json:"unit"`
+	Trend     string   `json:"trend"`      // up | down | flat
+	DeltaPct  float64  `json:"delta_pct"`  // % vs periodo precedente
+	GoodWhen  string   `json:"good_when"`  // "up" o "down" — guida il colore
+	// Target è la soglia configurabile (settings kpi_target_<key>).
+	// Quando popolato, il frontend mostra "Target ≤ N" (good_when=down) o
+	// "Target ≥ N" (good_when=up) e colora il valore in base al rispetto
+	// del target. Nil = nessun target configurato.
+	Target       *float64 `json:"target,omitempty"`
+	TargetMet    *bool    `json:"target_met,omitempty"`
 }
 
 // Overview risponde al GET. Ogni blocco è popolato indipendentemente —
@@ -146,7 +153,7 @@ func (h *DashboardHandler) Overview(c *gin.Context) {
 	resp.Gateways = h.gateways()
 	resp.Operations = h.operations()
 	resp.Activity = h.activity()
-	resp.KPI = h.kpis()
+	resp.KPI = h.applyTargets(h.kpis())
 	resp.Shift = h.currentShift()
 	c.JSON(http.StatusOK, resp)
 }
@@ -608,4 +615,52 @@ func kpi(key, label string, current float64, unit string, prev float64, goodWhen
 		w.Trend = "down"
 	}
 	return w
+}
+
+// applyTargets popola Target + TargetMet leggendo i setting
+// kpi_target_<key> (o kpi_target_<key>_min per i KPI good_when=up).
+// Chiamato dopo aver costruito la lista di KPI così la logica trend
+// resta separata da quella della soglia.
+func (h *DashboardHandler) applyTargets(kpis []KPIWidget) []KPIWidget {
+	for i := range kpis {
+		k := &kpis[i]
+		// Per good_when=down (allarmi/giorno, critical aperti, errori)
+		// cerchiamo kpi_target_<key> e il target è il MASSIMO accettabile.
+		// Per good_when=up (write, login, ricette) cerchiamo
+		// kpi_target_<key>_min e il target è il MINIMO desiderato.
+		key := "kpi_target_" + k.Key
+		if k.GoodWhen == "up" {
+			key += "_min"
+		}
+		var raw string
+		_ = h.db.QueryRow(`SELECT value FROM global_settings WHERE key = $1`, key).Scan(&raw)
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		target := parseFloat(raw)
+		if target < 0 {
+			continue
+		}
+		k.Target = &target
+		met := false
+		if k.GoodWhen == "down" {
+			met = k.Value <= target
+		} else {
+			met = k.Value >= target
+		}
+		k.TargetMet = &met
+	}
+	return kpis
+}
+
+// parseFloat ritorna -1 quando il valore non è parsabile — convenzione
+// interna che indica "nessun target valido" così applyTargets salta
+// l'aggancio del target senza richiedere un secondo return value.
+func parseFloat(s string) float64 {
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return -1
+	}
+	return f
 }

@@ -130,7 +130,13 @@ func runAutoMigrations(db *sql.DB) error {
 		('backup_enabled', 'true', 'When true, the nightly pg_dump runs on the configured schedule.'),
 		('backup_schedule', '0 3 * * *', 'Cron expression (UTC) for the nightly backup. Default: 03:00 every day.'),
 		('backup_retention_days', '30', 'Older dump files are auto-pruned after this many days.'),
-		('backup_age_recipient', '', 'age public key. When set, every dump is encrypted; safe to copy off-host. Leave empty for plaintext (acceptable on encrypted disks).')
+		('backup_age_recipient', '', 'age public key. When set, every dump is encrypted; safe to copy off-host. Leave empty for plaintext (acceptable on encrypted disks).'),
+		('kpi_target_alarms_per_day',  '5',   'Soglia massima allarmi/giorno (good_when=down). Sopra = rosso.'),
+		('kpi_target_open_critical',   '0',   'Critical attivi massimi tollerati. 0 = mai. Sopra = rosso.'),
+		('kpi_target_bad_quality_1h',  '0',   'Tag in errore massimi tollerati nell''ultima ora.'),
+		('kpi_target_writes_24h_min',  '0',   'Soglia minima write PLC nelle 24h (good_when=up). Sotto = warning.'),
+		('kpi_target_recipe_loads_24h_min', '0', 'Soglia minima caricamenti ricette nelle 24h.'),
+		('kpi_target_logins_24h_min',  '0',   'Soglia minima login nelle 24h.')
 	ON CONFLICT (key) DO NOTHING;`
 	if _, err := db.Exec(notifSeed); err != nil {
 		log.Printf("Warning: failed to seed notification settings: %v", err)

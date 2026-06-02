@@ -65,6 +65,8 @@ export interface ActivityEvent {
 // Un KPI è "big number + trend" — value e unit per la cella, trend per la
 // freccia, delta_pct per la badge laterale, good_when per il colore (la
 // stessa "up" è verde su una metrica positiva e rossa su una negativa).
+// target + target_met sono opzionali (settable da System → KPI Targets) e
+// guidano il colore del valore principale.
 export interface KPIWidget {
     key: string;
     label: string;
@@ -73,6 +75,8 @@ export interface KPIWidget {
     trend: 'up' | 'down' | 'flat';
     delta_pct: number;
     good_when: 'up' | 'down';
+    target?: number;
+    target_met?: boolean;
 }
 
 export interface ShiftBlock {

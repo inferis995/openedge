@@ -39,6 +39,12 @@ export interface GlobalSettings {
     backup_schedule?: string;
     backup_retention_days?: string;
     backup_age_recipient?: string;
+    kpi_target_alarms_per_day?: string;
+    kpi_target_open_critical?: string;
+    kpi_target_bad_quality_1h?: string;
+    kpi_target_writes_24h_min?: string;
+    kpi_target_recipe_loads_24h_min?: string;
+    kpi_target_logins_24h_min?: string;
     deployment_mode?: string; // 'onprem' | 'cloud' (from the server env)
 }
 
@@ -64,6 +70,8 @@ export interface UpdateSettingsRequest {
     notifications?: Record<string, string>;
     // Same flat-passthrough pattern for backup_* settings.
     backup?: Record<string, string>;
+    // KPI target thresholds (kpi_target_*).
+    kpi_targets?: Record<string, string>;
 }
 
 // What the operator edits in the Notifications panel. We keep the shape
@@ -162,6 +170,12 @@ export const systemApi = {
     testNotifications: async (): Promise<NotificationTestResult> => {
         const response = await api.post('/system/notifications/test');
         return response.data;
+    },
+
+    // Salva i target KPI come passthrough flat — il backend valida solo
+    // che le chiavi inizino con kpi_target_ e fa upsert in global_settings.
+    updateKPITargets: async (targets: Record<string, string>): Promise<void> => {
+        await api.put('/system/settings', { kpi_targets: targets });
     },
 
     getMetrics: async (): Promise<PublishMetrics> => {

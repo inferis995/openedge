@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { systemApi, GlobalSettings, UpdateSettingsRequest, BackupSettings, BackupFileInfo, ServiceStatus } from '@/api/system';
 import NotificationsSettings from '@/components/system/NotificationsSettings';
 import BackupConfig from '@/components/system/BackupConfig';
+import KPITargets from '@/components/system/KPITargets';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -684,6 +685,13 @@ const SystemPage = () => {
                             is read at container start, so the panel surfaces
                             the "restart backup container" hint. */}
                         <BackupConfig
+                            initial={settings}
+                            onSaved={loadSettings}
+                        />
+
+                        {/* Target sui KPI della dashboard. Vuoto = nessun
+                            target → valore neutro. */}
+                        <KPITargets
                             initial={settings}
                             onSaved={loadSettings}
                         />
