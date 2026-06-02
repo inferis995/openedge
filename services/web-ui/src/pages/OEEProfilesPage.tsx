@@ -25,6 +25,8 @@ import {
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { OEEHistoryChart } from '@/components/oee/OEEHistoryChart';
 
 // OEEProfilesPage — gestione multi-profilo OEE.
 // Vista a 2 livelli: lista profili (table) + dialog editor (wizard riusato
@@ -504,40 +506,53 @@ const OEEProfilesPage = () => {
                 </Button>
             </div>
 
-            <Card>
-                <CardHeader className="pb-3">
-                    <CardTitle className="text-base">Profili configurati</CardTitle>
-                    <CardDescription className="text-xs">
-                        {profiles?.length ?? 0} profili.
-                        {(profiles?.length ?? 0) === 0 && ' Senza profili la dashboard usa il calcolo OEE legacy (fallback euristico).'}
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    {isLoading ? (
-                        <div className="py-8 text-center text-muted-foreground text-sm">Caricamento…</div>
-                    ) : (profiles?.length ?? 0) === 0 ? (
-                        <div className="py-12 text-center border border-dashed rounded-md">
-                            <Gauge size={32} className="mx-auto opacity-30 mb-2" />
-                            <p className="text-sm text-muted-foreground">Nessun profilo OEE configurato.</p>
-                            <p className="text-xs text-muted-foreground mt-1">
-                                Crea il primo profilo per attivare la dashboard multi-linea.
-                            </p>
-                        </div>
-                    ) : (
-                        <div className="space-y-2">
-                            {profiles!.map((p) => (
-                                <ProfileRow
-                                    key={p.id}
-                                    p={p}
-                                    onEdit={() => { setEditing(p); setEditorOpen(true); }}
-                                    onDelete={() => handleDelete(p)}
-                                    onToggle={() => handleToggle(p)}
-                                />
-                            ))}
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+            <Tabs defaultValue="profiles">
+                <TabsList>
+                    <TabsTrigger value="profiles">Profili</TabsTrigger>
+                    <TabsTrigger value="history">Storia</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="profiles" className="space-y-4 mt-4">
+                    <Card>
+                        <CardHeader className="pb-3">
+                            <CardTitle className="text-base">Profili configurati</CardTitle>
+                            <CardDescription className="text-xs">
+                                {profiles?.length ?? 0} profili.
+                                {(profiles?.length ?? 0) === 0 && ' Senza profili la dashboard usa il calcolo OEE legacy (fallback euristico).'}
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            {isLoading ? (
+                                <div className="py-8 text-center text-muted-foreground text-sm">Caricamento…</div>
+                            ) : (profiles?.length ?? 0) === 0 ? (
+                                <div className="py-12 text-center border border-dashed rounded-md">
+                                    <Gauge size={32} className="mx-auto opacity-30 mb-2" />
+                                    <p className="text-sm text-muted-foreground">Nessun profilo OEE configurato.</p>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        Crea il primo profilo per attivare la dashboard multi-linea.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {profiles!.map((p) => (
+                                        <ProfileRow
+                                            key={p.id}
+                                            p={p}
+                                            onEdit={() => { setEditing(p); setEditorOpen(true); }}
+                                            onDelete={() => handleDelete(p)}
+                                            onToggle={() => handleToggle(p)}
+                                        />
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="history" className="space-y-4 mt-4">
+                    <HistoryTab profiles={profiles ?? []} />
+                </TabsContent>
+            </Tabs>
 
             <ProfileEditor
                 open={editorOpen}
@@ -547,6 +562,46 @@ const OEEProfilesPage = () => {
                 areas={areas ?? []}
                 onSaved={onSaved}
             />
+        </div>
+    );
+};
+
+// Tab Storia: selector profilo + chart storico via OEEHistoryChart.
+// Profilo "Rollup fabbrica" = profileId null (riga aggregata del cron).
+const HistoryTab = ({ profiles }: { profiles: OEEProfile[] }) => {
+    const [selected, setSelected] = useState<number | null>(null);
+    const target = selected === null
+        ? undefined
+        : profiles.find((p) => p.id === selected)?.target_oee;
+
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center gap-3 flex-wrap">
+                <Label className="text-xs">Profilo:</Label>
+                <Select
+                    value={selected === null ? 'rollup' : String(selected)}
+                    onValueChange={(v) => setSelected(v === 'rollup' ? null : parseInt(v, 10))}
+                >
+                    <SelectTrigger className="w-72"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="rollup">
+                            <span className="font-medium">Rollup Fabbrica</span>
+                            <span className="text-muted-foreground ml-2 text-xs">(media tra profili)</span>
+                        </SelectItem>
+                        {profiles.map((p) => (
+                            <SelectItem key={p.id} value={String(p.id)}>
+                                {p.name}
+                                {p.area_name && <span className="text-muted-foreground ml-2 text-xs">[{p.area_name}]</span>}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                    Snapshot orari salvati dal cron worker. Primi dati disponibili dopo 1 ora di runtime.
+                </p>
+            </div>
+
+            <OEEHistoryChart profileId={selected} target={target} />
         </div>
     );
 };

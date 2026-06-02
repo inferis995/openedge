@@ -1470,7 +1470,32 @@ create_profile '{"name":"Packaging","run_time_tag_id":91,"produced_tag_id":92,"g
   "target_pieces_per_hour":200,"target_oee":85,"window_minutes":480,"display_order":4,"enabled":true}'
 ```
 
-### 13.6 Errori comuni
+### 13.6 Storico OEE persistente
+
+Il cron worker interno (parte automatico col core-api) salva ogni ora
+uno snapshot OEE per ogni profilo abilitato + un rollup fabbrica. A
+mezzanotte UTC aggrega in snapshot giornaliero. Niente da configurare:
+funziona out-of-the-box.
+
+Query del rollup:
+
+```bash
+# Ultimi 7 giorni, granularità oraria, profilo specifico
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/history-v2?profile_id=1&from=2026-05-26&to=2026-06-02&bucket=hour" \
+  | python3 -m json.tool
+
+# Ultimi 30 giorni, granularità giornaliera, rollup fabbrica (omettendo profile_id)
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  "http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/history-v2?from=2026-05-03&to=2026-06-02&bucket=day"
+```
+
+Parametri:
+- `profile_id`: id profilo, oppure omesso/0 per il rollup fabbrica
+- `from`, `to`: RFC3339 oppure YYYY-MM-DD (mezzanotte UTC)
+- `bucket`: `hour` | `day` | `shift` (shift sarà popolato dal commit successivo)
+
+### 13.7 Errori comuni
 
 - **OEE = 0** in modalità tag: controlla che `oee_produced_tag` riceva
   campioni nella finestra (probabilmente il PLC non sta inviando, vedi sezione

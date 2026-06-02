@@ -536,7 +536,18 @@ func main() {
 			oeeGrp.POST("/profiles", middleware.RequireRole(models.RoleAdmin), oeeHandler.CreateProfile)
 			oeeGrp.PUT("/profiles/:id", middleware.RequireRole(models.RoleAdmin), oeeHandler.UpdateProfile)
 			oeeGrp.DELETE("/profiles/:id", middleware.RequireRole(models.RoleAdmin), oeeHandler.DeleteProfile)
+
+			// Storico persistente — query del rollup orario/giornaliero
+			// salvato dal cron worker. Range time-bounded; default ultime
+			// 24h se non specificato.
+			oeeHistoryHandler := handlers.NewOEEHistoryHandler(database, oeeHandler)
+			oeeGrp.GET("/history-v2", oeeHistoryHandler.History)
 		}
+
+		// Cron worker OEE: ogni ora salva snapshot per profilo; a
+		// mezzanotte UTC aggrega in snapshot giornaliero. Goroutine
+		// dedicata, niente librerie cron esterne.
+		go runOEECronWorker(database, oeeHandler)
 
 		// Dashboard overview — un singolo endpoint che aggrega tutto
 		// quello che la pagina dashboard mostra (system / alarms / gateways
@@ -1271,5 +1282,53 @@ func getCloudMQTTConfig(db *sql.DB) *CloudMQTTConfig {
 		Username: username,
 		Password: password,
 		Prefix:   parts[0],
+	}
+}
+
+// runOEECronWorker è la goroutine che alimenta oee_history. Tick "minuto
+// uno" di ogni ora: salva snapshot orario per ogni profilo abilitato +
+// rollup fabbrica. A mezzanotte UTC: aggrega snapshot giornaliero.
+//
+// Idempotente via UNIQUE(profile_id, bucket_start, bucket_size) — se il
+// servizio riparte dopo un crash, il replay non duplica righe.
+//
+// Niente cron expression / libreria esterna: il pattern "wake up al
+// prossimo minuto:zero" è 10 righe di ticker e basta per l'uso.
+func runOEECronWorker(db *sql.DB, oee *handlers.OEEHandler) {
+	log.Println("[OEE-CRON] worker started")
+
+	// Wait until next minute:00 + 5s di margine — non sovrapporci al
+	// boot di altri servizi e ci diamo tempo che il DB sia stabile.
+	now := time.Now().UTC()
+	next := now.Truncate(time.Minute).Add(time.Minute + 5*time.Second)
+	time.Sleep(time.Until(next))
+
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	// Recovery: al boot facciamo un primo snapshot per l'ora corrente
+	// così non si aspetta fino a HH:00 prossimo.
+	if err := handlers.RecordHourlySnapshot(db, oee, time.Now().UTC()); err != nil {
+		log.Printf("[OEE-CRON] initial snapshot failed: %v", err)
+	}
+
+	for t := range ticker.C {
+		u := t.UTC()
+		// All'ora esatta (minuto 0): snapshot orario.
+		if u.Minute() == 0 {
+			if err := handlers.RecordHourlySnapshot(db, oee, u); err != nil {
+				log.Printf("[OEE-CRON] hourly snapshot failed: %v", err)
+			} else {
+				log.Printf("[OEE-CRON] hourly snapshot ok @ %s", u.Format("2006-01-02 15:00"))
+			}
+			// Mezzanotte UTC: aggregazione giornaliera del giorno precedente.
+			if u.Hour() == 0 {
+				if err := handlers.RecordDailySnapshot(db, oee, u); err != nil {
+					log.Printf("[OEE-CRON] daily snapshot failed: %v", err)
+				} else {
+					log.Println("[OEE-CRON] daily snapshot ok")
+				}
+			}
+		}
 	}
 }

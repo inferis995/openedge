@@ -321,6 +321,67 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: OEE history (snapshot persistiti) + loss categories.
+	// `oee_history` è la tabella di rollup orario/giornaliero: il cron
+	// worker scrive una riga per profilo per ora con A/P/Q calcolati,
+	// così le query "OEE ultime 4 settimane" non devono scannerare
+	// tag_history ogni volta. profile_id = NULL = riga di rollup
+	// fabbrica (media tra profili).
+	//
+	// `oee_loss_categories` sono le Six Big Losses (ISO 22400-2): vengono
+	// seedate alla migration con i 6 codici standard. Saranno usate da
+	// commit successivi (loss tree + Pareto cause).
+	oeeHistoryTables := []string{
+		`CREATE TABLE IF NOT EXISTS oee_history (
+			id BIGSERIAL PRIMARY KEY,
+			profile_id INT REFERENCES oee_profiles(id) ON DELETE CASCADE,
+			bucket_start TIMESTAMPTZ NOT NULL,
+			bucket_size TEXT NOT NULL CHECK (bucket_size IN ('hour','day','shift')),
+			oee DOUBLE PRECISION NOT NULL,
+			availability DOUBLE PRECISION NOT NULL,
+			performance DOUBLE PRECISION NOT NULL,
+			quality DOUBLE PRECISION NOT NULL,
+			planned_min DOUBLE PRECISION DEFAULT 0,
+			downtime_min DOUBLE PRECISION DEFAULT 0,
+			pieces_produced DOUBLE PRECISION DEFAULT 0,
+			pieces_good DOUBLE PRECISION DEFAULT 0,
+			shift_id INT REFERENCES shifts(id) ON DELETE SET NULL,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			UNIQUE (profile_id, bucket_start, bucket_size)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_oee_history_lookup
+			ON oee_history(profile_id, bucket_size, bucket_start DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_oee_history_shift
+			ON oee_history(shift_id, bucket_start) WHERE shift_id IS NOT NULL`,
+		`CREATE TABLE IF NOT EXISTS oee_loss_categories (
+			id SERIAL PRIMARY KEY,
+			code TEXT NOT NULL UNIQUE,
+			loss_pillar TEXT NOT NULL CHECK (loss_pillar IN ('availability','performance','quality')),
+			display_label TEXT NOT NULL,
+			color TEXT DEFAULT '#888888'
+		)`,
+	}
+	for _, stmt := range oeeHistoryTables {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("oee history migration: %w", err)
+		}
+	}
+
+	// Seed delle 6 Big Losses standard ISO 22400-2. Servono al loss tree
+	// del commit 3 ma le creiamo già ora — niente downside e schema completo.
+	lossSeed := `
+	INSERT INTO oee_loss_categories (code, loss_pillar, display_label, color) VALUES
+		('breakdown',         'availability', 'Guasti / fermi non pianificati', '#dc2626'),
+		('setup',             'availability', 'Cambio formato / setup',         '#f59e0b'),
+		('minor_stop',        'performance',  'Micro-fermi (< 5 min)',          '#fbbf24'),
+		('reduced_speed',     'performance',  'Velocità ridotta / rallentamenti', '#f97316'),
+		('startup_defect',    'quality',      'Scarti di avvio',                '#a855f7'),
+		('production_defect', 'quality',      'Scarti di produzione',           '#ec4899')
+	ON CONFLICT (code) DO NOTHING;`
+	if _, err := db.Exec(lossSeed); err != nil {
+		log.Printf("Warning: failed to seed loss categories: %v", err)
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

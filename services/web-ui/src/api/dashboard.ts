@@ -250,4 +250,33 @@ export const oeeApi = {
         const r = await api.get(`/oee/profiles/${id}/history`);
         return r.data;
     },
+    // Storico persistente (rollup orario/giornaliero salvato dal cron).
+    // Per finestre lunghe (> 7g) usa questo, non profileHistory che
+    // ricalcola al volo da tag_history.
+    historyV2: async (params: {
+        profile_id?: number | null;
+        from: string;
+        to: string;
+        bucket: 'hour' | 'day' | 'shift';
+    }): Promise<OEEHistoryRow[]> => {
+        const r = await api.get('/oee/history-v2', { params });
+        return r.data;
+    },
 };
+
+// Riga del rollup persistito — più informazioni del semplice
+// OEEHistoryPoint (include A/P/Q, pieces, shift).
+export interface OEEHistoryRow {
+    profile_id?: number;
+    bucket_start: string;
+    bucket_size: 'hour' | 'day' | 'shift';
+    oee: number;
+    availability: number;
+    performance: number;
+    quality: number;
+    planned_min: number;
+    downtime_min: number;
+    pieces_produced: number;
+    pieces_good: number;
+    shift_id?: number;
+}
