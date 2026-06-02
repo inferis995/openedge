@@ -286,6 +286,41 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: OEE profiles. Multi-linea/multi-reparto — ogni profilo è
+	// un'unità di misura OEE indipendente (una linea, una macchina, un
+	// reparto). Il fallback ai settings globali oee_* resta attivo finché
+	// non c'è almeno un profilo: così le installazioni esistenti non si
+	// rompono. area_id e gateway_id sono solo metadati di scoping per la
+	// UI (raggruppamento/filtro); il calcolo legge sempre i 3 tag id qui.
+	oeeProfiles := []string{
+		`CREATE TABLE IF NOT EXISTS oee_profiles (
+			id SERIAL PRIMARY KEY,
+			org_id INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			description TEXT,
+			area_id INT REFERENCES areas(id) ON DELETE SET NULL,
+			gateway_id INT REFERENCES gateways(id) ON DELETE SET NULL,
+			run_time_tag_id INT REFERENCES tags(id) ON DELETE SET NULL,
+			produced_tag_id INT REFERENCES tags(id) ON DELETE SET NULL,
+			good_tag_id INT REFERENCES tags(id) ON DELETE SET NULL,
+			target_pieces_per_hour DOUBLE PRECISION DEFAULT 0,
+			window_minutes INT NOT NULL DEFAULT 480 CHECK (window_minutes > 0),
+			target_oee DOUBLE PRECISION DEFAULT 85 CHECK (target_oee >= 0 AND target_oee <= 100),
+			display_order INT DEFAULT 0,
+			enabled BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW(),
+			UNIQUE (org_id, name)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_oee_profiles_org_enabled
+			ON oee_profiles(org_id, enabled, display_order)`,
+	}
+	for _, stmt := range oeeProfiles {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("oee profiles migration: %w", err)
+		}
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

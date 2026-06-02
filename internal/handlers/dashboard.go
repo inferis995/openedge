@@ -43,10 +43,10 @@ type DashboardOverview struct {
 	KPI         []KPIWidget     `json:"kpi"`
 	Shift       *ShiftBlock     `json:"shift,omitempty"`
 	Maintenance *MaintenanceBlock `json:"maintenance,omitempty"`
-	// OEE è la "card lampante" della dashboard. Sempre presente nella
-	// risposta — quando i tag di produzione non sono configurati, mostra
-	// valori derivati dai fallback euristici (quality + downtime).
-	OEE         *OEESnapshot    `json:"oee,omitempty"`
+	// OEE è la "card lampante" della dashboard. In modalità "legacy" (0
+	// profili) la UI mostra un'unica card; in modalità "profiles" mostra
+	// rollup + griglia di card per profilo.
+	OEE         *OEEOverview    `json:"oee,omitempty"`
 }
 
 // MaintenanceBlock è il widget "manutenzione in corso" della dashboard.
@@ -180,8 +180,8 @@ func (h *DashboardHandler) Overview(c *gin.Context) {
 	resp.Shift = h.currentShift()
 	resp.Maintenance = h.currentMaintenance()
 	if h.OEE != nil {
-		s := h.OEE.compute()
-		resp.OEE = &s
+		o := h.OEE.compute()
+		resp.OEE = &o
 	}
 	c.JSON(http.StatusOK, resp)
 }

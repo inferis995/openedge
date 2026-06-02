@@ -6,7 +6,11 @@ import {
     TrendingDown, TrendingUp, UserCircle, Users, Wifi, Wrench, XCircle, ArrowUpRight,
 } from 'lucide-react';
 
-import { dashboardApi, oeeApi, ActivityEvent, AlarmSummary, KPIWidget, OEESnapshot, OEEHistoryPoint } from '@/api/dashboard';
+import {
+    dashboardApi, oeeApi,
+    ActivityEvent, AlarmSummary, KPIWidget,
+    OEESnapshot, OEEHistoryPoint, OEEOverview, OEEProfileSnapshot,
+} from '@/api/dashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
@@ -543,7 +547,101 @@ const OEEComponentBar = ({
     );
 };
 
-const OEECard = ({ o }: { o: OEESnapshot }) => {
+// OEEWrapper — decide tra legacy (1 card) e profiles (rollup + griglia).
+const OEEWrapper = ({ overview }: { overview: OEEOverview }) => {
+    if (overview.mode === 'legacy' && overview.legacy) {
+        return <OEECard o={overview.legacy} title="OEE" subtitle="" showNudge />;
+    }
+    if (overview.mode === 'profiles' && overview.profiles && overview.profiles.length > 0) {
+        return <OEEProfilesView profiles={overview.profiles} rollup={overview.rollup} />;
+    }
+    return null;
+};
+
+// Vista multi-profilo: rollup grande in cima + griglia di card compatte per
+// ogni profilo. Click su una card → /oee/profili (drill-down futuro).
+const OEEProfilesView = ({
+    profiles, rollup,
+}: { profiles: OEEProfileSnapshot[]; rollup?: OEESnapshot }) => {
+    return (
+        <div className="space-y-3">
+            {rollup && (
+                <OEECard
+                    o={rollup}
+                    title="OEE Fabbrica"
+                    subtitle={`Media di ${profiles.length} ${profiles.length === 1 ? 'profilo' : 'profili'}`}
+                />
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {profiles.map((p) => (
+                    <OEEProfileCard key={p.profile_id} p={p} />
+                ))}
+            </div>
+        </div>
+    );
+};
+
+// Card compatta per singolo profilo. Mostra nome, area, OEE numerico,
+// 3 mini-barre A/P/Q. Click → pagina di gestione profili.
+const OEEProfileCard = ({ p }: { p: OEEProfileSnapshot }) => {
+    const navigate = useNavigate();
+    const s = p.snapshot;
+    const band = oeeBand(s.oee);
+    const targetMet = s.target !== undefined ? s.oee >= s.target : null;
+
+    return (
+        <button
+            type="button"
+            onClick={() => navigate('/oee-profiles')}
+            className={`text-left rounded-md border-2 p-3 hover:shadow-md transition-all ${band.ring}`}
+        >
+            <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                    <p className="font-semibold truncate">{p.name}</p>
+                    {p.area_name && (
+                        <p className="text-[11px] text-muted-foreground truncate">{p.area_name}</p>
+                    )}
+                </div>
+                <Gauge size={18} className={band.tone} />
+            </div>
+            <div className="mt-2 flex items-baseline gap-1">
+                <span className={`text-3xl font-bold tracking-tight ${band.tone}`}>{s.oee.toFixed(1)}</span>
+                <span className="text-base font-semibold text-muted-foreground">%</span>
+                {s.target !== undefined && (
+                    <span className={`ml-auto text-[10px] ${targetMet ? 'text-emerald-500' : 'text-red-500'}`}>
+                        {targetMet ? '✓' : '✗'} ≥ {s.target}%
+                    </span>
+                )}
+            </div>
+            <div className="mt-2 space-y-1">
+                <MiniBar label="A" v={s.availability} />
+                <MiniBar label="P" v={s.performance} />
+                <MiniBar label="Q" v={s.quality} />
+            </div>
+        </button>
+    );
+};
+
+const MiniBar = ({ label, v }: { label: string; v: number }) => {
+    const color =
+        v >= 85 ? 'bg-emerald-500'
+        : v >= 65 ? 'bg-amber-500'
+        : v >= 40 ? 'bg-orange-500'
+        : 'bg-red-500';
+    return (
+        <div className="flex items-center gap-2 text-[11px]">
+            <span className="text-muted-foreground font-mono w-3">{label}</span>
+            <div className="flex-1 h-1.5 bg-muted rounded overflow-hidden">
+                <div className={`h-1.5 ${color}`} style={{ width: `${Math.min(100, Math.max(0, v))}%` }} />
+            </div>
+            <span className="font-mono w-10 text-right">{v.toFixed(0)}%</span>
+        </div>
+    );
+};
+
+const OEECard = ({
+    o, title = 'OEE', subtitle, showNudge = false,
+}: { o: OEESnapshot; title?: string; subtitle?: string; showNudge?: boolean }) => {
     const navigate = useNavigate();
     const band = oeeBand(o.oee);
     const windowH = (o.window_minutes / 60).toFixed(o.window_minutes % 60 === 0 ? 0 : 1);
@@ -552,14 +650,11 @@ const OEECard = ({ o }: { o: OEESnapshot }) => {
     const { data: history } = useQuery({
         queryKey: ['oee-history'],
         queryFn: oeeApi.history,
-        refetchInterval: 5 * 60_000, // 5 minuti — l'OEE giornaliero non si muove più velocemente di così
+        refetchInterval: 5 * 60_000,
         placeholderData: (prev) => prev,
     });
 
     const targetMet = o.target !== undefined ? o.oee >= o.target : null;
-    // Tutte e tre le fonti sono fallback? Mostriamo un suggerimento gentile
-    // "configura i tag di produzione per OEE reale" — è il modo onesto di
-    // segnalare che i numeri sono "indicativi" ma derivati dal sistema.
     const allFallback =
         o.availability_source === 'fallback' &&
         o.performance_source  === 'fallback' &&
@@ -575,11 +670,14 @@ const OEECard = ({ o }: { o: OEESnapshot }) => {
                             <Gauge size={36} className={band.tone} />
                         </div>
                         <div>
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">OEE {windowH}h</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">{title} {windowH}h</span>
                                 <Badge variant="outline" className={`text-[10px] ${band.tone} border-current`}>
                                     {band.label}
                                 </Badge>
+                                {subtitle && (
+                                    <span className="text-[10px] text-muted-foreground">{subtitle}</span>
+                                )}
                             </div>
                             <div className="flex items-baseline gap-1 mt-1">
                                 <span className={`text-5xl font-bold tracking-tight ${band.tone}`}>{o.oee.toFixed(1)}</span>
@@ -629,16 +727,17 @@ const OEECard = ({ o }: { o: OEESnapshot }) => {
                     </div>
                 </div>
 
-                {/* Nudge configurazione — visibile solo se tutto è in fallback */}
-                {allFallback && (
+                {/* Nudge configurazione — solo per OEE legacy (no profili) e
+                    quando tutto è in fallback. */}
+                {showNudge && allFallback && (
                     <button
                         type="button"
-                        onClick={() => navigate('/system')}
+                        onClick={() => navigate('/oee-profiles')}
                         className="mt-4 w-full text-xs text-muted-foreground hover:text-foreground transition-colors text-left flex items-center gap-2 px-3 py-2 rounded border border-dashed border-border hover:border-primary/40">
                         <ArrowUpRight size={12} />
-                        Calcolo OEE in modalità euristica (badge "auto"). Configura i tag di produzione in
-                        <span className="text-primary underline ml-1">System → OEE</span>
-                        per valori reali.
+                        Calcolo OEE in modalità euristica. Crea i profili OEE in
+                        <span className="text-primary underline ml-1">OEE Profili</span>
+                        per monitorare ogni linea separatamente.
                     </button>
                 )}
             </CardContent>
@@ -695,9 +794,10 @@ const DashboardPage = () => {
                 </Clickable>
             )}
 
-            {/* OEE card — "lampante": prima cosa che l'operatore vede dopo lo
-                status bar. Sempre presente (anche se in modalità fallback). */}
-            {data.oee && <OEECard o={data.oee} />}
+            {/* OEE — "lampante": prima cosa che l'operatore vede dopo lo
+                status bar. Due modalità: legacy (1 card) o profili
+                (rollup + griglia di card linea/reparto). */}
+            {data.oee && <OEEWrapper overview={data.oee} />}
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 {data.kpi.map((k) => <KPICard key={k.key} k={k} />)}

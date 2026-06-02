@@ -1311,12 +1311,40 @@ Crontab (ogni venerdì alle 12:00 — pianifica per il sabato successivo):
 
 ---
 
-## 13. OEE — Overall Equipment Effectiveness
+## 13. OEE — Overall Equipment Effectiveness (multi-linea/multi-reparto)
 
-OEE = **Availability × Performance × Quality** (standard ISO 22400). È la
-metrica regina della produzione manifatturiera. OpenEdge mostra l'OEE nella
-**card "lampante"** in cima alla dashboard, sempre presente, anche senza
-configurazione (fallback euristici).
+OEE = **Availability × Performance × Quality** (standard ISO 22400).
+OpenEdge supporta **N profili OEE** — ognuno è un'unità di misura
+indipendente (una linea, una macchina, un reparto). La dashboard mostra
+una card per profilo + un **rollup di fabbrica** (media tra i profili).
+
+Quando 0 profili sono configurati, la dashboard usa il calcolo OEE
+**legacy** con fallback euristici (compatibilità con installazioni
+esistenti). Appena crei il primo profilo, la dashboard passa
+automaticamente in modalità multi-profilo.
+
+### 13.0 Quando creare un profilo OEE
+
+- **1 sola linea / 1 sola macchina** → 1 profilo basta
+- **Più linee/reparti** → 1 profilo per ognuno (es. "Linea A", "Linea B",
+  "Pressa 5", "Confezionamento")
+- **Macchine che il PLC già aggrega** → 1 profilo che punta al contatore
+  aggregato del PLC (non serve un profilo per singola macchina)
+- **5 macchine senza tag PLC aggregato** → 5 profili separati, il rollup
+  in dashboard fa la media
+
+### 13.1 Endpoint API
+
+| Method | Path | Descrizione |
+|---|---|---|
+| GET | `/api/oee` | Snapshot corrente (modalità legacy o multi-profilo) |
+| GET | `/api/oee/history` | Trend 7g (rollup o legacy) |
+| GET | `/api/oee/test-tag/:id?role=running\|counter` | Verifica un tag prima di salvare |
+| GET | `/api/oee/profiles` | Lista tutti i profili (admin) |
+| POST | `/api/oee/profiles` | Crea profilo (admin) |
+| PUT | `/api/oee/profiles/:id` | Aggiorna profilo (admin) |
+| DELETE | `/api/oee/profiles/:id` | Elimina profilo (admin) |
+| GET | `/api/oee/profiles/:id/history` | Trend 7g del singolo profilo |
 
 ### 13.1 Le due modalità di calcolo
 
@@ -1350,7 +1378,7 @@ Tutti accessibili via PUT `/api/system/settings` con prefisso `oee_*`:
 | `oee_good_tag` | `0` | tag_id contatore pezzi buoni (monotono). 0 = fallback. |
 | `oee_target_pieces_per_hour` | `0` | Rate target (pezzi/ora) per il calcolo Performance. |
 
-### 13.3 Configurare OEE per una linea reale
+### 13.3 Creare un profilo OEE per una linea reale
 
 Esempio: linea di assemblaggio con tag PLC:
 - `Linea1.MachineRunning` (BOOL) → tag_id = 42
@@ -1362,19 +1390,22 @@ Esempio: linea di assemblaggio con tag PLC:
 source /etc/openedge-monitor.env
 TOKEN=$(/usr/local/bin/openedge-token.sh)
 
-curl -X PUT -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
   -H 'Content-Type: application/json' \
   -d '{
-    "oee": {
-      "oee_window_minutes": "480",
-      "oee_target": "80",
-      "oee_run_time_tag": "42",
-      "oee_produced_tag": "51",
-      "oee_good_tag": "52",
-      "oee_target_pieces_per_hour": "120"
-    }
+    "name": "Linea Assemblaggio 1",
+    "description": "Linea principale, turno 8h",
+    "area_id": null,
+    "run_time_tag_id": 42,
+    "produced_tag_id": 51,
+    "good_tag_id": 52,
+    "target_pieces_per_hour": 120,
+    "window_minutes": 480,
+    "target_oee": 80,
+    "display_order": 0,
+    "enabled": true
   }' \
-  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/system/settings
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/profiles
 ```
 
 Verifica subito:
@@ -1383,15 +1414,63 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_I
   http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee | python3 -m json.tool
 ```
 
-I tre `*_source` devono passare da `"fallback"` a `"tag"`.
+Risposta: `mode: "profiles"` con il profilo appena creato dentro
+`profiles[]` + `rollup` calcolato sulla media (con 1 solo profilo, rollup
+= snapshot del profilo).
 
-### 13.4 Tornare al fallback
+### 13.4 Lista profili / aggiorna / elimina
 
-Settare i tag id a `"0"` riporta la singola componente in modalità fallback —
-utile per testare la card senza un PLC reale, o per "spegnere" temporaneamente
-una componente che dà numeri strani.
+```bash
+# Lista
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/profiles | python3 -m json.tool
 
-### 13.5 Errori comuni
+# Aggiorna (rinvia tutto il payload)
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Linea Assemblaggio 1","target_oee":85,"target_pieces_per_hour":130,
+       "window_minutes":480,"display_order":0,"enabled":true,
+       "run_time_tag_id":42,"produced_tag_id":51,"good_tag_id":52}' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/profiles/1
+
+# Disabilita (non appare in dashboard ma resta in DB)
+curl -X PUT ... -d '{"name":"...", ..., "enabled":false}' .../api/oee/profiles/1
+
+# Elimina definitivamente
+curl -X DELETE -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/profiles/1
+```
+
+### 13.5 Setup completo multi-linea (esempio reale)
+
+Fabbrica con 3 linee + 1 reparto packaging. Script per creare tutto:
+
+```bash
+#!/bin/bash
+source /etc/openedge-monitor.env
+TOKEN=$(/usr/local/bin/openedge-token.sh)
+
+create_profile() {
+  curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+    -H 'Content-Type: application/json' -d "$1" \
+    http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/profiles
+  echo
+}
+
+create_profile '{"name":"Linea A","run_time_tag_id":42,"produced_tag_id":51,"good_tag_id":52,
+  "target_pieces_per_hour":120,"target_oee":85,"window_minutes":480,"display_order":1,"enabled":true}'
+
+create_profile '{"name":"Linea B","run_time_tag_id":62,"produced_tag_id":71,"good_tag_id":72,
+  "target_pieces_per_hour":90, "target_oee":80,"window_minutes":480,"display_order":2,"enabled":true}'
+
+create_profile '{"name":"Pressa 5","run_time_tag_id":81,"produced_tag_id":82,
+  "target_pieces_per_hour":40, "target_oee":75,"window_minutes":480,"display_order":3,"enabled":true}'
+
+create_profile '{"name":"Packaging","run_time_tag_id":91,"produced_tag_id":92,"good_tag_id":93,
+  "target_pieces_per_hour":200,"target_oee":85,"window_minutes":480,"display_order":4,"enabled":true}'
+```
+
+### 13.6 Errori comuni
 
 - **OEE = 0** in modalità tag: controlla che `oee_produced_tag` riceva
   campioni nella finestra (probabilmente il PLC non sta inviando, vedi sezione

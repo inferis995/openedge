@@ -140,6 +140,61 @@ export interface OEETagTestResult {
     ok: boolean;
 }
 
+// OEEProfileSnapshot = snapshot etichettato per un profilo (linea/reparto).
+export interface OEEProfileSnapshot {
+    profile_id: number;
+    name: string;
+    description?: string;
+    area_id?: number;
+    area_name?: string;
+    enabled: boolean;
+    snapshot: OEESnapshot;
+}
+
+// OEEOverview è la response top-level di /api/oee.
+// - mode="legacy": un singolo snapshot (campo "legacy")
+// - mode="profiles": lista di profili + rollup (campi "profiles" + "rollup")
+export interface OEEOverview {
+    mode: 'legacy' | 'profiles';
+    profiles?: OEEProfileSnapshot[];
+    rollup?: OEESnapshot;
+    legacy?: OEESnapshot;
+}
+
+// Profilo OEE (modello DB) — usato dalla pagina admin.
+export interface OEEProfile {
+    id: number;
+    org_id: number;
+    name: string;
+    description?: string;
+    area_id?: number;
+    area_name?: string;
+    gateway_id?: number;
+    run_time_tag_id?: number;
+    produced_tag_id?: number;
+    good_tag_id?: number;
+    target_pieces_per_hour: number;
+    window_minutes: number;
+    target_oee: number;
+    display_order: number;
+    enabled: boolean;
+}
+
+export interface OEEProfileRequest {
+    name: string;
+    description?: string;
+    area_id?: number | null;
+    gateway_id?: number | null;
+    run_time_tag_id?: number | null;
+    produced_tag_id?: number | null;
+    good_tag_id?: number | null;
+    target_pieces_per_hour: number;
+    window_minutes: number;
+    target_oee: number;
+    display_order: number;
+    enabled: boolean;
+}
+
 export interface DashboardOverview {
     generated_at: string;
     system: SystemStatus;
@@ -150,7 +205,7 @@ export interface DashboardOverview {
     kpi: KPIWidget[];
     shift?: ShiftBlock | null;
     maintenance?: MaintenanceBlock | null;
-    oee?: OEESnapshot | null;
+    oee?: OEEOverview | null;
 }
 
 export const dashboardApi = {
@@ -163,7 +218,7 @@ export const dashboardApi = {
 // Endpoint OEE dedicato — usato dalla sparkline "ultimi 7 giorni" sotto
 // la card grande. Quello dentro overview è solo lo snapshot corrente.
 export const oeeApi = {
-    snapshot: async (): Promise<OEESnapshot> => {
+    snapshot: async (): Promise<OEEOverview> => {
         const r = await api.get('/oee');
         return r.data;
     },
@@ -173,6 +228,26 @@ export const oeeApi = {
     },
     testTag: async (tagId: number, role: 'running' | 'counter'): Promise<OEETagTestResult> => {
         const r = await api.get(`/oee/test-tag/${tagId}`, { params: { role } });
+        return r.data;
+    },
+    // Profiles CRUD
+    listProfiles: async (): Promise<OEEProfile[]> => {
+        const r = await api.get('/oee/profiles');
+        return r.data;
+    },
+    createProfile: async (data: OEEProfileRequest): Promise<OEEProfile> => {
+        const r = await api.post('/oee/profiles', data);
+        return r.data;
+    },
+    updateProfile: async (id: number, data: OEEProfileRequest): Promise<OEEProfile> => {
+        const r = await api.put(`/oee/profiles/${id}`, data);
+        return r.data;
+    },
+    deleteProfile: async (id: number): Promise<void> => {
+        await api.delete(`/oee/profiles/${id}`);
+    },
+    profileHistory: async (id: number): Promise<OEEHistoryPoint[]> => {
+        const r = await api.get(`/oee/profiles/${id}/history`);
         return r.data;
     },
 };

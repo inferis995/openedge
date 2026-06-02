@@ -529,6 +529,13 @@ func main() {
 			// Test pre-config: verifica che un tag sia adatto al ruolo
 			// (running BOOL o counter monotono) prima che l'admin salvi.
 			oeeGrp.GET("/test-tag/:id", oeeHandler.TestTag)
+			// Profiles CRUD — admin-only sulle scritture. La lettura è
+			// per tutti gli autenticati (la dashboard renderizza la lista).
+			oeeGrp.GET("/profiles", oeeHandler.ListProfiles)
+			oeeGrp.GET("/profiles/:id/history", oeeHandler.ProfileHistory)
+			oeeGrp.POST("/profiles", middleware.RequireRole(models.RoleAdmin), oeeHandler.CreateProfile)
+			oeeGrp.PUT("/profiles/:id", middleware.RequireRole(models.RoleAdmin), oeeHandler.UpdateProfile)
+			oeeGrp.DELETE("/profiles/:id", middleware.RequireRole(models.RoleAdmin), oeeHandler.DeleteProfile)
 		}
 
 		// Dashboard overview — un singolo endpoint che aggrega tutto

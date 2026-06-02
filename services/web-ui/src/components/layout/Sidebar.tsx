@@ -28,6 +28,7 @@ import {
     Clock,
     Wrench,
     Target,
+    Gauge,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -53,6 +54,7 @@ const Sidebar = () => {
         { name: 'Recipes', path: '/recipes', icon: ChefHat },
         { name: 'Reports', path: '/reports', icon: FileText },
         { name: 'KPI Produzione', path: '/kpis', icon: Target },
+        { name: 'OEE Profili', path: '/oee-profiles', icon: Gauge },
         { name: 'Turni', path: '/shifts', icon: Clock },
         { name: 'Manutenzione', path: '/maintenance', icon: Wrench },
         { name: 'i3X API',      path: '/i3x',          icon: Network },

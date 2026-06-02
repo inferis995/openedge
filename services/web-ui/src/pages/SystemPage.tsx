@@ -3,7 +3,6 @@ import { systemApi, GlobalSettings, UpdateSettingsRequest, BackupSettings, Backu
 import NotificationsSettings from '@/components/system/NotificationsSettings';
 import BackupConfig from '@/components/system/BackupConfig';
 import KPITargets from '@/components/system/KPITargets';
-import OEESettings from '@/components/system/OEESettings';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -697,13 +696,9 @@ const SystemPage = () => {
                             onSaved={loadSettings}
                         />
 
-                        {/* OEE — finestra, target e tag di produzione.
-                            Tutto opzionale: con NONE in tutti i tag il
-                            calcolo OEE in dashboard usa fallback euristici. */}
-                        <OEESettings
-                            initial={settings}
-                            onSaved={loadSettings}
-                        />
+                        {/* OEE config vive nella pagina dedicata "OEE Profili"
+                            (sidebar → Gauge). Supporta multi-linea/multi-reparto
+                            con un profilo per unità di misura. */}
 
                         {/* MQTT Publish Mode Configuration */}
                         <Card className="border-border shadow-sm bg-card">

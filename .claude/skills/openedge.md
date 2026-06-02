@@ -813,9 +813,12 @@ Se `anomaly_count > 0`, riporta i bucket con `|z_score| >= 2.5`.
 
 ### "Qual è l'OEE adesso? Stiamo sopra il target?"
 
-OEE = Availability × Performance × Quality (ISO 22400). Sempre presente
-nella dashboard, calcolato con fallback euristici se i tag di produzione
-non sono configurati (badge "auto" sulle componenti). Una sola call:
+OEE = Availability × Performance × Quality (ISO 22400). Multi-profilo:
+in fabbrica con più linee ogni linea ha il suo profilo OEE indipendente,
+la dashboard mostra rollup di fabbrica + card per profilo.
+
+Risposta unificata che gestisce sia modalità legacy (1 sola unità) che
+modalità profili (N unità):
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
@@ -823,25 +826,31 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_I
   | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-band = 'world-class' if d['oee']>=85 else 'tipico' if d['oee']>=65 else 'da migliorare' if d['oee']>=40 else 'CRITICO'
-print(f'OEE {d[\"window_minutes\"]//60}h: {d[\"oee\"]:.1f}%  [{band}]')
-print(f'  Availability: {d[\"availability\"]:.1f}% ({d[\"availability_source\"]})')
-print(f'  Performance : {d[\"performance\"]:.1f}% ({d[\"performance_source\"]})')
-print(f'  Quality     : {d[\"quality\"]:.1f}% ({d[\"quality_source\"]})')
-if d.get('target') is not None:
-    met = '✓ sopra target' if d['oee']>=d['target'] else '✗ sotto target'
-    print(f'  Target ≥ {d[\"target\"]}%  {met}')
-if d.get('critical_downtime_min',0)>0:
-    print(f'  Downtime critical nella finestra: {d[\"critical_downtime_min\"]:.0f} min')
-if d.get('pieces_produced',0)>0:
-    print(f'  Pezzi prodotti: {d[\"pieces_produced\"]:.0f}  buoni: {d.get(\"pieces_good\",0):.0f}')"
+def band(v):
+    return 'world-class' if v>=85 else 'tipico' if v>=65 else 'migliorabile' if v>=40 else 'CRITICO'
+def show(name, s):
+    print(f'{name}: {s[\"oee\"]:.1f}%  [{band(s[\"oee\"])}]')
+    print(f'   A {s[\"availability\"]:.1f}%  P {s[\"performance\"]:.1f}%  Q {s[\"quality\"]:.1f}%')
+    if s.get('target') is not None:
+        met = '✓' if s['oee']>=s['target'] else '✗'
+        print(f'   target ≥ {s[\"target\"]}% {met}')
+
+if d['mode'] == 'legacy':
+    show('OEE Fabbrica (legacy)', d['legacy'])
+else:
+    show('Rollup Fabbrica', d['rollup'])
+    print()
+    for p in d['profiles']:
+        if not p['enabled']: continue
+        label = p['name'] + (f' [{p[\"area_name\"]}]' if p.get('area_name') else '')
+        show(label, p['snapshot'])"
 ```
 
-Se tutte e tre le `*_source` valgono `"fallback"`, l'OEE è in modalità
-euristica — comunica esplicitamente all'operatore "OEE in modalità
-indicativa (tag di produzione non configurati). Per OEE reale,
-configura i tag in System → OEE oppure passami questi tag id e li
-configuro io con la skill ops."
+In modalità `profiles`, ogni profilo è una linea/reparto separato.
+In modalità `legacy`, c'è un singolo numero per tutta l'organizzazione.
+
+Se l'utente chiede "configura OEE per ...", la skill ops sa creare un
+profilo con `POST /api/oee/profiles` (vedi openedge-ops.md §13.3-13.5).
 
 ### Trend OEE ultimi 7 giorni
 
@@ -926,14 +935,20 @@ Response shape:
   "shift":       {/* turno corrente o null */},
   "maintenance": {/* finestra in corso o null */},
   "oee": {
-    "oee": 78.3, "availability": 91.2, "performance": 88.5, "quality": 97.1,
-    "availability_source": "tag", "performance_source": "tag", "quality_source": "tag",
-    "window_minutes": 480, "target": 85,
-    "critical_downtime_min": 42, "pieces_produced": 920, "pieces_good": 893,
-    "target_pieces_per_hour": 120
+    "mode": "profiles",
+    "rollup": { "oee": 78.3, "availability": 91.2, "performance": 88.5, "quality": 97.1, ... },
+    "profiles": [
+      {"profile_id": 1, "name": "Linea A", "area_name": "Reparto 1", "enabled": true,
+       "snapshot": { "oee": 82.5, "availability": 95, "performance": 90, "quality": 96.4, ... }},
+      {"profile_id": 2, "name": "Linea B", "area_name": "Reparto 2", "enabled": true,
+       "snapshot": { "oee": 74.1, "availability": 87, "performance": 87, "quality": 97.8, ... }}
+    ]
   }
 }
 ```
+
+In modalità `mode: "legacy"` (nessun profilo creato), invece di `profiles`+`rollup`
+c'è un singolo campo `legacy` con la stessa shape dello snapshot.
 
 ### Risposta sintetica con un solo Python inline
 

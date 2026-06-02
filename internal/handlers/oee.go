@@ -1,32 +1,27 @@
 // Package handlers — OEE (Overall Equipment Effectiveness).
 //
-// OEE = Availability × Performance × Quality
+// OEE = Availability × Performance × Quality (ISO 22400).
 //
-// Standard industriale ISO 22400. La sfida di renderlo "lampante ma
-// direttamente funzionante" è che il calcolo "vero" richiede tag di
-// produzione configurati (pezzi prodotti, pezzi buoni, cicli, target
-// rate). Senza quelli si potrebbe solo mostrare zero.
+// Modello multi-profilo:
+//   - 0 profili → modalità "legacy": un singolo calcolo OEE per
+//     l'organizzazione, basato sui settings globali `oee_*`. Funziona
+//     out-of-the-box anche senza tag configurati (fallback euristici).
+//   - 1+ profili → ogni profilo è un'unità di misura indipendente (una
+//     linea, una macchina, un reparto). La dashboard mostra una card
+//     per profilo + un rollup di fabbrica (media aritmetica).
 //
-// Approccio: ogni componente ha un FALLBACK euristico calcolato da
-// dati che esistono SEMPRE (alarm_events, gateway_health, tag_history),
-// così l'OEE è sempre visibile. Quando l'admin configura i tag reali
-// via OEE settings page, i fallback vengono sostituiti dai valori veri.
+// Il calcolo è parametrizzato da un `oeeConfig`: 3 tag id + window +
+// target. Stesso codice gira sia per i profili che per la modalità legacy.
 //
-// Fallback (modalità "out-of-the-box"):
+// Fallback euristici (quando i tag id sono 0):
 //   - Availability = 1 - (durata totale critical attivi / finestra)
-//   - Performance  = % tag con quality=0 nelle ultime N letture
-//                    (proxy: se i sensori dicono dati buoni, l'impianto
-//                    sta producendo regolarmente)
-//   - Quality      = 1 - (campioni bad-quality / campioni totali)
+//   - Performance  = % campioni con quality=0 nella finestra
+//   - Quality      = idem (in attesa di tag good configurato)
 //
-// Modalità "tag-driven" (settings configurate):
-//   - oee_run_time_tag      → tag che indica "macchina in marcia" (BOOL)
-//   - oee_produced_tag      → contatore pezzi prodotti
-//   - oee_good_tag          → contatore pezzi buoni
-//   - oee_target_pph        → target pezzi/ora (numero)
-//   - oee_planned_time_min  → tempo pianificato della finestra (default = finestra)
-//
-// L'OEE è ricalcolato a ogni /api/dashboard/overview (30s di refresh).
+// Modalità tag-driven (tag id > 0):
+//   - Availability = % campioni di run_time_tag con valore > 0
+//   - Performance  = pieces_produced / (target_pph × ore_finestra) × 100
+//   - Quality      = pieces_good / pieces_produced × 100
 package handlers
 
 import (
@@ -39,8 +34,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// OEEHandler espone GET /api/oee (snapshot completo) + GET /api/oee/history
-// per il trend giornaliero usato dalla card lampante.
+// OEEHandler espone gli endpoint /api/oee*.
 type OEEHandler struct {
 	db *sql.DB
 }
@@ -49,55 +43,128 @@ func NewOEEHandler(db *sql.DB) *OEEHandler {
 	return &OEEHandler{db: db}
 }
 
-// OEESnapshot è la response del calcolo OEE attuale. Tre componenti
-// percentuali (0-100) + il prodotto. Ogni componente porta una nota
-// "source" che spiega se è calcolato da fallback o da tag reale —
-// così la card UI può mostrare un piccolo badge "tag" o "auto" per
-// trasparenza.
+// oeeConfig è il "ricettario" di un calcolo OEE: cosa misuriamo, su
+// quale tag, su quale finestra, contro quale target. Usato sia per i
+// profili (letto dal DB) che per la modalità legacy (letto dai settings).
+type oeeConfig struct {
+	WindowMin     int
+	Target        float64 // target OEE % (0 = nessun target)
+	RunTimeTagID  int     // 0 = fallback
+	ProducedTagID int     // 0 = fallback
+	GoodTagID     int     // 0 = fallback
+	TargetPPH     float64 // pezzi/ora atteso
+}
+
+// OEESnapshot è un calcolo OEE singolo (per un profilo o per la modalità
+// legacy). La UI ne mostra il numero grande + breakdown A/P/Q.
 type OEESnapshot struct {
 	OEE          float64 `json:"oee"`
 	Availability float64 `json:"availability"`
 	Performance  float64 `json:"performance"`
 	Quality      float64 `json:"quality"`
 
-	// Sources: "fallback" o "tag" — la UI rende un badge.
 	AvailabilitySource string `json:"availability_source"`
 	PerformanceSource  string `json:"performance_source"`
 	QualitySource      string `json:"quality_source"`
 
-	// Finestra in cui è stato calcolato l'OEE (per la label "OEE 8h"
-	// in dashboard).
-	WindowMinutes int `json:"window_minutes"`
+	WindowMinutes int      `json:"window_minutes"`
+	Target        *float64 `json:"target,omitempty"`
 
-	// Target: se settato (oee_target), la UI colora l'OEE in base al
-	// rispetto della soglia.
-	Target *float64 `json:"target,omitempty"`
-
-	// Dettagli numerici utili per la diagnostica + per il KPI breakdown.
 	CriticalDowntimeMin float64 `json:"critical_downtime_min"`
 	PiecesProduced      float64 `json:"pieces_produced,omitempty"`
 	PiecesGood          float64 `json:"pieces_good,omitempty"`
 	TargetPiecesPerHour float64 `json:"target_pieces_per_hour,omitempty"`
 }
 
-// Snapshot calcola e ritorna l'OEE corrente. Usato direttamente dal
-// frontend per la card e indirettamente dal DashboardHandler.
-func (h *OEEHandler) Snapshot(c *gin.Context) {
-	c.JSON(http.StatusOK, h.compute())
+// OEEProfileSnapshot è uno snapshot OEE etichettato — i campi extra
+// (profile_id, name, area_name) servono alla dashboard per renderizzare
+// la griglia di card "OEE per profilo".
+type OEEProfileSnapshot struct {
+	ProfileID   int         `json:"profile_id"`
+	Name        string      `json:"name"`
+	Description string      `json:"description,omitempty"`
+	AreaID      *int        `json:"area_id,omitempty"`
+	AreaName    string      `json:"area_name,omitempty"`
+	Enabled     bool        `json:"enabled"`
+	Snapshot    OEESnapshot `json:"snapshot"`
 }
 
-// HistoryPoint è un campione del trend OEE — usato dalla mini-sparkline
-// in dashboard "ultime 7g OEE".
-type OEEHistoryPoint struct {
-	Bucket time.Time `json:"bucket"`
-	OEE    float64   `json:"oee"`
+// OEEOverview è la response top-level dell'endpoint /api/oee.
+// Due modalità:
+//   - mode="legacy": un singolo snapshot OEE per l'organizzazione (Legacy).
+//   - mode="profiles": lista di profili + rollup (media aritmetica).
+type OEEOverview struct {
+	Mode     string               `json:"mode"`
+	Profiles []OEEProfileSnapshot `json:"profiles,omitempty"`
+	Rollup   *OEESnapshot         `json:"rollup,omitempty"`
+	Legacy   *OEESnapshot         `json:"legacy,omitempty"`
+}
+
+// Snapshot GET /api/oee — restituisce l'overview corrente.
+func (h *OEEHandler) Snapshot(c *gin.Context) {
+	c.JSON(http.StatusOK, h.overview())
+}
+
+// overview è il punto di ingresso che decide tra modalità profiles e
+// modalità legacy.
+func (h *OEEHandler) overview() OEEOverview {
+	profiles := h.loadEnabledProfiles()
+	if len(profiles) == 0 {
+		// Modalità legacy: una sola snapshot dai settings globali.
+		cfg := h.legacyConfig()
+		snap := h.computeSnapshotAt(time.Now().UTC(), cfg)
+		return OEEOverview{Mode: "legacy", Legacy: &snap}
+	}
+
+	out := OEEOverview{Mode: "profiles"}
+	now := time.Now().UTC()
+	rollupSum := struct{ a, p, q, oee float64 }{}
+	count := 0
+	for _, p := range profiles {
+		snap := h.computeSnapshotAt(now, p.config())
+		out.Profiles = append(out.Profiles, OEEProfileSnapshot{
+			ProfileID:   p.ID,
+			Name:        p.Name,
+			Description: p.Description,
+			AreaID:      p.AreaID,
+			AreaName:    p.AreaName,
+			Enabled:     p.Enabled,
+			Snapshot:    snap,
+		})
+		rollupSum.a += snap.Availability
+		rollupSum.p += snap.Performance
+		rollupSum.q += snap.Quality
+		rollupSum.oee += snap.OEE
+		count++
+	}
+	if count > 0 {
+		// Rollup = media aritmetica delle 4 metriche tra tutti i profili
+		// abilitati. Semplice, prevedibile; volutamente non "weighted by
+		// pieces" per non rompersi quando alcuni profili sono in fallback
+		// (pieces=0). Quando serve la media pesata, l'admin tipicamente la
+		// vede già nel singolo profilo "Fabbrica" se decide di crearlo.
+		fn := func(s float64) float64 { return s / float64(count) }
+		out.Rollup = &OEESnapshot{
+			OEE:          fn(rollupSum.oee),
+			Availability: fn(rollupSum.a),
+			Performance:  fn(rollupSum.p),
+			Quality:      fn(rollupSum.q),
+			AvailabilitySource: "rollup",
+			PerformanceSource:  "rollup",
+			QualitySource:      "rollup",
+			WindowMinutes:      profiles[0].WindowMinutes, // info, non sempre uniforme tra profili
+		}
+		if t := h.floatSetting("oee_target"); t > 0 {
+			out.Rollup.Target = &t
+		}
+	}
+	return out
 }
 
 // TagTestResult è il "lo provi prima di salvare" della config OEE:
 // dato un tag id + un ruolo ("running" o "counter"), il backend legge
 // gli ultimi N campioni e dice all'admin "sì, questo tag funziona per
-// quel ruolo" o "no, ecco perché". Niente più "configuro a caso e
-// guardo se la dashboard mostra numeri sensati 8 ore dopo".
+// quel ruolo" o "no, ecco perché".
 type TagTestResult struct {
 	TagID        int     `json:"tag_id"`
 	Alias        string  `json:"alias"`
@@ -110,23 +177,14 @@ type TagTestResult struct {
 	MinValue     float64 `json:"min_value"`
 	MaxValue     float64 `json:"max_value"`
 	Delta        float64 `json:"delta"`
-	// IsMonotonic: per ruolo "counter" — il valore non decresce mai
-	// nei campioni esaminati. False = il tag fa rollover o non è un
-	// counter (es. è già un rate).
-	IsMonotonic bool `json:"is_monotonic"`
-	// IsBoolish: per ruolo "running" — il tag oscilla tra 0 e qualcosa
-	// di non-zero. True = ok come BOOL. False = è un analogico continuo.
-	IsBoolish bool `json:"is_boolish"`
-	// Warnings: avvisi non bloccanti (es. "nessun campione nelle ultime 24h"
-	// o "valore costante da 1h: macchina ferma?")
-	Warnings []string `json:"warnings"`
-	// Ok: verdetto sintetico "questo tag va bene per il ruolo richiesto".
-	Ok bool `json:"ok"`
+	IsMonotonic  bool    `json:"is_monotonic"`
+	IsBoolish    bool    `json:"is_boolish"`
+	Warnings     []string `json:"warnings"`
+	Ok           bool    `json:"ok"`
 }
 
 // TestTag GET /api/oee/test-tag/:id?role=running|counter — verdetto
-// "questo tag funziona per il ruolo?" usato dal wizard OEE per dare
-// feedback verde/giallo/rosso prima di salvare la config.
+// "questo tag funziona per il ruolo?" per il wizard config.
 func (h *OEEHandler) TestTag(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
@@ -140,7 +198,6 @@ func (h *OEEHandler) TestTag(c *gin.Context) {
 
 	out := TagTestResult{TagID: id, Warnings: []string{}}
 
-	// Metadati tag
 	var alias sql.NullString
 	if err := h.db.QueryRow(`
 		SELECT COALESCE(alias,''), code, data_type FROM tags WHERE id = $1`,
@@ -151,7 +208,6 @@ func (h *OEEHandler) TestTag(c *gin.Context) {
 	}
 	out.Alias = alias.String
 
-	// Ultimi N campioni (ordine crescente per check monotonic).
 	rows, err := h.db.Query(`
 		SELECT value FROM tag_history WHERE tag_id = $1
 		ORDER BY time DESC LIMIT 50`, id)
@@ -176,16 +232,13 @@ func (h *OEEHandler) TestTag(c *gin.Context) {
 		return
 	}
 
-	// vals[0] è il più recente; rovesciamo per analisi cronologica.
 	for i, j := 0, len(vals)-1; i < j; i, j = i+1, j-1 {
 		vals[i], vals[j] = vals[j], vals[i]
 	}
-
 	out.FirstValue = vals[0]
 	out.LastValue = vals[len(vals)-1]
 	out.CurrentValue = out.LastValue
 	out.Delta = out.LastValue - out.FirstValue
-
 	out.MinValue = vals[0]
 	out.MaxValue = vals[0]
 	monotonic := true
@@ -235,96 +288,113 @@ func (h *OEEHandler) TestTag(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 
-// History ritorna l'OEE per ognuno degli ultimi 7 giorni, ricalcolato.
-// Implementazione semplice: 7 chiamate a compute() proiettate indietro
-// nel tempo. Ok fino a window=8h (i dati ci sono); per finestre più
-// lunghe sarebbe meglio cachare, ma per la sparkline a 7 punti la
-// performance è accettabile.
+// OEEHistoryPoint è un campione del trend OEE — usato dalla mini-sparkline
+// in dashboard "ultime 7g OEE".
+type OEEHistoryPoint struct {
+	Bucket time.Time `json:"bucket"`
+	OEE    float64   `json:"oee"`
+}
+
+// History GET /api/oee/history — trend OEE ultimi 7 giorni. In modalità
+// profili usa il rollup; in modalità legacy usa il singolo calcolo.
 func (h *OEEHandler) History(c *gin.Context) {
+	profiles := h.loadEnabledProfiles()
 	out := []OEEHistoryPoint{}
 	now := time.Now().UTC()
 	for i := 6; i >= 0; i-- {
 		d := time.Date(now.Year(), now.Month(), now.Day()-i, 0, 0, 0, 0, time.UTC)
-		// Per ogni giorno calcoliamo l'OEE delle ultime 24h fino a fine
-		// giornata; per "oggi" calcoliamo fino a NOW.
 		end := d.Add(24 * time.Hour)
 		if i == 0 {
 			end = now
 		}
-		out = append(out, OEEHistoryPoint{
-			Bucket: d,
-			OEE:    h.computeAt(end, 24*60),
-		})
+		var oeeVal float64
+		if len(profiles) == 0 {
+			cfg := h.legacyConfig()
+			cfg.WindowMin = 24 * 60
+			oeeVal = h.computeSnapshotAt(end, cfg).OEE
+		} else {
+			sum := 0.0
+			for _, p := range profiles {
+				cfg := p.config()
+				cfg.WindowMin = 24 * 60
+				sum += h.computeSnapshotAt(end, cfg).OEE
+			}
+			oeeVal = sum / float64(len(profiles))
+		}
+		out = append(out, OEEHistoryPoint{Bucket: d, OEE: oeeVal})
 	}
 	c.JSON(http.StatusOK, out)
 }
 
-// compute è il punto di ingresso "OEE attuale" — usa la finestra
-// configurata (oee_window_minutes, default 480 = 8h).
-func (h *OEEHandler) compute() OEESnapshot {
-	windowMin := h.intSetting("oee_window_minutes", 480)
-	return h.computeSnapshotAt(time.Now().UTC(), windowMin)
-}
-
-// computeAt calcola l'OEE complessivo (% × % × %) come singolo numero
-// terminato al timestamp `end` e con finestra di N minuti. Usato dalla
-// history per backfill dei 7 giorni.
-func (h *OEEHandler) computeAt(end time.Time, windowMin int) float64 {
-	s := h.computeSnapshotAt(end, windowMin)
-	return s.OEE
-}
-
-// computeSnapshotAt è il calcolo vero — separato per essere chiamato sia
-// dall'endpoint /api/oee sia dal dashboard overview.
-func (h *OEEHandler) computeSnapshotAt(end time.Time, windowMin int) OEESnapshot {
-	out := OEESnapshot{
-		WindowMinutes: windowMin,
+// ProfileHistory GET /api/oee/profiles/:id/history — trend OEE 7g per
+// un singolo profilo.
+func (h *OEEHandler) ProfileHistory(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
 	}
-	start := end.Add(-time.Duration(windowMin) * time.Minute)
+	p, err := h.loadProfile(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "profile not found"})
+		return
+	}
+	out := []OEEHistoryPoint{}
+	now := time.Now().UTC()
+	for i := 6; i >= 0; i-- {
+		d := time.Date(now.Year(), now.Month(), now.Day()-i, 0, 0, 0, 0, time.UTC)
+		end := d.Add(24 * time.Hour)
+		if i == 0 {
+			end = now
+		}
+		cfg := p.config()
+		cfg.WindowMin = 24 * 60
+		out = append(out, OEEHistoryPoint{Bucket: d, OEE: h.computeSnapshotAt(end, cfg).OEE})
+	}
+	c.JSON(http.StatusOK, out)
+}
 
-	// ── Availability ────────────────────────────────────────────────
+// computeSnapshotAt è il calcolo del singolo OEE: chiamato da snapshot,
+// rollup, history, ovunque. Tutto pesca da `cfg` — niente più letture
+// scattered di global_settings.
+func (h *OEEHandler) computeSnapshotAt(end time.Time, cfg oeeConfig) OEESnapshot {
+	out := OEESnapshot{WindowMinutes: cfg.WindowMin}
+	start := end.Add(-time.Duration(cfg.WindowMin) * time.Minute)
+
 	out.Availability, out.AvailabilitySource, out.CriticalDowntimeMin =
-		h.computeAvailability(start, end, windowMin)
-
-	// ── Performance ─────────────────────────────────────────────────
+		h.computeAvailability(start, end, cfg)
 	out.Performance, out.PerformanceSource, out.PiecesProduced, out.TargetPiecesPerHour =
-		h.computePerformance(start, end, windowMin)
+		h.computePerformance(start, end, cfg)
+	out.Quality, out.QualitySource, out.PiecesGood =
+		h.computeQuality(start, end, out.PiecesProduced, cfg)
 
-	// ── Quality ─────────────────────────────────────────────────────
-	out.Quality, out.QualitySource, out.PiecesGood = h.computeQuality(start, end, out.PiecesProduced)
-
-	// OEE = A × P × Q (tutti in 0-1 internamente, poi × 100 per UI)
 	a := clamp01(out.Availability / 100)
 	p := clamp01(out.Performance / 100)
 	q := clamp01(out.Quality / 100)
 	out.OEE = a * p * q * 100
 
-	if t := h.floatSetting("oee_target"); t > 0 {
+	if cfg.Target > 0 {
+		t := cfg.Target
 		out.Target = &t
 	}
 	return out
 }
 
-// computeAvailability — usa oee_run_time_tag se configurato; altrimenti
-// fallback su "1 - (downtime critical / finestra)".
-func (h *OEEHandler) computeAvailability(start, end time.Time, windowMin int) (float64, string, float64) {
-	// Modalità tag-driven: percentuale di tempo in cui run_time_tag = 1.
-	if id := h.intSetting("oee_run_time_tag", 0); id > 0 {
-		// Frazione di campioni con valore > 0. Approssimazione semplice:
-		// non integrale ma sufficiente con scan rate regolare.
+// computeAvailability — tag-driven se cfg.RunTimeTagID > 0, altrimenti
+// fallback su downtime allarmi critical.
+func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (float64, string, float64) {
+	if cfg.RunTimeTagID > 0 {
 		var total, running int
 		_ = h.db.QueryRow(`
 			SELECT COUNT(*), COUNT(*) FILTER (WHERE value > 0)
 			FROM tag_history WHERE tag_id = $1 AND time > $2 AND time <= $3`,
-			id, start, end,
+			cfg.RunTimeTagID, start, end,
 		).Scan(&total, &running)
 		if total > 0 {
 			return float64(running) / float64(total) * 100, "tag", 0
 		}
 	}
 
-	// Fallback: 1 - (somma durate critical attivi nella finestra) / finestra.
-	// Per gli allarmi ancora attivi clear_time è NULL → usiamo NOW().
 	var downSec float64
 	_ = h.db.QueryRow(`
 		SELECT COALESCE(SUM(
@@ -343,7 +413,7 @@ func (h *OEEHandler) computeAvailability(start, end time.Time, windowMin int) (f
 	if downSec < 0 {
 		downSec = 0
 	}
-	windowSec := float64(windowMin * 60)
+	windowSec := float64(cfg.WindowMin * 60)
 	availability := 100.0
 	if windowSec > 0 {
 		availability = (1 - downSec/windowSec) * 100
@@ -354,40 +424,35 @@ func (h *OEEHandler) computeAvailability(start, end time.Time, windowMin int) (f
 	return availability, "fallback", downSec / 60
 }
 
-// computePerformance — usa oee_produced_tag + oee_target_pph se entrambi
-// configurati; altrimenti fallback al % di campioni con quality=0
-// (proxy: se i sensori riportano dati buoni, l'impianto sta lavorando).
-func (h *OEEHandler) computePerformance(start, end time.Time, windowMin int) (float64, string, float64, float64) {
-	target := h.floatSetting("oee_target_pieces_per_hour")
-	if id := h.intSetting("oee_produced_tag", 0); id > 0 && target > 0 {
-		// Pieces in finestra = delta del contatore monotono.
+// computePerformance — tag-driven se cfg.ProducedTagID > 0 && cfg.TargetPPH > 0.
+func (h *OEEHandler) computePerformance(start, end time.Time, cfg oeeConfig) (float64, string, float64, float64) {
+	if cfg.ProducedTagID > 0 && cfg.TargetPPH > 0 {
 		var firstV, lastV sql.NullFloat64
 		_ = h.db.QueryRow(`
 			SELECT value FROM tag_history
 			WHERE tag_id = $1 AND time > $2 AND time <= $3
 			ORDER BY time ASC LIMIT 1`,
-			id, start, end,
+			cfg.ProducedTagID, start, end,
 		).Scan(&firstV)
 		_ = h.db.QueryRow(`
 			SELECT value FROM tag_history
 			WHERE tag_id = $1 AND time > $2 AND time <= $3
 			ORDER BY time DESC LIMIT 1`,
-			id, start, end,
+			cfg.ProducedTagID, start, end,
 		).Scan(&lastV)
 		if firstV.Valid && lastV.Valid && lastV.Float64 >= firstV.Float64 {
 			pieces := lastV.Float64 - firstV.Float64
-			expected := target * (float64(windowMin) / 60)
+			expected := cfg.TargetPPH * (float64(cfg.WindowMin) / 60)
 			if expected > 0 {
 				p := pieces / expected * 100
 				if p > 100 {
 					p = 100
 				}
-				return p, "tag", pieces, target
+				return p, "tag", pieces, cfg.TargetPPH
 			}
 		}
 	}
 
-	// Fallback: percentuale di campioni con quality=0 (GOOD).
 	var total, good int
 	_ = h.db.QueryRow(`
 		SELECT COUNT(*), COUNT(*) FILTER (WHERE quality = 0)
@@ -395,25 +460,21 @@ func (h *OEEHandler) computePerformance(start, end time.Time, windowMin int) (fl
 		start, end,
 	).Scan(&total, &good)
 	if total == 0 {
-		return 100, "fallback", 0, target
+		return 100, "fallback", 0, cfg.TargetPPH
 	}
-	return float64(good) / float64(total) * 100, "fallback", 0, target
+	return float64(good) / float64(total) * 100, "fallback", 0, cfg.TargetPPH
 }
 
-// computeQuality — usa oee_good_tag + pieces produced se configurato;
-// altrimenti fallback identico al Performance (% campioni buoni).
-// I due fallback coincidono di proposito quando l'utente non ha
-// configurato nulla: la rappresentazione "tutto OK" è preferibile a
-// numeri inventati. Quando il tag good è configurato, divide good/produced.
-func (h *OEEHandler) computeQuality(start, end time.Time, produced float64) (float64, string, float64) {
-	if id := h.intSetting("oee_good_tag", 0); id > 0 && produced > 0 {
+// computeQuality — tag-driven se cfg.GoodTagID > 0 && produced > 0.
+func (h *OEEHandler) computeQuality(start, end time.Time, produced float64, cfg oeeConfig) (float64, string, float64) {
+	if cfg.GoodTagID > 0 && produced > 0 {
 		var firstV, lastV sql.NullFloat64
 		_ = h.db.QueryRow(`
 			SELECT value FROM tag_history WHERE tag_id = $1 AND time > $2 AND time <= $3
-			ORDER BY time ASC LIMIT 1`, id, start, end).Scan(&firstV)
+			ORDER BY time ASC LIMIT 1`, cfg.GoodTagID, start, end).Scan(&firstV)
 		_ = h.db.QueryRow(`
 			SELECT value FROM tag_history WHERE tag_id = $1 AND time > $2 AND time <= $3
-			ORDER BY time DESC LIMIT 1`, id, start, end).Scan(&lastV)
+			ORDER BY time DESC LIMIT 1`, cfg.GoodTagID, start, end).Scan(&lastV)
 		if firstV.Valid && lastV.Valid && lastV.Float64 >= firstV.Float64 {
 			good := lastV.Float64 - firstV.Float64
 			q := good / produced * 100
@@ -424,7 +485,6 @@ func (h *OEEHandler) computeQuality(start, end time.Time, produced float64) (flo
 		}
 	}
 
-	// Fallback: percentuale di campioni con quality=0.
 	var total, goodSamples int
 	_ = h.db.QueryRow(`
 		SELECT COUNT(*), COUNT(*) FILTER (WHERE quality = 0)
@@ -437,7 +497,275 @@ func (h *OEEHandler) computeQuality(start, end time.Time, produced float64) (flo
 	return float64(goodSamples) / float64(total) * 100, "fallback", 0
 }
 
-// ── helpers per leggere settings ────────────────────────────────────────
+// ── Profili ─────────────────────────────────────────────────────────────
+
+// OEEProfile è la row del DB. La uso sia per CRUD che per il calcolo
+// (via config()).
+type OEEProfile struct {
+	ID                  int      `json:"id"`
+	OrgID               int      `json:"org_id"`
+	Name                string   `json:"name"`
+	Description         string   `json:"description,omitempty"`
+	AreaID              *int     `json:"area_id,omitempty"`
+	AreaName            string   `json:"area_name,omitempty"`
+	GatewayID           *int     `json:"gateway_id,omitempty"`
+	RunTimeTagID        *int     `json:"run_time_tag_id,omitempty"`
+	ProducedTagID       *int     `json:"produced_tag_id,omitempty"`
+	GoodTagID           *int     `json:"good_tag_id,omitempty"`
+	TargetPiecesPerHour float64  `json:"target_pieces_per_hour"`
+	WindowMinutes       int      `json:"window_minutes"`
+	TargetOEE           float64  `json:"target_oee"`
+	DisplayOrder        int      `json:"display_order"`
+	Enabled             bool     `json:"enabled"`
+}
+
+func (p OEEProfile) config() oeeConfig {
+	cfg := oeeConfig{
+		WindowMin: p.WindowMinutes,
+		Target:    p.TargetOEE,
+		TargetPPH: p.TargetPiecesPerHour,
+	}
+	if p.RunTimeTagID != nil {
+		cfg.RunTimeTagID = *p.RunTimeTagID
+	}
+	if p.ProducedTagID != nil {
+		cfg.ProducedTagID = *p.ProducedTagID
+	}
+	if p.GoodTagID != nil {
+		cfg.GoodTagID = *p.GoodTagID
+	}
+	return cfg
+}
+
+// loadEnabledProfiles ritorna tutti i profili attivi dell'organizzazione
+// corrente (multi-tenant via OrganizationContext middleware). Nessuna org
+// = profilo vuoto, vai in legacy mode.
+func (h *OEEHandler) loadEnabledProfiles() []OEEProfile {
+	rows, err := h.db.Query(`
+		SELECT p.id, p.org_id, p.name, COALESCE(p.description,''),
+			p.area_id, COALESCE(a.name,''),
+			p.gateway_id, p.run_time_tag_id, p.produced_tag_id, p.good_tag_id,
+			p.target_pieces_per_hour, p.window_minutes, p.target_oee,
+			p.display_order, p.enabled
+		FROM oee_profiles p
+		LEFT JOIN areas a ON a.id = p.area_id
+		WHERE p.enabled = true
+		ORDER BY p.display_order, p.name`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []OEEProfile
+	for rows.Next() {
+		var p OEEProfile
+		if err := rows.Scan(
+			&p.ID, &p.OrgID, &p.Name, &p.Description,
+			&p.AreaID, &p.AreaName,
+			&p.GatewayID, &p.RunTimeTagID, &p.ProducedTagID, &p.GoodTagID,
+			&p.TargetPiecesPerHour, &p.WindowMinutes, &p.TargetOEE,
+			&p.DisplayOrder, &p.Enabled,
+		); err == nil {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (h *OEEHandler) loadProfile(id int) (OEEProfile, error) {
+	var p OEEProfile
+	err := h.db.QueryRow(`
+		SELECT p.id, p.org_id, p.name, COALESCE(p.description,''),
+			p.area_id, COALESCE(a.name,''),
+			p.gateway_id, p.run_time_tag_id, p.produced_tag_id, p.good_tag_id,
+			p.target_pieces_per_hour, p.window_minutes, p.target_oee,
+			p.display_order, p.enabled
+		FROM oee_profiles p
+		LEFT JOIN areas a ON a.id = p.area_id
+		WHERE p.id = $1`, id,
+	).Scan(
+		&p.ID, &p.OrgID, &p.Name, &p.Description,
+		&p.AreaID, &p.AreaName,
+		&p.GatewayID, &p.RunTimeTagID, &p.ProducedTagID, &p.GoodTagID,
+		&p.TargetPiecesPerHour, &p.WindowMinutes, &p.TargetOEE,
+		&p.DisplayOrder, &p.Enabled,
+	)
+	return p, err
+}
+
+// ListProfiles GET /api/oee/profiles — admin sees them all (full list).
+func (h *OEEHandler) ListProfiles(c *gin.Context) {
+	rows, err := h.db.Query(`
+		SELECT p.id, p.org_id, p.name, COALESCE(p.description,''),
+			p.area_id, COALESCE(a.name,''),
+			p.gateway_id, p.run_time_tag_id, p.produced_tag_id, p.good_tag_id,
+			p.target_pieces_per_hour, p.window_minutes, p.target_oee,
+			p.display_order, p.enabled
+		FROM oee_profiles p
+		LEFT JOIN areas a ON a.id = p.area_id
+		ORDER BY p.display_order, p.name`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+	out := []OEEProfile{}
+	for rows.Next() {
+		var p OEEProfile
+		if err := rows.Scan(
+			&p.ID, &p.OrgID, &p.Name, &p.Description,
+			&p.AreaID, &p.AreaName,
+			&p.GatewayID, &p.RunTimeTagID, &p.ProducedTagID, &p.GoodTagID,
+			&p.TargetPiecesPerHour, &p.WindowMinutes, &p.TargetOEE,
+			&p.DisplayOrder, &p.Enabled,
+		); err == nil {
+			out = append(out, p)
+		}
+	}
+	c.JSON(http.StatusOK, out)
+}
+
+// ProfileRequest è il body di POST/PUT.
+type ProfileRequest struct {
+	Name                string  `json:"name" binding:"required"`
+	Description         string  `json:"description,omitempty"`
+	AreaID              *int    `json:"area_id,omitempty"`
+	GatewayID           *int    `json:"gateway_id,omitempty"`
+	RunTimeTagID        *int    `json:"run_time_tag_id,omitempty"`
+	ProducedTagID       *int    `json:"produced_tag_id,omitempty"`
+	GoodTagID           *int    `json:"good_tag_id,omitempty"`
+	TargetPiecesPerHour float64 `json:"target_pieces_per_hour"`
+	WindowMinutes       int     `json:"window_minutes"`
+	TargetOEE           float64 `json:"target_oee"`
+	DisplayOrder        int     `json:"display_order"`
+	Enabled             *bool   `json:"enabled,omitempty"`
+}
+
+// CreateProfile POST /api/oee/profiles — admin only.
+func (h *OEEHandler) CreateProfile(c *gin.Context) {
+	var req ProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	orgID, _ := c.Get("org_id")
+	if orgID == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required"})
+		return
+	}
+	if req.WindowMinutes <= 0 {
+		req.WindowMinutes = 480
+	}
+	if req.TargetOEE <= 0 {
+		req.TargetOEE = 85
+	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+
+	var id int
+	err := h.db.QueryRow(`
+		INSERT INTO oee_profiles (
+			org_id, name, description, area_id, gateway_id,
+			run_time_tag_id, produced_tag_id, good_tag_id,
+			target_pieces_per_hour, window_minutes, target_oee,
+			display_order, enabled
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+		RETURNING id`,
+		orgID, req.Name, req.Description, req.AreaID, req.GatewayID,
+		req.RunTimeTagID, req.ProducedTagID, req.GoodTagID,
+		req.TargetPiecesPerHour, req.WindowMinutes, req.TargetOEE,
+		req.DisplayOrder, enabled,
+	).Scan(&id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	p, err := h.loadProfile(id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "loaded but read failed"})
+		return
+	}
+	c.JSON(http.StatusCreated, p)
+}
+
+// UpdateProfile PUT /api/oee/profiles/:id — admin only.
+func (h *OEEHandler) UpdateProfile(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	var req ProfileRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.WindowMinutes <= 0 {
+		req.WindowMinutes = 480
+	}
+	if req.TargetOEE <= 0 {
+		req.TargetOEE = 85
+	}
+	enabled := true
+	if req.Enabled != nil {
+		enabled = *req.Enabled
+	}
+	_, err = h.db.Exec(`
+		UPDATE oee_profiles SET
+			name=$2, description=$3, area_id=$4, gateway_id=$5,
+			run_time_tag_id=$6, produced_tag_id=$7, good_tag_id=$8,
+			target_pieces_per_hour=$9, window_minutes=$10, target_oee=$11,
+			display_order=$12, enabled=$13, updated_at=NOW()
+		WHERE id=$1`,
+		id, req.Name, req.Description, req.AreaID, req.GatewayID,
+		req.RunTimeTagID, req.ProducedTagID, req.GoodTagID,
+		req.TargetPiecesPerHour, req.WindowMinutes, req.TargetOEE,
+		req.DisplayOrder, enabled,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	p, err := h.loadProfile(id)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	c.JSON(http.StatusOK, p)
+}
+
+// DeleteProfile DELETE /api/oee/profiles/:id — admin only.
+func (h *OEEHandler) DeleteProfile(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	if _, err := h.db.Exec(`DELETE FROM oee_profiles WHERE id=$1`, id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+// ── legacy config ──────────────────────────────────────────────────────
+
+// legacyConfig legge i 6 settings globali oee_* per la modalità single-org.
+// Quando l'admin crea anche un solo profilo, questa funzione viene smessa
+// di essere usata da Snapshot/History/dashboard.
+func (h *OEEHandler) legacyConfig() oeeConfig {
+	return oeeConfig{
+		WindowMin:     h.intSetting("oee_window_minutes", 480),
+		Target:        h.floatSetting("oee_target"),
+		RunTimeTagID:  h.intSetting("oee_run_time_tag", 0),
+		ProducedTagID: h.intSetting("oee_produced_tag", 0),
+		GoodTagID:     h.intSetting("oee_good_tag", 0),
+		TargetPPH:     h.floatSetting("oee_target_pieces_per_hour"),
+	}
+}
+
+// ── helpers ────────────────────────────────────────────────────────────
 
 func (h *OEEHandler) intSetting(key string, def int) int {
 	var raw string
@@ -475,4 +803,12 @@ func clamp01(v float64) float64 {
 		return 1
 	}
 	return v
+}
+
+// ── dashboard integration ───────────────────────────────────────────────
+
+// compute è il punto di ingresso per il DashboardHandler — restituisce
+// la stessa OEEOverview di /api/oee.
+func (h *OEEHandler) compute() OEEOverview {
+	return h.overview()
 }
