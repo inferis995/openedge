@@ -423,6 +423,131 @@ Usa `$TOKEN` e `X-Organization-ID: $OPENEDGE_ORG_ID` in tutte le chiamate succes
 
 ---
 
+## 5b. Gerarchia: Organization → Site → Area → Gateway → Tag
+
+OpenEdge organizza i dati in una gerarchia a 5 livelli. In **on-prem
+single-tenant** l'`organization` è una sola (id=1, creata dalla migration);
+**site**, **area** e **gateway** li crei tu via API (o UI).
+
+```
+organization (default id=1 in on-prem)
+  └── site         "Stabilimento Crotone"
+        └── area   "Reparto Verniciatura"
+              └── gateway   "PLC-Linea-1" (Modbus/S7/...)
+                    └── tag "Temperatura_Forno"
+```
+
+Per creare un gateway servono `area_id` e per creare un'area serve `site_id`.
+Crea quindi nell'ordine: site → area → gateway → tag.
+
+### Creare un site
+
+```
+POST /api/sites
+Authorization: Bearer {TOKEN}
+X-Organization-ID: {ORG_ID}
+Content-Type: application/json
+
+{"name": "Stabilimento Crotone", "org_id": 1}
+```
+
+Risposta: `{"id": 3, "name": "Stabilimento Crotone", "org_id": 1, ...}` —
+salva `id`, ti serve per le area.
+
+### Creare un'area
+
+```
+POST /api/areas
+Authorization: Bearer {TOKEN}
+X-Organization-ID: {ORG_ID}
+Content-Type: application/json
+
+{"name": "Reparto Verniciatura", "site_id": 3}
+```
+
+Risposta: `{"id": 7, "name": "Reparto Verniciatura", "site_id": 3, ...}` —
+salva `id` per il gateway.
+
+### Creare un utente (admin o operator)
+
+```
+POST /api/users
+Authorization: Bearer {TOKEN}
+X-Organization-ID: {ORG_ID}
+Content-Type: application/json
+
+{
+  "username": "operatore_turno_a",
+  "password": "PasswordSicura123",
+  "role": "user",                  // "admin" oppure "user"
+  "full_name": "Mario Rossi",
+  "org_id": 1,
+  "i3x_write": false               // true se vuoi dargli permessi PUT i3X
+}
+```
+
+| Ruolo | Cosa può fare |
+|---|---|
+| `admin` | CRUD su tutto (org, site, area, gateway, tag, user) + system settings |
+| `user`  | Lettura + ack allarmi. Per scrivere via i3X serve `i3x_write=true` |
+
+In on-prem single-tenant **`org_id` è sempre 1**. Lascia la chiave anche
+quando crei utenti — il backend la valida.
+
+### Creare un'organizzazione (solo se serve multi-org locale)
+
+In on-prem single-tenant non serve mai; in casi rari (es. due aziende
+gemelle su stesso server) si può fare:
+
+```
+POST /api/organizations
+Authorization: Bearer {TOKEN}
+Content-Type: application/json
+
+{"name": "Acme Spa"}
+```
+
+Solo `admin` può creare org. La default `id=1` rimane comunque.
+
+### Esempio: setup nuovo cliente in un colpo
+
+```bash
+TOKEN=$(curl -s -X POST localhost:8081/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin123"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['token'])")
+ORG=1
+
+# 1. Site
+SITE=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $ORG" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Stabilimento Crotone","org_id":1}' \
+  localhost:8081/api/sites | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+
+# 2. Area
+AREA=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $ORG" \
+  -H 'Content-Type: application/json' \
+  -d "{\"name\":\"Reparto A\",\"site_id\":$SITE}" \
+  localhost:8081/api/areas | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+
+# 3. Gateway Modbus (vedi sezione 6 per gli altri driver)
+GW=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $ORG" \
+  -H 'Content-Type: application/json' \
+  -d "{\"area_id\":$AREA,\"name\":\"PLC-Linea-1\",\"driver_type\":\"MODBUS_TCP\",\
+       \"scan_rate_ms\":1000,\"connection_config\":{\"host\":\"192.168.1.10\",\"port\":502,\"slave_id\":1}}" \
+  localhost:8081/api/gateways | python3 -c "import sys,json;print(json.load(sys.stdin)['id'])")
+
+# 4. Tag bulk (vedi sezione 7 per il formato)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $ORG" \
+  -H 'Content-Type: application/json' \
+  -d "{\"gateway_id\":$GW,\"historize\":true,\
+       \"content\":\"Temperatura : REAL AT 40001;\nPompa : BOOL AT 00001.0;\"}" \
+  localhost:8081/api/tags/import
+
+echo "Creato: site=$SITE area=$AREA gateway=$GW"
+```
+
+---
+
 ## 6. Creare un Gateway
 
 Un gateway rappresenta un PLC o dispositivo fisico. Deve esistere prima di poter importare tag.
