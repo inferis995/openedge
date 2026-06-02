@@ -21,6 +21,7 @@ import DiagnosticsPage from '@/pages/DiagnosticsPage';
 import ReportsPage from '@/pages/ReportsPage';
 import ShiftsPage from '@/pages/ShiftsPage';
 import MaintenancePage from '@/pages/MaintenancePage';
+import CustomKPIsPage from '@/pages/CustomKPIsPage';
 import I3XPage from '@/pages/I3XPage';
 
 import { useEffect, useState, useRef } from 'react';
@@ -102,6 +103,7 @@ function App() {
                     <Route path="/reports" element={<ReportsPage />} />
                     <Route path="/shifts" element={<ShiftsPage />} />
                     <Route path="/maintenance" element={<MaintenancePage />} />
+                    <Route path="/kpis" element={<CustomKPIsPage />} />
                     <Route path="/i3x" element={<I3XPage />} />
                     <Route path="/users" element={<UsersPage />} />
                 </Route>

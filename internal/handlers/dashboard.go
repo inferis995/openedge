@@ -164,7 +164,11 @@ func (h *DashboardHandler) Overview(c *gin.Context) {
 	resp.Gateways = h.gateways()
 	resp.Operations = h.operations()
 	resp.Activity = h.activity()
+	// I KPI di sistema + i custom KPI definiti dall'utente vivono insieme
+	// nella stessa lista perché l'UI li renderizza uguale. Custom KPIs
+	// vengono dopo i system KPIs così l'ordine è prevedibile.
 	resp.KPI = h.applyTargets(h.kpis())
+	resp.KPI = append(resp.KPI, EvaluateAll(h.db)...)
 	resp.Shift = h.currentShift()
 	resp.Maintenance = h.currentMaintenance()
 	c.JSON(http.StatusOK, resp)

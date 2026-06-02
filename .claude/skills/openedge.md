@@ -811,6 +811,33 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_I
 
 Se `anomaly_count > 0`, riporta i bucket con `|z_score| >= 2.5`.
 
+### "Quali KPI di produzione abbiamo configurato? Valori correnti?"
+
+I custom KPI (pezzi/turno, kWh, OEE component, ecc.) appaiono nello
+stesso `kpi[]` del dashboard overview con `key` prefissato da `custom_`.
+Una sola call ritorna sistema + custom KPI insieme:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/dashboard/overview \
+  | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+customs = [k for k in d['kpi'] if k['key'].startswith('custom_')]
+if not customs:
+    print('Nessun KPI di produzione configurato. Definiscilo con POST /api/custom-kpis.'); sys.exit(0)
+print(f'KPI di produzione configurati ({len(customs)}):')
+for k in customs:
+    arrow = '↑' if k['trend']=='up' else '↓' if k['trend']=='down' else '→'
+    delta = f' {arrow} {abs(k[\"delta_pct\"]):.0f}%' if k['trend']!='flat' else ''
+    target = ''
+    if k.get('target') is not None:
+        sign = '≤' if k['good_when']=='down' else '≥'
+        ok = '✓' if k.get('target_met') else '✗'
+        target = f' (target {sign} {k[\"target\"]} {ok})'
+    print(f'  {k[\"label\"]}: {k[\"value\"]}{k[\"unit\"]}{delta}{target}')"
+```
+
 ---
 
 ## 11b. Dashboard overview — KPI in una sola call

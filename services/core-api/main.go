@@ -489,6 +489,19 @@ func main() {
 			shifts.DELETE("/assignments/:aid", middleware.RequireRole(models.RoleAdmin), shiftsHandler.DeleteAssignment)
 		}
 
+		// Custom KPIs (metriche di produzione definite dall'operatore).
+		// Lettura per tutti gli autenticati (i KPI custom appaiono nella
+		// dashboard di chiunque), scritture admin-only.
+		customKPIsHandler := handlers.NewCustomKPIsHandler(database)
+		customKPIs := api.Group("/custom-kpis")
+		customKPIs.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			customKPIs.GET("", customKPIsHandler.List)
+			customKPIs.POST("", middleware.RequireRole(models.RoleAdmin), customKPIsHandler.Create)
+			customKPIs.PUT("/:id", middleware.RequireRole(models.RoleAdmin), customKPIsHandler.Update)
+			customKPIs.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), customKPIsHandler.Delete)
+		}
+
 		// Maintenance windows (finestre di manutenzione programmata).
 		// Lettura per chiunque sia autenticato (la dashboard mostra il
 		// badge "manutenzione in corso"), scritture admin-only. Quando

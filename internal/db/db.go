@@ -234,6 +234,33 @@ func runAutoMigrations(db *sql.DB) error {
 	// allarmi restano comunque in DB per audit). Reduce drasticamente il
 	// numero di "alarm spam" durante interventi e fermate pianificate —
 	// fattore #1 di customer complaints nei deploy industriali.
+	// Migration: custom KPI definitions. Permette all'operatore di definire
+	// metriche di produzione (pezzi/h, OEE component, kWh per turno, ...)
+	// senza scrivere codice — bastano: nome + tag + aggregazione + finestra.
+	// Una formula completa sarebbe più potente ma rende l'UX impossibile
+	// per il caporeparto; questo MVP copre l'80% dei casi reali.
+	customKPIs := []string{
+		`CREATE TABLE IF NOT EXISTS custom_kpis (
+			id SERIAL PRIMARY KEY,
+			name TEXT NOT NULL UNIQUE,
+			tag_id INT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+			aggregation TEXT NOT NULL CHECK (aggregation IN ('avg','sum','min','max','last','delta','count')),
+			window_minutes INT NOT NULL DEFAULT 1440 CHECK (window_minutes > 0),
+			unit TEXT DEFAULT '',
+			multiplier DOUBLE PRECISION DEFAULT 1.0,
+			good_when TEXT DEFAULT 'up' CHECK (good_when IN ('up','down')),
+			target_value DOUBLE PRECISION,
+			active BOOLEAN NOT NULL DEFAULT true,
+			created_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_custom_kpis_active ON custom_kpis(active)`,
+	}
+	for _, stmt := range customKPIs {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("custom KPIs migration: %w", err)
+		}
+	}
+
 	maintenance := []string{
 		`CREATE TABLE IF NOT EXISTS maintenance_windows (
 			id SERIAL PRIMARY KEY,

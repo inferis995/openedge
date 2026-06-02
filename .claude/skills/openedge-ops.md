@@ -1124,6 +1124,110 @@ operatori designati appaiono nel widget.
 
 ---
 
+## 11b. KPI di Produzione custom
+
+OpenEdge permette all'admin di definire metriche custom (pezzi/h,
+kWh/turno, OEE component, ecc.) basate sui tag dei PLC. I KPI custom
+appaiono **automaticamente nella dashboard** accanto ai 6 KPI di sistema
+e sono valutati a ogni `/api/dashboard/overview` (server-side, refresh
+30s).
+
+### 11b.1 Modello
+
+Un custom KPI è composto da:
+- **nome** (visibile in dashboard)
+- **tag_id** (il tag PLC sorgente)
+- **aggregation** — `avg / sum / min / max / last / delta / count`
+- **window_minutes** — finestra temporale (es. 480 = ultimo turno 8h)
+- **multiplier** — moltiplicatore opzionale (es. 0.001 per V → kV)
+- **unit** — unità per la card (es. "pz", "kWh", "°C")
+- **good_when** — `up` o `down`
+- **target_value** — soglia opzionale; quando settata il valore è
+  colorato verde/rosso in base al target_met
+
+### 11b.2 Esempi pratici
+
+**Pezzi prodotti turno corrente** (counter PLC `production_count`,
+delta nelle ultime 8h):
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Pezzi turno",
+    "tag_id": 42,
+    "aggregation": "delta",
+    "window_minutes": 480,
+    "unit": "pz",
+    "good_when": "up",
+    "target_value": 500
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/custom-kpis
+```
+
+**Temperatura media 1h** (tag `temp_forno`):
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Temp forno (1h avg)",
+    "tag_id": 17,
+    "aggregation": "avg",
+    "window_minutes": 60,
+    "unit": "°C",
+    "good_when": "up",
+    "target_value": 180
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/custom-kpis
+```
+
+**Energia consumata 24h in kWh** (tag `power_meter` in W, somma campioni
+× 1/3600000 per W·s → kWh):
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Energia 24h",
+    "tag_id": 88,
+    "aggregation": "sum",
+    "window_minutes": 1440,
+    "multiplier": 0.0000002778,
+    "unit": "kWh",
+    "good_when": "down"
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/custom-kpis
+```
+
+### 11b.3 Lista / Modifica / Elimina
+
+```bash
+# Lista tutti i custom KPI configurati
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/custom-kpis | python3 -m json.tool
+
+# Modifica
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{...}' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/custom-kpis/3
+
+# Elimina
+curl -X DELETE -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/custom-kpis/3
+```
+
+### 11b.4 Quando usare quale aggregazione
+
+| Aggregation | Quando usarla |
+|---|---|
+| `last` | Valore corrente (temperatura adesso, livello vasca adesso) |
+| `avg` | Valore medio nel periodo (temperatura media 1h) |
+| `sum` | Somma campioni — utile per consumi (energia totale, materiale usato) |
+| `min` / `max` | Picchi nel periodo (massima temperatura nel turno) |
+| `delta` | Variazione di un contatore monotono (pezzi prodotti = count_end − count_start) |
+| `count` | Numero di campioni — diagnostica acquisizione |
+
+---
+
 ## 12. Finestre di Manutenzione
 
 Le finestre di manutenzione permettono di silenziare le notifiche
