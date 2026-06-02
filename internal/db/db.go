@@ -427,6 +427,35 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: oee_alert_rules. Regole admin-configurabili per ricevere
+	// email/Telegram quando OEE (o componente) di un profilo (o rollup)
+	// scende sotto soglia per N minuti consecutivi. Valutate dal cron
+	// worker ogni 5 minuti contro oee_history.
+	alertRules := []string{
+		`CREATE TABLE IF NOT EXISTS oee_alert_rules (
+			id SERIAL PRIMARY KEY,
+			profile_id INT REFERENCES oee_profiles(id) ON DELETE CASCADE,
+			name TEXT NOT NULL,
+			metric TEXT NOT NULL CHECK (metric IN ('oee','availability','performance','quality')),
+			op TEXT NOT NULL CHECK (op IN ('<','>')),
+			threshold DOUBLE PRECISION NOT NULL,
+			sustained_minutes INT NOT NULL DEFAULT 60 CHECK (sustained_minutes >= 60),
+			severity TEXT NOT NULL CHECK (severity IN ('info','warning','critical')),
+			enabled BOOLEAN NOT NULL DEFAULT true,
+			last_notified_at TIMESTAMPTZ,
+			last_state TEXT DEFAULT 'normal' CHECK (last_state IN ('normal','violating')),
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			updated_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_oee_alert_rules_enabled
+			ON oee_alert_rules(enabled) WHERE enabled = true`,
+	}
+	for _, stmt := range alertRules {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("oee alert rules migration: %w", err)
+		}
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

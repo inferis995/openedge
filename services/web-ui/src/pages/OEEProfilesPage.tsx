@@ -29,6 +29,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { OEEHistoryChart } from '@/components/oee/OEEHistoryChart';
 import { OEEShiftMatrix } from '@/components/oee/OEEShiftMatrix';
 import { OEELossPareto } from '@/components/oee/OEELossPareto';
+import { OEEAlertRules } from '@/components/oee/OEEAlertRules';
 
 // OEEProfilesPage — gestione multi-profilo OEE.
 // Vista a 2 livelli: lista profili (table) + dialog editor (wizard riusato
@@ -579,6 +580,7 @@ const OEEProfilesPage = () => {
                     <TabsTrigger value="history">Storia</TabsTrigger>
                     <TabsTrigger value="by-shift">Per turno</TabsTrigger>
                     <TabsTrigger value="losses">Loss &amp; Pareto</TabsTrigger>
+                    <TabsTrigger value="alerts">Alert</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="profiles" className="space-y-4 mt-4">
@@ -628,6 +630,10 @@ const OEEProfilesPage = () => {
 
                 <TabsContent value="losses" className="space-y-4 mt-4">
                     <LossesTab profiles={profiles ?? []} />
+                </TabsContent>
+
+                <TabsContent value="alerts" className="space-y-4 mt-4">
+                    <OEEAlertRules profiles={profiles ?? []} />
                 </TabsContent>
             </Tabs>
 

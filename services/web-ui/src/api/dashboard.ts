@@ -303,7 +303,50 @@ export const oeeApi = {
         const r = await api.get(`/oee/profiles/${id}/reliability`, { params: { from, to } });
         return r.data;
     },
+    // Alert rules CRUD
+    listAlertRules: async (): Promise<OEEAlertRule[]> => {
+        const r = await api.get('/oee/alert-rules');
+        return r.data;
+    },
+    createAlertRule: async (data: OEEAlertRuleRequest): Promise<OEEAlertRule> => {
+        const r = await api.post('/oee/alert-rules', data);
+        return r.data;
+    },
+    updateAlertRule: async (id: number, data: OEEAlertRuleRequest): Promise<OEEAlertRule> => {
+        const r = await api.put(`/oee/alert-rules/${id}`, data);
+        return r.data;
+    },
+    deleteAlertRule: async (id: number): Promise<void> => {
+        await api.delete(`/oee/alert-rules/${id}`);
+    },
 };
+
+export interface OEEAlertRule {
+    id: number;
+    profile_id?: number | null;
+    name: string;
+    metric: 'oee' | 'availability' | 'performance' | 'quality';
+    op: '<' | '>';
+    threshold: number;
+    sustained_minutes: number;
+    severity: 'info' | 'warning' | 'critical';
+    enabled: boolean;
+    last_notified_at?: string;
+    last_state: 'normal' | 'violating';
+    created_at: string;
+    updated_at: string;
+}
+
+export interface OEEAlertRuleRequest {
+    profile_id?: number | null;
+    name: string;
+    metric: 'oee' | 'availability' | 'performance' | 'quality';
+    op: '<' | '>';
+    threshold: number;
+    sustained_minutes: number;
+    severity: 'info' | 'warning' | 'critical';
+    enabled: boolean;
+}
 
 export interface OEELossCategoryAgg {
     category_id: number;

@@ -1553,7 +1553,49 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_I
 MTBF = uptime / num_breakdowns dove uptime = planned_min(oee_history) - repair_min.
 MTTR = sum(breakdown_duration) / num_breakdowns.
 
-### 13.9 Errori comuni
+### 13.9 Alert rules OEE soglia
+
+Regole "OEE Linea A < 70% per 60 min → email warning" valutate dal cron
+worker ogni 5 minuti contro oee_history (bucket=hour). Anti-spam: una
+regola scatta una sola volta finché resta violata.
+
+```bash
+# Crea regola "OEE Linea 1 sotto 70% per 60 minuti → warning"
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "profile_id": 1,
+    "name": "Linea 1 sotto target",
+    "metric": "oee",
+    "op": "<",
+    "threshold": 70,
+    "sustained_minutes": 60,
+    "severity": "warning",
+    "enabled": true
+  }' \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/alert-rules
+
+# Lista
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/alert-rules | python3 -m json.tool
+
+# Regola "globale" (profile_id null = rollup fabbrica)
+curl -X POST ... -d '{"profile_id":null,"name":"Fabbrica giù","metric":"oee",
+  "op":"<","threshold":60,"sustained_minutes":120,"severity":"critical","enabled":true}' ...
+```
+
+Parametri:
+- `profile_id`: id profilo, null per rollup fabbrica
+- `metric`: oee | availability | performance | quality
+- `op`: `<` o `>`
+- `threshold`: 0-100 (%)
+- `sustained_minutes`: minimo 60 (granularità oee_history), multipli di 60 consigliati
+- `severity`: info (solo log) | warning (email/Telegram) | critical (con escalation)
+
+Le notifiche passano dal dispatcher esistente (`notif_email_*` /
+`notif_telegram_*` settings già configurati). Niente nuovi canali da setuppare.
+
+### 13.10 Errori comuni
 
 - **OEE = 0** in modalità tag: controlla che `oee_produced_tag` riceva
   campioni nella finestra (probabilmente il PLC non sta inviando, vedi sezione

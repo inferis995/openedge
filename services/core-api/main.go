@@ -553,12 +553,20 @@ func main() {
 			oeeGrp.GET("/loss-tree", lossesHandler.LossTree)
 			oeeGrp.GET("/loss-categories", lossesHandler.ListCategories)
 			oeeGrp.GET("/profiles/:id/reliability", lossesHandler.MTBFMTTR)
+
+			// Alert rules — admin definisce "OEE Linea A < 70% per 60min →
+			// email warning". Valutate dal cron worker ogni 5 minuti.
+			alertsHandler := handlers.NewAlertsHandler(database, notifDispatcher)
+			oeeGrp.GET("/alert-rules", alertsHandler.List)
+			oeeGrp.POST("/alert-rules", middleware.RequireRole(models.RoleAdmin), alertsHandler.Create)
+			oeeGrp.PUT("/alert-rules/:id", middleware.RequireRole(models.RoleAdmin), alertsHandler.Update)
+			oeeGrp.DELETE("/alert-rules/:id", middleware.RequireRole(models.RoleAdmin), alertsHandler.Delete)
 		}
 
 		// Cron worker OEE: ogni ora salva snapshot per profilo; a
-		// mezzanotte UTC aggrega in snapshot giornaliero. Goroutine
-		// dedicata, niente librerie cron esterne.
-		go runOEECronWorker(database, oeeHandler)
+		// mezzanotte UTC aggrega in snapshot giornaliero. Ogni 5 minuti
+		// valuta le alert rules. Goroutine dedicata, niente cron lib.
+		go runOEECronWorker(database, oeeHandler, notifDispatcher)
 
 		// Dashboard overview — un singolo endpoint che aggrega tutto
 		// quello che la pagina dashboard mostra (system / alarms / gateways
@@ -1305,7 +1313,7 @@ func getCloudMQTTConfig(db *sql.DB) *CloudMQTTConfig {
 //
 // Niente cron expression / libreria esterna: il pattern "wake up al
 // prossimo minuto:zero" è 10 righe di ticker e basta per l'uso.
-func runOEECronWorker(db *sql.DB, oee *handlers.OEEHandler) {
+func runOEECronWorker(db *sql.DB, oee *handlers.OEEHandler, dispatcher *notifications.Dispatcher) {
 	log.Println("[OEE-CRON] worker started")
 
 	// Wait until next minute:00 + 5s di margine — non sovrapporci al
@@ -1344,6 +1352,12 @@ func runOEECronWorker(db *sql.DB, oee *handlers.OEEHandler) {
 				} else {
 					log.Println("[OEE-CRON] daily snapshot ok")
 				}
+			}
+		}
+		// Ogni 5 minuti: valuta alert rules.
+		if u.Minute()%5 == 0 {
+			if err := handlers.EvaluateAlertRules(db, dispatcher, u); err != nil {
+				log.Printf("[OEE-CRON] evaluate alert rules failed: %v", err)
 			}
 		}
 	}
