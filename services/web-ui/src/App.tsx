@@ -23,6 +23,7 @@ import ShiftsPage from '@/pages/ShiftsPage';
 import MaintenancePage from '@/pages/MaintenancePage';
 import CustomKPIsPage from '@/pages/CustomKPIsPage';
 import OEEProfilesPage from '@/pages/OEEProfilesPage';
+import OEEKioskPage from '@/pages/OEEKioskPage';
 import I3XPage from '@/pages/I3XPage';
 
 import { useEffect, useState, useRef } from 'react';
@@ -87,6 +88,12 @@ function App() {
     return (
         <Routes>
             <Route path="/login" element={<LoginPage />} />
+
+            {/* TV/Kiosk mode — full-screen senza sidebar/header. Resta
+                sotto RequireAuth ma fuori dal LayoutWrapper. */}
+            <Route element={<RequireAuth />}>
+                <Route path="/tv/oee" element={<OEEKioskPage />} />
+            </Route>
 
             <Route element={<RequireAuth />}>
                 <Route element={<LayoutWrapper />}>

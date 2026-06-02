@@ -561,6 +561,9 @@ func main() {
 			oeeGrp.POST("/alert-rules", middleware.RequireRole(models.RoleAdmin), alertsHandler.Create)
 			oeeGrp.PUT("/alert-rules/:id", middleware.RequireRole(models.RoleAdmin), alertsHandler.Update)
 			oeeGrp.DELETE("/alert-rules/:id", middleware.RequireRole(models.RoleAdmin), alertsHandler.Delete)
+
+			// Gerarchia Site → Area → Profile con rollup multi-livello.
+			oeeGrp.GET("/hierarchy", oeeHandler.Hierarchy)
 		}
 
 		// Cron worker OEE: ogni ora salva snapshot per profilo; a

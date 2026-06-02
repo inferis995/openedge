@@ -1595,7 +1595,31 @@ Parametri:
 Le notifiche passano dal dispatcher esistente (`notif_email_*` /
 `notif_telegram_*` settings già configurati). Niente nuovi canali da setuppare.
 
-### 13.10 Errori comuni
+### 13.10 Gerarchia + TV-mode + Mobile
+
+Gerarchia Site → Area → Profile con rollup multi-livello:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: $OPENEDGE_ORG_ID" \
+  http://$OPENEDGE_HOST:$OPENEDGE_PORT/api/oee/hierarchy | python3 -m json.tool
+```
+
+Risposta: albero con `sites[].areas[].profiles[]`, ogni nodo con il suo
+snapshot. Site = media aritmetica delle aree figlie. Area = media dei
+profili figli. Profili senza area finiscono in `unassigned`.
+
+**TV-mode** (monitor da reparto): apri `/tv/oee` in nuova scheda dal
+PC del monitor → fullscreen, no sidebar, refresh 30s, rotazione profili
+ogni 10s, font enormi leggibili a 10 metri, modalità giorno/notte
+auto in base all'orario (07-20 light, altrimenti scuro).
+
+Pattern installazione: PC standalone in reparto con browser fullscreen
+e bookmark a `https://openedge.local/tv/oee`. Il login resta in sessione.
+
+**Mobile**: tabs OEE Profili wrappano su mobile, layout responsive
+per caporeparto che controlla dal telefono in giro.
+
+### 13.11 Errori comuni
 
 - **OEE = 0** in modalità tag: controlla che `oee_produced_tag` riceva
   campioni nella finestra (probabilmente il PLC non sta inviando, vedi sezione

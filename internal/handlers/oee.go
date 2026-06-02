@@ -1018,3 +1018,184 @@ func (h *OEEHandler) hasActiveShifts() bool {
 func (h *OEEHandler) compute() OEEOverview {
 	return h.overview()
 }
+
+// ── Hierarchy (Site → Area → Profile) ──────────────────────────────────
+
+// OEEHierarchyNode è un nodo dell'albero: snapshot + figli.
+type OEEHierarchyNode struct {
+	NodeType string             `json:"node_type"` // "site" | "area" | "profile"
+	ID       int                `json:"id"`
+	Name     string             `json:"name"`
+	Snapshot OEESnapshot        `json:"snapshot"`
+	Children []OEEHierarchyNode `json:"children,omitempty"`
+}
+
+// OEEHierarchy GET /api/oee/hierarchy — rollup multi-livello.
+// Snapshot di ogni Site = media aritmetica delle aree figlie.
+// Snapshot di ogni Area = media aritmetica dei profili figli abilitati.
+// Profili senza area finiscono in un nodo "Unassigned".
+func (h *OEEHandler) Hierarchy(c *gin.Context) {
+	profiles := h.loadEnabledProfiles()
+	now := time.Now().UTC()
+
+	// snapshot per profilo
+	type profileNode struct {
+		profile OEEProfile
+		snap    OEESnapshot
+	}
+	pnodes := make([]profileNode, 0, len(profiles))
+	for _, p := range profiles {
+		pnodes = append(pnodes, profileNode{
+			profile: p,
+			snap:    h.computeSnapshotAt(now, p.config()),
+		})
+	}
+
+	// area_id → list di profili
+	byArea := make(map[int][]profileNode)
+	var unassigned []profileNode
+	for _, pn := range pnodes {
+		if pn.profile.AreaID == nil {
+			unassigned = append(unassigned, pn)
+		} else {
+			byArea[*pn.profile.AreaID] = append(byArea[*pn.profile.AreaID], pn)
+		}
+	}
+
+	// Carica metadati aree/siti.
+	type areaInfo struct {
+		id, siteID int
+		name       string
+		siteName   string
+	}
+	areaRows, err := h.db.Query(`
+		SELECT a.id, a.site_id, a.name, s.name
+		FROM areas a
+		JOIN sites s ON s.id = a.site_id`)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	areas := map[int]areaInfo{}
+	type siteInfo struct {
+		id   int
+		name string
+	}
+	sites := map[int]siteInfo{}
+	for areaRows.Next() {
+		var a areaInfo
+		if err := areaRows.Scan(&a.id, &a.siteID, &a.name, &a.siteName); err == nil {
+			areas[a.id] = a
+			sites[a.siteID] = siteInfo{id: a.siteID, name: a.siteName}
+		}
+	}
+	areaRows.Close()
+
+	// site_id → []area nodes (con figli profili)
+	siteAreas := map[int][]OEEHierarchyNode{}
+	for areaID, plist := range byArea {
+		ainfo, ok := areas[areaID]
+		if !ok {
+			continue
+		}
+		areaNode := OEEHierarchyNode{
+			NodeType: "area",
+			ID:       areaID,
+			Name:     ainfo.name,
+		}
+		var sum struct{ a, p, q, oee float64 }
+		for _, pn := range plist {
+			areaNode.Children = append(areaNode.Children, OEEHierarchyNode{
+				NodeType: "profile",
+				ID:       pn.profile.ID,
+				Name:     pn.profile.Name,
+				Snapshot: pn.snap,
+			})
+			sum.a += pn.snap.Availability
+			sum.p += pn.snap.Performance
+			sum.q += pn.snap.Quality
+			sum.oee += pn.snap.OEE
+		}
+		n := float64(len(plist))
+		if n > 0 {
+			areaNode.Snapshot = OEESnapshot{
+				OEE:          sum.oee / n,
+				Availability: sum.a / n,
+				Performance:  sum.p / n,
+				Quality:      sum.q / n,
+				AvailabilitySource: "rollup", PerformanceSource: "rollup", QualitySource: "rollup",
+			}
+		}
+		siteAreas[ainfo.siteID] = append(siteAreas[ainfo.siteID], areaNode)
+	}
+
+	// Costruisci nodi site con rollup figli.
+	var siteNodes []OEEHierarchyNode
+	for sid, sinfo := range sites {
+		areasForSite, ok := siteAreas[sid]
+		if !ok {
+			continue
+		}
+		siteNode := OEEHierarchyNode{
+			NodeType: "site",
+			ID:       sid,
+			Name:     sinfo.name,
+			Children: areasForSite,
+		}
+		var sum struct{ a, p, q, oee float64 }
+		for _, an := range areasForSite {
+			sum.a += an.Snapshot.Availability
+			sum.p += an.Snapshot.Performance
+			sum.q += an.Snapshot.Quality
+			sum.oee += an.Snapshot.OEE
+		}
+		n := float64(len(areasForSite))
+		if n > 0 {
+			siteNode.Snapshot = OEESnapshot{
+				OEE:          sum.oee / n,
+				Availability: sum.a / n,
+				Performance:  sum.p / n,
+				Quality:      sum.q / n,
+				AvailabilitySource: "rollup", PerformanceSource: "rollup", QualitySource: "rollup",
+			}
+		}
+		siteNodes = append(siteNodes, siteNode)
+	}
+
+	// Unassigned: profili senza area_id finiscono in un nodo virtuale.
+	var unassignedNode *OEEHierarchyNode
+	if len(unassigned) > 0 {
+		node := OEEHierarchyNode{
+			NodeType: "area",
+			ID:       0,
+			Name:     "Senza area",
+		}
+		var sum struct{ a, p, q, oee float64 }
+		for _, pn := range unassigned {
+			node.Children = append(node.Children, OEEHierarchyNode{
+				NodeType: "profile",
+				ID:       pn.profile.ID,
+				Name:     pn.profile.Name,
+				Snapshot: pn.snap,
+			})
+			sum.a += pn.snap.Availability
+			sum.p += pn.snap.Performance
+			sum.q += pn.snap.Quality
+			sum.oee += pn.snap.OEE
+		}
+		n := float64(len(unassigned))
+		node.Snapshot = OEESnapshot{
+			OEE:          sum.oee / n,
+			Availability: sum.a / n,
+			Performance:  sum.p / n,
+			Quality:      sum.q / n,
+			AvailabilitySource: "rollup", PerformanceSource: "rollup", QualitySource: "rollup",
+		}
+		unassignedNode = &node
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"sites":      siteNodes,
+		"unassigned": unassignedNode,
+	})
+}

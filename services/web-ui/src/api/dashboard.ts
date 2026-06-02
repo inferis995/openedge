@@ -319,7 +319,25 @@ export const oeeApi = {
     deleteAlertRule: async (id: number): Promise<void> => {
         await api.delete(`/oee/alert-rules/${id}`);
     },
+    // Gerarchia Site → Area → Profile con rollup multi-livello.
+    hierarchy: async (): Promise<OEEHierarchyResponse> => {
+        const r = await api.get('/oee/hierarchy');
+        return r.data;
+    },
 };
+
+export interface OEEHierarchyNode {
+    node_type: 'site' | 'area' | 'profile';
+    id: number;
+    name: string;
+    snapshot: OEESnapshot;
+    children?: OEEHierarchyNode[];
+}
+
+export interface OEEHierarchyResponse {
+    sites: OEEHierarchyNode[];
+    unassigned: OEEHierarchyNode | null;
+}
 
 export interface OEEAlertRule {
     id: number;

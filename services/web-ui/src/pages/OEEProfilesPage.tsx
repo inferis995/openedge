@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Gauge, Plus, Pencil, Trash2, Sparkles, CheckCircle2, AlertCircle,
-    Loader2, X, Activity, Power, PowerOff,
+    Loader2, X, Activity, Power, PowerOff, Monitor,
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import {
@@ -30,6 +31,7 @@ import { OEEHistoryChart } from '@/components/oee/OEEHistoryChart';
 import { OEEShiftMatrix } from '@/components/oee/OEEShiftMatrix';
 import { OEELossPareto } from '@/components/oee/OEELossPareto';
 import { OEEAlertRules } from '@/components/oee/OEEAlertRules';
+import { OEEHierarchyView } from '@/components/oee/OEEHierarchyView';
 
 // OEEProfilesPage — gestione multi-profilo OEE.
 // Vista a 2 livelli: lista profili (table) + dialog editor (wizard riusato
@@ -559,28 +561,36 @@ const OEEProfilesPage = () => {
 
     return (
         <div className="space-y-4">
-            <div className="flex items-start justify-between">
-                <div>
-                    <h2 className="text-3xl font-bold tracking-tight flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div className="min-w-0">
+                    <h2 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
                         <Gauge size={28} /> Profili OEE
                     </h2>
-                    <p className="text-muted-foreground">
+                    <p className="text-muted-foreground text-sm">
                         Multi-linea / multi-reparto. Ogni profilo è un'unità di misura OEE indipendente
                         che appare in dashboard come card separata.
                     </p>
                 </div>
-                <Button onClick={() => { setEditing(null); setEditorOpen(true); }}>
-                    <Plus size={16} className="mr-2" /> Nuovo profilo
-                </Button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                    <Link to="/tv/oee" target="_blank">
+                        <Button variant="outline" size="sm" title="Apri in nuova scheda per monitor reparto">
+                            <Monitor size={14} className="mr-1.5" /> TV mode
+                        </Button>
+                    </Link>
+                    <Button onClick={() => { setEditing(null); setEditorOpen(true); }} size="sm">
+                        <Plus size={16} className="mr-1.5" /> Nuovo profilo
+                    </Button>
+                </div>
             </div>
 
             <Tabs defaultValue="profiles">
-                <TabsList>
+                <TabsList className="flex-wrap h-auto">
                     <TabsTrigger value="profiles">Profili</TabsTrigger>
                     <TabsTrigger value="history">Storia</TabsTrigger>
                     <TabsTrigger value="by-shift">Per turno</TabsTrigger>
                     <TabsTrigger value="losses">Loss &amp; Pareto</TabsTrigger>
                     <TabsTrigger value="alerts">Alert</TabsTrigger>
+                    <TabsTrigger value="hierarchy">Gerarchia</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="profiles" className="space-y-4 mt-4">
@@ -634,6 +644,10 @@ const OEEProfilesPage = () => {
 
                 <TabsContent value="alerts" className="space-y-4 mt-4">
                     <OEEAlertRules profiles={profiles ?? []} />
+                </TabsContent>
+
+                <TabsContent value="hierarchy" className="space-y-4 mt-4">
+                    <OEEHierarchyView />
                 </TabsContent>
             </Tabs>
 
