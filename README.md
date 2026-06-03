@@ -31,28 +31,44 @@
 
 <table>
   <tr>
-    <td align="center"><b>Gateway Dashboard</b></td>
-    <td align="center"><b>Tags Management</b></td>
+    <td align="center"><b>Dashboard</b></td>
+    <td align="center"><b>Gateways</b></td>
+    <td align="center"><b>Tags</b></td>
   </tr>
   <tr>
-    <td><img src="img/gatway.PNG" alt="Gateway Dashboard" width="400"/></td>
-    <td><img src="img/tag.PNG" alt="Tags Management" width="400"/></td>
+    <td><img src="img/01-dashboard.png" alt="Dashboard" width="260"/></td>
+    <td><img src="img/02-gateways.png" alt="Gateways" width="260"/></td>
+    <td><img src="img/03-tags.png" alt="Tags" width="260"/></td>
   </tr>
   <tr>
-    <td align="center"><b>Alarm System</b></td>
-    <td align="center"><b>Trend & History</b></td>
+    <td align="center"><b>Trend</b></td>
+    <td align="center"><b>Alarms</b></td>
+    <td align="center"><b>Recipes</b></td>
   </tr>
   <tr>
-    <td><img src="img/allarm.PNG" alt="Alarm System" width="400"/></td>
-    <td><img src="img/trend.PNG" alt="Trend & History" width="400"/></td>
+    <td><img src="img/04-trend.png" alt="Trend" width="260"/></td>
+    <td><img src="img/05-alarms.png" alt="Alarms" width="260"/></td>
+    <td><img src="img/06-recipes.png" alt="Recipes" width="260"/></td>
   </tr>
   <tr>
-    <td align="center"><b>MQTT Publisher</b></td>
+    <td align="center"><b>KPIs</b></td>
+    <td align="center"><b>CESMII i3X</b></td>
     <td align="center"><b>MQTT Monitor</b></td>
   </tr>
   <tr>
-    <td><img src="img/mqtt.PNG" alt="MQTT Configuration" width="400"/></td>
-    <td><img src="img/mqttpub.PNG" alt="MQTT Monitor" width="400"/></td>
+    <td><img src="img/07-kpis.png" alt="KPIs" width="260"/></td>
+    <td><img src="img/08-i3x.png" alt="CESMII i3X" width="260"/></td>
+    <td><img src="img/09-mqtt.png" alt="MQTT Monitor" width="260"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Historian</b></td>
+    <td align="center"><b>Maintenance</b></td>
+    <td align="center"><b>Diagnostics</b></td>
+  </tr>
+  <tr>
+    <td><img src="img/10-historian.png" alt="Historian" width="260"/></td>
+    <td><img src="img/11-maintenance.png" alt="Maintenance" width="260"/></td>
+    <td><img src="img/12-diagnostics.png" alt="Diagnostics" width="260"/></td>
   </tr>
 </table>
 
