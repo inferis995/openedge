@@ -983,8 +983,7 @@ const SystemPage = () => {
 
                 {/* Footer */}
                 <div className="pt-6 border-t border-border flex flex-col items-center gap-3">
-                    <img src="/logo-dark.png" alt="OpenEdge" className="h-12 w-auto object-contain hidden dark:block" />
-                    <img src="/logo-light.png" alt="OpenEdge" className="h-12 w-auto object-contain dark:hidden" />
+                    <img src="/avatar.png" alt="OpenEdge" className="h-12 w-12 rounded-xl object-cover" />
                     <p className="text-center text-xs text-muted-foreground">
                         Sviluppato da{' '}
                         <span className="font-semibold text-foreground">Giovanni Addeo</span>

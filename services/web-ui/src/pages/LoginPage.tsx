@@ -45,9 +45,8 @@ const LoginPage = () => {
             {/* HexOS Honeycomb/Geometric background hint could go here, for now solid background */}
             <div className="w-full max-w-md space-y-8 clip-chamfer border bg-card p-8 shadow-2xl relative z-10">
                 <div className="text-center">
-                    <div className="flex justify-center mb-6">
-                        <img src="/logo-dark.png" alt="OpenEdge" className="h-20 w-auto object-contain hidden dark:block" />
-                        <img src="/logo-light.png" alt="OpenEdge" className="h-20 w-auto object-contain dark:hidden" />
+                    <div className="flex justify-center mb-4">
+                        <img src="/avatar.png" alt="OpenEdge" className="h-20 w-20 rounded-2xl object-cover shadow-lg" />
                     </div>
                     <p className="mt-2 text-sm text-muted-foreground font-mono tracking-widest uppercase">
                         System_Login
