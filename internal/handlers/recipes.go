@@ -52,6 +52,7 @@ type Recipe struct {
 type RecipeValue struct {
 	TagID     int    `json:"tag_id"`
 	TagAlias  string `json:"tag_alias,omitempty"`
+	TagCode   string `json:"tag_code,omitempty"`
 	GatewayID int    `json:"gateway_id,omitempty"`
 	DataType  string `json:"data_type,omitempty"`
 	Value     string `json:"value"`
@@ -370,7 +371,7 @@ func (h *RecipesHandler) Load(c *gin.Context) {
 			RunID    int64  `json:"recipe_run_id"` // lets the driver's ACK trace back to the run
 		}{
 			TagID:    v.TagID,
-			Code:     v.TagAlias, // tag code; driver maps it
+			Code:     v.TagCode,
 			Value:    v.Value,
 			DataType: v.DataType,
 			RunID:    runID,
@@ -467,7 +468,7 @@ func (h *RecipesHandler) Runs(c *gin.Context) {
 // per-row roundtrips.
 func (h *RecipesHandler) loadValues(recipeID int) ([]RecipeValue, error) {
 	rows, err := h.db.Query(`
-		SELECT v.tag_id, t.alias, t.gateway_id, t.data_type, v.value
+		SELECT v.tag_id, t.alias, t.code, t.gateway_id, t.data_type, v.value
 		FROM recipe_values v JOIN tags t ON t.id = v.tag_id
 		WHERE v.recipe_id = $1
 		ORDER BY t.alias`, recipeID)
@@ -478,7 +479,7 @@ func (h *RecipesHandler) loadValues(recipeID int) ([]RecipeValue, error) {
 	out := []RecipeValue{}
 	for rows.Next() {
 		var rv RecipeValue
-		if err := rows.Scan(&rv.TagID, &rv.TagAlias, &rv.GatewayID, &rv.DataType, &rv.Value); err != nil {
+		if err := rows.Scan(&rv.TagID, &rv.TagAlias, &rv.TagCode, &rv.GatewayID, &rv.DataType, &rv.Value); err != nil {
 			return nil, err
 		}
 		out = append(out, rv)
