@@ -176,7 +176,11 @@ export default function I3XPage() {
     const handleSelectEquipment = (eq: I3XEquipment) => {
         setSelectedEq(eq);
         setEditingPropId(null);
-        loadProperties(eq);
+        if (eq.type === 'Equipment') {
+            loadProperties(eq);
+        } else {
+            setProperties([]);
+        }
     };
 
     const startEdit = (prop: I3XProperty) => {
@@ -372,9 +376,15 @@ export default function I3XPage() {
                                             {eq.path ?? eq.id}
                                         </p>
                                         <div className="flex items-center gap-2 mt-2 ml-[23px]">
-                                            <Badge variant="outline" className="text-xs font-mono">
-                                                {eq.attributes?.driver_type ?? eq.description ?? 'Equipment'}
-                                            </Badge>
+                                            {eq.type === 'Equipment' ? (
+                                                <Badge variant="outline" className="text-xs font-mono bg-blue-500/10 text-blue-600 border-blue-500/20">
+                                                    {eq.attributes?.driver_type ?? 'Equipment'}
+                                                </Badge>
+                                            ) : (
+                                                <Badge variant="outline" className="text-xs font-mono bg-slate-500/10 text-slate-500 border-slate-500/20">
+                                                    Assembly
+                                                </Badge>
+                                            )}
                                             {eq.attributes?.enabled === false && (
                                                 <Badge variant="outline" className="text-xs text-muted-foreground">Disabilitato</Badge>
                                             )}
@@ -394,6 +404,17 @@ export default function I3XPage() {
                                     <CardContent className="text-center text-muted-foreground p-8">
                                         <Cpu size={40} className="mx-auto mb-3 opacity-20" />
                                         <p className="text-sm">Seleziona un Equipment per vedere le Properties</p>
+                                    </CardContent>
+                                </Card>
+                            ) : selectedEq.type === 'Assembly' ? (
+                                <Card className="clip-chamfer-sm h-full flex items-center justify-center min-h-[300px]">
+                                    <CardContent className="text-center text-muted-foreground p-8">
+                                        <Network size={40} className="mx-auto mb-3 opacity-20" />
+                                        <p className="text-sm font-medium">{selectedEq.name}</p>
+                                        <p className="text-xs mt-2">
+                                            Questo è un nodo <Badge variant="outline" className="text-xs mx-1">Assembly</Badge> — le proprietà sono disponibili solo nei gateway <Badge variant="outline" className="text-xs mx-1">Equipment</Badge>.
+                                        </p>
+                                        <p className="text-xs mt-1 text-muted-foreground/60 font-mono">{selectedEq.id}</p>
                                     </CardContent>
                                 </Card>
                             ) : (
@@ -522,7 +543,7 @@ export default function I3XPage() {
                                                                             <Button
                                                                                 size="icon"
                                                                                 variant="ghost"
-                                                                                className="h-7 w-7 opacity-0 group-hover:opacity-100 hover:bg-primary/10 hover:text-primary"
+                                                                                className="h-7 w-7 text-muted-foreground hover:bg-primary/10 hover:text-primary"
                                                                                 onClick={() => startEdit(prop)}
                                                                                 title={`Scrivi su ${prop.name}`}
                                                                             >

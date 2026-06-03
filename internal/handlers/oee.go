@@ -684,7 +684,7 @@ func (h *OEEHandler) CreateProfile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	orgID, _ := c.Get("org_id")
+	orgID, _ := c.Get("organization_id")
 	if orgID == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required"})
 		return

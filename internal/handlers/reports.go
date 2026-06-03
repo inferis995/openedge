@@ -89,7 +89,7 @@ func (h *ReportsHandler) HistoryCSV(c *gin.Context) {
 	}
 
 	q := `
-		SELECT th.time, t.id, t.alias, t.code, g.name AS gateway_name, th.value, th.quality
+		SELECT th.time, t.id, t.alias, t.code, g.name AS gateway_name, th.value
 		FROM tag_history th
 		JOIN tags t ON t.id = th.tag_id
 		JOIN gateways g ON g.id = t.gateway_id
@@ -111,22 +111,18 @@ func (h *ReportsHandler) HistoryCSV(c *gin.Context) {
 
 	w := csv.NewWriter(c.Writer)
 	defer w.Flush()
-	_ = w.Write([]string{"time_utc", "tag_id", "alias", "code", "gateway", "value", "quality"})
+	_ = w.Write([]string{"time_utc", "tag_id", "alias", "code", "gateway", "value"})
 
 	for rows.Next() {
 		var (
-			t      time.Time
-			tagID  int
-			alias  sql.NullString
-			code   string
-			gw     string
-			value  sql.NullFloat64
-			qual   int
+			t     time.Time
+			tagID int
+			alias sql.NullString
+			code  string
+			gw    string
+			value sql.NullFloat64
 		)
-		if err := rows.Scan(&t, &tagID, &alias, &code, &gw, &value, &qual); err != nil {
-			// Mid-stream errors: write a final row + flush. The client
-			// gets a partial file rather than a confusing 500 after
-			// some rows have already shipped.
+		if err := rows.Scan(&t, &tagID, &alias, &code, &gw, &value); err != nil {
 			_ = w.Write([]string{"ERROR", err.Error()})
 			return
 		}
@@ -141,7 +137,6 @@ func (h *ReportsHandler) HistoryCSV(c *gin.Context) {
 			code,
 			gw,
 			valStr,
-			strconv.Itoa(qual),
 		})
 	}
 }

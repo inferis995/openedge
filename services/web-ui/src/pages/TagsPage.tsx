@@ -103,6 +103,7 @@ const TagsPage = () => {
     const [activeAlarms, setActiveAlarms] = useState<Record<number, boolean>>({});
     // Alarm definitions count per tag
     const [alarmDefsCount, setAlarmDefsCount] = useState<Record<number, number>>({});
+    const [alarmRefreshKey, setAlarmRefreshKey] = useState(0);
 
     // Import/Export state
     const [isImportOpen, setIsImportOpen] = useState(false);
@@ -202,7 +203,9 @@ const TagsPage = () => {
             const interval = setInterval(fetchAlarmData, 15000);
             return () => clearInterval(interval);
         }
-    }, [tags, selectedGatewayId]);
+    }, [tags, selectedGatewayId, alarmRefreshKey]);
+
+    const refreshAlarmData = () => setAlarmRefreshKey(k => k + 1);
 
     // Derive selected gateway driver type
     const selectedGatewayDriverType = useMemo(() => {
@@ -1004,7 +1007,7 @@ const TagsPage = () => {
 
                                         {updatingTagId && (
                                             <TabsContent value="alarms">
-                                                <TagAlarmsTab tagId={updatingTagId} dataType={formData.data_type || 'REAL'} />
+                                                <TagAlarmsTab tagId={updatingTagId} dataType={formData.data_type || 'REAL'} onSave={refreshAlarmData} />
                                             </TabsContent>
                                         )}
                                     </Tabs>
@@ -1196,15 +1199,15 @@ const TagsPage = () => {
                                             {alarmDefsCount[tag.id] ? (
                                                 <div className="flex items-center gap-1">
                                                     {activeAlarms[tag.id] ? (
-                                                        <div className="flex items-center gap-1 text-xs text-red-500 font-semibold">
-                                                            <BellRing size={12} className="animate-pulse" />
-                                                            <span>ATTIVO ({alarmDefsCount[tag.id]})</span>
-                                                        </div>
+                                                        <Badge variant="destructive" className="h-5 px-1.5 gap-1 items-center animate-pulse text-xs">
+                                                            <BellRing size={10} />
+                                                            ATTIVO ({alarmDefsCount[tag.id]})
+                                                        </Badge>
                                                     ) : (
-                                                        <div className="flex items-center gap-1 text-xs text-green-600">
-                                                            <Bell size={12} />
-                                                            <span>Yes ({alarmDefsCount[tag.id]})</span>
-                                                        </div>
+                                                        <Badge variant="secondary" className="h-5 px-1.5 gap-1 items-center text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                                            <Bell size={10} />
+                                                            {alarmDefsCount[tag.id]} allarme{alarmDefsCount[tag.id] > 1 ? 'i' : ''}
+                                                        </Badge>
                                                     )}
                                                 </div>
                                             ) : (

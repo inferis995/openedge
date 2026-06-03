@@ -96,6 +96,7 @@ services:
       PORT: ${PORT:-8081}
       BACKUP_PATH: /backups
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — run 'make start' or set it in .env}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

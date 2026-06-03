@@ -84,6 +84,21 @@ func ParseAddress(c string, zeroBased bool) (Address, error) {
 		}
 		return Address{Type: "discrete", Offset: offset}, nil
 	}
+	// Modicon 0xxxx coil notation: 5-digit zero-padded strings like "00000"-"09999".
+	// Must be checked BEFORE the bare-numeric fallback, because strconv.Atoi("00001")
+	// returns 1 which would otherwise match the 0-29999 holding-register catch-all.
+	if len(addrPart) == 5 && addrPart[0] == '0' && val >= 0 && val <= 9999 {
+		var offset uint16
+		if zeroBased {
+			offset = uint16(val)
+		} else {
+			if val < 1 {
+				return Address{}, fmt.Errorf("address %s is invalid in 1-based mode (minimum is 00001)", addrPart)
+			}
+			offset = uint16(val - 1)
+		}
+		return Address{Type: "coil", Offset: offset, BitOffset: bitOffset}, nil
+	}
 	// Bare numeric addresses (no Modicon range prefix) are read as HOLDING
 	// registers at the raw offset, e.g. "100" -> holding register 100. This is
 	// by far the most common case. Coils and discrete inputs are addressed

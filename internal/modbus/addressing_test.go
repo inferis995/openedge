@@ -35,6 +35,14 @@ func TestParseAddress(t *testing.T) {
 		{"100", false, "holding", 100, false},
 		{"25", false, "holding", 25, false},
 
+		// Modicon 0xxxx coil notation (5-digit zero-padded)
+		{"00000", true, "coil", 0, false},
+		{"00001", true, "coil", 1, false},
+		{"00017", true, "coil", 17, false},
+		{"00001", false, "coil", 0, false},
+		{"00002", false, "coil", 1, false},
+		{"00000", false, "", 0, true}, // invalid in 1-based mode
+
 		// Edge cases
 		{"invalid", false, "", 0, true},
 	}

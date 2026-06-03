@@ -24,6 +24,7 @@ export interface AlarmDefinition {
 interface Props {
     tagId: number;
     dataType: string;
+    onSave?: () => void;
 }
 
 // Etichette delle condizioni di allarme. Le label sono human-friendly:
@@ -58,7 +59,7 @@ const defaultMessage = (alarm_type: string, alias: string, threshold: number | n
     }
 };
 
-export function TagAlarmsTab({ tagId, dataType }: Props) {
+export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
     const [alarms, setAlarms] = useState<AlarmDefinition[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -101,6 +102,7 @@ export function TagAlarmsTab({ tagId, dataType }: Props) {
         try {
             await tagsApi.saveTagAlarms(tagId, alarms);
             toast.success("Allarmi salvati con successo!");
+            onSave?.();
         } catch (err) {
             console.error("Failed to save alarms", err);
             toast.error("Errore nel salvataggio degli allarmi.");
