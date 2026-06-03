@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,14 +26,49 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 )
 
+type writeAck struct {
+	TagID   int    `json:"tag_id"`
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+type pendingAck struct {
+	ch chan *writeAck
+}
+
 // RecipesHandler owns the /api/recipes CRUD + load endpoints.
 type RecipesHandler struct {
 	db         *sql.DB
 	mqttClient *mqtt.Client
+
+	ackMu     sync.Mutex
+	ackWaiters map[int]*pendingAck // tagID → waiting Load call
 }
 
 func NewRecipesHandler(db *sql.DB, m *mqtt.Client) *RecipesHandler {
-	return &RecipesHandler{db: db, mqttClient: m}
+	h := &RecipesHandler{
+		db:         db,
+		mqttClient: m,
+		ackWaiters: make(map[int]*pendingAck),
+	}
+	if m != nil {
+		m.Subscribe("cmd/write/result/+", func(topic string, payload []byte) {
+			var ack writeAck
+			if json.Unmarshal(payload, &ack) != nil {
+				return
+			}
+			h.ackMu.Lock()
+			w, ok := h.ackWaiters[ack.TagID]
+			if ok {
+				delete(h.ackWaiters, ack.TagID)
+			}
+			h.ackMu.Unlock()
+			if ok {
+				w.ch <- &ack
+			}
+		})
+	}
+	return h
 }
 
 // Recipe is the wire shape returned by the list/get endpoints. Values
@@ -288,10 +324,10 @@ func (h *RecipesHandler) Delete(c *gin.Context) {
 }
 
 // Load executes the recipe: re-validates every tag belongs to the
-// caller's org, publishes one MQTT write per (tag, value), and records
-// a recipe_runs row with per-tag status. Fire-and-forget at the MQTT
-// layer — "success" here means "publish succeeded", not "PLC confirmed".
-// Driver ACKs would arrive later on sys/write-ack/* (not yet implemented).
+// caller's org, publishes one MQTT write per (tag, value), then
+// waits for driver ACKs via the permanent subscription on
+// cmd/write/result/+. Real success/failure from the driver is
+// reported; tags that time out (5s) are marked as failed.
 func (h *RecipesHandler) Load(c *gin.Context) {
 	orgID, ok := middleware.GetOrganizationID(c)
 	if !ok {
@@ -308,7 +344,6 @@ func (h *RecipesHandler) Load(c *gin.Context) {
 		return
 	}
 
-	// Verify ownership and pull values + tag metadata.
 	var owns int
 	err = h.db.QueryRow(`SELECT 1 FROM recipes WHERE id = $1 AND org_id = $2`, id, orgID).Scan(&owns)
 	if err == sql.ErrNoRows {
@@ -328,9 +363,6 @@ func (h *RecipesHandler) Load(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Recipe has no values to load"})
 		return
 	}
-	// Belt-and-suspenders: re-check ownership of every tag. A tag that
-	// was moved to another org since the recipe was created must NOT be
-	// silently written.
 	tagInputs := make([]recipeValueInput, 0, len(values))
 	for _, v := range values {
 		tagInputs = append(tagInputs, recipeValueInput{TagID: v.TagID, Value: v.Value})
@@ -342,7 +374,6 @@ func (h *RecipesHandler) Load(c *gin.Context) {
 
 	actorID, actorName := recipesActor(c)
 
-	// Create the run row up-front so we have an id to embed in audit logs.
 	var runID int64
 	err = h.db.QueryRow(`
 		INSERT INTO recipe_runs (recipe_id, org_id, triggered_by, triggered_username, status)
@@ -359,8 +390,31 @@ func (h *RecipesHandler) Load(c *gin.Context) {
 		OK       bool   `json:"ok"`
 		Error    string `json:"error,omitempty"`
 	}
+
+	aliasMap := make(map[int]string)
+	for _, v := range values {
+		aliasMap[v.TagID] = v.TagAlias
+	}
+
+	ackCh := make(chan *writeAck, len(values))
+	h.ackMu.Lock()
+	for _, v := range values {
+		h.ackWaiters[v.TagID] = &pendingAck{ch: ackCh}
+	}
+	h.ackMu.Unlock()
+
+	cleanup := func() {
+		h.ackMu.Lock()
+		for _, v := range values {
+			if _, exists := h.ackWaiters[v.TagID]; exists {
+				delete(h.ackWaiters, v.TagID)
+			}
+		}
+		h.ackMu.Unlock()
+	}
+
 	results := make([]result, 0, len(values))
-	failures := 0
+	pendingIDs := make(map[int]bool)
 
 	for _, v := range values {
 		cmd := struct {
@@ -368,7 +422,7 @@ func (h *RecipesHandler) Load(c *gin.Context) {
 			Code     string `json:"code"`
 			Value    string `json:"value"`
 			DataType string `json:"data_type"`
-			RunID    int64  `json:"recipe_run_id"` // lets the driver's ACK trace back to the run
+			RunID    int64  `json:"recipe_run_id"`
 		}{
 			TagID:    v.TagID,
 			Code:     v.TagCode,
@@ -378,13 +432,45 @@ func (h *RecipesHandler) Load(c *gin.Context) {
 		}
 		payload, _ := json.Marshal(cmd)
 		topic := fmt.Sprintf("cmd/write/%d", v.GatewayID)
-		r := result{TagID: v.TagID, TagAlias: v.TagAlias, OK: true}
 		if err := h.mqttClient.Publish(topic, string(payload)); err != nil {
-			r.OK = false
-			r.Error = err.Error()
+			results = append(results, result{TagID: v.TagID, TagAlias: v.TagAlias, OK: false, Error: "MQTT publish failed: " + err.Error()})
+			h.ackMu.Lock()
+			delete(h.ackWaiters, v.TagID)
+			h.ackMu.Unlock()
+		} else {
+			pendingIDs[v.TagID] = true
+		}
+	}
+
+	remaining := len(pendingIDs)
+	deadline := time.After(5 * time.Second)
+	for remaining > 0 {
+		select {
+		case ack := <-ackCh:
+			remaining--
+			alias := aliasMap[ack.TagID]
+			r := result{TagID: ack.TagID, TagAlias: alias, OK: ack.Success}
+			if !ack.Success {
+				r.Error = ack.Message
+			}
+			results = append(results, r)
+			delete(pendingIDs, ack.TagID)
+		case <-deadline:
+			for tagID := range pendingIDs {
+				results = append(results, result{TagID: tagID, TagAlias: aliasMap[tagID], OK: false, Error: "timeout: driver did not respond"})
+			}
+			cleanup()
+			goto done
+		}
+	}
+	cleanup()
+
+done:
+	failures := 0
+	for i := range results {
+		if !results[i].OK {
 			failures++
 		}
-		results = append(results, r)
 	}
 
 	status := "success"
@@ -396,14 +482,9 @@ func (h *RecipesHandler) Load(c *gin.Context) {
 	resultsJSON, _ := json.Marshal(results)
 	if _, err := h.db.Exec(`UPDATE recipe_runs SET status = $1, results = $2 WHERE id = $3`,
 		status, resultsJSON, runID); err != nil {
-		// Non-fatal: the writes already went out, we just can't update
-		// the row. Logged centrally; operator sees the partial UI.
 		fmt.Printf("[RECIPES] failed to finalise run %d: %v\n", runID, err)
 	}
 
-	// Cross-recipe audit row — the recipe_runs table is the detailed
-	// per-tag log, audit_logs is the unified "what did this operator do
-	// across the system?" view that compliance auditors look at.
 	audit.Log(c, h.db, audit.Entry{
 		Action:  "recipe.load",
 		Success: failures == 0,

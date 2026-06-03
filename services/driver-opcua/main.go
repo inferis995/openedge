@@ -399,10 +399,12 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 
 	if err := d.opcuaClient.WriteValue(targetTag.Code, cmd.Value, targetTag.DataType); err != nil {
 		log.Printf("[OPC-UA Driver] Write error for tag %d (%s): %v", targetTag.ID, targetTag.Code, err)
+		d.publishWriteResult(cmd.TagID, false, err.Error(), nil)
 		return
 	}
 
 	log.Printf("[OPC-UA Driver] Write success: tag %d (%s) = %v", targetTag.ID, targetTag.Code, cmd.Value)
+	d.publishWriteResult(cmd.TagID, true, "ok", nil)
 }
 
 // loadConfig loads gateway and tag configuration from the database
@@ -570,6 +572,25 @@ func (d *Driver) initSparkplugClientLocked(orgName, siteName, areaName, gatewayN
 	)
 
 	log.Printf("[OPC-UA Driver] Sparkplug B client initialized: group=%s, node=%s", groupID, edgeNodeID)
+}
+
+func (d *Driver) publishWriteResult(tagID int, success bool, message string, readBack interface{}) {
+	type writeResult struct {
+		TagID     int         `json:"tag_id"`
+		Success   bool        `json:"success"`
+		Message   string      `json:"message"`
+		ReadBack  interface{} `json:"read_back,omitempty"`
+		Timestamp int64       `json:"ts"`
+	}
+	result := writeResult{TagID: tagID, Success: success, Message: message, ReadBack: readBack, Timestamp: time.Now().UnixMilli()}
+	payload, _ := json.Marshal(result)
+	resultTopic := fmt.Sprintf("cmd/write/result/%d", d.gatewayID)
+	d.mqttClient.PublishWithQoS(resultTopic, string(payload), 1, false)
+	if success {
+		log.Printf("[OPC-UA Driver] Write result: tag=%d ✓ %s", tagID, message)
+	} else {
+		log.Printf("[OPC-UA Driver] Write result: tag=%d ✗ %s", tagID, message)
+	}
 }
 
 // getPublishMode returns the current publish mode from settings

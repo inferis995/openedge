@@ -585,10 +585,12 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 	// Perform Write
 	if err := client.WriteTag(cmd.Code, dataType, cmd.Value); err != nil {
 		log.Printf("Write failed for tag %d (%s): %v", cmd.TagID, cmd.Code, err)
+		d.publishWriteResult(cmd.TagID, false, err.Error(), nil)
 		return
 	}
 
 	log.Printf("Write successful to %s (Value: %v)", cmd.Code, cmd.Value)
+	d.publishWriteResult(cmd.TagID, true, "ok", nil)
 
 	// OPTIMISTIC UPDATE & COOLDOWN
 	// 1. Update local cache immediately so we don't wait for next poll
@@ -971,8 +973,26 @@ func (d *Driver) poll() {
 
 // publishTagValue publishes a tag value to MQTT (with Sparkplug B dual support)
 func (d *Driver) publishTagValue(topicPrefix string, tag models.Tag, value interface{}, timestamp int64, quality int, orgID int) {
-	// Use dual publishing if available
 	d.publishDual(tag.ID, tag.Alias, value, tag.DataType, quality, timestamp)
+}
+
+func (d *Driver) publishWriteResult(tagID int, success bool, message string, readBack interface{}) {
+	type writeResult struct {
+		TagID     int         `json:"tag_id"`
+		Success   bool        `json:"success"`
+		Message   string      `json:"message"`
+		ReadBack  interface{} `json:"read_back,omitempty"`
+		Timestamp int64       `json:"ts"`
+	}
+	result := writeResult{TagID: tagID, Success: success, Message: message, ReadBack: readBack, Timestamp: time.Now().UnixMilli()}
+	payload, _ := json.Marshal(result)
+	resultTopic := fmt.Sprintf("cmd/write/result/%d", d.gatewayID)
+	d.mqttClient.PublishWithQoS(resultTopic, string(payload), 1, false)
+	if success {
+		log.Printf("[DRIVER] Write result: tag=%d ✓ %s", tagID, message)
+	} else {
+		log.Printf("[DRIVER] Write result: tag=%d ✗ %s", tagID, message)
+	}
 }
 
 // hasValueChanged checks if a value has changed from its previous value (Report by Exception)
