@@ -16,12 +16,15 @@
 
 **Production-Ready Industrial IoT Edge Computing Platform**
 
+[![Website](https://img.shields.io/badge/Website-Landing_Page-ccff00?style=flat&logo=vercel)](https://openedge-landing.vercel.app)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-Supported-2496ED?style=flat&logo=docker)](https://www.docker.com/)
 [![CESMII i3X](https://img.shields.io/badge/CESMII-i3X%20v1-orange?style=flat)](https://www.cesmii.org/)
 
 ⚡ **High-Performance** • 🏭 **Industrial-Grade** • 🔒 **Secure** • 📊 **Real-Time Analytics**
+
+**[🌐 Visit the Landing Page →](https://openedge-landing.vercel.app)**
 
 </div>
 
