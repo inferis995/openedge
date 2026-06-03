@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { systemApi, GlobalSettings, UpdateSettingsRequest, BackupSettings, BackupFileInfo, ServiceStatus } from '@/api/system';
+import { useTranslation } from 'react-i18next';
+import { systemApi, GlobalSettings, UpdateSettingsRequest, BackupFileInfo, ServiceStatus } from '@/api/system';
 import NotificationsSettings from '@/components/system/NotificationsSettings';
 import BackupConfig from '@/components/system/BackupConfig';
 import KPITargets from '@/components/system/KPITargets';
@@ -11,18 +12,12 @@ import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Slider } from '@/components/ui/slider';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Switch } from '@/components/ui/switch';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 import {
     Download, AlertTriangle, CheckCircle, RefreshCw, Zap, ScrollText,
-    ChevronDown, Settings2, Clock, Trash2, FileArchive,
+    ChevronDown, Settings2, Trash2, FileArchive,
     HardDrive, Server, Network, Eye, EyeOff, User, Key
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
@@ -51,20 +46,6 @@ const PUBLISH_MODES = [
     }
 ];
 
-const INTERVAL_OPTIONS = [
-    { value: '6h', label: 'Ogni 6 ore' },
-    { value: '12h', label: 'Ogni 12 ore' },
-    { value: '24h', label: 'Ogni 24 ore' },
-    { value: '7d', label: 'Ogni settimana' }
-];
-
-const RETENTION_OPTIONS = [
-    { value: 3, label: '3 giorni' },
-    { value: 7, label: '7 giorni' },
-    { value: 14, label: '14 giorni' },
-    { value: 30, label: '30 giorni' }
-];
-
 const formatBytes = (bytes: number): string => {
     if (bytes === 0) return '0 B';
     const k = 1024;
@@ -86,6 +67,7 @@ const formatDate = (dateStr: string): string => {
 };
 
 const SystemPage = () => {
+    const { t } = useTranslation();
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
@@ -113,16 +95,8 @@ const SystemPage = () => {
     const [cloudMqttPassword, setCloudMqttPassword] = useState<string>('');
     const [cloudMqttTopic, setCloudMqttTopic] = useState<string>('spBv1.0/EdgeNode/');
 
-    // Backup Settings
-    const [backupSettings, setBackupSettings] = useState<BackupSettings>({
-        enabled: false,
-        interval: '24h',
-        backup_type: 'full',
-        retention: 7,
-        next_run: '',
-        last_run: '',
-        last_status: ''
-    });
+    // Backup file list (la config automatic backup vive in BackupConfig
+    // component che persiste via flat-passthrough nei backup_* settings).
     const [backupList, setBackupList] = useState<BackupFileInfo[]>([]);
 
     // Post-restore state
@@ -131,7 +105,6 @@ const SystemPage = () => {
 
     useEffect(() => {
         loadSettings();
-        loadBackupSettings();
         loadBackupList();
     }, []);
 
@@ -169,15 +142,6 @@ const SystemPage = () => {
             console.error('Failed to load settings:', error);
         } finally {
             setSettingsLoading(false);
-        }
-    };
-
-    const loadBackupSettings = async () => {
-        try {
-            const data = await systemApi.getBackupSettings();
-            setBackupSettings(data || backupSettings);
-        } catch (error) {
-            console.error('Failed to load backup settings:', error);
         }
     };
 
@@ -292,20 +256,6 @@ const SystemPage = () => {
         }
     };
 
-    const handleSaveBackupSettings = async () => {
-        setLoading(true);
-        setMessage(null);
-        try {
-            await systemApi.updateBackupSettings(backupSettings);
-            setMessage({ type: 'success', text: 'Impostazioni backup automatico salvate.' });
-        } catch (error) {
-            console.error(error);
-            setMessage({ type: 'error', text: 'Errore nel salvataggio delle impostazioni backup.' });
-        } finally {
-            setLoading(false);
-        }
-    };
-
     const handleDownloadBackup = async (filename: string) => {
         try {
             const blob = await systemApi.downloadBackup(filename);
@@ -342,14 +292,14 @@ const SystemPage = () => {
             <div className="bg-card border-b border-border px-6 py-5">
                 <div className="max-w-5xl mx-auto flex items-center justify-between">
                     <div>
-                        <h1 className="text-xl font-semibold text-foreground">System Manager</h1>
+                        <h1 className="text-xl font-semibold text-foreground">{t('system.title')}</h1>
                         <p className="text-sm text-muted-foreground mt-0.5">
-                            Configurazione e gestione della piattaforma industriale
+                            {t('system.subtitle')}
                         </p>
                     </div>
                     <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 border border-primary/20 clip-chamfer-sm">
                         <div className="w-2 h-2 bg-primary clip-hex animate-pulse" />
-                        <span className="text-[10px] tracking-widest uppercase font-bold text-primary">Sistema operativo</span>
+                        <span className="text-[10px] tracking-widest uppercase font-bold text-primary">{t('system.status_ok')}</span>
                     </div>
                 </div>
             </div>
@@ -370,11 +320,18 @@ const SystemPage = () => {
                     </div>
                 )}
 
-                {/* Main grid */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                {/* Tabs: 4 aree funzionali (MQTT, Notifiche, Backup, Target KPI).
+                    Prima era una grid 2-colonne con backup duplicato in 4 punti —
+                    ora ogni tab è single-column, layout uniforme, niente duplicati. */}
+                <Tabs defaultValue="mqtt">
+                    <TabsList className="flex-wrap h-auto">
+                        <TabsTrigger value="mqtt">{t('system.tab_mqtt')}</TabsTrigger>
+                        <TabsTrigger value="notifications">{t('system.tab_notifications')}</TabsTrigger>
+                        <TabsTrigger value="backup">{t('system.tab_backup')}</TabsTrigger>
+                        <TabsTrigger value="kpi">{t('system.tab_kpi')}</TabsTrigger>
+                    </TabsList>
 
-                    {/* Left Column */}
-                    <div className="space-y-6">
+                    <TabsContent value="mqtt" className="space-y-6 mt-4">
                         {/* MQTT Broker Configuration */}
                         <Card className="border-border shadow-sm bg-card">
                             <CardHeader className="pb-4 border-b border-border">
@@ -668,37 +625,6 @@ const SystemPage = () => {
                                     </div>
                                 </CardContent>
                         </Card>
-                    </div>
-
-                    {/* Right Column */}
-                    <div className="space-y-6">
-                        {/* Notifications panel — email + Telegram, severity filter,
-                            rate limit, "send test" with per-channel result. The
-                            component owns its own save/state. */}
-                        <NotificationsSettings
-                            initial={settings ?? undefined}
-                            onSaved={loadSettings}
-                        />
-
-                        {/* Backup panel — schedule, retention, age encryption.
-                            Settings persist immediately but the cron schedule
-                            is read at container start, so the panel surfaces
-                            the "restart backup container" hint. */}
-                        <BackupConfig
-                            initial={settings}
-                            onSaved={loadSettings}
-                        />
-
-                        {/* Target sui KPI della dashboard. Vuoto = nessun
-                            target → valore neutro. */}
-                        <KPITargets
-                            initial={settings}
-                            onSaved={loadSettings}
-                        />
-
-                        {/* OEE config vive nella pagina dedicata "OEE Profili"
-                            (sidebar → Gauge). Supporta multi-linea/multi-reparto
-                            con un profilo per unità di misura. */}
 
                         {/* MQTT Publish Mode Configuration */}
                         <Card className="border-border shadow-sm bg-card">
@@ -875,11 +801,20 @@ const SystemPage = () => {
                                 )}
                             </CardContent>
                         </Card>
-                    </div>
-                </div>
+                    </TabsContent>
 
-                {/* Second row — Backup section */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <TabsContent value="backup" className="space-y-6 mt-4">
+                        {/* Backup panel — schedule, retention, age encryption.
+                            Settings persist via flat-passthrough nei backup_*
+                            di global_settings. Unica fonte di verità per la
+                            configurazione del backup automatico. */}
+                        <BackupConfig
+                            initial={settings}
+                            onSaved={loadSettings}
+                        />
+
+                        {/* Backup manuale + ripristino, riga a 2 colonne */}
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Manual Backup */}
                     <Card className="border-border shadow-sm bg-card">
                         <CardHeader className="pb-4 border-b border-border">
@@ -968,96 +903,6 @@ const SystemPage = () => {
                     </Card>
                 </div>
 
-                {/* Automatic Backup Section */}
-                <Card className="border-border shadow-sm bg-card">
-                    <CardHeader className="pb-4 border-b border-border">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
-                                    <Clock className="h-4 w-4 text-primary" />
-                                </div>
-                                <div>
-                                    <CardTitle className="text-base text-foreground">Backup Automatico</CardTitle>
-                                    <CardDescription className="text-xs mt-0.5">
-                                        Salvataggio programmato su disco locale
-                                    </CardDescription>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Switch
-                                    checked={backupSettings.enabled}
-                                    onCheckedChange={(checked) => setBackupSettings({ ...backupSettings, enabled: checked })}
-                                />
-                                <span className="text-xs text-muted-foreground">{backupSettings.enabled ? 'Attivo' : 'Disattivo'}</span>
-                            </div>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="pt-5">
-                        <div className={`space-y-4 ${!backupSettings.enabled && 'opacity-50 pointer-events-none'}`}>
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                <div className="space-y-2">
-                                    <Label className="text-xs text-muted-foreground">Frequenza</Label>
-                                    <Select
-                                        value={backupSettings.interval}
-                                        onValueChange={(value) => setBackupSettings({ ...backupSettings, interval: value })}
-                                    >
-                                        <SelectTrigger className="h-9">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {INTERVAL_OPTIONS.map(opt => (
-                                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label className="text-xs text-muted-foreground">Retention</Label>
-                                    <Select
-                                        value={backupSettings.retention.toString()}
-                                        onValueChange={(value) => setBackupSettings({ ...backupSettings, retention: parseInt(value) })}
-                                    >
-                                        <SelectTrigger className="h-9">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {RETENTION_OPTIONS.map(opt => (
-                                                <SelectItem key={opt.value} value={opt.value.toString()}>{opt.label}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                </div>
-                            </div>
-
-                            {/* Status info */}
-                            <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t border-border">
-                                {backupSettings.last_run && (
-                                    <span>Ultimo: <span className={backupSettings.last_status === 'success' ? 'text-primary' : 'text-destructive'}>{formatDate(backupSettings.last_run)}</span></span>
-                                )}
-                                {backupSettings.next_run && backupSettings.enabled && (
-                                    <span>Prossimo: <span className="text-primary">{formatDate(backupSettings.next_run)}</span></span>
-                                )}
-                            </div>
-
-                            <div className="flex items-center gap-3 pt-2">
-                                <Button
-                                    onClick={handleSaveBackupSettings}
-                                    disabled={loading}
-                                    size="sm"
-                                    className="gap-2 h-8"
-                                >
-                                    <CheckCircle className="h-3.5 w-3.5" />
-                                    Salva impostazioni
-                                </Button>
-                                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                                    <HardDrive className="h-3 w-3" />
-                                    Salvataggio in ./backups/
-                                </span>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-
                 {/* Backup Files List */}
                 {backupList.length > 0 && (
                     <Card className="border-border shadow-sm bg-card">
@@ -1114,6 +959,27 @@ const SystemPage = () => {
                         </CardContent>
                     </Card>
                 )}
+                    </TabsContent>
+
+                    <TabsContent value="notifications" className="mt-4">
+                        {/* Notifications panel — email + Telegram, severity
+                            filter, rate limit, "send test" per-channel.
+                            Self-contained: gestisce il proprio save/state. */}
+                        <NotificationsSettings
+                            initial={settings ?? undefined}
+                            onSaved={loadSettings}
+                        />
+                    </TabsContent>
+
+                    <TabsContent value="kpi" className="mt-4">
+                        {/* Target sui KPI della dashboard. Vuoto = nessun
+                            target → valore neutro. */}
+                        <KPITargets
+                            initial={settings}
+                            onSaved={loadSettings}
+                        />
+                    </TabsContent>
+                </Tabs>
 
                 {/* Footer */}
                 <div className="pt-6 border-t border-border flex flex-col items-center gap-3">

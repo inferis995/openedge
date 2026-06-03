@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import LanguageSwitch from '@/components/layout/LanguageSwitch';
 import {
@@ -37,34 +38,37 @@ import { useThemeStore } from '@/stores/useThemeStore';
 const Sidebar = () => {
     const location = useLocation();
     const navigate = useNavigate();
+    const { t } = useTranslation();
     const [collapsed, setCollapsed] = useState(false);
     const { user, logout, isAdmin } = useAuthStore();
     const { theme, toggleTheme } = useThemeStore();
 
+    // Etichette via i18n: lo switch IT/EN nel footer cambia tutto in tempo
+    // reale. Le chiavi vivono in src/i18n/locales/{en,it}.json sotto `nav.*`.
     const navItems = [
-        { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-        { name: 'Organizations', path: '/organizations', icon: Building2 },
-        { name: 'Sites', path: '/sites', icon: Factory },
-        { name: 'Areas', path: '/areas', icon: MapPin },
-        { name: 'Gateways', path: '/gateways', icon: Cpu },
-        { name: 'Tags', path: '/tags', icon: Tags },
-        { name: 'Trend', path: '/trend', icon: TrendingUp },
-        { name: 'Historian', path: '/history', icon: History },
-        { name: 'Alarms', path: '/alarms', icon: Bell },
-        { name: 'Recipes', path: '/recipes', icon: ChefHat },
-        { name: 'Reports', path: '/reports', icon: FileText },
-        { name: 'KPI Produzione', path: '/kpis', icon: Target },
-        { name: 'OEE Profili', path: '/oee-profiles', icon: Gauge },
-        { name: 'Turni', path: '/shifts', icon: Clock },
-        { name: 'Manutenzione', path: '/maintenance', icon: Wrench },
-        { name: 'i3X API',      path: '/i3x',          icon: Network },
+        { name: t('nav.dashboard'), path: '/', icon: LayoutDashboard },
+        { name: t('nav.organizations'), path: '/organizations', icon: Building2 },
+        { name: t('nav.sites'), path: '/sites', icon: Factory },
+        { name: t('nav.areas'), path: '/areas', icon: MapPin },
+        { name: t('nav.gateways'), path: '/gateways', icon: Cpu },
+        { name: t('nav.tags'), path: '/tags', icon: Tags },
+        { name: t('nav.trend'), path: '/trend', icon: TrendingUp },
+        { name: t('nav.historian'), path: '/history', icon: History },
+        { name: t('nav.alarms'), path: '/alarms', icon: Bell },
+        { name: t('nav.recipes'), path: '/recipes', icon: ChefHat },
+        { name: t('nav.reports'), path: '/reports', icon: FileText },
+        { name: t('nav.kpis'), path: '/kpis', icon: Target },
+        { name: t('nav.oee_profiles'), path: '/oee-profiles', icon: Gauge },
+        { name: t('nav.shifts'), path: '/shifts', icon: Clock },
+        { name: t('nav.maintenance'), path: '/maintenance', icon: Wrench },
+        { name: t('nav.i3x'), path: '/i3x', icon: Network },
     ];
 
     const adminNavItems = [
-        { name: 'System', path: '/system', icon: Settings },
-        { name: 'Diagnostics', path: '/diagnostics', icon: Activity },
-        { name: 'Users', path: '/users', icon: Users },
-        { name: 'MQTT Monitor', path: '/mqtt-monitor', icon: Radio },
+        { name: t('nav.system'), path: '/system', icon: Settings },
+        { name: t('nav.diagnostics'), path: '/diagnostics', icon: Activity },
+        { name: t('nav.users'), path: '/users', icon: Users },
+        { name: t('nav.mqtt_monitor'), path: '/mqtt-monitor', icon: Radio },
     ];
 
     return (
@@ -143,7 +147,7 @@ const Sidebar = () => {
                             collapsed && "mx-3"
                         )} />
                         {!collapsed && (
-                            <p className="px-4 text-[10px] text-[hsl(var(--sidebar-muted))] uppercase tracking-wider font-semibold mb-2">Admin</p>
+                            <p className="px-4 text-[10px] text-[hsl(var(--sidebar-muted))] uppercase tracking-wider font-semibold mb-2">{t('nav.admin_section')}</p>
                         )}
                         {adminNavItems.map((item) => {
                             const isActive = location.pathname === item.path;
@@ -194,12 +198,12 @@ const Sidebar = () => {
                     onClick={toggleTheme}
                 >
                     {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-                    {!collapsed && <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>}
+                    {!collapsed && <span>{theme === 'dark' ? t('nav.light_mode') : t('nav.dark_mode')}</span>}
                 </Button>
 
                 {!collapsed && (
                     <div className="flex items-center justify-between px-2 py-1 text-xs text-[hsl(var(--sidebar-muted))]">
-                        <span>Language</span>
+                        <span>{t('nav.language_label')}</span>
                         <LanguageSwitch />
                     </div>
                 )}
@@ -214,10 +218,10 @@ const Sidebar = () => {
                     </div>
                     {!collapsed && (
                         <div className="flex-1 overflow-hidden">
-                            <p className="text-sm font-bold truncate">{user?.username || 'User'}</p>
+                            <p className="text-sm font-bold truncate">{user?.username || t('nav.user_role')}</p>
                             <div className="flex items-center gap-1.5">
                                 <div className="w-2 h-2 clip-hex bg-green-500 animate-pulse" />
-                                <p className="text-xs text-[hsl(var(--sidebar-muted))] truncate">{isAdmin() ? 'Admin' : 'User'}</p>
+                                <p className="text-xs text-[hsl(var(--sidebar-muted))] truncate">{isAdmin() ? t('nav.admin_role') : t('nav.user_role')}</p>
                             </div>
                         </div>
                     )}
@@ -237,7 +241,7 @@ const Sidebar = () => {
                     }}
                 >
                     <LogOut size={18} />
-                    {!collapsed && <span>Logout</span>}
+                    {!collapsed && <span>{t('nav.logout')}</span>}
                 </Button>
             </div>
         </div>
