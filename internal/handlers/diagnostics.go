@@ -163,9 +163,15 @@ func (h *DiagnosticsHandler) checkRedis() Health {
 
 // isRedisNotFound treats a missing-key error as a healthy round-trip —
 // the probe key never exists, the connection succeeded, which is what
-// "OK" should mean here.
+// "OK" should mean here. Matches both the upstream go-redis "nil" reply
+// and our wrapper's friendlier "key X does not exist" message
+// (internal/redis/client.go:79).
 func isRedisNotFound(err error) bool {
-	return err != nil && strings.Contains(strings.ToLower(err.Error()), "nil")
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "nil") || strings.Contains(s, "does not exist")
 }
 
 // c2x returns a background context. Tiny helper kept private so we

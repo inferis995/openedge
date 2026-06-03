@@ -456,7 +456,60 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Bootstrap "safety net" admin: il file migrations/20250308_schema.sql
+	// seedando admin/admin123 gira solo se Postgres trova il volume vuoto
+	// (docker-entrypoint-initdb.d). Su un volume preesistente la seed
+	// non viene applicata e l'utente non riesce a loggarsi.
+	// Qui controlliamo a runtime: se la tabella users esiste ed è vuota,
+	// inseriamo l'admin di default. Idempotente via ON CONFLICT.
+	if err := bootstrapAdminIfMissing(db); err != nil {
+		log.Printf("Warning: bootstrap admin check failed: %v", err)
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
+	return nil
+}
+
+// bootstrapAdminIfMissing assicura che esista almeno un utente admin
+// quando lo schema base è già stato creato ma il seed iniziale non è
+// stato applicato (es. volume Postgres riusato da un'installazione
+// precedente). Inserisce admin/admin123 con hash bcrypt pre-calcolato
+// matching quello in migrations/20250308_schema.sql.
+//
+// Skip silente se:
+//   - la tabella users non esiste (schema base non ancora creato)
+//   - esiste già almeno un utente (admin o qualunque)
+func bootstrapAdminIfMissing(db *sql.DB) error {
+	// Esiste la tabella users?
+	var exists bool
+	if err := db.QueryRow(`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = 'users'
+		)`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return nil // schema base non ancora applicato
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil // c'è già almeno un utente
+	}
+
+	// bcrypt hash di "admin123" (stesso del seed SQL) — costo 10
+	const adminHash = "$2a$10$Ot0N4fXJ903diSev0X27KOCcTqI01lTp4gREcAJP/UOOxaRmChBfm"
+	_, err := db.Exec(`
+		INSERT INTO users (username, password_hash, role, full_name, org_id)
+		VALUES ('admin', $1, 'admin', 'System Administrator', NULL)
+		ON CONFLICT (username) DO NOTHING`, adminHash)
+	if err != nil {
+		return err
+	}
+	log.Println("[DB] Bootstrap: created default admin/admin123 (users table was empty)")
 	return nil
 }
 

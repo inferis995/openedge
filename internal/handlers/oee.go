@@ -1137,8 +1137,11 @@ func (h *OEEHandler) Hierarchy(c *gin.Context) {
 		siteAreas[ainfo.siteID] = append(siteAreas[ainfo.siteID], areaNode)
 	}
 
-	// Costruisci nodi site con rollup figli.
-	var siteNodes []OEEHierarchyNode
+	// Costruisci nodi site con rollup figli. Inizializzo come slice
+	// vuota (non nil) per garantire che la response JSON sia `[]`
+	// invece di `null` — il frontend fa `data.sites.length` e
+	// crasherebbe su null.
+	siteNodes := []OEEHierarchyNode{}
 	for sid, sinfo := range sites {
 		areasForSite, ok := siteAreas[sid]
 		if !ok {

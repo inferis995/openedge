@@ -75,14 +75,14 @@ export const OEEHierarchyView = () => {
                     <div className="py-8 text-center text-sm text-muted-foreground">
                         <Loader2 className="inline animate-spin mr-2" />Caricamento…
                     </div>
-                ) : !data || (data.sites.length === 0 && !data.unassigned) ? (
+                ) : !data || ((data.sites?.length ?? 0) === 0 && !data.unassigned) ? (
                     <div className="py-12 text-center text-sm text-muted-foreground border border-dashed rounded-md">
                         Nessun profilo abilitato. Crea profili e assegnali a un'area
                         per popolare la gerarchia.
                     </div>
                 ) : (
                     <div className="space-y-2">
-                        {data.sites.map((s) => (
+                        {(data.sites ?? []).map((s) => (
                             <HierarchyNode key={s.id} node={s} />
                         ))}
                         {data.unassigned && (
