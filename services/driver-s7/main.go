@@ -568,7 +568,10 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 		return
 	}
 
-	// EXECUTE WRITE TO PLC
+	go d.executeWrite(cmd)
+}
+
+func (d *Driver) executeWrite(cmd WriteCommand) {
 	d.configMu.RLock()
 	client := d.s7Client
 	config := d.config

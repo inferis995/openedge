@@ -781,7 +781,10 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 		return
 	}
 
-	// The "code" field in MQTT driver is the PLC's topic to publish to
+	go d.executeWrite(cmd)
+}
+
+func (d *Driver) executeWrite(cmd WriteCommand) {
 	// For writing, we publish to a write topic (convention: {source_topic}/set or cmd/{source_topic})
 	d.configMu.RLock()
 	cfg := d.config

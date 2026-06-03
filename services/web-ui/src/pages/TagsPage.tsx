@@ -44,7 +44,7 @@ import {
 } from '@/components/ui/tabs';
 import { TagAlarmsTab } from '@/components/tags/TagAlarmsTab';
 
-import { Plus, Trash2, Edit2, Database, Upload, Download, ArrowUp, ArrowDown, CheckSquare, Square, X, Bell, BellRing } from 'lucide-react';
+import { Plus, Trash2, Edit2, Database, Upload, Download, ArrowUp, ArrowDown, CheckSquare, Square, X, Bell, BellRing, Pencil } from 'lucide-react';
 import { CreateTagDto, OpcUaNode } from '@/types';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
@@ -83,6 +83,30 @@ const TagsPage = () => {
     );
 
     const [isOpen, setIsOpen] = useState(false);
+    const [writeDialogTag, setWriteDialogTag] = useState<{ id: number; alias: string; dataType: string; currentValue: any } | null>(null);
+    const [writeValue, setWriteValue] = useState<string>('');
+    const [writeLoading, setWriteLoading] = useState(false);
+
+    const handleTagWrite = async () => {
+        if (!writeDialogTag) return;
+        setWriteLoading(true);
+        try {
+            let value: any = writeValue;
+            if (writeDialogTag.dataType === 'BOOL') {
+                value = writeValue === 'true';
+            } else if (writeDialogTag.dataType === 'INT' || writeDialogTag.dataType === 'UINT' || writeDialogTag.dataType === 'DINT') {
+                value = parseInt(writeValue, 10);
+            } else if (writeDialogTag.dataType === 'REAL') {
+                value = parseFloat(writeValue);
+            }
+            await tagsApi.writeTag(writeDialogTag.id, { value });
+            setWriteDialogTag(null);
+        } catch (err) {
+            console.error('Write failed:', err);
+        } finally {
+            setWriteLoading(false);
+        }
+    };
     const [updatingTagId, setUpdatingTagId] = useState<number | null>(null);
     const [formData, setFormData] = useState<Partial<CreateTagDto>>({
         code: '',
@@ -981,11 +1005,11 @@ const TagsPage = () => {
                                                         )}
                                                     </div>
 
-                                                    {/* JSON path — MQTT only. The driver uses it to extract one
-                                                        field from JSON payloads like {"temp":22.5,"humidity":55}. */}
+                                                    {/* JSON path — MQTT only */}
+                                                    {selectedGatewayDriverType === 'MQTT' && (
                                                     <div className="grid gap-2 border-t pt-3 mt-2">
                                                         <Label htmlFor="json_path" className="text-sm flex items-center gap-2">
-                                                            JSON path <span className="text-[10px] font-normal text-muted-foreground">(MQTT only — optional)</span>
+                                                            JSON path <span className="text-[10px] font-normal text-muted-foreground">(opzionale)</span>
                                                         </Label>
                                                         <Input
                                                             id="json_path"
@@ -998,6 +1022,7 @@ const TagsPage = () => {
                                                             Per payload JSON: estrae il campo a questo percorso (notazione dotted). Lascia vuoto se il payload È già il valore.
                                                         </p>
                                                     </div>
+                                                    )}
                                                 </div>
                                             </div>
                                             <DialogFooter>
@@ -1134,7 +1159,6 @@ const TagsPage = () => {
                                             <div className="flex items-center gap-3">
                                                 {/* Value display with distinct styling */}
                                                 {(() => {
-                                                    // Get Sparkplug B device ID from gateway name
                                                     const deviceName = gatewayMap.get(tag.gateway_id)?.name;
                                                     const deviceOnline = isDeviceOnline(deviceName);
                                                     const status = getDataStatus(currentValue?.quality, deviceOnline);
@@ -1183,6 +1207,24 @@ const TagsPage = () => {
                                                         </>
                                                     );
                                                 })()}
+                                                {/* Write button */}
+                                                {isAdmin() && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-6 w-6 shrink-0"
+                                                        title="Write value"
+                                                        onClick={() => {
+                                                            const cv = currentValues.get(tag.id);
+                                                            setWriteValue(tag.data_type === 'BOOL'
+                                                                ? (cv?.value === true ? 'false' : 'true')
+                                                                : (cv?.value != null ? String(cv.value) : '0'));
+                                                            setWriteDialogTag({ id: tag.id, alias: tag.alias || '', dataType: tag.data_type, currentValue: cv?.value });
+                                                        }}
+                                                    >
+                                                        <Pencil size={13} />
+                                                    </Button>
+                                                )}
                                             </div>
                                         </TableCell>
                                         <TableCell>
@@ -1337,6 +1379,50 @@ const TagsPage = () => {
                             </div>
                         )}
                     </div>
+                </DialogContent>
+            </Dialog>
+
+            {/* Write Tag Dialog */}
+            <Dialog open={!!writeDialogTag} onOpenChange={(open) => !open && setWriteDialogTag(null)}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Write: {writeDialogTag?.alias}</DialogTitle>
+                        <DialogDescription>
+                            Send a value to the PLC. This action is logged.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">Type:</span>
+                            <Badge variant="secondary">{writeDialogTag?.dataType}</Badge>
+                        </div>
+                        {writeDialogTag?.dataType === 'BOOL' ? (
+                            <Select value={writeValue} onValueChange={setWriteValue}>
+                                <SelectTrigger>
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="true">TRUE</SelectItem>
+                                    <SelectItem value="false">FALSE</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        ) : (
+                            <Input
+                                type={writeDialogTag?.dataType === 'REAL' ? 'number' : 'text'}
+                                step={writeDialogTag?.dataType === 'REAL' ? '0.01' : undefined}
+                                value={writeValue}
+                                onChange={(e) => setWriteValue(e.target.value)}
+                                placeholder="Value"
+                                className="font-mono"
+                            />
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setWriteDialogTag(null)}>Cancel</Button>
+                        <Button onClick={handleTagWrite} disabled={writeLoading}>
+                            {writeLoading ? 'Writing...' : 'Write'}
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </div >

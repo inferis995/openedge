@@ -369,7 +369,10 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 		return
 	}
 
-	d.configMu.RLock()
+	go d.executeWrite(cmd)
+}
+
+func (d *Driver) executeWrite(cmd WriteCommand) {
 	cfg := d.config
 	d.configMu.RUnlock()
 

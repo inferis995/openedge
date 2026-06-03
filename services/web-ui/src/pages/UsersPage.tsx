@@ -257,7 +257,7 @@ const UsersPage = () => {
                                 <div className="grid grid-cols-4 items-center gap-4">
                                     <Label className="text-right flex items-center justify-end gap-1">
                                         <Network size={13} className="text-muted-foreground" />
-                                        i3X Write
+                                        Permessi scrittura
                                     </Label>
                                     <div className="col-span-3 flex items-center gap-3">
                                         <Switch
@@ -265,7 +265,7 @@ const UsersPage = () => {
                                             onCheckedChange={setNewI3xWrite}
                                         />
                                         <span className="text-sm text-muted-foreground">
-                                            {newI3xWrite ? 'Read + Write' : 'Read only'}
+                                            {newI3xWrite ? 'Lettura + Scrittura' : 'Solo lettura'}
                                         </span>
                                     </div>
                                 </div>
@@ -297,7 +297,7 @@ const UsersPage = () => {
                             <TableHead>Full Name</TableHead>
                             <TableHead>Role</TableHead>
                             <TableHead>Organization</TableHead>
-                            <TableHead>i3X</TableHead>
+                            <TableHead>Accesso</TableHead>
                             <TableHead>Created At</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
@@ -346,15 +346,15 @@ const UsersPage = () => {
                                     <TableCell>
                                         {user.role === 'admin' ? (
                                             <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-purple-100 text-purple-700">
-                                                <Network size={11} /> Full
+                                                <Network size={11} /> Admin
                                             </span>
                                         ) : user.i3x_write ? (
                                             <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700">
-                                                <Network size={11} /> R+W
+                                                <Network size={11} /> Lettura + Scrittura
                                             </span>
                                         ) : (
                                             <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-500">
-                                                <Network size={11} /> Read
+                                                <Network size={11} /> Solo lettura
                                             </span>
                                         )}
                                     </TableCell>
@@ -454,7 +454,7 @@ const UsersPage = () => {
                             <div className="grid grid-cols-4 items-center gap-4">
                                 <Label className="text-right flex items-center justify-end gap-1">
                                     <Network size={13} className="text-muted-foreground" />
-                                    i3X Write
+                                    Permessi scrittura
                                 </Label>
                                 <div className="col-span-3 flex items-center gap-3">
                                     <Switch
@@ -462,7 +462,7 @@ const UsersPage = () => {
                                         onCheckedChange={setEditI3xWrite}
                                     />
                                     <span className="text-sm text-muted-foreground">
-                                        {editI3xWrite ? 'Read + Write' : 'Read only'}
+                                        {editI3xWrite ? 'Lettura + Scrittura' : 'Solo lettura'}
                                     </span>
                                 </div>
                             </div>

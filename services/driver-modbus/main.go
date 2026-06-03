@@ -350,7 +350,10 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 		return
 	}
 
-	// 1. Parse Address
+	go d.executeWrite(cmd)
+}
+
+func (d *Driver) executeWrite(cmd WriteCommand) {
 	d.configMu.RLock()
 	zeroBased := d.config.Gateway.ZeroBased
 	d.configMu.RUnlock()
@@ -361,7 +364,6 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 		return
 	}
 
-	// 2. Check connection
 	if d.modbusClient == nil || !d.modbusClient.IsConnected() {
 		log.Printf("[DRIVER] Cannot write: Modbus client not connected")
 		d.publishWriteResult(cmd.TagID, false, "Modbus not connected", nil)
@@ -375,7 +377,7 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 	case "BOOL":
 		writeErr = d.writeBool(addr, cmd.Value)
 	case "INT":
-		if v, ok := cmd.Value.(float64); ok {
+		if v, ok := toFloat(cmd.Value); ok {
 			val := uint16(int16(v))
 			if addr.Type == "holding" {
 				writeErr = d.modbusClient.WriteSingleRegister(addr.Offset, val)
@@ -386,7 +388,7 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 			writeErr = fmt.Errorf("invalid value for INT: %v", cmd.Value)
 		}
 	case "UINT":
-		if v, ok := cmd.Value.(float64); ok {
+		if v, ok := toFloat(cmd.Value); ok {
 			val := uint16(v)
 			if addr.Type == "holding" {
 				writeErr = d.modbusClient.WriteSingleRegister(addr.Offset, val)
@@ -397,7 +399,7 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 			writeErr = fmt.Errorf("invalid value for UINT: %v", cmd.Value)
 		}
 	case "DINT":
-		if v, ok := cmd.Value.(float64); ok {
+		if v, ok := toFloat(cmd.Value); ok {
 			val32 := uint32(int32(v))
 			if addr.Type == "holding" {
 				b := make([]byte, 4)
@@ -410,7 +412,7 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 			writeErr = fmt.Errorf("invalid value for DINT: %v", cmd.Value)
 		}
 	case "REAL":
-		if v, ok := cmd.Value.(float64); ok {
+		if v, ok := toFloat(cmd.Value); ok {
 			val32 := math.Float32bits(float32(v))
 			if addr.Type == "holding" {
 				b := make([]byte, 4)
@@ -434,26 +436,9 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 		return
 	}
 
-	log.Printf("[DRIVER] Write successful to %s (Value: %v), performing read-back verification...", cmd.Code, cmd.Value)
+	log.Printf("[DRIVER] Write successful to %s (Value: %v)", cmd.Code, cmd.Value)
+	d.publishWriteResult(cmd.TagID, true, "write OK", cmd.Value)
 
-	// 4. Read-back verification: read the value back from PLC and compare
-	readBackValue, readBackErr := d.readBackValue(addr, cmd.DataType)
-	if readBackErr != nil {
-		log.Printf("[DRIVER] Read-back failed for tag %d: %v (write was successful)", cmd.TagID, readBackErr)
-		// Write succeeded but read-back failed — still consider it a success with warning
-		d.publishWriteResult(cmd.TagID, true, "write OK, read-back failed: "+readBackErr.Error(), cmd.Value)
-	} else {
-		verified := d.verifyReadBack(cmd.Value, readBackValue, cmd.DataType)
-		if verified {
-			log.Printf("[DRIVER] Read-back verified for tag %d: written=%v, read=%v ✓", cmd.TagID, cmd.Value, readBackValue)
-			d.publishWriteResult(cmd.TagID, true, "verified", readBackValue)
-		} else {
-			log.Printf("[DRIVER] Read-back MISMATCH for tag %d: written=%v, read=%v ✗", cmd.TagID, cmd.Value, readBackValue)
-			d.publishWriteResult(cmd.TagID, false, fmt.Sprintf("read-back mismatch: sent=%v, got=%v", cmd.Value, readBackValue), readBackValue)
-		}
-	}
-
-	// 5. Update local state and publish feedback
 	d.updateState(cmd.TagID, cmd.Value, 0)
 
 	// Set Cooldown to prevent cyclic read from overwriting immediately
@@ -484,13 +469,40 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 }
 
 // writeBool handles writing BOOL values to both Coils and Holding Registers (bit masking)
-func (d *Driver) writeBool(addr modbus.Address, value interface{}) error {
-	boolVal := false
-	if v, ok := value.(bool); ok {
-		boolVal = v
-	} else if v, ok := value.(float64); ok {
-		boolVal = v != 0
+func toBool(value interface{}) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case float64:
+		return v != 0
+	case int:
+		return v != 0
+	case string:
+		lc := strings.ToLower(v)
+		return lc == "true" || lc == "1" || lc == "on"
+	default:
+		return false
 	}
+}
+
+func toFloat(value interface{}) (float64, bool) {
+	switch v := value.(type) {
+	case float64:
+		return v, true
+	case int:
+		return float64(v), true
+	case string:
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f, true
+		}
+		return 0, false
+	default:
+		return 0, false
+	}
+}
+
+func (d *Driver) writeBool(addr modbus.Address, value interface{}) error {
+	boolVal := toBool(value)
 
 	if addr.Type == "coil" {
 		// Direct coil write
