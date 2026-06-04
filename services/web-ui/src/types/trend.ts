@@ -35,6 +35,9 @@ export interface ChartConfig {
     height: number; // Grid units
 }
 
+export type LineType = 'solid' | 'dashed' | 'dotted';
+export type ChartType = 'line' | 'area' | 'step' | 'bar';
+
 export interface YAxisConfig {
     id: string;
     tagId: number;
@@ -44,6 +47,13 @@ export interface YAxisConfig {
     autoScale: boolean;
     position: 'left' | 'right';
     color: string;
+    // Per-series style settings
+    lineType: LineType;
+    lineWidth: number;   // 1-4
+    chartType: ChartType;
+    showMarkers: boolean;
+    visible: boolean;
+    areaOpacity: number; // 0-1, used when chartType='area'
 }
 
 export interface TimeRange {
@@ -124,7 +134,18 @@ export interface ChartSeries {
     color: string;
     yAxisIndex: number;
     isBool: boolean;
-    quality: number[]; // Quality per data point
+    quality: number[];
+    // Style from YAxisConfig (with safe defaults)
+    lineType?: LineType;
+    lineWidth?: number;
+    chartType?: ChartType;
+    showMarkers?: boolean;
+    visible?: boolean;
+    yMin?: number;
+    yMax?: number;
+    autoScale?: boolean;
+    yPosition?: 'left' | 'right';
+    areaOpacity?: number;
 }
 
 // Grid layout item

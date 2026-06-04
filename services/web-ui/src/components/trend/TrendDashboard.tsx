@@ -51,6 +51,8 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
         updateChart,
         addChart,
         liveMode,
+        removeTagFromChart,
+        updateYAxisConfig,
     } = useTrendStore();
 
     const [containerWidth, setContainerWidth] = useState(1200);
@@ -273,6 +275,17 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
                 yAxisIndex: index,
                 isBool,
                 quality: historyData.map(p => p.quality),
+                // Style from YAxisConfig
+                lineType: yAxisConfig?.lineType ?? 'solid',
+                lineWidth: yAxisConfig?.lineWidth ?? 2,
+                chartType: yAxisConfig?.chartType ?? 'line',
+                showMarkers: yAxisConfig?.showMarkers ?? false,
+                visible: yAxisConfig?.visible ?? true,
+                yMin: yAxisConfig?.autoScale === false ? yAxisConfig?.min : undefined,
+                yMax: yAxisConfig?.autoScale === false ? yAxisConfig?.max : undefined,
+                autoScale: yAxisConfig?.autoScale ?? true,
+                yPosition: yAxisConfig?.position ?? (index % 2 === 0 ? 'left' : 'right'),
+                areaOpacity: yAxisConfig?.areaOpacity ?? 0.15,
             };
         });
     }, [charts, tags, historyDataMap, realtimeValues, displayTimeRange]);
@@ -385,6 +398,9 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
                             onActivate={() => setActiveChart(chart.id)}
                             syncGroup="trend-charts"
                             onRemove={() => removeChart(chart.id)}
+                            onRemoveTag={(tagId) => removeTagFromChart(chart.id, tagId)}
+                            onUpdateYAxisConfig={(tagId, updates) => updateYAxisConfig(chart.id, tagId, updates)}
+                            onUpdateTitle={(title) => updateChart(chart.id, { title })}
                         />
                     </div>
                 ))}
