@@ -8,6 +8,8 @@ export interface User {
     org_id: number | null;
     org_name?: string | null;
     i3x_write: boolean;
+    site_ids: number[];
+    area_ids: number[];
     created_at: string;
 }
 
@@ -18,6 +20,8 @@ export interface CreateUserRequest {
     full_name?: string;
     org_id?: number | null;
     i3x_write?: boolean;
+    site_ids?: number[];
+    area_ids?: number[];
 }
 
 export interface UpdateUserRequest {
@@ -26,6 +30,8 @@ export interface UpdateUserRequest {
     full_name?: string;
     org_id?: number | null;
     i3x_write?: boolean;
+    site_ids?: number[];
+    area_ids?: number[];
 }
 
 export const usersApi = {

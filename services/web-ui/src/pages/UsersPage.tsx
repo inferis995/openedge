@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
 import { usersApi, User, CreateUserRequest, UpdateUserRequest } from '@/api/users';
+import { sitesApi } from '@/api/sites';
+import { areasApi } from '@/api/areas';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useOrganizations } from '@/hooks/useOrganizations';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Table,
     TableBody,
@@ -28,8 +31,145 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Users, Plus, Trash2, Pencil, Shield, User as UserIcon, Building2, Network } from 'lucide-react';
+import { Users, Plus, Trash2, Pencil, Shield, User as UserIcon, Building2, Network, MapPin, Layers } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { Site, Area } from '@/types';
+
+// ---------- scope selector sub-component ----------
+
+interface ScopeSelectorProps {
+    orgId: number | null;
+    selectedSiteIds: number[];
+    selectedAreaIds: number[];
+    onSiteIdsChange: (ids: number[]) => void;
+    onAreaIdsChange: (ids: number[]) => void;
+}
+
+const ScopeSelector = ({
+    orgId,
+    selectedSiteIds,
+    selectedAreaIds,
+    onSiteIdsChange,
+    onAreaIdsChange,
+}: ScopeSelectorProps) => {
+    const [sites, setSites] = useState<Site[]>([]);
+    const [areas, setAreas] = useState<Area[]>([]);
+    const [loadingSites, setLoadingSites] = useState(false);
+    const [loadingAreas, setLoadingAreas] = useState(false);
+
+    // Load sites when org changes
+    useEffect(() => {
+        if (!orgId) {
+            setSites([]);
+            setAreas([]);
+            onSiteIdsChange([]);
+            onAreaIdsChange([]);
+            return;
+        }
+        setLoadingSites(true);
+        sitesApi.getByOrg(orgId)
+            .then(setSites)
+            .catch(() => setSites([]))
+            .finally(() => setLoadingSites(false));
+        // reset area selection when org changes
+        setAreas([]);
+        onSiteIdsChange([]);
+        onAreaIdsChange([]);
+    }, [orgId]);
+
+    // Load areas for all selected sites
+    useEffect(() => {
+        if (selectedSiteIds.length === 0) {
+            setAreas([]);
+            onAreaIdsChange([]);
+            return;
+        }
+        setLoadingAreas(true);
+        Promise.all(selectedSiteIds.map((sid) => areasApi.getAll(sid)))
+            .then((results) => setAreas(results.flat()))
+            .catch(() => setAreas([]))
+            .finally(() => setLoadingAreas(false));
+        // drop area selections that no longer belong to selected sites
+        onAreaIdsChange([]);
+    }, [selectedSiteIds.join(',')]);
+
+    const toggleSite = (siteId: number, checked: boolean) => {
+        onSiteIdsChange(checked ? [...selectedSiteIds, siteId] : selectedSiteIds.filter((id) => id !== siteId));
+    };
+
+    const toggleArea = (areaId: number, checked: boolean) => {
+        onAreaIdsChange(checked ? [...selectedAreaIds, areaId] : selectedAreaIds.filter((id) => id !== areaId));
+    };
+
+    if (!orgId) return null;
+
+    const allSites = selectedSiteIds.length === 0;
+    const allAreas = selectedAreaIds.length === 0;
+
+    return (
+        <div className="col-span-4 space-y-3 border border-border rounded-md p-3 bg-muted/30">
+            {/* Site scope */}
+            <div>
+                <div className="flex items-center gap-2 mb-2">
+                    <MapPin size={13} className="text-muted-foreground" />
+                    <span className="text-sm font-medium">Scope siti</span>
+                    {allSites && (
+                        <span className="text-xs text-muted-foreground ml-auto">Tutti i siti dell'org</span>
+                    )}
+                </div>
+                {loadingSites ? (
+                    <p className="text-xs text-muted-foreground">Caricamento siti...</p>
+                ) : sites.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">Nessun sito disponibile</p>
+                ) : (
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                        {sites.map((site) => (
+                            <label key={site.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                                <Checkbox
+                                    checked={selectedSiteIds.includes(site.id)}
+                                    onCheckedChange={(v) => toggleSite(site.id, !!v)}
+                                />
+                                {site.name}
+                            </label>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Area scope — visible only when at least one site is selected */}
+            {selectedSiteIds.length > 0 && (
+                <div className="border-t border-border pt-3">
+                    <div className="flex items-center gap-2 mb-2">
+                        <Layers size={13} className="text-muted-foreground" />
+                        <span className="text-sm font-medium">Scope aree</span>
+                        {allAreas && (
+                            <span className="text-xs text-muted-foreground ml-auto">Tutte le aree dei siti selezionati</span>
+                        )}
+                    </div>
+                    {loadingAreas ? (
+                        <p className="text-xs text-muted-foreground">Caricamento aree...</p>
+                    ) : areas.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Nessuna area disponibile</p>
+                    ) : (
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                            {areas.map((area) => (
+                                <label key={area.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                                    <Checkbox
+                                        checked={selectedAreaIds.includes(area.id)}
+                                        onCheckedChange={(v) => toggleArea(area.id, !!v)}
+                                    />
+                                    {area.name}
+                                </label>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ---------- main page ----------
 
 const UsersPage = () => {
     const [users, setUsers] = useState<User[]>([]);
@@ -39,23 +179,26 @@ const UsersPage = () => {
     const [selectedUser, setSelectedUser] = useState<User | null>(null);
     const [error, setError] = useState<string | null>(null);
 
-    // Organizations
     const { organizations, isLoading: orgsLoading } = useOrganizations();
 
-    // Form state for create
+    // Form state — create
     const [newUsername, setNewUsername] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [newRole, setNewRole] = useState<'admin' | 'user'>('user');
     const [newFullName, setNewFullName] = useState('');
     const [newOrgId, setNewOrgId] = useState<number | null>(null);
     const [newI3xWrite, setNewI3xWrite] = useState(false);
+    const [newSiteIds, setNewSiteIds] = useState<number[]>([]);
+    const [newAreaIds, setNewAreaIds] = useState<number[]>([]);
 
-    // Form state for edit
+    // Form state — edit
     const [editPassword, setEditPassword] = useState('');
     const [editRole, setEditRole] = useState<'admin' | 'user'>('user');
     const [editFullName, setEditFullName] = useState('');
     const [editOrgId, setEditOrgId] = useState<number | null>(null);
     const [editI3xWrite, setEditI3xWrite] = useState(false);
+    const [editSiteIds, setEditSiteIds] = useState<number[]>([]);
+    const [editAreaIds, setEditAreaIds] = useState<number[]>([]);
 
     const { user: currentUser } = useAuthStore();
 
@@ -86,6 +229,8 @@ const UsersPage = () => {
                 full_name: newFullName,
                 org_id: newOrgId,
                 i3x_write: newRole === 'admin' ? true : newI3xWrite,
+                site_ids: newSiteIds,
+                area_ids: newAreaIds,
             };
             await usersApi.create(req);
             setIsCreateOpen(false);
@@ -110,6 +255,8 @@ const UsersPage = () => {
                 full_name: editFullName,
                 org_id: editOrgId,
                 i3x_write: editRole === 'admin' ? true : editI3xWrite,
+                site_ids: editSiteIds,
+                area_ids: editAreaIds,
             };
             if (editPassword) {
                 req.password = editPassword;
@@ -148,6 +295,8 @@ const UsersPage = () => {
         setEditPassword('');
         setEditOrgId(user.org_id);
         setEditI3xWrite(user.i3x_write ?? false);
+        setEditSiteIds(user.site_ids ?? []);
+        setEditAreaIds(user.area_ids ?? []);
         setIsEditOpen(true);
     };
 
@@ -158,6 +307,24 @@ const UsersPage = () => {
         setNewFullName('');
         setNewOrgId(null);
         setNewI3xWrite(false);
+        setNewSiteIds([]);
+        setNewAreaIds([]);
+    };
+
+    const scopeBadge = (user: User) => {
+        if (!user.org_id) return null;
+        const hasSiteScope = user.site_ids?.length > 0;
+        const hasAreaScope = user.area_ids?.length > 0;
+        if (!hasSiteScope && !hasAreaScope) return null;
+        const parts: string[] = [];
+        if (hasSiteScope) parts.push(`${user.site_ids.length} sito/i`);
+        if (hasAreaScope) parts.push(`${user.area_ids.length} area/e`);
+        return (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700 ml-1">
+                <MapPin size={10} />
+                {parts.join(' · ')}
+            </span>
+        );
     };
 
     if (isLoading) {
@@ -179,15 +346,13 @@ const UsersPage = () => {
                             <Plus size={16} /> Add User
                         </Button>
                     </DialogTrigger>
-                    <DialogContent>
+                    <DialogContent className="max-w-lg">
                         <DialogHeader>
                             <DialogTitle>Create User</DialogTitle>
                         </DialogHeader>
                         <div className="grid gap-4 py-4">
                             <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="username" className="text-right">
-                                    Username
-                                </Label>
+                                <Label htmlFor="username" className="text-right">Username</Label>
                                 <Input
                                     id="username"
                                     value={newUsername}
@@ -197,9 +362,7 @@ const UsersPage = () => {
                                 />
                             </div>
                             <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="password" className="text-right">
-                                    Password
-                                </Label>
+                                <Label htmlFor="password" className="text-right">Password</Label>
                                 <Input
                                     id="password"
                                     type="password"
@@ -210,9 +373,7 @@ const UsersPage = () => {
                                 />
                             </div>
                             <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="role" className="text-right">
-                                    Role
-                                </Label>
+                                <Label htmlFor="role" className="text-right">Role</Label>
                                 <Select value={newRole} onValueChange={(v) => setNewRole(v as 'admin' | 'user')}>
                                     <SelectTrigger className="col-span-3">
                                         <SelectValue placeholder="Select role" />
@@ -224,9 +385,7 @@ const UsersPage = () => {
                                 </Select>
                             </div>
                             <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="fullname" className="text-right">
-                                    Full Name
-                                </Label>
+                                <Label htmlFor="fullname" className="text-right">Full Name</Label>
                                 <Input
                                     id="fullname"
                                     value={newFullName}
@@ -236,10 +395,11 @@ const UsersPage = () => {
                                 />
                             </div>
                             <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="org" className="text-right">
-                                    Organization
-                                </Label>
-                                <Select value={newOrgId?.toString() || 'global'} onValueChange={(v) => setNewOrgId(v === 'global' ? null : parseInt(v))}>
+                                <Label htmlFor="org" className="text-right">Organization</Label>
+                                <Select
+                                    value={newOrgId?.toString() || 'global'}
+                                    onValueChange={(v) => setNewOrgId(v === 'global' ? null : parseInt(v))}
+                                >
                                     <SelectTrigger className="col-span-3">
                                         <SelectValue placeholder="Select organization" />
                                     </SelectTrigger>
@@ -253,6 +413,18 @@ const UsersPage = () => {
                                     </SelectContent>
                                 </Select>
                             </div>
+
+                            {/* Site / Area scope — only for org-scoped users */}
+                            {newOrgId && (
+                                <ScopeSelector
+                                    orgId={newOrgId}
+                                    selectedSiteIds={newSiteIds}
+                                    selectedAreaIds={newAreaIds}
+                                    onSiteIdsChange={setNewSiteIds}
+                                    onAreaIdsChange={setNewAreaIds}
+                                />
+                            )}
+
                             {newRole !== 'admin' && (
                                 <div className="grid grid-cols-4 items-center gap-4">
                                     <Label className="text-right flex items-center justify-end gap-1">
@@ -305,7 +477,7 @@ const UsersPage = () => {
                     <TableBody>
                         {users.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center">
+                                <TableCell colSpan={8} className="h-24 text-center">
                                     No users found.
                                 </TableCell>
                             </TableRow>
@@ -332,10 +504,13 @@ const UsersPage = () => {
                                     </TableCell>
                                     <TableCell>
                                         {user.org_id ? (
-                                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-700">
-                                                <Building2 size={12} />
-                                                {user.org_name || `Org ${user.org_id}`}
-                                            </span>
+                                            <div className="flex flex-wrap items-center gap-1">
+                                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-700">
+                                                    <Building2 size={12} />
+                                                    {user.org_name || `Org ${user.org_id}`}
+                                                </span>
+                                                {scopeBadge(user)}
+                                            </div>
                                         ) : (
                                             <span className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-600">
                                                 <Building2 size={12} />
@@ -389,15 +564,13 @@ const UsersPage = () => {
 
             {/* Edit Dialog */}
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-                <DialogContent>
+                <DialogContent className="max-w-lg">
                     <DialogHeader>
                         <DialogTitle>Edit User: {selectedUser?.username}</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-password" className="text-right">
-                                New Password
-                            </Label>
+                            <Label htmlFor="edit-password" className="text-right">New Password</Label>
                             <Input
                                 id="edit-password"
                                 type="password"
@@ -408,9 +581,7 @@ const UsersPage = () => {
                             />
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-role" className="text-right">
-                                Role
-                            </Label>
+                            <Label htmlFor="edit-role" className="text-right">Role</Label>
                             <Select value={editRole} onValueChange={(v) => setEditRole(v as 'admin' | 'user')}>
                                 <SelectTrigger className="col-span-3">
                                     <SelectValue placeholder="Select role" />
@@ -419,12 +590,10 @@ const UsersPage = () => {
                                     <SelectItem value="user">User (Read Only)</SelectItem>
                                     <SelectItem value="admin">Admin (Full Access)</SelectItem>
                                 </SelectContent>
-                            </Select>
+            </Select>
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-fullname" className="text-right">
-                                Full Name
-                            </Label>
+                            <Label htmlFor="edit-fullname" className="text-right">Full Name</Label>
                             <Input
                                 id="edit-fullname"
                                 value={editFullName}
@@ -433,10 +602,11 @@ const UsersPage = () => {
                             />
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-org" className="text-right">
-                                Organization
-                            </Label>
-                            <Select value={editOrgId?.toString() || 'global'} onValueChange={(v) => setEditOrgId(v === 'global' ? null : parseInt(v))}>
+                            <Label htmlFor="edit-org" className="text-right">Organization</Label>
+                            <Select
+                                value={editOrgId?.toString() || 'global'}
+                                onValueChange={(v) => setEditOrgId(v === 'global' ? null : parseInt(v))}
+                            >
                                 <SelectTrigger className="col-span-3">
                                     <SelectValue placeholder="Select organization" />
                                 </SelectTrigger>
@@ -450,6 +620,18 @@ const UsersPage = () => {
                                 </SelectContent>
                             </Select>
                         </div>
+
+                        {/* Site / Area scope */}
+                        {editOrgId && (
+                            <ScopeSelector
+                                orgId={editOrgId}
+                                selectedSiteIds={editSiteIds}
+                                selectedAreaIds={editAreaIds}
+                                onSiteIdsChange={setEditSiteIds}
+                                onAreaIdsChange={setEditAreaIds}
+                            />
+                        )}
+
                         {editRole !== 'admin' && (
                             <div className="grid grid-cols-4 items-center gap-4">
                                 <Label className="text-right flex items-center justify-end gap-1">
