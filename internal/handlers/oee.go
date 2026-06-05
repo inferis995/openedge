@@ -596,6 +596,7 @@ func (h *OEEHandler) loadEnabledProfiles() []OEEProfile {
 			&p.GatewayID, &p.RunTimeTagID, &p.ProducedTagID, &p.GoodTagID,
 			&p.TargetPiecesPerHour, &p.WindowMinutes, &p.TargetOEE,
 			&p.DisplayOrder, &p.Enabled,
+			&p.RespectShifts, &p.RespectMaintenance,
 		); err == nil {
 			out = append(out, p)
 		}
@@ -652,6 +653,7 @@ func (h *OEEHandler) ListProfiles(c *gin.Context) {
 			&p.GatewayID, &p.RunTimeTagID, &p.ProducedTagID, &p.GoodTagID,
 			&p.TargetPiecesPerHour, &p.WindowMinutes, &p.TargetOEE,
 			&p.DisplayOrder, &p.Enabled,
+			&p.RespectShifts, &p.RespectMaintenance,
 		); err == nil {
 			out = append(out, p)
 		}
