@@ -33,7 +33,7 @@ const TagNode: React.FC<TagNodeProps> = ({ tag, onSelect, isSelected, isFavorite
                 }}
                 className={cn(
                     'flex-shrink-0 ml-1 transition-opacity',
-                    isFavorite ? 'opacity-100' : 'opacity-20 group-hover:opacity-100'
+                    isFavorite ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
                 )}
                 title={isFavorite ? 'Rimuovi dai preferiti' : 'Aggiungi ai preferiti'}
             >
@@ -65,7 +65,7 @@ const GatewayNode: React.FC<GatewayNodeProps> = ({
     onToggleFavorite,
     searchQuery,
 }) => {
-    const [isOpen, setIsOpen] = useState(true); // Start expanded
+    const [isOpen, setIsOpen] = useState(false);
 
     const filteredTags = gateway.tags.filter(tag => {
         if (!searchQuery) return true;
@@ -128,7 +128,7 @@ const AreaNode: React.FC<AreaNodeProps> = ({
     onToggleFavorite,
     searchQuery,
 }) => {
-    const [isOpen, setIsOpen] = useState(true); // Start expanded
+    const [isOpen, setIsOpen] = useState(false);
 
     const hasMatchingTags = area.gateways.some(g =>
         g.tags.some(t => {
@@ -193,7 +193,7 @@ const SiteNode: React.FC<SiteNodeProps> = ({
     onToggleFavorite,
     searchQuery,
 }) => {
-    const [isOpen, setIsOpen] = useState(true); // Start expanded
+    const [isOpen, setIsOpen] = useState(false);
 
     const hasMatchingTags = site.areas.some(a =>
         a.gateways.some(g =>
@@ -260,7 +260,7 @@ export const OrganizationNode: React.FC<OrganizationNodeProps> = ({
     onToggleFavorite,
     searchQuery,
 }) => {
-    const [isOpen, setIsOpen] = useState(true);
+    const [isOpen, setIsOpen] = useState(false);
 
     const hasMatchingTags = org.sites.some(s =>
         s.areas.some(a =>
