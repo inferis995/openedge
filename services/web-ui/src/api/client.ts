@@ -21,7 +21,7 @@ const api = axios.create({
 // Endpoints that require organization context
 const ORG_REQUIRED_ENDPOINTS = [
     '/sites', '/areas', '/gateways', '/tags', '/history', '/audit',
-    '/config/import', '/config/export'
+    '/config/import', '/config/export', '/oee'
 ];
 
 // Request interceptor to add X-Organization-ID header
