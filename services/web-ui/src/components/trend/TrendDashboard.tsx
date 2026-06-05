@@ -312,7 +312,7 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
     }, [layout, charts.length]);
 
     // Stats panel toggle
-    const [showStats, setShowStats] = useState(true);
+    const [showStats, setShowStats] = useState(false);
 
     // Get all unique tags with their colors from all charts
     const allTagsWithColors = useMemo(() => {
