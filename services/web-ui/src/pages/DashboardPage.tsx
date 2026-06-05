@@ -568,7 +568,7 @@ const OEEProfilesView = ({
             {rollup && (
                 <OEECard
                     o={rollup}
-                    title="OEE Fabbrica"
+                    title="OEE Overall"
                     subtitle={`Media di ${profiles.length} ${profiles.length === 1 ? 'profilo' : 'profili'}`}
                 />
             )}

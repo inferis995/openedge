@@ -266,6 +266,17 @@ export const oeeApi = {
     deleteProfile: async (id: number): Promise<void> => {
         await api.delete(`/oee/profiles/${id}`);
     },
+    exportCSV: async (type: 'history' | 'by-shift' | 'losses' | 'profiles', params: Record<string, string>): Promise<void> => {
+        const qs = new URLSearchParams(params).toString();
+        const url = `/oee/export/${type}.csv${qs ? '?' + qs : ''}`;
+        const r = await api.get(url, { responseType: 'blob' });
+        const blob = new Blob([r.data], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = window.URL.createObjectURL(blob);
+        link.download = `oee_${type}_${new Date().toISOString().split('T')[0]}.csv`;
+        link.click();
+        window.URL.revokeObjectURL(link.href);
+    },
     profileHistory: async (id: number): Promise<OEEHistoryPoint[]> => {
         const r = await api.get(`/oee/profiles/${id}/history`);
         return r.data;

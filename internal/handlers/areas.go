@@ -131,8 +131,30 @@ func (h *AreasHandler) List(c *gin.Context) {
 
 	siteIDStr := c.Query("site_id")
 	if siteIDStr == "" {
-		// If no site_id provided, return empty list (no error)
-		c.JSON(http.StatusOK, []models.Area{})
+		rows, err := h.db.Query(`
+			SELECT a.id, a.site_id, a.name, a.created_at
+			FROM areas a
+			JOIN sites s ON s.id = a.site_id
+			WHERE s.org_id = $1
+			ORDER BY s.name, a.name`, orgID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query areas"})
+			return
+		}
+		defer rows.Close()
+		var areas []models.Area
+		for rows.Next() {
+			var area models.Area
+			if err := rows.Scan(&area.ID, &area.SiteID, &area.Name, &area.CreatedAt); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan area"})
+				return
+			}
+			areas = append(areas, area)
+		}
+		if areas == nil {
+			areas = []models.Area{}
+		}
+		c.JSON(http.StatusOK, areas)
 		return
 	}
 

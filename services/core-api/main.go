@@ -564,6 +564,13 @@ func main() {
 
 			// Gerarchia Site → Area → Profile con rollup multi-livello.
 			oeeGrp.GET("/hierarchy", oeeHandler.Hierarchy)
+
+			// Export CSV — report professionali scaricabili.
+			exportHandler := handlers.NewOEEExportHandler(database, oeeHandler, oeeHistoryHandler, lossesHandler)
+			oeeGrp.GET("/export/history.csv", exportHandler.ExportHistoryCSV)
+			oeeGrp.GET("/export/by-shift.csv", exportHandler.ExportByShiftCSV)
+			oeeGrp.GET("/export/losses.csv", exportHandler.ExportLossTreeCSV)
+			oeeGrp.GET("/export/profiles.csv", exportHandler.ExportProfilesCSV)
 		}
 
 		// Cron worker OEE: ogni ora salva snapshot per profilo; a
