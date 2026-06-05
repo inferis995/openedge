@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Gauge, Plus, Pencil, Trash2, Sparkles, CheckCircle2, AlertCircle,
-    Loader2, X, Activity, Power, PowerOff, Monitor,
+    Loader2, X, Activity, Power, PowerOff, Monitor, Download,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -190,12 +190,11 @@ const TagVerdict = ({
 // Editor dialog — create/edit di un profilo.
 // ────────────────────────────────────────────────────────────────────────
 const ProfileEditor = ({
-    open, onClose, initial, allTags, areas, onSaved,
+    open, onClose, initial, areas, onSaved,
 }: {
     open: boolean;
     onClose: () => void;
     initial: OEEProfile | null;
-    allTags: Tag[];
     areas: { id: number; name: string }[];
     onSaved: () => void;
 }) => {
@@ -212,6 +211,13 @@ const ProfileEditor = ({
     const [respectShifts, setRespectShifts]           = useState(true);
     const [respectMaintenance, setRespectMaintenance] = useState(true);
     const [saving, setSaving]             = useState(false);
+
+    const { data: filteredTags } = useQuery({
+        queryKey: ['tags-area', areaId],
+        queryFn: () => tagsApi.getAll(null, areaId),
+        enabled: !!areaId,
+    });
+    const allTags = filteredTags ?? [];
 
     useEffect(() => {
         if (!open) return;
@@ -509,11 +515,6 @@ const OEEProfilesPage = () => {
         queryFn: oeeApi.listProfiles,
     });
 
-    const { data: tags } = useQuery({
-        queryKey: ['all-tags'],
-        queryFn: () => tagsApi.getAllTags(),
-    });
-
     const { data: areas } = useQuery({
         queryKey: ['areas-all'],
         queryFn: () => areasApi.getAll(),
@@ -596,11 +597,21 @@ const OEEProfilesPage = () => {
                 <TabsContent value="profiles" className="space-y-4 mt-4">
                     <Card>
                         <CardHeader className="pb-3">
-                            <CardTitle className="text-base">Profili configurati</CardTitle>
-                            <CardDescription className="text-xs">
-                                {profiles?.length ?? 0} profili.
-                                {(profiles?.length ?? 0) === 0 && ' Senza profili la dashboard usa il calcolo OEE legacy (fallback euristico).'}
-                            </CardDescription>
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <CardTitle className="text-base">Profili configurati</CardTitle>
+                                    <CardDescription className="text-xs">
+                                        {profiles?.length ?? 0} profili.
+                                        {(profiles?.length ?? 0) === 0 && ' Senza profili la dashboard usa il calcolo OEE legacy (fallback euristico).'}
+                                    </CardDescription>
+                                </div>
+                                {(profiles?.length ?? 0) > 0 && (
+                                    <Button variant="outline" size="sm"
+                                        onClick={() => oeeApi.exportCSV('profiles', {}).catch(() => toast.error('Export fallito'))}>
+                                        <Download size={14} className="mr-1" /> CSV
+                                    </Button>
+                                )}
+                            </div>
                         </CardHeader>
                         <CardContent>
                             {isLoading ? (
@@ -655,7 +666,6 @@ const OEEProfilesPage = () => {
                 open={editorOpen}
                 onClose={() => setEditorOpen(false)}
                 initial={editing}
-                allTags={tags ?? []}
                 areas={areas ?? []}
                 onSaved={onSaved}
             />
@@ -682,7 +692,7 @@ const HistoryTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                     <SelectTrigger className="w-72"><SelectValue /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="rollup">
-                            <span className="font-medium">Rollup Fabbrica</span>
+                            <span className="font-medium">OEE Overall</span>
                             <span className="text-muted-foreground ml-2 text-xs">(media tra profili)</span>
                         </SelectItem>
                         {profiles.map((p) => (
@@ -696,6 +706,18 @@ const HistoryTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                 <p className="text-[11px] text-muted-foreground">
                     Snapshot orari salvati dal cron worker. Primi dati disponibili dopo 1 ora di runtime.
                 </p>
+                <Button variant="outline" size="sm" className="ml-auto"
+                    onClick={() => {
+                        const now = new Date();
+                        const from = new Date(now); from.setDate(from.getDate() - 30);
+                        oeeApi.exportCSV('history', {
+                            ...(selected ? { profile_id: String(selected) } : {}),
+                            from: from.toISOString().split('T')[0],
+                            to: now.toISOString().split('T')[0],
+                        }).catch(() => toast.error('Export fallito'));
+                    }}>
+                    <Download size={14} className="mr-1" /> Esporta CSV
+                </Button>
             </div>
 
             <OEEHistoryChart profileId={selected} target={target} />
@@ -717,7 +739,7 @@ const ByShiftTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                     <SelectTrigger className="w-72"><SelectValue /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="rollup">
-                            <span className="font-medium">Rollup Fabbrica</span>
+                            <span className="font-medium">OEE Overall</span>
                         </SelectItem>
                         {profiles.map((p) => (
                             <SelectItem key={p.id} value={String(p.id)}>
@@ -731,6 +753,18 @@ const ByShiftTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                     Confronto OEE tra turni — la KPI più richiesta dalla direzione.
                     I dati appaiono dopo che il cron ha popolato almeno un'ora dentro un turno attivo.
                 </p>
+                <Button variant="outline" size="sm" className="ml-auto"
+                    onClick={() => {
+                        const now = new Date();
+                        const from = new Date(now); from.setDate(from.getDate() - 30);
+                        oeeApi.exportCSV('by-shift', {
+                            ...(selected ? { profile_id: String(selected) } : {}),
+                            from: from.toISOString().split('T')[0],
+                            to: now.toISOString().split('T')[0],
+                        }).catch(() => toast.error('Export fallito'));
+                    }}>
+                    <Download size={14} className="mr-1" /> Esporta CSV
+                </Button>
             </div>
 
             <OEEShiftMatrix profileId={selected} />
@@ -775,6 +809,20 @@ const LossesTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                 <p className="text-[11px] text-muted-foreground">
                     Auto-popolato dal cron: allarmi critical → breakdown, manutenzioni "setup"/"cambio" → setup.
                 </p>
+                {selectedProfile && (
+                    <Button variant="outline" size="sm" className="ml-auto"
+                        onClick={() => {
+                            const now = new Date();
+                            const from = new Date(now); from.setDate(from.getDate() - 30);
+                            oeeApi.exportCSV('losses', {
+                                profile_id: String(selectedProfile.id),
+                                from: from.toISOString().split('T')[0],
+                                to: now.toISOString().split('T')[0],
+                            }).catch(() => toast.error('Export fallito'));
+                        }}>
+                        <Download size={14} className="mr-1" /> Esporta CSV
+                    </Button>
+                )}
             </div>
 
             {selectedProfile && (

@@ -141,7 +141,7 @@ const RuleRow = ({
 }: { r: OEEAlertRule; profiles: OEEProfile[]; onEdit: () => void; onDelete: () => void; onToggle: () => void }) => {
     const profileLabel = r.profile_id
         ? profiles.find((p) => p.id === r.profile_id)?.name ?? `Profilo ${r.profile_id}`
-        : 'Fabbrica (rollup)';
+        : 'Overall (rollup)';
     const violating = r.last_state === 'violating' && r.enabled;
     return (
         <div className={`flex items-center gap-3 p-3 border rounded-md hover:bg-muted/30 transition-colors ${!r.enabled ? 'opacity-50' : ''}`}>
@@ -288,7 +288,7 @@ const AlertRuleEditor = ({
                         >
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="rollup">Fabbrica (rollup di tutti)</SelectItem>
+                                <SelectItem value="rollup">OEE Overall (rollup di tutti)</SelectItem>
                                 {profiles.map((p) => (
                                     <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
                                 ))}

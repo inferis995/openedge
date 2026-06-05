@@ -3,8 +3,10 @@ import { Tag, CreateTagDto, WriteTagCommand, WriteTagResult } from '@/types';
 import { TagWithHierarchy, TagHierarchyResponse } from '@/types/trend';
 
 export const tagsApi = {
-    getAll: async (gatewayId?: number | null): Promise<Tag[]> => {
-        const params = gatewayId !== undefined && gatewayId !== null ? { gateway_id: gatewayId } : {};
+    getAll: async (gatewayId?: number | null, areaId?: number | null): Promise<Tag[]> => {
+        const params: Record<string, string | number> = {};
+        if (gatewayId !== undefined && gatewayId !== null) params.gateway_id = gatewayId;
+        else if (areaId !== undefined && areaId !== null) params.area_id = areaId;
         const response = await api.get('/tags', { params });
         return response.data;
     },

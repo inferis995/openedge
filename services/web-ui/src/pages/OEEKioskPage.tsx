@@ -115,7 +115,7 @@ const OEEKioskPage = () => {
                 <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 min-h-0">
                     {/* Rollup gigante a sinistra */}
                     {rollup && (
-                        <KioskRollup snapshot={rollup} label={overview.mode === 'profiles' ? 'FABBRICA' : 'OEE'} night={night} />
+                        <KioskRollup snapshot={rollup} label={overview.mode === 'profiles' ? 'OVERALL' : 'OEE'} night={night} />
                     )}
 
                     {/* Profili a rotazione a destra */}

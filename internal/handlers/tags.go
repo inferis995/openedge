@@ -190,6 +190,7 @@ func (h *TagsHandler) List(c *gin.Context) {
 	isGlobalAdmin := middleware.IsGlobalAdmin(c)
 
 	gatewayIDStr := c.Query("gateway_id")
+	areaIDStr := c.Query("area_id")
 
 	var rows *sql.Rows
 	var err error
@@ -241,6 +242,21 @@ func (h *TagsHandler) List(c *gin.Context) {
 		rows, err = h.db.Query(
 			"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path, created_at FROM tags WHERE gateway_id = $1 ORDER BY sort_order ASC, id ASC",
 			gatewayID,
+		)
+	} else if areaIDStr != "" {
+		// Case 2: Filter by Area — tags from all gateways in the area
+		areaID, err2 := strconv.Atoi(areaIDStr)
+		if err2 != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid area_id parameter"})
+			return
+		}
+		rows, err = h.db.Query(
+			`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.json_path, t.created_at
+			 FROM tags t
+			 JOIN gateways g ON t.gateway_id = g.id
+			 WHERE g.area_id = $1
+			 ORDER BY t.sort_order ASC, t.id ASC`,
+			areaID,
 		)
 	} else {
 		// Case 2: List All Tags for Organization
