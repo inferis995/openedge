@@ -1,0 +1,39 @@
+pre-commit:
+  parallel: true
+  commands:
+    go-vet:
+      glob: "**/*.go"
+      run: go vet ./...
+      fail_text: "go vet found issues — fix before committing"
+
+    go-fmt:
+      glob: "**/*.go"
+      run: |
+        UNFORMATTED=$(gofmt -l .)
+        if [ -n "$UNFORMATTED" ]; then
+          echo "Unformatted Go files:"
+          echo "$UNFORMATTED"
+          echo "Run: gofmt -w ."
+          exit 1
+        fi
+      fail_text: "Go files not formatted — run: gofmt -w ."
+
+    frontend-types:
+      glob: "services/web-ui/src/**/*.{ts,tsx}"
+      run: cd services/web-ui && npx tsc --noEmit
+      fail_text: "TypeScript errors found — fix before committing"
+
+    frontend-lint:
+      glob: "services/web-ui/src/**/*.{ts,tsx}"
+      run: cd services/web-ui && npm run lint
+      fail_text: "ESLint errors found — fix before committing"
+
+pre-push:
+  commands:
+    go-tests:
+      run: JWT_SECRET=local-test-secret-key-minimum-32-chars go test ./internal/...
+      fail_text: "Go tests failed — fix before pushing"
+
+    frontend-tests:
+      run: cd services/web-ui && npm run test -- --run
+      fail_text: "Frontend tests failed — fix before pushing"

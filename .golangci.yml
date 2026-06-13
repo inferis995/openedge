@@ -1,0 +1,67 @@
+run:
+  timeout: 5m
+  go: "1.22"
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck        # unchecked errors
+    - govet           # go vet checks
+    - staticcheck     # SA* checks (unused vars, unreachable code, etc.)
+    - ineffassign     # assigned but never used
+    - unused          # unused functions/types
+    - gosimple        # simplification suggestions
+    - gocritic        # opinionated Go style checks
+    - gocyclo         # cyclomatic complexity
+    - dupl            # code duplication (warn only)
+    - misspell        # typos in comments/strings
+    - noctx           # http requests without context
+    - bodyclose       # http response body not closed
+    - sqlcloserows    # sql.Rows not closed
+    - nilerr          # returning nil err with nil return value
+    - godot           # comments should end with a period
+
+linters-settings:
+  gocyclo:
+    min-complexity: 20
+
+  dupl:
+    threshold: 120
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - performance
+    disabled-checks:
+      - commentedOutCode
+      - sloppyReassign
+
+  govet:
+    enable:
+      - shadow
+
+  misspell:
+    locale: US
+
+issues:
+  exclude-rules:
+    # Test files: allow more lenient rules
+    - path: "_test\\.go"
+      linters:
+        - dupl
+        - errcheck
+        - bodyclose
+
+    # Generated files
+    - path: "docs/"
+      linters:
+        - godot
+
+    # Migration files
+    - path: "migrations/"
+      linters:
+        - all
+
+  # Max issues per linter
+  max-issues-per-linter: 50
+  max-same-issues: 10

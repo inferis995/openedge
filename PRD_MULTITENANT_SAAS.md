@@ -1,575 +1,664 @@
-# PRD — OpenEdge Multi-Tenant SaaS
-**Versione:** 1.0  
-**Data:** 2026-06-05  
-**Scope:** Trasformazione da installazione single-tenant on-premises a piattaforma SaaS multi-tenant
+# PRD — OpenEdge: da On-Premises a Piattaforma IIoT Enterprise
+**Versione:** 2.0  
+**Data:** 2026-06-13  
+**Branch:** `claude/ciao-Cvmm2`
 
 ---
 
-## Contesto
+## Contesto e Visione
 
-OpenEdge è oggi un'applicazione deployata localmente: un'org, un server, un broker MQTT, tutto sullo stesso host. L'obiettivo è renderla una piattaforma SaaS dove:
-- La UI e il backend risiedono su un unico dominio centrale
-- Ogni cliente (org) ha il proprio Edge Manager installato in fabbrica
-- I dati confluiscono su un unico broker MQTT centrale, isolati per org
-- Ogni utente vede e gestisce solo la propria org
-- La configurazione dei gateway avviene dalla UI centrale e si propaga all'edge automaticamente
+OpenEdge è oggi un sistema IIoT on-premises: un'istanza per cliente, deploy manuale, nessuna CI/CD, 6 soli test Go su ~33.000 righe di codice. L'obiettivo è trasformarlo in una **piattaforma SaaS multi-tenant enterprise** comparabile a Siemens Industrial Edge, AWS IoT Greengrass, Azure IoT Hub — con:
+- Codice pulito e testato (lint + test + CI/CD)
+- Isolamento completo tra tenant (org-level)
+- Edge manager distribuibile on-premises dai clienti
+- Funzionalità enterprise: SSO, MFA, observability, digital twin
+- Infrastruttura container production-grade (multi-arch, Kubernetes)
+- Ecosistema aperto: webhook, connettori cloud, SDK
+
+**Stato attuale rilevante:**
+- ✅ Gerarchia dati org→site→area→gateway→tag già multi-tenant
+- ✅ API già isolata per org_id (middleware/organization.go)
+- ✅ JWT con org_id, ruoli admin/user
+- ✅ `slog` con JSON format (pronto per Loki)
+- ✅ OpenTelemetry in go.mod (non attivato)
+- ✅ Interfacce mockabili: `MQTTClient`, `RedisClient`, `Channel`
+- ✅ Swagger/OpenAPI spec parziale in docs/
+- ❌ MQTT anonimo (nessun ACL), 0 test frontend, 0 CI/CD, no SSO, no Helm
 
 ---
 
-## Goal 1 — MQTT Authentication & ACL per Org
+## Goal 0 — Code Quality Foundation
+> *Prima di ogni nuova feature: il codice deve essere verificabile e manutenibile*
 
-**Obiettivo:** Il broker MQTT centrale non accetta più connessioni anonime dall'esterno. Ogni org ha credenziali MQTT uniche. Un org non può leggere o scrivere topic di un'altra org.
+### Deliverable
+- `.golangci.yml` — 13 linter attivi (errcheck, staticcheck, gocritic, gosec, dupl, gocyclo…)
+- `services/web-ui/eslint.config.js` — ESLint 9 flat config (TypeScript + React Hooks)
+- `services/web-ui/.prettierrc` — Prettier per formattazione uniforme
+- `services/web-ui/vitest.config.ts` — Vitest + jsdom + coverage thresholds (60% lines)
+- `.github/workflows/ci.yml` — Pipeline: lint → test → build Docker (su ogni PR)
+- `lefthook.yml` — Pre-commit: go vet + gofmt + tsc; pre-push: go test + vitest
 
-### User Stories
-- Come platform admin, voglio che quando creo una nuova org vengano generate automaticamente credenziali MQTT per quell'org
-- Come sistema, voglio che l'edge manager di Acme Corp non possa mai leggere i dati di Beta Srl
-- Come platform admin, voglio poter revocare le credenziali di un'org senza impattare le altre
+### Test aggiunti
+| File | Cosa testa |
+|------|-----------|
+| `internal/middleware/auth_test.go` | RequireAuth: token mancante, invalido, scaduto, valido |
+| `internal/middleware/organization_test.go` | OrganizationContext: global admin, org user, cross-org forbidden |
+| `internal/auth/auth_test.go` | SecretKey init, token sign + verify |
+| `services/web-ui/src/lib/utils.test.ts` | cn(): merge classi, conflitti Tailwind, valori falsy |
 
-### Task tecnici
-
-**1.1 Mosquitto — abilitare password file + ACL**
-- Aggiungere a `mosquitto/config/mosquitto.conf`:
-  ```
-  # Listener interno Docker (rimane anonymous)
-  listener 1883
-  allow_anonymous true
-
-  # Listener esterno (edge manager dei clienti)
-  listener 8883
-  allow_anonymous false
-  password_file /mosquitto/config/passwords
-  acl_file /mosquitto/config/acl
-  ```
-- Creare file `mosquitto/config/passwords` (inizialmente vuoto, gestito via `mosquitto_passwd`)
-- Creare file `mosquitto/config/acl` con template per org
-
-**1.2 Struttura ACL file**
+### Makefile targets aggiunti
 ```
-# Org: acme-corp (ID: 5)
+make lint            # golangci-lint + eslint + tsc
+make test            # go test -race + vitest run
+make test-coverage   # coverage report Go + frontend
+make swagger         # rigenera docs/openapi.yaml
+make hooks-install   # installa lefthook
+```
+
+### Target coverage
+- Go `internal/`: ≥ 70% su handlers/, middleware/, auth/
+- Frontend: ≥ 60% su lib/, hooks/, stores/
+
+### AC
+- [ ] `make lint` → 0 errori su CI
+- [ ] `make test` → tutti verdi localmente e su CI
+- [ ] PR senza test per nuova feature → CI fallisce (soglia coverage)
+- [ ] `gofmt -l .` → 0 file non formattati
+
+---
+
+## Goal 1 — MQTT Authentication + ACL + TLS
+> *Nessun tenant può leggere i dati di un altro tenant*
+
+### Problema attuale
+Il broker Mosquitto accetta connessioni anonime su porta 18830. Qualsiasi client può iscriversi a `data/#` e leggere i dati di tutti gli org.
+
+### Deliverable
+**Mosquitto:**
+- Listener interno 1883: rimane anonymous (Docker network trusted)
+- Listener esterno 8883: `allow_anonymous false`, `password_file`, `acl_file`
+
+**ACL template per org:**
+```
 user acme-corp
 topic readwrite data/acme-corp/#
 topic readwrite spBv1.0/acme-corp-#
-topic readwrite sys/write/#
-topic read sys/health/#
-
-# Org: beta-srl (ID: 9)
-user beta-srl
-topic readwrite data/beta-srl/#
-topic readwrite spBv1.0/beta-srl-#
-topic readwrite sys/write/#
-topic read sys/health/#
+topic write sys/health/#
+topic read sys/write/#
+topic write sys/write_ack/#
 ```
 
-**1.3 API — generazione credenziali al create org**
-- In `internal/handlers/organizations.go`, funzione `Create`:
-  - Generare password random (32 char, alphanumerico)
-  - Eseguire `mosquitto_passwd -b /mosquitto/config/passwords {org_slug} {password}`
-  - Aggiungere entry ACL per l'org
-  - Inviare `SIGHUP` al processo mosquitto per reload (o `sys/command/settings-reload`)
-  - Salvare le credenziali cifrate in tabella `org_mqtt_credentials(org_id, username, password_hash, created_at)`
+**API — auto-generazione credenziali:**
+- `POST /api/organizations` → genera password MQTT random (32 chars) → `mosquitto_passwd -b` + append ACL → SIGHUP per reload
+- Tabella: `org_mqtt_credentials(org_id, username, password_hash, created_at, revoked_at)`
+- `POST /api/organizations/{id}/rotate-mqtt-credentials` → rigenera credenziali
+- File: `internal/handlers/organizations.go` (aggiungere post-create hook)
 
-**1.4 API — revoca credenziali**
-- `DELETE /api/organizations/{id}/mqtt-credentials` (solo global admin)
-- Rigenera una nuova password, aggiorna Mosquitto, aggiorna DB
+**TLS esterno:**
+- nginx stream proxy → porta 8883 con cert Let's Encrypt (riusa quello del dominio)
+- WSS per browser: `wss://yourdomain.com/mqtt` (nginx location block)
+- `docker-compose.yml`: esporre 8883 verso internet
 
-**1.5 docker-compose.yml**
-- Esporre porta 8883 verso esterno (oggi solo 18830 interno)
-- Montare volume per `passwords` e `acl` file
-
-### Acceptance Criteria
-- [ ] Edge manager con credenziali Acme Corp riesce a connettersi su porta 8883
-- [ ] Edge manager con credenziali Acme Corp riceve errore se tenta `SUBSCRIBE data/beta-srl/#`
-- [ ] Connessioni interne Docker continuano a funzionare su 1883 anonymous
-- [ ] Creare una nuova org via API genera automaticamente le credenziali MQTT
-- [ ] `mosquitto_passwd` e `acl` file aggiornati senza restart del container (SIGHUP)
-
-### Dipendenze
-- Nessuna (goal autonomo)
+### AC
+- [ ] Edge manager con cred org-A → non può SUBSCRIBE a `data/org-b/#` (CONNACK refused)
+- [ ] Connessioni Docker interne su 1883 non toccate
+- [ ] Creazione org → credenziali MQTT pronte entro 1s
+- [ ] TLS: `openssl s_client -connect yourdomain.com:8883` → certificato valido
 
 ---
 
-## Goal 2 — Endpoint MQTT Esterno TLS
+## Goal 2 — Config Pull API (Edge Manager → API)
+> *Edge manager legge configurazione dalla API centrale, non da DB diretto*
 
-**Obiettivo:** I dati che viaggiano tra la fabbrica del cliente e il dominio centrale sono cifrati. La porta esterna MQTT usa TLS (8883) e WebSocket TLS (wss:// su porta 443 o 9443).
+### Problema attuale
+`driver-manager` fa `SELECT * FROM gateways` direttamente su PostgreSQL. In SaaS il DB non è accessibile dall'edge del cliente.
 
-### User Stories
-- Come cliente, voglio che i dati della mia fabbrica viaggino cifrati verso il cloud
-- Come platform admin, voglio un certificato valido (Let's Encrypt) sul broker MQTT
-- Come sviluppatore, voglio che il browser del cliente possa connettersi via WebSocket sicuro
-
-### Task tecnici
-
-**2.1 Certificato TLS per Mosquitto**
-- Configurare Mosquitto per usare certificato Let's Encrypt già usato dal dominio
-- Oppure: terminare TLS a livello nginx/reverse proxy e fare proxy verso Mosquitto interno
-  ```nginx
-  # Soluzione preferita: nginx stream proxy
-  stream {
-    server {
-      listen 8883;
-      proxy_pass mosquitto:1883;
-      ssl_certificate /etc/letsencrypt/...;
-      ssl_certificate_key /etc/letsencrypt/...;
-    }
-  }
-  ```
-
-**2.2 WebSocket TLS per browser**
-- Aggiungere listener WSS in Mosquitto (porta 9001 con TLS) oppure via nginx
-- Il client browser nel TrendPage già usa `wss://` se `window.location.protocol === 'https:'`
-  - File: `services/web-ui/src/pages/TrendPage.tsx` (già gestito, nessun cambio)
-
-**2.3 Variabili d'ambiente**
-- Aggiungere a `.env.example`:
-  ```
-  MQTT_EXTERNAL_HOST=mqtt.yourdomain.com
-  MQTT_EXTERNAL_PORT=8883
-  MQTT_TLS=true
-  ```
-
-**2.4 Documentazione connessione**
-- Stringa di connessione da includere nell'installer edge manager:
-  ```
-  mqtts://mqtt.yourdomain.com:8883
-  ```
-
-### Acceptance Criteria
-- [ ] `mosquitto_pub -h mqtt.yourdomain.com -p 8883 --cafile ca.crt -u acme-corp -P password -t test/ping -m hello` funziona
-- [ ] Connessione in chiaro su 8883 senza TLS viene rifiutata
-- [ ] Il browser si connette via `wss://yourdomain.com/mqtt` senza errori certificato
-- [ ] Connessioni interne Docker non usano TLS (nessun impatto sulle performance)
-
-### Dipendenze
-- Goal 1 (credenziali MQTT)
-
----
-
-## Goal 3 — Config Pull API per Edge Manager
-
-**Obiettivo:** L'edge manager (driver-manager) non ha più accesso diretto al database. Ottiene la lista dei gateway dalla API centrale usando una API key dell'org. Questo permette all'edge manager di essere installato in fabbrica senza accesso al DB.
-
-### User Stories
-- Come edge manager in fabbrica, voglio poter scaricare la lista dei miei gateway dalla API centrale ogni 10 secondi
-- Come platform admin, voglio generare/revocare la API key di un'org senza impattare il DB
-- Come cliente admin, voglio vedere la mia API key nella UI per configurare l'edge manager
-
-### Task tecnici
-
-**3.1 Tabella org_api_keys**
+### Deliverable
+**Nuova tabella:**
 ```sql
 CREATE TABLE org_api_keys (
     id SERIAL PRIMARY KEY,
     org_id INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    key_hash VARCHAR(64) NOT NULL UNIQUE,  -- SHA-256 della key
-    key_prefix VARCHAR(8) NOT NULL,         -- Es. "oe_5f2a" per identificazione
+    key_hash CHAR(64) NOT NULL UNIQUE,  -- SHA-256
+    key_prefix VARCHAR(10) NOT NULL,     -- "oe_5f2a" per identificazione visiva
     name VARCHAR(100),
-    created_at TIMESTAMP DEFAULT NOW(),
     last_used_at TIMESTAMP,
-    revoked_at TIMESTAMP
+    revoked_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW()
 );
 ```
 
-**3.2 Nuovo endpoint: GET /api/edge/config**
-- Autenticazione: header `X-API-Key: oe_5f2a_<random>`
-- Risolve org_id dalla API key
-- Restituisce:
-```json
-{
-  "org_id": 5,
-  "org_name": "acme-corp",
-  "mqtt": {
-    "host": "mqtt.yourdomain.com",
-    "port": 8883,
-    "tls": true,
-    "username": "acme-corp",
-    "password": "<plain, mostrata solo alla generazione>"
-  },
-  "gateways": [
-    {
-      "id": 42,
-      "name": "PLC Linea 1",
-      "driver_type": "S7",
-      "connection_config": { "host": "192.168.1.10", "rack": 0, "slot": 1 },
-      "scan_rate_ms": 1000,
-      "enabled": true,
-      "tags": [
-        { "id": 101, "code": "DB1.DBD0", "alias": "temperatura", "data_type": "REAL", "historize": true }
-      ]
-    }
-  ]
-}
+**Nuovo endpoint:**
 ```
+GET /api/edge/config
+Header: X-API-Key: oe_5f2a_<random64>
+Response: { org_id, org_name, mqtt: {host,port,tls,username,password}, gateways: [...+tags] }
+```
+- `password` MQTT in chiaro solo qui (mai più visibile dopo)
+- Middleware: `internal/middleware/api_key.go`
 - File: `internal/handlers/edge_config.go` (nuovo)
 
-**3.3 Middleware API Key**
-- `internal/middleware/api_key.go` — valida `X-API-Key`, imposta org_id in context
-- Simile al middleware JWT esistente in `internal/middleware/auth.go`
+**driver-manager:**
+- Se env `EDGE_API_KEY` presente → chiama API ogni 10s invece del DB
+- Se assente → DB locale (retrocompatibile, single-tenant funziona ancora)
+- Reload immediato via MQTT `sys/config/{org_id}/reload`
 
-**3.4 Modifica driver-manager**
-- In `services/driver-manager/main.go`, funzione `syncGateways()`:
-  - Se `EDGE_API_KEY` env var è presente: usa API pull invece di DB
-  - `GET {CENTRAL_API_URL}/api/edge/config` con header `X-API-Key`
-  - Se non presente: usa DB locale (backward compatible, single-tenant funziona ancora)
-- Aggiungere env vars: `CENTRAL_API_URL`, `EDGE_API_KEY`
-
-**3.5 API key management nella UI**
-- Nuova sezione in Settings (solo org admin): mostra API key, bottone "Rigenera"
-- La password MQTT in chiaro è mostrata **solo** al momento della generazione (poi solo hash)
-
-### Acceptance Criteria
-- [ ] `curl -H "X-API-Key: oe_xxx_yyy" https://yourdomain.com/api/edge/config` restituisce gateway corretti
-- [ ] Key di org A non può leggere config di org B
-- [ ] Driver-manager configurato con `EDGE_API_KEY` si avvia e sincronizza gateway ogni 10s
-- [ ] Driver-manager senza `EDGE_API_KEY` continua a funzionare come prima (single-tenant)
-- [ ] Revocare una API key entro 10 secondi ferma la sincronizzazione dell'edge manager
-
-### Dipendenze
-- Goal 1 (credenziali MQTT incluse nella config response)
+### AC
+- [ ] `curl -H "X-API-Key: oe_xxx" .../api/edge/config` → JSON corretto
+- [ ] API key org-A non può leggere config org-B → 403
+- [ ] driver-manager con `EDGE_API_KEY` avvia driver correttamente
+- [ ] driver-manager senza `EDGE_API_KEY` funziona come prima
 
 ---
 
-## Goal 4 — Edge Manager Packaging
+## Goal 3 — Edge Manager Packaging
+> *Il cliente scarica un installer dalla UI e in 5 minuti è operativo*
 
-**Obiettivo:** Il cliente scarica un pacchetto pre-configurato dalla UI, lo installa in fabbrica e l'edge manager si avvia senza configurazione manuale.
-
-### User Stories
-- Come cliente, voglio scaricare un installer con un click dalla UI senza dover configurare nulla manualmente
-- Come cliente IT, voglio installare l'edge manager come servizio Windows o Linux
-- Come edge manager, voglio auto-aggiornarmi quando esce una nuova versione
-
-### Task tecnici
-
-**4.1 Struttura pacchetto edge manager**
+### Deliverable
+**Endpoint installer:**
 ```
-openedge-edge-{org_slug}-{version}.zip
-├── docker-compose.yml          # Solo driver-manager + drivers
-├── .env                        # Pre-compilato con API key, MQTT creds, endpoint
-├── install.sh                  # Linux: systemd service
-├── install.ps1                 # Windows: Windows Service via NSSM
-├── README.txt
-└── update.sh                   # Pull nuove immagini Docker
+GET /api/organizations/{id}/edge-installer
+→ ZIP pre-configurato per quell'org
 ```
 
-**4.2 File .env pre-compilato (generato dal server)**
-```env
-# Generato automaticamente per: Acme Corp
-# Data: 2026-06-05
-
-CENTRAL_API_URL=https://yourdomain.com
-EDGE_API_KEY=oe_5f2a_xxxxxxxxxxxxxxxxxxxx
-
-MQTT_HOST=mqtt.yourdomain.com
-MQTT_PORT=8883
-MQTT_TLS=true
-MQTT_USERNAME=acme-corp
-MQTT_PASSWORD=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-ORG_ID=5
-ORG_SLUG=acme-corp
-
-# Docker image registry
-DRIVER_REGISTRY=registry.yourdomain.com
-DRIVER_VERSION=1.2.0
+**Contenuto ZIP:**
+```
+openedge-edge-acme-corp-v1.2.zip
+├── docker-compose.yml      # solo driver-manager + driver images
+├── .env                    # pre-compilato: API key, MQTT creds, endpoint
+├── install.sh              # Linux: systemd service (adatta systemd/install.sh)
+├── install.ps1             # Windows: NSSM service
+├── update.sh               # docker compose pull && docker compose up -d
+└── README.txt
 ```
 
-**4.3 docker-compose.yml (solo edge)**
-```yaml
-services:
-  driver-manager:
-    image: ${DRIVER_REGISTRY}/industrial-driver-manager:${DRIVER_VERSION}
-    env_file: .env
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    restart: unless-stopped
-```
+**Heartbeat:**
+- driver-manager pubblica `sys/edge/{org_id}/ping` ogni 30s
+- core-api salva in Redis `edge_ping:{org_id}` con TTL 90s
+- `GET /api/organizations/{id}` aggiunge campo `edge_status: "online"|"offline"|"never"`
 
-**4.4 API endpoint — genera e scarica installer**
-- `GET /api/organizations/{id}/edge-installer` (solo org admin + global admin)
-- Genera il pacchetto ZIP on-the-fly con i file sopra pre-compilati
-- Logga il download nell'audit log
-- File: `internal/handlers/edge_installer.go` (nuovo)
+**UI — card "Edge Manager":**
+- Status badge (🟢/🔴) con ultimo ping timestamp
+- Bottone "Scarica Installer"
+- Bottone "Rigenera API Key" (con conferma)
 
-**4.5 Script install.sh (Linux/systemd)**
-- Riusa e adatta `systemd/install.sh` esistente
-- Target: solo driver-manager (non il full stack)
-- Configura: `WorkingDirectory`, auto-start, restart policy
-
-**4.6 Script install.ps1 (Windows)**
-- Installa Docker Desktop se non presente (con prompt)
-- Crea Windows Service via NSSM
-- Avvia il docker-compose
-
-**4.7 UI — bottone "Scarica Edge Manager"**
-- In pagina org settings: card "Edge Manager" con stato connessione + bottone download
-- Mostra ultimo ping dell'edge manager (da Redis `edge_ping:{org_id}`)
-
-### Acceptance Criteria
-- [ ] Click su "Scarica Edge Manager" nella UI genera e scarica il ZIP in <3 secondi
-- [ ] Su Linux: `bash install.sh` avvia il servizio systemd e appare `online` nella UI entro 30 secondi
-- [ ] Su Windows: `install.ps1` avvia il servizio Windows
-- [ ] Dopo reboot del PC cliente, il servizio riparte automaticamente
-- [ ] Il ZIP contiene credenziali valide pre-compilate (nessuna config manuale richiesta)
-
-### Dipendenze
-- Goal 3 (API key e config pull)
+### AC
+- [ ] ZIP generato in < 2s e contiene tutti i file
+- [ ] `bash install.sh` su Ubuntu 22 → servizio avviato e status "online" entro 30s
+- [ ] `install.ps1` su Windows 11 → Docker service avviato
+- [ ] Reboot → servizio si riavvia automaticamente
+- [ ] UI mostra "Offline" dopo 90s senza heartbeat
 
 ---
 
-## Goal 5 — Customer Self-Service
+## Goal 4 — Customer Self-Service + RBAC Granulare
+> *Il cliente gestisce la propria infra autonomamente, senza intervento del platform admin*
 
-**Obiettivo:** Il cliente admin può gestire autonomamente la propria infrastruttura dalla UI: creare/modificare gateway, aggiungere tag, gestire utenti della propria org, senza l'intervento del platform admin.
+### Deliverable
+**Invite utenti:**
+```sql
+CREATE TABLE user_invites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id INT NOT NULL REFERENCES organizations(id),
+    email VARCHAR(255) NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'user',
+    invited_by INT REFERENCES users(id),
+    accepted_at TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+- `POST /api/invites` → genera link `/register?token=<uuid>`, invia email
+- `GET /register?token=<uuid>` → pagina React per completare registrazione
 
-### User Stories
-- Come cliente admin, voglio aggiungere un nuovo gateway PLC dalla UI e vederlo attivo in fabbrica entro 30 secondi
-- Come cliente admin, voglio invitare i miei operatori via email con ruolo limitato
-- Come cliente admin, voglio vedere se l'edge manager è connesso o offline
-- Come operatore (utente), voglio vedere solo i dati dei siti a cui ho accesso
-
-### Task tecnici
-
-**5.1 Edge Manager heartbeat**
-- Driver-manager pubblica ogni 30s: `sys/edge/{org_id}/heartbeat`
-- Core-api salva in Redis: `edge_ping:{org_id}` = timestamp
-- Nuovo campo in `/api/organizations/{id}` response: `edge_status: "online"|"offline"|"never_connected"`
-
-**5.2 UI — Dashboard org admin**
-- Nuova sezione "Infrastructure" (solo org admin):
-  - Card Edge Manager: status online/offline + ultimo ping + bottone download installer
-  - Lista gateway con status (online/offline, ultimo dato ricevuto)
-  - Bottone "+ Aggiungi Gateway"
-
-**5.3 UI — Invite utenti**
-- Form "Invita utente" con: email, ruolo (admin/user), siti/aree assegnate
-- Genera link di registrazione con token (tabella `user_invites`)
-- L'utente invitato clicca il link, imposta password, viene aggiunto all'org
-- File nuovo: `internal/handlers/invites.go`
-
-**5.4 Permessi role-based affinati**
-- Oggi: `admin` vs `user` — troppo binario
-- Aggiungere permessi granulari in tabella `role_permissions`:
-  - `can_configure_gateways`: crea/modifica gateway e tag
-  - `can_write_tags`: usa i write commands
-  - `can_manage_users`: invita/rimuove utenti
-  - `can_view_alarms`: vede le allarmi
+**RBAC granulare:**
+```sql
+CREATE TABLE user_permissions (
+    user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission VARCHAR(50) NOT NULL,
+    PRIMARY KEY (user_id, permission)
+);
+-- Permessi: can_configure_gateways, can_write_tags, can_manage_users,
+--           can_view_alarms, can_acknowledge_alarms, can_export_data
+```
 - Org admin ha tutti i permessi per la sua org
-- User ha solo `can_view` di default
+- Middleware: `RequirePermission("can_write_tags")` su endpoint sensibili
 
-**5.5 Propagazione config in tempo reale**
-- Quando org admin aggiunge un gateway dalla UI:
-  - Core-api salva in DB
-  - Pubblica su MQTT: `sys/config/{org_id}/reload`
-  - Driver-manager in fabbrica (iscritto al topic) forza sync immediata
-  - Nuovo gateway attivo entro ~5 secondi (no attesa dei 10s di polling)
+**Config real-time:**
+- Creazione gateway → pubblica `sys/config/{org_id}/reload`
+- edge manager forza sync immediata (<5s vs 10s di polling)
 
-### Acceptance Criteria
-- [ ] Cliente admin crea gateway "PLC Linea 2", il driver parte in fabbrica entro 10 secondi
-- [ ] Cliente admin non può vedere/modificare gateway di altre org
-- [ ] Utente invitato riceve email con link, completa registrazione, accede alla UI con l'org corretta
-- [ ] UI mostra correttamente "Edge Manager: Online" / "Offline" con timestamp ultimo ping
-- [ ] Operatore con ruolo `user` non vede il bottone "Aggiungi Gateway"
-
-### Dipendenze
-- Goal 3 (config pull), Goal 4 (heartbeat topic)
+### AC
+- [ ] Cliente admin invita operatore via email → operatore completa registrazione → accede con org corretta
+- [ ] Operatore senza `can_configure_gateways` → 403 su POST /api/gateways
+- [ ] Nuovo gateway in UI → visibile nell'edge manager entro 10s
+- [ ] Link invite scaduto → errore chiaro in UI
 
 ---
 
-## Goal 6 — Write Commands & Audit Trail
+## Goal 5 — Write Commands + Audit Trail Completo
+> *Scrittura PLC dalla UI con doppia validazione e tracciabilità totale*
 
-**Obiettivo:** Gli utenti autorizzati possono scrivere valori su tag (setpoint, comandi) dalla UI. Ogni scrittura è tracciata con chi, quando, quale valore, con quale esito.
+### Deliverable
+**Endpoint:**
+```
+POST /api/tags/{id}/write
+Body: { "value": 75.0, "comment": "setpoint linea 1" }
+Auth: JWT con permesso can_write_tags
+```
+Validazioni: tag appartiene all'org dell'utente, tipo dato compatibile, range min/max tag (se configurato), rate limit 10/min per utente.
 
-### User Stories
-- Come operatore autorizzato, voglio cliccare su un tag nella UI, inserire un valore e inviarlo al PLC
-- Come manager, voglio vedere uno storico di tutte le scritture eseguite (chi, quando, cosa, da dove)
-- Come sistema, voglio che una scrittura fallita (PLC non raggiungibile) sia segnalata all'utente
-- Come cliente MQTT, voglio ricevere comandi di scrittura tramite lo stesso broker su cui pubblico dati
+**MQTT publish:**
+```
+Topic: sys/write/{tag_id}
+Payload: { "value": 75.0, "user_id": 12, "username": "mario", "ts": ..., "req_id": "uuid" }
+```
 
-### Task tecnici
+**Acknowledgement:**
+- Driver risponde su `sys/write_ack/{tag_id}`: `{ "req_id": "uuid", "status": "ok"|"error", "msg": "..." }`
+- UI: spinner → ✓ verde / ✗ rosso con messaggio (timeout 5s)
 
-**6.1 API write command**
-- `POST /api/tags/{id}/write` — già esistente in parte
-- Body: `{ "value": 75.0, "comment": "setpoint linea 1" }`
-- Validazione:
-  - Utente ha `i3x_write: true` (JWT) o permesso `can_write_tags`
-  - Tag appartiene all'org dell'utente
-  - Tag ha `data_type` compatibile con il valore inviato
-- Pubblica su MQTT: `sys/write/{tag_id}` con payload:
-  ```json
-  { "value": 75.0, "user_id": 12, "username": "mario", "ts": 1234567890, "ack_required": true }
-  ```
-
-**6.2 Tabella write_audit**
+**Tabella audit:**
 ```sql
 CREATE TABLE write_commands (
-    id SERIAL PRIMARY KEY,
-    tag_id INT NOT NULL REFERENCES tags(id),
-    org_id INT NOT NULL REFERENCES organizations(id),
-    user_id INT NOT NULL REFERENCES users(id),
-    username VARCHAR(100),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    req_id UUID NOT NULL,
+    tag_id INT NOT NULL,
+    org_id INT NOT NULL,
+    user_id INT NOT NULL,
     value_sent TEXT NOT NULL,
-    status VARCHAR(20) DEFAULT 'pending',  -- pending, ack, nack, timeout
+    status VARCHAR(20) DEFAULT 'pending',  -- pending|ack|nack|timeout
     ack_ts TIMESTAMP,
+    error_msg TEXT,
     ip_address VARCHAR(45),
     comment TEXT,
     created_at TIMESTAMP DEFAULT NOW()
 );
 ```
 
-**6.3 Acknowledgement flow (opzionale ma raccomandato)**
-- Driver, dopo la scrittura, pubblica: `sys/write_ack/{tag_id}` con `{ "status": "ok"|"error", "msg": "..." }`
-- Core-api aggiorna `write_commands.status`
-- UI riceve feedback via WebSocket/SSE entro ~2 secondi
+**Routing per driver:**
+- S7/Modbus/OPC-UA: driver riceve e scrive direttamente sul device
+- MQTT driver: forwarda su broker locale `connection_config.write_topic`
 
-**6.4 Routing scrittura per tipo driver**
-- S7/Modbus/OPC-UA: driver riceve `sys/write/{tag_id}`, scrive direttamente al dispositivo
-- MQTT driver: riceve `sys/write/{tag_id}`, pubblica su broker locale esterno al topic configurato in `connection_config.write_topic`
-- Nessun driver attivo: il messaggio scade su MQTT (retain=false, TTL configurabile)
-
-**6.5 UI — widget write**
-- In ogni tag nella UI: icona matita (visibile solo se `can_write_tags`)
-- Click apre popup: campo valore + campo commento + bottone "Invia"
-- Dopo invio: spinner "in attesa conferma" → ✓ verde / ✗ rosso con messaggio errore
-- Pagina Audit (solo admin): tabella `write_commands` filtrabile per tag, utente, data
-
-**6.6 Sicurezza**
-- Rate limiting: max 10 scritture/minuto per utente
-- Valore validato contro `min`/`max` configurati nel tag (se presenti)
-- Log in `audit_logs` esistente + nella nuova tabella `write_commands`
-
-### Acceptance Criteria
-- [ ] Utente con `can_write_tags` invia valore, PLC aggiorna il registro entro 2 secondi
-- [ ] Utente senza `can_write_tags` non vede l'icona matita e riceve 403 se chiama l'API
-- [ ] Scrittura su tag di altra org ritorna 403
-- [ ] Ogni scrittura appare nell'audit trail con user, valore, timestamp, IP
-- [ ] Scrittura con PLC offline mostra errore in UI entro 5 secondi (timeout ack)
-- [ ] Driver MQTT forwarda la scrittura al broker locale del cliente
-
-### Dipendenze
-- Goal 1 (MQTT ACL — il driver può pubblicare su `sys/write_ack/#`)
-- Goal 5 (permessi granulari `can_write_tags`)
+### AC
+- [ ] Scrittura → PLC aggiornato entro 2s (happy path)
+- [ ] Scrittura cross-org → 403
+- [ ] Utente senza `can_write_tags` → 403, icona matita non visibile in UI
+- [ ] Ogni scrittura appare in audit table con user, IP, timestamp, status
+- [ ] PLC offline → "timeout" in UI entro 5s
 
 ---
 
-## Goal 7 — Platform Admin Dashboard & Monitoring
+## Goal 6 — Observability Stack Enterprise
+> *Visibilità totale su performance, errori, metriche — come AWS CloudWatch o Azure Monitor*
 
-**Obiettivo:** Il platform admin (tu) ha una vista completa su tutte le org: stato edge manager, volume dati, utenti attivi, allarmi globali. Può intervenire su qualsiasi org senza impatto sulle altre.
+### Contesto
+OpenTelemetry è già in go.mod ma non configurato. `slog` è già in JSON mode. La base è pronta.
 
-### User Stories
-- Come platform admin, voglio vedere a colpo d'occhio quali org hanno l'edge manager online e quali offline
-- Come platform admin, voglio entrare nell'org di un cliente per fare debug senza conoscere le sue credenziali
-- Come platform admin, voglio monitorare il volume dati (messaggi/giorno, GB storage) per org
-- Come platform admin, voglio creare nuove org e inviare al cliente le istruzioni di setup
+### Deliverable
+**OpenTelemetry — attivare traces + metrics:**
+- `internal/telemetry/telemetry.go` — init OTel con OTLP exporter
+- Traces su: ogni HTTP request (gin middleware), ogni query MQTT in/out, ogni DB query > 100ms
+- Metrics: `mqtt_messages_received_total{org}`, `api_request_duration_seconds{endpoint}`, `active_gateways_total{org}`, `write_commands_total{status}`
 
-### Task tecnici
+**Prometheus endpoint:**
+- `GET /metrics` (no auth) → Prometheus scrape
+- Standard Go runtime metrics + custom business metrics
 
-**7.1 UI — Superadmin panel (solo global admin)**
-- Nuova sezione `/admin` nella UI (route protetta da `IsGlobalAdmin()`)
-- Dashboard con:
-  - Tabella org: nome, utenti, gateway, edge status, dati oggi (messaggi), storage usato
-  - Badge colorato: 🟢 online / 🔴 offline / ⚪ mai connesso
-  - Click su org → "Impersona" (entra nella vista di quella org)
+**Stack monitoring** (docker-compose profile `monitoring`):
+```yaml
+# docker-compose.monitoring.yml
+services:
+  prometheus:    # localhost:9090
+  grafana:       # localhost:3001 — dashboard pre-caricata
+  loki:          # log aggregation via promtail sidecar
+  alertmanager:  # alert su edge offline, errori > soglia
+```
 
-**7.2 Impersonazione org (admin feature)**
-- `POST /api/admin/impersonate/{org_id}` → ritorna JWT temporaneo (1h) con `org_id` dell'org target + `impersonated_by: admin_id`
-- Sessione impersonata visibile con banner giallo nella UI: "Stai visualizzando Acme Corp come admin"
-- Ogni azione in impersonazione loggata in `audit_logs` con `impersonated_by`
+**Dashboard Grafana pre-configurata** (`monitoring/grafana/dashboards/openedge.json`):
+- Pannelli: messaggi MQTT/s per org, latenza API p50/p95/p99, gateway online/offline, scritture PLC/ora
 
-**7.3 Metriche per org (tabella)**
+**Alerting rules:**
+- Edge manager offline > 5min → email/Slack al platform admin
+- Error rate API > 5% → PagerDuty
+- Nessun dato da gateway > 15min → notifica in-app
+
+### AC
+- [ ] `docker compose --profile monitoring up` → Grafana raggiungibile con dati reali
+- [ ] `/metrics` espone >20 metriche custom
+- [ ] Trace di una request HTTP visibile in Grafana Tempo/Jaeger
+- [ ] Alert "edge offline" si attiva entro 6 min dall'interruzione
+
+---
+
+## Goal 7 — Enterprise Auth: SSO + MFA + API Versioning
+> *Autenticazione enterprise: login con Azure AD, Google, SAML. MFA obbligatorio per admin*
+
+### Deliverable
+**SSO/OIDC:**
 ```sql
-CREATE TABLE org_metrics_daily (
-    org_id INT NOT NULL REFERENCES organizations(id),
-    date DATE NOT NULL,
-    messages_received INT DEFAULT 0,
-    write_commands_sent INT DEFAULT 0,
-    active_gateways INT DEFAULT 0,
-    storage_bytes BIGINT DEFAULT 0,
-    PRIMARY KEY (org_id, date)
+CREATE TABLE sso_providers (
+    id SERIAL PRIMARY KEY,
+    org_id INT REFERENCES organizations(id),  -- NULL = platform-level
+    provider VARCHAR(20) NOT NULL,  -- google|azure|github|generic-oidc
+    client_id VARCHAR(255) NOT NULL,
+    client_secret_enc TEXT NOT NULL,  -- cifrato con internal/crypto
+    issuer_url TEXT NOT NULL,
+    domain_hint VARCHAR(100),  -- es. "acme.com" per auto-detect
+    enabled BOOLEAN DEFAULT true
 );
 ```
-- Aggiornata ogni ora da una goroutine in `core-api`
+- Libreria: `golang.org/x/oauth2` (già transitivamente disponibile)
+- Flow: `/api/auth/sso/{provider}/login` → redirect → callback → JWT generato
+- Org admin può configurare il proprio provider OIDC
 
-**7.4 Endpoint metriche**
-- `GET /api/admin/metrics?from=2026-01-01&to=2026-06-05` → metriche aggregate per tutte le org
-- Usato dalla dashboard admin + potenzialmente per billing futuro
+**MFA/TOTP:**
+```sql
+ALTER TABLE users ADD COLUMN mfa_enabled BOOLEAN DEFAULT false;
+CREATE TABLE user_mfa (
+    user_id INT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    totp_secret TEXT NOT NULL,  -- cifrato con internal/crypto
+    backup_codes TEXT[],
+    enrolled_at TIMESTAMP DEFAULT NOW()
+);
+```
+- Libreria: `github.com/pquerna/otp`
+- Flow: login → se mfa_enabled → `/api/auth/mfa/verify` con codice 6 cifre
+- Org admin può rendere MFA obbligatorio per tutti gli utenti dell'org
 
-**7.5 Onboarding wizard nuova org**
-- Form multi-step: nome org → crea admin utente → genera credenziali MQTT + API key → mostra istruzioni → bottone download installer
-- Email automatica all'admin cliente con link installer + credenziali
+**API versioning:**
+- Prefisso `/api/v1/` su tutti gli endpoint (backward compat: `/api/` redirige a `/api/v1/`)
+- Header `X-API-Version` come alternativa
 
-**7.6 Alerting platform admin**
-- Se un'org aveva l'edge manager online e poi va offline per più di X minuti → notifica in-app al platform admin
-- Topic MQTT: `sys/edge/{org_id}/heartbeat` già disponibile (Goal 5)
-- Salva in Redis con TTL, se scade → edge offline
+**Personal Access Tokens (PAT):**
+- `POST /api/v1/tokens` → genera token long-lived (come GitHub PAT)
+- Usabili come `Authorization: Bearer oe_pat_...` al posto del JWT
+- Tabella: `personal_access_tokens(user_id, name, token_hash, scopes[], expires_at)`
 
-### Acceptance Criteria
-- [ ] Dashboard admin mostra tutte le org con edge status aggiornato in tempo reale
-- [ ] Platform admin clicca "Impersona" su Acme Corp e vede la UI identica a un utente Acme Corp
-- [ ] Ogni azione durante impersonazione appare nell'audit log con `impersonated_by`
-- [ ] Metriche giornaliere (messaggi, storage) visibili per ogni org
-- [ ] Nuovo org creato dall'admin wizard → email automatica al cliente con link installer
-- [ ] Edge manager offline da >15 minuti genera notifica nella dashboard admin
+**OpenAPI completato:**
+- `make swagger` → genera `docs/openapi.yaml` completo e aggiornato
+- Hosted su `/api/docs` (Swagger UI)
 
-### Dipendenze
-- Goal 4 (heartbeat edge manager)
-- Goal 5 (status edge manager in Redis)
+### AC
+- [ ] Login con Google → JWT valido → accesso UI
+- [ ] MFA: login senza codice TOTP se mfa_enabled → 401
+- [ ] `/api/v1/gateways` risponde identico a `/api/gateways`
+- [ ] PAT funziona in curl senza JWT
 
 ---
 
-## Roadmap consigliata
+## Goal 8 — Container & Infra Enterprise
+> *Production-grade: multi-arch ARM, Kubernetes, immagini firmate, sicurezza container*
 
+### Problema attuale
+- Tutti i Dockerfile girano come root
+- Nessun multi-arch build (edge su Raspberry Pi / PC ARM non supportati)
+- Nessun Helm chart (deploy Kubernetes non documentato)
+- Mosquitto non scala oltre ~100k connessioni
+
+### Deliverable
+**Rootless containers:**
+- Ogni Dockerfile aggiunge `USER nonroot:nonroot` (o equivalente per ogni immagine base)
+- Volumes montati con UID corretto
+- Test: `docker run --user 1000:1000 openedge/core-api` non crasha
+
+**Multi-arch builds:**
+```yaml
+# .github/workflows/build.yml
+strategy:
+  matrix:
+    platform: [linux/amd64, linux/arm64]
 ```
-Sprint 1 (2 settimane)
-└── Goal 1: MQTT Auth + ACL
-└── Goal 2: TLS esterno
+- Usare `docker buildx` con QEMU emulation
+- Tag: `openedge/core-api:1.2.0-amd64`, `openedge/core-api:1.2.0-arm64`, manifest `1.2.0`
+- Abilitato per: core-api, engine-historian, driver-manager, web-ui, tutti i driver
 
-Sprint 2 (2 settimane)
-└── Goal 3: Config Pull API
-
-Sprint 3 (2 settimane)
-└── Goal 4: Edge Manager Packaging
-
-Sprint 4 (2 settimane)
-└── Goal 5: Customer Self-Service (base)
-└── Goal 6: Write Commands
-
-Sprint 5 (2 settimane)
-└── Goal 5: Self-Service (invite utenti)
-└── Goal 7: Admin Dashboard
+**Kubernetes Helm chart:**
 ```
-
-## Architettura finale
-
+helm/openedge/
+├── Chart.yaml
+├── values.yaml           # domain, replicas, storage, ingress
+├── templates/
+│   ├── deployment-core-api.yaml
+│   ├── deployment-historian.yaml
+│   ├── deployment-web-ui.yaml
+│   ├── statefulset-postgres.yaml
+│   ├── statefulset-redis.yaml
+│   ├── deployment-mosquitto.yaml
+│   ├── ingress.yaml
+│   ├── configmap.yaml
+│   └── secrets.yaml
 ```
-FABBRICA CLIENTE
-┌─────────────────────────────────┐
-│  Edge Manager (installato)      │
-│  driver-manager                 │  ← scarica config da API ogni 10s
-│  ├─ driver-s7     → PLC         │
-│  ├─ driver-modbus → Modbus      │
-│  └─ driver-mqtt   → broker loc. │
-└──────────────┬──────────────────┘
-               │ MQTT TLS 8883 + credenziali per-org
-               │ heartbeat, data, write_ack
-               ▼
-TUO DOMINIO
-┌─────────────────────────────────────────────────┐
-│  nginx (TLS termination)                        │
-│  Mosquitto 1883 (interno) + 8883 TLS (esterno)  │
-│  core-api 8081  ── PostgreSQL + TimescaleDB     │
-│  engine-historian                               │
-│  web-ui (https://yourdomain.com)                │
-│  Redis (edge status, realtime cache)            │
-└─────────────────────────────────────────────────┘
-               ▲
-  mario@acme.com  → JWT {org_id:5}   → vede solo Acme
-  admin@piattaforma.com → JWT {global_admin} → vede tutto
+```bash
+helm install openedge ./helm/openedge \
+  --set global.domain=yourdomain.com \
+  --set global.storageClass=standard
 ```
 
-## Note di sicurezza
+**EMQX (opzionale, produzione ad alta scala):**
+- Sostituisce Mosquitto per ambienti con >1000 org o >100k connessioni
+- Plugin `emqx-auth-http`: valida credenziali tramite callback a core-api
+- docker-compose profile `emqx` come alternativa a `mosquitto`
 
-- Credenziali MQTT mai esposte in chiaro dopo la generazione (solo hash in DB)
-- API key con prefix visibile (`oe_5f2a_...`) per identificazione rapida
-- TLS obbligatorio su tutte le connessioni esterne
-- Write commands richiedono doppia validazione (JWT + permesso granulare)
-- Ogni azione sensibile loggata in `audit_logs` (già esistente)
-- Impersonazione admin tracciata separatamente
-- Rate limiting su write commands e login (già presente su login)
+**Image signing:**
+- `cosign sign` su ogni immagine pushata in CI
+- `cosign verify` documentato nel README
+
+**Health checks migliorati:**
+```dockerfile
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget -qO- http://localhost:8081/health || exit 1
+```
+
+### AC
+- [ ] `docker run openedge/core-api:latest whoami` → output non-root
+- [ ] `docker buildx build --platform linux/arm64` → build OK
+- [ ] `helm install openedge ./helm` su k3s locale → tutti i pod Running
+- [ ] `cosign verify openedge/core-api:1.2.0` → verificato
+
+---
+
+## Goal 9 — Digital Twin + Fleet Management
+> *Come Siemens Industrial Edge: gestione centralizzata della flotta, shadow sempre disponibile*
+
+### Deliverable
+**Tag Shadows (Digital Twin):**
+- Redis: `tag_shadow:{tag_id}` = `{value, quality, ts, source: "live|historic|unknown"}`
+- Aggiornato da: engine-historian su ogni valore, edge manager su ogni publish
+- `GET /api/v1/tags/{id}/shadow` → sempre un valore (mai 404, al massimo `source: "unknown"`)
+- UI: indicatore "live" / "cached" / "offline" su ogni tag
+
+**Fleet Management:**
+- `GET /api/v1/admin/fleet` → tabella org con: edge_status, gateway_count, tag_count, last_data_ts, messages_today
+- `POST /api/v1/organizations/{id}/restart-edge` → pubblica `sys/command/{org_id}/restart`
+- OTA edge manager: `POST /api/v1/organizations/{id}/update-edge` → pubblica `sys/update/{org_id}` con nuova versione
+- Edge manager riceve → `docker compose pull && docker compose up -d`
+
+**Alert Rules Engine:**
+```sql
+CREATE TABLE alert_rules (
+    id SERIAL PRIMARY KEY,
+    org_id INT NOT NULL REFERENCES organizations(id),
+    tag_id INT NOT NULL REFERENCES tags(id),
+    name VARCHAR(100) NOT NULL,
+    condition VARCHAR(20) NOT NULL,  -- gt|lt|eq|ne|change
+    threshold FLOAT,
+    duration_seconds INT DEFAULT 0,
+    channels TEXT[],  -- ['email','slack','pagerduty']
+    enabled BOOLEAN DEFAULT true
+);
+```
+- Valutazione ogni scan cycle nell'engine-historian
+- Deduplicazione: non ripete l'alert se la condizione è ancora attiva
+
+**Data Transform Rules:**
+```sql
+CREATE TABLE tag_transforms (
+    tag_id INT PRIMARY KEY REFERENCES tags(id) ON DELETE CASCADE,
+    formula TEXT NOT NULL,  -- es. "value * 0.001 + 273.15"
+    enabled BOOLEAN DEFAULT true
+);
+```
+- Applicato nell'engine-historian prima dell'archiviazione
+- Safe eval: solo operatori matematici, no codice arbitrario
+
+### AC
+- [ ] Tag online → shadow aggiornato in <2s
+- [ ] Edge offline → shadow mantiene ultimo valore con `source: "cached"`
+- [ ] Alert rule "temp > 80 per 5min" → notifica Slack entro 5min+epsilon
+- [ ] OTA update inviato → edge manager aggiornato entro 2 minuti
+- [ ] Tag con formula `value * 0.001` → valore storicizzato trasformato correttamente
+
+---
+
+## Goal 10 — Ecosystem & Integrazioni
+> *Connettori verso il mondo esterno: webhook, cloud bridge, SDK — come i marketplace dei colossi*
+
+### Deliverable
+**Webhooks:**
+```sql
+CREATE TABLE webhooks (
+    id SERIAL PRIMARY KEY,
+    org_id INT NOT NULL REFERENCES organizations(id),
+    url TEXT NOT NULL,
+    secret VARCHAR(64),  -- HMAC-SHA256 per verifica firma
+    events TEXT[],  -- ['tag.value', 'alarm.triggered', 'edge.offline', 'write.ack']
+    enabled BOOLEAN DEFAULT true,
+    failure_count INT DEFAULT 0,
+    last_delivery_ts TIMESTAMP
+);
+```
+- Retry con backoff esponenziale (5 tentativi, 2→4→8→16→32s)
+- Payload firmato con `X-OpenEdge-Signature: sha256=<hmac>`
+- UI: log ultimi 50 delivery con status e response code
+
+**Cloud connectors** (`internal/connectors/`):
+```
+connectors/
+├── aws_iot.go        # MQTT bridge → AWS IoT Core
+├── azure_iot.go      # AMQP bridge → Azure IoT Hub
+├── influxdb.go       # Line protocol push → InfluxDB v2
+└── aveva_pi.go       # REST → AVEVA Data Hub / OSIsoft PI
+```
+Configurabili per-org via `global_settings` (tipo: `connector_aws_enabled`, `connector_aws_endpoint`…)
+
+**Notification channels aggiunti:**
+- Slack (webhook URL) — già parzialmente presente
+- Microsoft Teams (Adaptive Card)
+- PagerDuty (Events API v2)
+- Telegram — già presente
+- Email — già presente
+
+**REST API SDK:**
+```
+sdk/
+├── python/     # openedge-sdk (PyPI)
+│   └── openedge/client.py  -- auth, tags, history, write
+└── nodejs/     # @openedge/sdk (npm)
+    └── src/client.ts
+```
+Generati/mantenuti a partire dalla spec OpenAPI (Goal 7).
+
+**Rate limiting API migliorato:**
+- Per-org (non solo per-IP): `300 req/min per org` oltre al per-IP esistente
+- Header response: `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+
+### AC
+- [ ] Webhook riceve payload firmato entro 1s da evento tag.value
+- [ ] Verifica firma HMAC nel webhook consumer di test → valida
+- [ ] `POST /api/v1/connectors/influxdb/test` → scrittura di prova in InfluxDB OK
+- [ ] SDK Python: `client.tags.get_history(tag_id, start, end)` → dati corretti
+- [ ] Rate limit per-org: 301° request nello stesso minuto → 429 con header
+
+---
+
+## Roadmap
+
+```
+Q3 2026 (Sprint 1-2)
+├── Goal 0  — Code Quality (lint, test, CI)        2 settimane
+├── Goal 1  — MQTT Auth + ACL + TLS                2 settimane
+└── Goal 2  — Config Pull API                      2 settimane
+
+Q4 2026 (Sprint 3-4)
+├── Goal 3  — Edge Manager Packaging               2 settimane
+├── Goal 4  — Customer Self-Service + RBAC         2 settimane
+└── Goal 5  — Write Commands + Audit               2 settimane
+
+Q1 2027 (Sprint 5-6)
+├── Goal 6  — Observability Stack                  3 settimane
+├── Goal 7  — Enterprise Auth (SSO + MFA)          3 settimane
+└── Goal 8  — Container Enterprise (multi-arch, Helm) 2 settimane
+
+Q2 2027 (Sprint 7-8)
+├── Goal 9  — Digital Twin + Fleet                 3 settimane
+└── Goal 10 — Ecosystem + SDK                      3 settimane
+```
+
+---
+
+## Confronto con i colossi
+
+| Feature | Siemens IE | AWS IoT | Azure IoT | **OpenEdge target** |
+|---------|-----------|---------|-----------|---------------------|
+| Multi-tenant isolato | ✅ | ✅ | ✅ | ✅ Goal 1-2 |
+| Edge installer 1-click | ✅ | ✅ | ✅ | ✅ Goal 3 |
+| SSO / Azure AD | ✅ | ✅ | ✅ | ✅ Goal 7 |
+| MFA | ✅ | ✅ | ✅ | ✅ Goal 7 |
+| Observability (metrics, traces) | ✅ | ✅ | ✅ | ✅ Goal 6 |
+| Digital Twin / Device Shadow | ✅ | ✅ | ✅ | ✅ Goal 9 |
+| OTA update edge | ✅ | ✅ | ✅ | ✅ Goal 9 |
+| Kubernetes / Helm | ✅ | ✅ | ✅ | ✅ Goal 8 |
+| Multi-arch ARM | ✅ | ✅ | ✅ | ✅ Goal 8 |
+| Webhook | ✅ | ✅ | ✅ | ✅ Goal 10 |
+| Cloud connectors | ✅ | n/a | n/a | ✅ Goal 10 |
+| Alert Rules Engine | ✅ | ✅ | ✅ | ✅ Goal 9 |
+| API SDK (Python/Node) | ✅ | ✅ | ✅ | ✅ Goal 10 |
+| Protocolli IIoT | S7/OPC/MB | MQTT | MQTT/AMQP | **S7+OPC+MB+MQTT** ✅ |
+| Write PLC dalla UI | ✅ | ❌ | ❌ | ✅ Goal 5 (vantaggio!) |
+| Historian integrato | ✅ | ❌ | ❌ | ✅ già presente (vantaggio!) |
+| OEE integrato | ❌ | ❌ | ❌ | ✅ già presente (vantaggio!) |
+
+**Vantaggi differenziali unici di OpenEdge** (già presenti, da valorizzare):
+- Write PLC nativamente dalla UI (AWS/Azure non lo fanno)
+- Historian TimescaleDB integrato nel prodotto (non serve InfluxDB Cloud separato)
+- OEE/KPI industriali nativi
+- Sparkplug B supportato out-of-the-box
+- Open source (MIT) → clienti possono self-host senza costi di licenza
+
+---
+
+## Verifica end-to-end finale
+
+```bash
+# 1. CI passa
+make lint && make test
+
+# 2. Onboarding nuovo cliente
+# Admin crea org "Test Corp" → scarica installer
+curl -X POST https://yourdomain.com/api/v1/organizations \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -d '{"name": "Test Corp"}'
+# → edge_installer_url in response
+
+# 3. Edge manager in fabbrica
+unzip openedge-edge-test-corp-v1.2.zip
+bash install.sh
+# → servizio avviato, status "online" nella UI entro 30s
+
+# 4. Crea gateway dalla UI
+# Cliente admin aggiunge gateway S7 a 192.168.1.10
+# → driver avviato nell'edge entro 10s
+
+# 5. Dati visibili nel Trend historian
+
+# 6. Scrittura PLC
+curl -X POST https://yourdomain.com/api/v1/tags/42/write \
+  -H "Authorization: Bearer <user_jwt_with_write_perm>" \
+  -d '{"value": 75.0}'
+# → ack entro 2s, audit log registrato
+
+# 7. Alert rule triggers notifica Slack/email
+
+# 8. SSO login funziona con account Azure AD del cliente
+```
