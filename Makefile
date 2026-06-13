@@ -1,6 +1,7 @@
-.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux lint lint-go lint-frontend test test-go test-frontend test-coverage swagger hooks-install
+.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux lint lint-go lint-frontend test test-go test-frontend test-coverage swagger hooks-install cloud-up cloud-down cloud-logs cloud-status
 
 COMPOSE_ONPREM_TLS = docker-compose -f docker-compose.yml -f docker-compose.onprem-tls.yml --profile backup
+COMPOSE_CLOUD      = docker compose -f docker-compose.yml -f docker-compose.cloud.yml
 
 ## Create .env from example if missing; auto-generate JWT_SECRET if unset or placeholder
 setup-env:
@@ -117,6 +118,36 @@ kiosk-linux:
 	@: $${URL:?URL is required (e.g. URL=https://openedge.local)}
 	./scripts/install-kiosk-linux.sh $(URL)
 
+# ── Cloud / SaaS deployment ──────────────────────────────────────────────────
+## First-time VPS setup (interactive): installs Docker, configures TLS, starts stack
+cloud-init: setup-env
+	bash deploy/cloud-init.sh
+
+## Start the cloud stack (Traefik + Let's Encrypt + all services)
+cloud-up: setup-env
+	$(COMPOSE_CLOUD) up -d
+	@echo ""
+	@echo "OpenEdge cloud stack started."
+	@echo "  Web UI: https://$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'your-domain')"
+	@echo "  MQTT:   mqtts://$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'your-domain'):8883"
+
+## Stop the cloud stack
+cloud-down:
+	$(COMPOSE_CLOUD) down
+
+## Follow logs of the cloud stack
+cloud-logs:
+	$(COMPOSE_CLOUD) logs -f
+
+## Show health status of cloud services
+cloud-status:
+	$(COMPOSE_CLOUD) ps
+	@echo ""
+	@DOMAIN=$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'localhost'); \
+	 echo "  Checking https://$$DOMAIN/api/health ..."; \
+	 curl -fsSLo /dev/null -w "  HTTP %%{http_code}  %%{time_total}s\n" "https://$$DOMAIN/api/health" 2>/dev/null || \
+	 echo "  ⚠ Not reachable yet (TLS cert may still be issued)"
+
 # ── Code quality ─────────────────────────────────────────────────────────────
 ## Run all linters (Go + frontend)
 lint: lint-go lint-frontend
@@ -157,10 +188,23 @@ hooks-install:
 ## Show available targets
 help:
 	@echo ""
-	@echo "  make start    Build all images and start services (first run)"
-	@echo "  make up       Start services (images already built)"
-	@echo "  make down     Stop all services"
-	@echo "  make restart  Stop then start"
-	@echo "  make logs     Follow logs"
-	@echo "  make clean    Stop and DELETE all data (irreversible)"
+	@echo "  ── Local / on-prem ────────────────────────────────────────"
+	@echo "  make start         Build images and start services (first run)"
+	@echo "  make up            Start services (images already built)"
+	@echo "  make down          Stop all services"
+	@echo "  make restart       Stop then start"
+	@echo "  make logs          Follow logs"
+	@echo "  make clean         Stop and DELETE all data (irreversible)"
+	@echo "  make onprem-tls    Start with internal TLS (self-signed Caddy CA)"
+	@echo ""
+	@echo "  ── Cloud / SaaS (internet-facing, Let's Encrypt) ──────────"
+	@echo "  make cloud-init    First-time VPS setup (interactive)"
+	@echo "  make cloud-up      Start cloud stack (Traefik + TLS)"
+	@echo "  make cloud-down    Stop cloud stack"
+	@echo "  make cloud-logs    Follow cloud logs"
+	@echo "  make cloud-status  Health check"
+	@echo ""
+	@echo "  ── Quality ─────────────────────────────────────────────────"
+	@echo "  make lint          Run all linters"
+	@echo "  make test          Run all tests"
 	@echo ""
