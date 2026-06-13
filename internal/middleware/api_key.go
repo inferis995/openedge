@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -50,7 +51,7 @@ func RequireAPIKey(db *sql.DB) gin.HandlerFunc {
 		}
 
 		go func() {
-			_, _ = db.Exec(
+			_, _ = db.ExecContext(context.Background(),
 				`UPDATE org_api_keys SET last_used_at = $1
 				 WHERE key_prefix = $2 AND key_hash = $3`,
 				time.Now(), prefix, hash,

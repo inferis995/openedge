@@ -48,7 +48,7 @@ type EdgeGateway struct {
 }
 
 // Get returns the edge configuration for the org identified by the API key.
-// GET /api/edge/config
+// GET /api/edge/config.
 func (h *EdgeConfigHandler) Get(c *gin.Context) {
 	orgIDRaw, ok := c.Get(middleware.APIKeyContextKey)
 	if !ok {
@@ -90,7 +90,7 @@ func (h *EdgeConfigHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load gateways"})
 		return
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var gateways []EdgeGateway
 	for rows.Next() {

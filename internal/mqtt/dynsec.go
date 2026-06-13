@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-// DynsecClient manages Mosquitto Dynamic Security users via the MQTT control API.
+// DynsecClient manages MQTT broker Dynamic Security plugin users via the control API.
 // Commands are published to $CONTROL/dynamic-security/v1 and responses arrive on
-// $CONTROL/dynamic-security/v1/response.  All operations are serialised through a
+// $CONTROL/dynamic-security/v1/response.  All operations are serialized through a
 // mutex so only one command is in-flight at a time.
 type DynsecClient struct {
 	client     *Client
@@ -92,7 +92,7 @@ func (d *DynsecClient) send(commands []map[string]interface{}, correlationID str
 	}
 }
 
-// CreateOrgUser provisions an MQTT user for an organisation.
+// CreateOrgUser provisions an MQTT user for an organization.
 // The user may publish/subscribe to:
 //   - data/{orgName}/#   — tag data scoped to this org
 //   - sys/#              — health/write/reload (authenticated access)

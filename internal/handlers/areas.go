@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -181,7 +182,7 @@ func (h *AreasHandler) List(c *gin.Context) {
 		areaArgs = []interface{}{siteID}
 	}
 
-	rows, err := h.db.Query(areaQuery, areaArgs...)
+	rows, err := h.db.QueryContext(c.Request.Context(), areaQuery, areaArgs...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query areas"})
 		return
@@ -449,14 +450,14 @@ func (h *AreasHandler) Update(c *gin.Context) {
 // If the user has no entries in user_areas, they have access to all areas.
 func (h *AreasHandler) userCanAccessArea(userID, areaID int) bool {
 	var count int
-	err := h.db.QueryRow(`
-		SELECT COUNT(*) FROM user_areas WHERE user_id = $1`, userID).Scan(&count)
+	err := h.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM user_areas WHERE user_id = $1`, userID).Scan(&count)
 	if err != nil || count == 0 {
 		return true // no restriction
 	}
 	var allowed int
-	err = h.db.QueryRow(`
-		SELECT COUNT(*) FROM user_areas WHERE user_id = $1 AND area_id = $2`, userID, areaID).Scan(&allowed)
+	err = h.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM user_areas WHERE user_id = $1 AND area_id = $2`, userID, areaID).Scan(&allowed)
 	return err == nil && allowed > 0
 }
 

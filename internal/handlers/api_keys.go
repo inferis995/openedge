@@ -30,9 +30,9 @@ type apiKeyRow struct {
 	PlaintextKey string    `json:"key,omitempty"` // returned only on creation
 }
 
-// Create generates a new API key for the organisation.
+// Create generates a new API key for the organization.
 // POST /api/organizations/:id/api-keys
-// Body: {"name": "edge-site-A"}
+// Body: {"name": "edge-site-A"}.
 func (h *APIKeysHandler) Create(c *gin.Context) {
 	orgID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -43,7 +43,7 @@ func (h *APIKeysHandler) Create(c *gin.Context) {
 	var req struct {
 		Name string `json:"name" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err = c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -53,11 +53,11 @@ func (h *APIKeysHandler) Create(c *gin.Context) {
 	//   secret part = 16 random bytes hex (32 chars)
 	pfxBytes := make([]byte, 4)
 	secBytes := make([]byte, 16)
-	if _, err := rand.Read(pfxBytes); err != nil {
+	if _, err = rand.Read(pfxBytes); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "key generation failed"})
 		return
 	}
-	if _, err := rand.Read(secBytes); err != nil {
+	if _, err = rand.Read(secBytes); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "key generation failed"})
 		return
 	}
@@ -88,8 +88,8 @@ func (h *APIKeysHandler) Create(c *gin.Context) {
 	})
 }
 
-// List returns all active API keys for the organisation (prefix only, no secrets).
-// GET /api/organizations/:id/api-keys
+// List returns all active API keys for the organization (prefix only, no secrets).
+// GET /api/organizations/:id/api-keys.
 func (h *APIKeysHandler) List(c *gin.Context) {
 	orgID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -108,7 +108,7 @@ func (h *APIKeysHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list keys"})
 		return
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var keys []apiKeyRow
 	for rows.Next() {
@@ -125,7 +125,7 @@ func (h *APIKeysHandler) List(c *gin.Context) {
 }
 
 // Revoke marks an API key as revoked so it can no longer be used.
-// DELETE /api/organizations/:id/api-keys/:key_id
+// DELETE /api/organizations/:id/api-keys/:key_id.
 func (h *APIKeysHandler) Revoke(c *gin.Context) {
 	orgID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {

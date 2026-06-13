@@ -55,7 +55,7 @@ type userWithScope struct {
 	CreatedAt string          `json:"created_at"`
 }
 
-// List returns all users with their site/area scope
+// List returns all users with their site/area scope.
 func (h *UsersHandler) List(c *gin.Context) {
 	query := `
 		SELECT u.id, u.username, u.role, u.full_name, u.org_id, u.created_at, u.i3x_write,
@@ -100,7 +100,7 @@ func (h *UsersHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, users)
 }
 
-// Create adds a new user with optional site/area scope
+// Create adds a new user with optional site/area scope.
 func (h *UsersHandler) Create(c *gin.Context) {
 	var req CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -119,7 +119,7 @@ func (h *UsersHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 		return
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	var userID int
 	var createdAt string
@@ -199,7 +199,7 @@ func (h *UsersHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
 		return
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	if req.Password != "" {
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -231,28 +231,28 @@ func (h *UsersHandler) Update(c *gin.Context) {
 	}
 
 	if req.SiteIDs != nil {
-		if _, err := tx.ExecContext(c.Request.Context(), `DELETE FROM user_sites WHERE user_id = $1`, id); err != nil {
+		if _, execErr := tx.ExecContext(c.Request.Context(), `DELETE FROM user_sites WHERE user_id = $1`, id); execErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear site scope"})
 			return
 		}
-		if err := insertUserSitesTx(c, tx, id, *req.SiteIDs); err != nil {
+		if assignErr := insertUserSitesTx(c, tx, id, *req.SiteIDs); assignErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to assign sites"})
 			return
 		}
 	}
 
 	if req.AreaIDs != nil {
-		if _, err := tx.ExecContext(c.Request.Context(), `DELETE FROM user_areas WHERE user_id = $1`, id); err != nil {
+		if _, execErr := tx.ExecContext(c.Request.Context(), `DELETE FROM user_areas WHERE user_id = $1`, id); execErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear area scope"})
 			return
 		}
-		if err := insertUserAreasTx(c, tx, id, *req.AreaIDs); err != nil {
+		if assignErr := insertUserAreasTx(c, tx, id, *req.AreaIDs); assignErr != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to assign areas"})
 			return
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
+	if commitErr := tx.Commit(); commitErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
 		return
 	}

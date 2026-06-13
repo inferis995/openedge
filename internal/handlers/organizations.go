@@ -63,10 +63,10 @@ func (h *OrganizationsHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to begin transaction"})
 		return
 	}
-	defer tx.Rollback()
+	defer tx.Rollback() //nolint:errcheck
 
 	var org models.Organization
-	if err := tx.QueryRow(
+	if err = tx.QueryRowContext(c.Request.Context(),
 		"INSERT INTO organizations (name) VALUES ($1) RETURNING id, name, created_at",
 		req.Name,
 	).Scan(&org.ID, &org.Name, &org.CreatedAt); err != nil {
@@ -88,7 +88,7 @@ func (h *OrganizationsHandler) Create(c *gin.Context) {
 			fmt.Printf("[ORG] WARNING: failed to create MQTT user for org %d: %v\n", org.ID, dynsecErr)
 		} else {
 			// Store credentials so edge manager can pull them via the config API
-			if _, err := tx.Exec(
+			if _, err := tx.ExecContext(c.Request.Context(),
 				`INSERT INTO org_mqtt_credentials (org_id, username, password)
 				 VALUES ($1, $2, $3)
 				 ON CONFLICT (org_id) DO UPDATE SET username = $2, password = $3`,
@@ -302,7 +302,7 @@ func (h *OrganizationsHandler) Delete(c *gin.Context) {
 	}
 
 	var exists bool
-	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM organizations WHERE id = $1)", id).Scan(&exists)
+	err = h.db.QueryRowContext(c.Request.Context(), "SELECT EXISTS(SELECT 1 FROM organizations WHERE id = $1)", id).Scan(&exists)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check organization"})
 		return

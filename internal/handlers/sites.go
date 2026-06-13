@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -117,7 +118,7 @@ func (h *SitesHandler) List(c *gin.Context) {
 
 	if !middleware.IsGlobalAdmin(c) && hasUserID {
 		// Respect user's site scope: if user_sites is empty → all sites; else → only allowed sites
-		rows, err = h.db.Query(`
+		rows, err = h.db.QueryContext(c.Request.Context(), `
 			SELECT id, org_id, name, created_at FROM sites
 			WHERE org_id = $1
 			AND (
@@ -126,7 +127,7 @@ func (h *SitesHandler) List(c *gin.Context) {
 			)
 			ORDER BY id`, orgID, userID)
 	} else {
-		rows, err = h.db.Query(
+		rows, err = h.db.QueryContext(c.Request.Context(),
 			"SELECT id, org_id, name, created_at FROM sites WHERE org_id = $1 ORDER BY id",
 			orgID,
 		)
@@ -406,14 +407,14 @@ func (h *SitesHandler) Update(c *gin.Context) {
 // If the user has no entries in user_sites, they have access to all org sites.
 func (h *SitesHandler) userCanAccessSite(userID, siteID int) bool {
 	var count int
-	err := h.db.QueryRow(`
-		SELECT COUNT(*) FROM user_sites WHERE user_id = $1`, userID).Scan(&count)
+	err := h.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM user_sites WHERE user_id = $1`, userID).Scan(&count)
 	if err != nil || count == 0 {
 		return true // no restriction
 	}
 	var allowed int
-	err = h.db.QueryRow(`
-		SELECT COUNT(*) FROM user_sites WHERE user_id = $1 AND site_id = $2`, userID, siteID).Scan(&allowed)
+	err = h.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM user_sites WHERE user_id = $1 AND site_id = $2`, userID, siteID).Scan(&allowed)
 	return err == nil && allowed > 0
 }
 
