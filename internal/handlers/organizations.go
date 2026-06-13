@@ -21,15 +21,17 @@ type Organization struct {
 
 // OrganizationsHandler handles organization-related HTTP requests
 type OrganizationsHandler struct {
-	db         *sql.DB
-	mqttClient *mqtt.Client
+	db           *sql.DB
+	mqttClient   *mqtt.Client
+	dynsecClient *mqtt.DynsecClient // nil if MQTT auth is not configured
 }
 
 // NewOrganizationsHandler creates a new organizations handler
-func NewOrganizationsHandler(db *sql.DB, mqttClient *mqtt.Client) *OrganizationsHandler {
+func NewOrganizationsHandler(db *sql.DB, mqttClient *mqtt.Client, dynsecClient *mqtt.DynsecClient) *OrganizationsHandler {
 	return &OrganizationsHandler{
-		db:         db,
-		mqttClient: mqttClient,
+		db:           db,
+		mqttClient:   mqttClient,
+		dynsecClient: dynsecClient,
 	}
 }
 
@@ -56,14 +58,49 @@ func (h *OrganizationsHandler) Create(c *gin.Context) {
 		return
 	}
 
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to begin transaction"})
+		return
+	}
+	defer tx.Rollback()
+
 	var org models.Organization
-	err := h.db.QueryRow(
+	if err := tx.QueryRow(
 		"INSERT INTO organizations (name) VALUES ($1) RETURNING id, name, created_at",
 		req.Name,
-	).Scan(&org.ID, &org.Name, &org.CreatedAt)
-
-	if err != nil {
+	).Scan(&org.ID, &org.Name, &org.CreatedAt); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create organization"})
+		return
+	}
+
+	// Provision per-org MQTT credentials if Dynamic Security is available
+	if h.dynsecClient != nil {
+		mqttUser := fmt.Sprintf("org-%d", org.ID)
+		mqttPass, genErr := mqtt.GeneratePassword()
+		if genErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate MQTT credentials"})
+			return
+		}
+
+		if dynsecErr := h.dynsecClient.CreateOrgUser(org.ID, org.Name, mqttUser, mqttPass); dynsecErr != nil {
+			// Log but don't block org creation — MQTT creds can be re-provisioned later
+			fmt.Printf("[ORG] WARNING: failed to create MQTT user for org %d: %v\n", org.ID, dynsecErr)
+		} else {
+			// Store credentials so edge manager can pull them via the config API
+			if _, err := tx.Exec(
+				`INSERT INTO org_mqtt_credentials (org_id, username, password)
+				 VALUES ($1, $2, $3)
+				 ON CONFLICT (org_id) DO UPDATE SET username = $2, password = $3`,
+				org.ID, mqttUser, mqttPass,
+			); err != nil {
+				fmt.Printf("[ORG] WARNING: failed to store MQTT credentials for org %d: %v\n", org.ID, err)
+			}
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
 		return
 	}
 
@@ -197,6 +234,13 @@ func (h *OrganizationsHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// Update MQTT ACL topic prefix to match the new org name
+	if h.dynsecClient != nil {
+		if dynsecErr := h.dynsecClient.UpdateOrgRole(org.ID, org.Name); dynsecErr != nil {
+			fmt.Printf("[ORG] WARNING: failed to update MQTT role for org %d: %v\n", org.ID, dynsecErr)
+		}
+	}
+
 	// Trigger reload for all gateways in this organization to update topic names
 	if h.mqttClient != nil {
 		gatewayIDs, err := h.getGatewayIDsForOrg(org.ID)
@@ -250,9 +294,15 @@ func (h *OrganizationsHandler) getGatewayIDsForOrg(orgID int) ([]int, error) {
 func (h *OrganizationsHandler) Delete(c *gin.Context) {
 	id := c.Param("id")
 
-	// Check if organization exists
+	// Check if organization exists and get its ID as int
+	idInt, err := strconv.Atoi(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
+		return
+	}
+
 	var exists bool
-	err := h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM organizations WHERE id = $1)", id).Scan(&exists)
+	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM organizations WHERE id = $1)", id).Scan(&exists)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check organization"})
 		return
@@ -261,6 +311,15 @@ func (h *OrganizationsHandler) Delete(c *gin.Context) {
 	if !exists {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Organization not found"})
 		return
+	}
+
+	// Remove MQTT user before deleting the org
+	if h.dynsecClient != nil {
+		mqttUser := fmt.Sprintf("org-%d", idInt)
+		if dynsecErr := h.dynsecClient.DeleteOrgUser(idInt, mqttUser); dynsecErr != nil {
+			fmt.Printf("[ORG] WARNING: failed to delete MQTT user for org %d: %v\n", idInt, dynsecErr)
+			// Continue — org_mqtt_credentials will cascade-delete with the org
+		}
 	}
 
 	// Manual Cascade Delete Transaction
