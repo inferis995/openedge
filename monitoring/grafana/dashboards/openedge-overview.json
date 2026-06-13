@@ -1,0 +1,86 @@
+{
+  "title": "OpenEdge Platform Overview",
+  "uid": "openedge-overview",
+  "version": 1,
+  "schemaVersion": 38,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1, "type": "stat", "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "title": "Organizations",
+      "targets": [{"expr": "openedge_organizations_total", "datasource": "Prometheus"}],
+      "options": {"colorMode": "background", "graphMode": "none"}
+    },
+    {
+      "id": 2, "type": "stat", "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+      "title": "Gateways",
+      "targets": [{"expr": "openedge_gateways_total", "datasource": "Prometheus"}],
+      "options": {"colorMode": "background", "graphMode": "none"}
+    },
+    {
+      "id": 3, "type": "stat", "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+      "title": "Tags",
+      "targets": [{"expr": "openedge_tags_total", "datasource": "Prometheus"}],
+      "options": {"colorMode": "background", "graphMode": "none"}
+    },
+    {
+      "id": 4, "type": "stat", "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "title": "Active Alarms",
+      "targets": [{"expr": "openedge_active_alarms_total", "datasource": "Prometheus"}],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1},
+              {"color": "red", "value": 10}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 5, "type": "stat", "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+      "title": "Users",
+      "targets": [{"expr": "openedge_users_total", "datasource": "Prometheus"}],
+      "options": {"colorMode": "background", "graphMode": "none"}
+    },
+    {
+      "id": 6, "type": "stat", "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+      "title": "MQTT Connected",
+      "targets": [{"expr": "openedge_mqtt_connected", "datasource": "Prometheus"}],
+      "options": {"colorMode": "background", "graphMode": "none"},
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {"type": "value", "options": {"0": {"text": "Disconnected", "color": "red"}, "1": {"text": "Connected", "color": "green"}}}
+          ]
+        }
+      }
+    },
+    {
+      "id": 7, "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "title": "HTTP Request Rate",
+      "targets": [
+        {"expr": "sum(rate(openedge_http_requests_total[1m])) by (status)", "legendFormat": "{{status}}", "datasource": "Prometheus"}
+      ]
+    },
+    {
+      "id": 8, "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "title": "HTTP P95 Latency",
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum(rate(openedge_http_request_duration_seconds_bucket[5m])) by (le, path))", "legendFormat": "p95 {{path}}", "datasource": "Prometheus"}
+      ]
+    },
+    {
+      "id": 9, "type": "timeseries", "gridPos": {"h": 8, "w": 24, "x": 0, "y": 12},
+      "title": "MQTT Messages Received",
+      "targets": [
+        {"expr": "rate(openedge_mqtt_messages_received_total[1m])", "legendFormat": "{{prefix}}", "datasource": "Prometheus"}
+      ]
+    }
+  ]
+}

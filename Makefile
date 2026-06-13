@@ -1,8 +1,9 @@
-.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux lint lint-go lint-frontend test test-go test-frontend test-coverage swagger hooks-install cloud-up cloud-down cloud-logs cloud-status
+.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux lint lint-go lint-frontend test test-go test-frontend test-coverage swagger hooks-install cloud-up cloud-down cloud-logs cloud-status monitoring-up monitoring-down monitoring-logs
 
-COMPOSE_ONPREM_TLS = docker-compose -f docker-compose.yml -f docker-compose.onprem-tls.yml --profile backup
-COMPOSE_CLOUD      = docker compose -f docker-compose.yml -f docker-compose.cloud.yml
-COMPOSE_COOLIFY    = docker compose -f docker-compose.coolify.yml
+COMPOSE_ONPREM_TLS  = docker-compose -f docker-compose.yml -f docker-compose.onprem-tls.yml --profile backup
+COMPOSE_CLOUD       = docker compose -f docker-compose.yml -f docker-compose.cloud.yml
+COMPOSE_COOLIFY     = docker compose -f docker-compose.coolify.yml
+COMPOSE_MONITORING  = docker compose -f docker-compose.yml -f docker-compose.monitoring.yml --profile monitoring
 
 ## Create .env from example if missing; auto-generate JWT_SECRET if unset or placeholder
 setup-env:
@@ -163,6 +164,25 @@ cloud-status:
 	 curl -fsSLo /dev/null -w "  HTTP %%{http_code}  %%{time_total}s\n" "https://$$DOMAIN/api/health" 2>/dev/null || \
 	 echo "  ⚠ Not reachable yet (TLS cert may still be issued)"
 
+# ── Observability (Prometheus + Grafana + Loki) ──────────────────────────────
+## Start OpenEdge + Prometheus + Grafana + Loki monitoring stack.
+##   Grafana: http://localhost:3001  (admin / admin)
+##   Prometheus: http://localhost:9090
+monitoring-up: setup-env
+	$(COMPOSE_MONITORING) up -d
+	@echo ""
+	@echo "Monitoring stack started."
+	@echo "  Grafana:    http://localhost:3001  (admin / admin)"
+	@echo "  Prometheus: http://localhost:9090"
+
+## Stop the monitoring stack
+monitoring-down:
+	$(COMPOSE_MONITORING) down
+
+## Follow monitoring logs
+monitoring-logs:
+	$(COMPOSE_MONITORING) logs -f prometheus grafana loki
+
 # ── Code quality ─────────────────────────────────────────────────────────────
 ## Run all linters (Go + frontend)
 lint: lint-go lint-frontend
@@ -220,6 +240,10 @@ help:
 	@echo "  make cloud-up      Start manual cloud stack"
 	@echo "  make cloud-logs    Follow cloud logs"
 	@echo "  make cloud-status  Health check"
+	@echo ""
+	@echo "  ── Monitoring (Prometheus + Grafana + Loki) ────────────────"
+	@echo "  make monitoring-up   Start monitoring stack alongside OpenEdge"
+	@echo "  make monitoring-down Stop monitoring stack"
 	@echo ""
 	@echo "  ── Quality ─────────────────────────────────────────────────"
 	@echo "  make lint          Run all linters"
