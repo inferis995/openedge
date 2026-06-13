@@ -1,0 +1,157 @@
+# OpenEdge — Coolify deployment compose file.
+#
+# HOW TO DEPLOY:
+# 1. In Coolify: New Project → Add Resource → Docker Compose
+# 2. Paste this file (or point to git repo, file: docker-compose.coolify.yml)
+# 3. Set environment variables in Coolify UI (see .env.cloud.example)
+# 4. Set domain for web-ui in Coolify UI → Coolify handles HTTPS + Let's Encrypt
+# 5. For MQTT/TLS (port 8883): add the Traefik dynamic config below in
+#    Coolify → Settings → Traefik → Dynamic Configuration tab
+#
+# MQTT dynamic config to paste in Coolify Traefik settings:
+# ─────────────────────────────────────────────────────────────
+# tcp:
+#   routers:
+#     mqtts:
+#       rule: "HostSNI(`YOUR_DOMAIN`)"
+#       entryPoints:
+#         - mqtts
+#       tls:
+#         certResolver: letsencrypt
+#       service: mqtts-svc
+#   services:
+#     mqtts-svc:
+#       loadBalancer:
+#         servers:
+#           - address: "mosquitto:1883"
+#
+# Also in Coolify → Settings → Traefik → Port Mappings, add: 8883:8883
+# ─────────────────────────────────────────────────────────────
+
+services:
+
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-industrial_edge}
+      POSTGRES_USER: ${POSTGRES_USER:-industrial_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-industrial_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis/redis-stack:latest
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    entrypoint: ["/mosquitto/config/docker-entrypoint.sh"]
+    command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+    environment:
+      MQTT_ADMIN_USER: ${MQTT_ADMIN_USER:-core-api}
+      MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD}
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/broker/version", "-C", "1",
+             "-i", "healthcheck", "-W", "3",
+             "-u", "${MQTT_ADMIN_USER:-core-api}", "-P", "${MQTT_ADMIN_PASSWORD:-}"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  core-api:
+    image: ${CORE_API_IMAGE:-openedge-core-api:latest}
+    build:
+      context: .
+      dockerfile: services/core-api/Dockerfile
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-industrial_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-industrial_edge}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      MQTT_USERNAME: ${MQTT_ADMIN_USER:-core-api}
+      MQTT_PASSWORD: ${MQTT_ADMIN_PASSWORD}
+      MQTT_PUBLIC_HOST: ${PUBLIC_HOST}
+      MQTT_PUBLIC_PORT: 8883
+      PORT: 8081
+      BACKUP_PATH: /backups
+      JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: https://${PUBLIC_HOST}
+      LOG_FORMAT: json
+      SWAGGER_ENABLED: "false"
+      OPENEDGE_INITIAL_ADMIN_PASSWORD: ${OPENEDGE_INITIAL_ADMIN_PASSWORD:-}
+      PUBLIC_HOST: ${PUBLIC_HOST}
+    volumes:
+      - backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  web-ui:
+    image: ${WEB_UI_IMAGE:-openedge-web-ui:latest}
+    build:
+      context: .
+      dockerfile: services/web-ui/Dockerfile
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/nginx-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    # Coolify sets domain and HTTPS in the UI.
+    # These labels are picked up by Coolify's internal Traefik instance.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.openedge.rule=Host(`${PUBLIC_HOST}`)"
+      - "traefik.http.routers.openedge.entrypoints=https"
+      - "traefik.http.routers.openedge.tls=true"
+      - "traefik.http.routers.openedge.tls.certresolver=letsencrypt"
+      - "traefik.http.services.openedge.loadbalancer.server.port=80"
+      - "traefik.http.middlewares.openedge-sec.headers.stsSeconds=63072000"
+      - "traefik.http.middlewares.openedge-sec.headers.frameDeny=true"
+      - "traefik.http.middlewares.openedge-sec.headers.contentTypeNosniff=true"
+      - "traefik.http.routers.openedge.middlewares=openedge-sec"
+
+volumes:
+  postgres-data:
+  redis-data:
+  mosquitto-data:
+  mosquitto-log:
+  backups:

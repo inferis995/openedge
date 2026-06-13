@@ -2,6 +2,7 @@
 
 COMPOSE_ONPREM_TLS = docker-compose -f docker-compose.yml -f docker-compose.onprem-tls.yml --profile backup
 COMPOSE_CLOUD      = docker compose -f docker-compose.yml -f docker-compose.cloud.yml
+COMPOSE_COOLIFY    = docker compose -f docker-compose.coolify.yml
 
 ## Create .env from example if missing; auto-generate JWT_SECRET if unset or placeholder
 setup-env:
@@ -119,9 +120,23 @@ kiosk-linux:
 	./scripts/install-kiosk-linux.sh $(URL)
 
 # ── Cloud / SaaS deployment ──────────────────────────────────────────────────
-## First-time VPS setup (interactive): installs Docker, configures TLS, starts stack
+## First-time VPS setup (interactive): installs Docker, configures TLS, starts stack.
+## Prefer Coolify for a managed experience (make coolify-build).
 cloud-init: setup-env
 	bash deploy/cloud-init.sh
+
+# ── Coolify deployment (recommended for cloud) ────────────────────────────────
+## Build images locally then push — used when Coolify builds from git
+coolify-build: setup-env
+	$(COMPOSE_COOLIFY) build
+
+## Start coolify stack locally for testing before pushing
+coolify-up: setup-env
+	$(COMPOSE_COOLIFY) up -d
+
+## Stop coolify local stack
+coolify-down:
+	$(COMPOSE_COOLIFY) down
 
 ## Start the cloud stack (Traefik + Let's Encrypt + all services)
 cloud-up: setup-env
@@ -197,10 +212,12 @@ help:
 	@echo "  make clean         Stop and DELETE all data (irreversible)"
 	@echo "  make onprem-tls    Start with internal TLS (self-signed Caddy CA)"
 	@echo ""
-	@echo "  ── Cloud / SaaS (internet-facing, Let's Encrypt) ──────────"
-	@echo "  make cloud-init    First-time VPS setup (interactive)"
-	@echo "  make cloud-up      Start cloud stack (Traefik + TLS)"
-	@echo "  make cloud-down    Stop cloud stack"
+	@echo "  ── Cloud / SaaS ────────────────────────────────────────────"
+	@echo "  make coolify-build Build images for Coolify deployment (recommended)"
+	@echo "  make coolify-up    Test Coolify compose locally"
+	@echo "  make coolify-down  Stop local Coolify stack"
+	@echo "  make cloud-init    Manual VPS setup without Coolify (Traefik direct)"
+	@echo "  make cloud-up      Start manual cloud stack"
 	@echo "  make cloud-logs    Follow cloud logs"
 	@echo "  make cloud-status  Health check"
 	@echo ""
