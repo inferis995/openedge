@@ -456,6 +456,120 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: per-org MQTT credentials provisioned into Mosquitto DynSec.
+	// One row per org; username is stable (org-{id}), password is random.
+	orgMqttCredentials := []string{
+		`CREATE TABLE IF NOT EXISTS org_mqtt_credentials (
+			id         SERIAL PRIMARY KEY,
+			org_id     INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			username   TEXT NOT NULL,
+			password   TEXT NOT NULL,
+			created_at TIMESTAMPTZ DEFAULT NOW(),
+			UNIQUE (org_id),
+			UNIQUE (username)
+		)`,
+	}
+	for _, stmt := range orgMqttCredentials {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("org_mqtt_credentials migration: %w", err)
+		}
+	}
+
+	// Migration: org API keys for edge-to-cloud auth (X-API-Key header).
+	orgApiKeys := []string{
+		`CREATE TABLE IF NOT EXISTS org_api_keys (
+			id           SERIAL PRIMARY KEY,
+			org_id       INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			name         TEXT NOT NULL DEFAULT 'default',
+			key_prefix   TEXT NOT NULL,
+			key_hash     TEXT NOT NULL,
+			created_at   TIMESTAMPTZ DEFAULT NOW(),
+			last_used_at TIMESTAMPTZ,
+			revoked_at   TIMESTAMPTZ
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_org_api_keys_org_active
+			ON org_api_keys(org_id) WHERE revoked_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_org_api_keys_prefix_active
+			ON org_api_keys(key_prefix) WHERE revoked_at IS NULL`,
+	}
+	for _, stmt := range orgApiKeys {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("org_api_keys migration: %w", err)
+		}
+	}
+
+	// Migration: email column on users (for password-reset flow).
+	if _, err := db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT`); err != nil {
+		return fmt.Errorf("failed to add users.email column: %w", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email) WHERE email IS NOT NULL`); err != nil {
+		log.Printf("Warning: failed to create idx_users_email: %v", err)
+	}
+
+	// Migration: password_reset_tokens — one-time tokens, expire 1 hour.
+	pwdResetTokens := []string{
+		`CREATE TABLE IF NOT EXISTS password_reset_tokens (
+			id         SERIAL PRIMARY KEY,
+			user_id    INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			token      TEXT NOT NULL UNIQUE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			expires_at TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '1 hour',
+			used_at    TIMESTAMPTZ
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens (token)`,
+	}
+	for _, stmt := range pwdResetTokens {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("password_reset_tokens migration: %w", err)
+		}
+	}
+
+	// Migration: user_invites — org admin invites users via one-time link (7d TTL).
+	userInvites := []string{
+		`CREATE TABLE IF NOT EXISTS user_invites (
+			id          SERIAL PRIMARY KEY,
+			org_id      INT         NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			email       TEXT        NOT NULL,
+			role        TEXT        NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user')),
+			token       TEXT        NOT NULL UNIQUE,
+			created_by  INT         NOT NULL REFERENCES users(id),
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			expires_at  TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '7 days',
+			accepted_at TIMESTAMPTZ,
+			accepted_by INT REFERENCES users(id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_user_invites_token ON user_invites(token) WHERE accepted_at IS NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_user_invites_org   ON user_invites(org_id)`,
+	}
+	for _, stmt := range userInvites {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("user_invites migration: %w", err)
+		}
+	}
+
+	// Migration: webhooks — outbound HTTP callbacks on platform events.
+	webhooks := []string{
+		`CREATE TABLE IF NOT EXISTS webhooks (
+			id                SERIAL       PRIMARY KEY,
+			org_id            INT          NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			url               TEXT         NOT NULL,
+			secret            TEXT         NOT NULL,
+			events            TEXT[]       NOT NULL DEFAULT '{}',
+			enabled           BOOLEAN      NOT NULL DEFAULT true,
+			created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+			last_triggered_at TIMESTAMPTZ,
+			last_status_code  INT,
+			last_error        TEXT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_webhooks_org_id  ON webhooks (org_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_webhooks_enabled ON webhooks (enabled) WHERE enabled = true`,
+	}
+	for _, stmt := range webhooks {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("webhooks migration: %w", err)
+		}
+	}
+
 	// Bootstrap "safety net" admin: il file migrations/20250308_schema.sql
 	// seedando admin/admin123 gira solo se Postgres trova il volume vuoto
 	// (docker-entrypoint-initdb.d). Su un volume preesistente la seed

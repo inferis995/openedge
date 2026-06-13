@@ -1000,6 +1000,35 @@ func handleAlarmEvent(topic string, payload []byte, db *sql.DB) {
 			OccurredAt:  eventTime.UTC(),
 		})
 	}
+
+	// Deliver webhook events for alarm.active / alarm.cleared to all
+	// subscribed org webhooks. Resolve org_id from tag→gateway join;
+	// failures are logged but never block the alarm pipeline.
+	go func() {
+		var orgID int
+		if err := db.QueryRow(
+			`SELECT g.org_id FROM tags t JOIN gateways g ON t.gateway_id = g.id WHERE t.id = $1`,
+			event.TagID,
+		).Scan(&orgID); err != nil {
+			log.Printf("[ALARM] webhook: could not resolve org for tag %d: %v", event.TagID, err)
+			return
+		}
+		whEvent := "alarm.active"
+		if event.Status == "CLEARED" {
+			whEvent = "alarm.cleared"
+		}
+		handlers.DeliverWebhookEvent(db, orgID, whEvent, map[string]interface{}{
+			"alarm_id":         insertedID,
+			"tag_id":           event.TagID,
+			"tag_alias":        event.TagAlias,
+			"status":           event.Status,
+			"severity":         event.Severity,
+			"message":          event.Message,
+			"value_at_trigger": event.ValueAtTrigger,
+			"threshold":        event.Threshold,
+			"occurred_at":      eventTime.UTC(),
+		})
+	}()
 }
 
 // handleSparkplugUpdate processes Sparkplug B updates from MQTT
