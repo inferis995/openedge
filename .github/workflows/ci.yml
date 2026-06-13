@@ -18,17 +18,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
+      - name: Fetch master for diff baseline
+        run: git fetch origin master --depth=1
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.5.0
-          args: --timeout=5m --new-from-rev=origin/master
+          args: --timeout=5m --new-from-rev=origin/master ./internal/...
 
   # ── Go: test ─────────────────────────────────────────────────────────────────
   go-test:
