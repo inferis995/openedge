@@ -4,6 +4,11 @@ run:
   modules-download-mode: readonly
 
 linters:
+  disable:
+    # typecheck (compilation) is already validated by go test in CI;
+    # disabling avoids false-positive errors from transitive deps
+    # (x/net, quic-go) that fail due to Go toolchain build-tag mismatches.
+    - typecheck
   enable:
     - errcheck        # unchecked errors
     - govet           # go vet checks
@@ -60,13 +65,6 @@ issues:
     - path: "migrations/"
       linters:
         - all
-
-    # Typecheck errors in Go module cache (indirect deps like x/net, quic-go)
-    # golangci-lint typechecks transitive deps which can fail due to Go toolchain
-    # version mismatches — these are not our code, not actionable.
-    - path: "go/pkg/mod"
-      linters:
-        - typecheck
 
   # Max issues per linter
   max-issues-per-linter: 50
