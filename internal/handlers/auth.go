@@ -1,20 +1,104 @@
 package handlers
 
 import (
+	"database/sql"
 	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/ralph/industrial-edge-middleware/internal/auth"
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthHandler struct {
 	service *auth.Service
+	db      *sql.DB
 }
 
-func NewAuthHandler(service *auth.Service) *AuthHandler {
-	return &AuthHandler{service: service}
+func NewAuthHandler(service *auth.Service, db *sql.DB) *AuthHandler {
+	return &AuthHandler{service: service, db: db}
+}
+
+// Me handles GET /api/auth/me — returns the logged-in user's profile.
+func (h *AuthHandler) Me(c *gin.Context) {
+	raw, _ := c.Get(middleware.UserKey)
+	claims, ok := raw.(jwt.MapClaims)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	userID := int(claims["user_id"].(float64))
+
+	var profile struct {
+		ID       int     `json:"id"`
+		Username string  `json:"username"`
+		FullName *string `json:"full_name"`
+		Email    *string `json:"email"`
+		Role     string  `json:"role"`
+		OrgID    *int    `json:"org_id"`
+	}
+	err := h.db.QueryRowContext(c.Request.Context(),
+		`SELECT id, username, full_name, email, role, org_id FROM users WHERE id = $1`, userID,
+	).Scan(&profile.ID, &profile.Username, &profile.FullName, &profile.Email, &profile.Role, &profile.OrgID)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch profile"})
+		return
+	}
+	c.JSON(http.StatusOK, profile)
+}
+
+// ChangePassword handles PUT /api/auth/me/password.
+// Requires old password for verification.
+func (h *AuthHandler) ChangePassword(c *gin.Context) {
+	raw, _ := c.Get(middleware.UserKey)
+	claims, ok := raw.(jwt.MapClaims)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	userID := int(claims["user_id"].(float64))
+
+	var req struct {
+		OldPassword string `json:"old_password" binding:"required"`
+		NewPassword string `json:"new_password" binding:"required,min=6"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var currentHash string
+	if err := h.db.QueryRowContext(c.Request.Context(),
+		`SELECT password_hash FROM users WHERE id = $1`, userID,
+	).Scan(&currentHash); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(currentHash), []byte(req.OldPassword)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "current password is incorrect"})
+		return
+	}
+
+	newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
+		return
+	}
+
+	if _, err = h.db.ExecContext(c.Request.Context(),
+		`UPDATE users SET password_hash = $1 WHERE id = $2`, string(newHash), userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update password"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Password updated successfully."})
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {

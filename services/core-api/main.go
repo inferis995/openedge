@@ -295,7 +295,7 @@ func main() {
 
 	// Create auth service and handler
 	authService := auth.NewService(database)
-	authHandler := handlers.NewAuthHandler(authService)
+	authHandler := handlers.NewAuthHandler(authService, database)
 
 	// Alarm notification fan-out (email, Telegram, ...). Loads its own
 	// settings from global_settings and re-reads them once a minute, so
@@ -323,6 +323,14 @@ func main() {
 		auth := api.Group("/auth")
 		{
 			auth.POST("/login", middleware.LoginRateLimit(), authHandler.Login)
+		}
+		// Authenticated user self-service
+		authMe := api.Group("/auth")
+		authMe.Use(middleware.RequireAuth)
+		{
+			authMe.GET("/me", authHandler.Me)
+			authMe.PUT("/me/password", authHandler.ChangePassword)
+			authMe.POST("/logout", authHandler.Logout)
 		}
 		// Organizations endpoints
 		orgs := api.Group("/organizations")

@@ -29,6 +29,7 @@ import AcceptInvitePage from '@/pages/AcceptInvitePage';
 import AuditPage from '@/pages/AuditPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import ResetPasswordPage from '@/pages/ResetPasswordPage';
+import ProfilePage from '@/pages/ProfilePage';
 
 import { useEffect, useState, useRef } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -132,6 +133,7 @@ function App() {
                     <Route path="/oee-profiles" element={<OEEProfilesPage />} />
                     <Route path="/i3x" element={<I3XPage />} />
                     <Route path="/users" element={<UsersPage />} />
+                    <Route path="/profile" element={<ProfilePage />} />
                 </Route>
             </Route>
 

@@ -226,9 +226,9 @@ const Sidebar = () => {
                     </div>
                 )}
 
-                {/* User Profile */}
-                <div className={cn(
-                    "flex items-center transition-all bg-[hsl(var(--sidebar-accent))]/50 clip-chamfer-sm",
+                {/* User Profile — click to open profile/settings page */}
+                <Link to="/profile" className={cn(
+                    "flex items-center transition-all bg-[hsl(var(--sidebar-accent))]/50 clip-chamfer-sm hover:bg-[hsl(var(--sidebar-accent))] cursor-pointer",
                     collapsed ? "justify-center p-2" : "gap-3 p-3 border border-[hsl(var(--sidebar-border))]/50"
                 )}>
                     <div className="h-9 w-9 min-w-[36px] clip-hex bg-primary flex items-center justify-center text-primary-foreground">
@@ -245,7 +245,7 @@ const Sidebar = () => {
                             </div>
                         </div>
                     )}
-                </div>
+                </Link>
 
                 {/* Logout Button */}
                 <Button
