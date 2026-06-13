@@ -28,6 +28,8 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
+	"github.com/ralph/industrial-edge-middleware/internal/telemetry"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -726,6 +728,13 @@ func main() {
 		router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 		log.Println("[WARNING] Swagger UI is enabled — disable in production (SWAGGER_ENABLED=true)")
 	}
+
+	// Prometheus metrics endpoint — scraped by Prometheus every 15s.
+	// Protected by network policy (not exposed via Caddy/Traefik by default).
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	// Start background DB metrics collector (updates gauges every minute).
+	telemetry.StartDBMetricsCollector(database)
 
 	// Health check endpoints (unauthenticated, for Docker/Kubernetes probes)
 	router.GET("/health", func(c *gin.Context) {
