@@ -26,6 +26,7 @@ import OEEProfilesPage from '@/pages/OEEProfilesPage';
 import OEEKioskPage from '@/pages/OEEKioskPage';
 import I3XPage from '@/pages/I3XPage';
 import AcceptInvitePage from '@/pages/AcceptInvitePage';
+import AuditPage from '@/pages/AuditPage';
 
 import { useEffect, useState, useRef } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -134,6 +135,7 @@ function App() {
                 <Route element={<LayoutWrapper />}>
                     <Route path="/diagnostics" element={<DiagnosticsPage />} />
                     <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
+                    <Route path="/audit" element={<AuditPage />} />
                 </Route>
             </Route>
 

@@ -32,6 +32,7 @@
         "diagnostics": "Diagnostics",
         "users": "Users",
         "mqtt_monitor": "MQTT Monitor",
+        "audit_log": "Audit Log",
         "edge_agents": "Edge Agents",
         "plans": "Plans",
         "admin_section": "Admin",

@@ -30,6 +30,7 @@ import {
     Wrench,
     Target,
     Gauge,
+    Shield,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -74,7 +75,7 @@ const Sidebar = () => {
         { name: t('nav.i3x'), path: '/i3x', icon: Network },
     ];
 
-    // Admin section — global admins see System + Diagnostics + Users + MQTT monitor.
+    // Admin section — global admins see System + Diagnostics + Users + MQTT monitor + Audit.
     // Org admins see only Users (to manage their org's members).
     const adminNavItems = [
         ...(isGlobalAdmin()
@@ -82,6 +83,7 @@ const Sidebar = () => {
                 { name: t('nav.system'), path: '/system', icon: Settings },
                 { name: t('nav.diagnostics'), path: '/diagnostics', icon: Activity },
                 { name: t('nav.mqtt_monitor'), path: '/mqtt-monitor', icon: Radio },
+                { name: t('nav.audit_log'), path: '/audit', icon: Shield },
             ]
             : []
         ),
