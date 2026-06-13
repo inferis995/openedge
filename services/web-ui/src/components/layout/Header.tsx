@@ -4,6 +4,7 @@ import { ChevronRight, Building2, Factory, MapPin, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMqttStore } from '@/stores/useMqttStore';
 import { useNavigationStore } from '@/stores/useNavigationStore';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { organizationsApi } from '@/api/organizations';
 import { sitesApi } from '@/api/sites';
 import { areasApi } from '@/api/areas';
@@ -14,6 +15,7 @@ const Header = () => {
     const location = useLocation();
 
     const { isMqttConnected, connectMqtt } = useMqttStore();
+    const { isOrgScoped } = useAuthStore();
 
     // Get navigation context
     const { selectedOrgId, selectedSiteId, selectedAreaId, clearSelection } = useNavigationStore();
@@ -113,13 +115,16 @@ const Header = () => {
                             )}
                         </div>
 
-                        <button
-                            onClick={clearSelection}
-                            className="ml-3 p-0.5 clip-hex hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
-                            title="Clear Context Filter"
-                        >
-                            <X size={14} />
-                        </button>
+                        {/* Org-scoped users cannot switch org — hide the clear button */}
+                        {!isOrgScoped() && (
+                            <button
+                                onClick={clearSelection}
+                                className="ml-3 p-0.5 clip-hex hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
+                                title="Clear Context Filter"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
                     </div>
                 )}
             </div>

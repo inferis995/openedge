@@ -8,6 +8,7 @@ export interface User {
     username: string;
     role: UserRole;
     full_name: string;
+    org_id?: number | null; // null = global admin, set = org-scoped
     i3x_write?: boolean;
 }
 
@@ -18,6 +19,9 @@ interface AuthState {
     logout: () => void;
     isAuthenticated: () => boolean;
     isAdmin: () => boolean;
+    isGlobalAdmin: () => boolean; // admin with no org (superuser)
+    isOrgAdmin: () => boolean;    // admin scoped to a single org
+    isOrgScoped: () => boolean;   // any user scoped to a single org
     canI3xWrite: () => boolean;
 }
 
@@ -30,6 +34,9 @@ export const useAuthStore = create<AuthState>()(
             logout: () => set({ token: null, user: null }),
             isAuthenticated: () => !!get().token,
             isAdmin: () => get().user?.role === 'admin',
+            isGlobalAdmin: () => get().user?.role === 'admin' && !get().user?.org_id,
+            isOrgAdmin: () => get().user?.role === 'admin' && !!get().user?.org_id,
+            isOrgScoped: () => !!get().user?.org_id,
             canI3xWrite: () => {
                 const u = get().user;
                 return u?.role === 'admin' || u?.i3x_write === true;

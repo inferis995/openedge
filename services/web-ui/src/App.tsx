@@ -30,6 +30,7 @@ import AcceptInvitePage from '@/pages/AcceptInvitePage';
 import { useEffect, useState, useRef } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import { useTrendStore } from '@/stores/useTrendStore';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { organizationsApi } from '@/api/organizations';
 import { useSparkplugListener } from '@/hooks/useSparkplugListener';
 import { Loader2 } from 'lucide-react';
@@ -43,6 +44,7 @@ const LayoutWrapper = () => (
 function App() {
     const { selectedOrgId, setSelectedOrgId } = useNavigationStore();
     const { resetStore: resetTrendStore } = useTrendStore();
+    const { user } = useAuthStore();
     const [isInitializing, setIsInitializing] = useState(true);
     const prevOrgIdRef = useRef<number | null>(null);
 
@@ -61,10 +63,17 @@ function App() {
     useEffect(() => {
         const initOrganization = async () => {
             if (!selectedOrgId) {
+                // Org-scoped users have org_id in their JWT — use it directly,
+                // no network round-trip needed.
+                if (user?.org_id) {
+                    setSelectedOrgId(user.org_id);
+                    setIsInitializing(false);
+                    return;
+                }
+                // Global admins: pick first org from the list.
                 try {
                     const orgs = await organizationsApi.getAll();
                     if (orgs && orgs.length > 0) {
-                        console.log('Auto-selecting organization:', orgs[0].name);
                         setSelectedOrgId(orgs[0].id);
                     }
                 } catch (error) {
@@ -75,7 +84,7 @@ function App() {
         };
 
         initOrganization();
-    }, [selectedOrgId, setSelectedOrgId]);
+    }, [selectedOrgId, setSelectedOrgId, user?.org_id]);
 
     if (isInitializing) {
         return (
