@@ -25,10 +25,16 @@ import CustomKPIsPage from '@/pages/CustomKPIsPage';
 import OEEProfilesPage from '@/pages/OEEProfilesPage';
 import OEEKioskPage from '@/pages/OEEKioskPage';
 import I3XPage from '@/pages/I3XPage';
+import AcceptInvitePage from '@/pages/AcceptInvitePage';
+import AuditPage from '@/pages/AuditPage';
+import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
+import ResetPasswordPage from '@/pages/ResetPasswordPage';
+import ProfilePage from '@/pages/ProfilePage';
 
 import { useEffect, useState, useRef } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import { useTrendStore } from '@/stores/useTrendStore';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { organizationsApi } from '@/api/organizations';
 import { useSparkplugListener } from '@/hooks/useSparkplugListener';
 import { Loader2 } from 'lucide-react';
@@ -42,6 +48,7 @@ const LayoutWrapper = () => (
 function App() {
     const { selectedOrgId, setSelectedOrgId } = useNavigationStore();
     const { resetStore: resetTrendStore } = useTrendStore();
+    const { user } = useAuthStore();
     const [isInitializing, setIsInitializing] = useState(true);
     const prevOrgIdRef = useRef<number | null>(null);
 
@@ -60,10 +67,17 @@ function App() {
     useEffect(() => {
         const initOrganization = async () => {
             if (!selectedOrgId) {
+                // Org-scoped users have org_id in their JWT — use it directly,
+                // no network round-trip needed.
+                if (user?.org_id) {
+                    setSelectedOrgId(user.org_id);
+                    setIsInitializing(false);
+                    return;
+                }
+                // Global admins: pick first org from the list.
                 try {
                     const orgs = await organizationsApi.getAll();
                     if (orgs && orgs.length > 0) {
-                        console.log('Auto-selecting organization:', orgs[0].name);
                         setSelectedOrgId(orgs[0].id);
                     }
                 } catch (error) {
@@ -74,7 +88,7 @@ function App() {
         };
 
         initOrganization();
-    }, [selectedOrgId, setSelectedOrgId]);
+    }, [selectedOrgId, setSelectedOrgId, user?.org_id]);
 
     if (isInitializing) {
         return (
@@ -88,6 +102,10 @@ function App() {
     return (
         <Routes>
             <Route path="/login" element={<LoginPage />} />
+            {/* Public routes — no auth required */}
+            <Route path="/accept-invite" element={<AcceptInvitePage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
 
             {/* TV/Kiosk mode — full-screen senza sidebar/header. Resta
                 sotto RequireAuth ma fuori dal LayoutWrapper. */}
@@ -115,6 +133,7 @@ function App() {
                     <Route path="/oee-profiles" element={<OEEProfilesPage />} />
                     <Route path="/i3x" element={<I3XPage />} />
                     <Route path="/users" element={<UsersPage />} />
+                    <Route path="/profile" element={<ProfilePage />} />
                 </Route>
             </Route>
 
@@ -122,6 +141,7 @@ function App() {
                 <Route element={<LayoutWrapper />}>
                     <Route path="/diagnostics" element={<DiagnosticsPage />} />
                     <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
+                    <Route path="/audit" element={<AuditPage />} />
                 </Route>
             </Route>
 

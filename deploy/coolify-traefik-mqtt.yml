@@ -1,0 +1,33 @@
+# Traefik dynamic configuration for MQTT/TLS on port 8883.
+#
+# WHERE TO PASTE THIS:
+#   Coolify → Settings → Configuration → Traefik → Dynamic Configuration
+#
+# BEFORE pasting, also do:
+#   Coolify → Settings → Configuration → Traefik → Port Mappings
+#   Add: 8883:8883  (TCP)
+#
+# Replace YOUR_DOMAIN with your actual domain (same as PUBLIC_HOST in .env).
+
+tcp:
+  routers:
+    mqtts:
+      rule: "HostSNI(`YOUR_DOMAIN`)"
+      entryPoints:
+        - mqtts
+      tls:
+        certResolver: letsencrypt
+      service: mqtts-svc
+
+  services:
+    mqtts-svc:
+      loadBalancer:
+        servers:
+          - address: "mosquitto:1883"
+
+# Also add this entrypoint in:
+#   Coolify → Settings → Configuration → Traefik → Static Configuration
+#
+# entryPoints:
+#   mqtts:
+#     address: ":8883"

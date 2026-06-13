@@ -30,6 +30,7 @@ import {
     Wrench,
     Target,
     Gauge,
+    Shield,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -40,14 +41,24 @@ const Sidebar = () => {
     const navigate = useNavigate();
     const { t } = useTranslation();
     const [collapsed, setCollapsed] = useState(false);
-    const { user, logout, isAdmin } = useAuthStore();
+    const { user, logout, isAdmin, isGlobalAdmin, isOrgScoped } = useAuthStore();
     const { theme, toggleTheme } = useThemeStore();
 
     // Etichette via i18n: lo switch IT/EN nel footer cambia tutto in tempo
     // reale. Le chiavi vivono in src/i18n/locales/{en,it}.json sotto `nav.*`.
+    // Core nav — everyone with a valid session sees this.
     const navItems = [
         { name: t('nav.dashboard'), path: '/', icon: LayoutDashboard },
-        { name: t('nav.organizations'), path: '/organizations', icon: Building2 },
+        // Global admins see the full org roster; org-scoped users see only
+        // their own org (same page, API already scopes the data).
+        ...(isGlobalAdmin()
+            ? [{ name: t('nav.organizations'), path: '/organizations', icon: Building2 }]
+            : isOrgScoped() && isAdmin()
+                // Org admins get a "My Organization" shortcut to manage
+                // infrastructure, invite users, and API keys.
+                ? [{ name: 'My Organization', path: '/organizations', icon: Building2 }]
+                : []
+        ),
         { name: t('nav.sites'), path: '/sites', icon: Factory },
         { name: t('nav.areas'), path: '/areas', icon: MapPin },
         { name: t('nav.gateways'), path: '/gateways', icon: Cpu },
@@ -64,11 +75,19 @@ const Sidebar = () => {
         { name: t('nav.i3x'), path: '/i3x', icon: Network },
     ];
 
+    // Admin section — global admins see System + Diagnostics + Users + MQTT monitor + Audit.
+    // Org admins see only Users (to manage their org's members).
     const adminNavItems = [
-        { name: t('nav.system'), path: '/system', icon: Settings },
-        { name: t('nav.diagnostics'), path: '/diagnostics', icon: Activity },
+        ...(isGlobalAdmin()
+            ? [
+                { name: t('nav.system'), path: '/system', icon: Settings },
+                { name: t('nav.diagnostics'), path: '/diagnostics', icon: Activity },
+                { name: t('nav.mqtt_monitor'), path: '/mqtt-monitor', icon: Radio },
+                { name: t('nav.audit_log'), path: '/audit', icon: Shield },
+            ]
+            : []
+        ),
         { name: t('nav.users'), path: '/users', icon: Users },
-        { name: t('nav.mqtt_monitor'), path: '/mqtt-monitor', icon: Radio },
     ];
 
     return (
@@ -207,9 +226,9 @@ const Sidebar = () => {
                     </div>
                 )}
 
-                {/* User Profile */}
-                <div className={cn(
-                    "flex items-center transition-all bg-[hsl(var(--sidebar-accent))]/50 clip-chamfer-sm",
+                {/* User Profile — click to open profile/settings page */}
+                <Link to="/profile" className={cn(
+                    "flex items-center transition-all bg-[hsl(var(--sidebar-accent))]/50 clip-chamfer-sm hover:bg-[hsl(var(--sidebar-accent))] cursor-pointer",
                     collapsed ? "justify-center p-2" : "gap-3 p-3 border border-[hsl(var(--sidebar-border))]/50"
                 )}>
                     <div className="h-9 w-9 min-w-[36px] clip-hex bg-primary flex items-center justify-center text-primary-foreground">
@@ -220,11 +239,13 @@ const Sidebar = () => {
                             <p className="text-sm font-bold truncate">{user?.username || t('nav.user_role')}</p>
                             <div className="flex items-center gap-1.5">
                                 <div className="w-2 h-2 clip-hex bg-green-500 animate-pulse" />
-                                <p className="text-xs text-[hsl(var(--sidebar-muted))] truncate">{isAdmin() ? t('nav.admin_role') : t('nav.user_role')}</p>
+                                <p className="text-xs text-[hsl(var(--sidebar-muted))] truncate">
+                                    {isAdmin() ? t('nav.admin_role') : t('nav.user_role')}
+                                </p>
                             </div>
                         </div>
                     )}
-                </div>
+                </Link>
 
                 {/* Logout Button */}
                 <Button

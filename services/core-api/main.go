@@ -28,6 +28,8 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
+	"github.com/ralph/industrial-edge-middleware/internal/telemetry"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -169,6 +171,21 @@ func main() {
 		} else {
 			log.Println("Subscribed to write commands from external sources")
 		}
+
+		// Subscribe to edge manager heartbeats: sys/edge/{org_id}/ping
+		// Edge manager publishes every 30 s; we store the timestamp in Redis
+		// with a 90 s TTL so the edge-status endpoint can detect offline edges.
+		if err := mqttClient.Subscribe("sys/edge/#", func(topic string, payload []byte) {
+			// topic format: sys/edge/{org_id}/ping
+			parts := strings.Split(topic, "/")
+			if len(parts) == 4 && parts[3] == "ping" {
+				handlers.HandleEdgePing(context.Background(), parts[2], redisClient)
+			}
+		}); err != nil {
+			log.Printf("Warning: Failed to subscribe to edge ping topic: %v", err)
+		} else {
+			log.Println("Subscribed to edge heartbeats")
+		}
 	}
 
 	// Connect to cloud MQTT broker for receiving write commands from cloud
@@ -280,7 +297,7 @@ func main() {
 
 	// Create auth service and handler
 	authService := auth.NewService(database)
-	authHandler := handlers.NewAuthHandler(authService)
+	authHandler := handlers.NewAuthHandler(authService, database)
 
 	// Alarm notification fan-out (email, Telegram, ...). Loads its own
 	// settings from global_settings and re-reads them once a minute, so
@@ -308,6 +325,14 @@ func main() {
 		auth := api.Group("/auth")
 		{
 			auth.POST("/login", middleware.LoginRateLimit(), authHandler.Login)
+		}
+		// Authenticated user self-service
+		authMe := api.Group("/auth")
+		authMe.Use(middleware.RequireAuth)
+		{
+			authMe.GET("/me", authHandler.Me)
+			authMe.PUT("/me/password", authHandler.ChangePassword)
+			authMe.POST("/logout", authHandler.Logout)
 		}
 		// Organizations endpoints
 		orgs := api.Group("/organizations")
@@ -638,6 +663,38 @@ func main() {
 			orgAPIKeys.DELETE("/:key_id", apiKeysHandler.Revoke)
 		}
 
+		// Edge installer — generates a ready-to-run ZIP for edge deployment (org admin only)
+		installerHandler := handlers.NewEdgeInstallerHandler(database)
+		orgEdge := api.Group("/organizations/:id")
+		orgEdge.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			orgEdge.GET("/edge-installer", installerHandler.Download)
+		}
+
+		// User invites — org admins create one-time invite links for new members.
+		invitesHandler := handlers.NewInvitesHandler(database, redisClient)
+		orgInvites := api.Group("/organizations/:id/invites")
+		orgInvites.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			orgInvites.POST("", invitesHandler.Create)
+		}
+		// Public auth endpoints — no JWT required.
+		publicAuth := api.Group("/auth")
+		publicAuth.POST("/accept-invite", invitesHandler.AcceptInvite)
+		publicAuth.POST("/forgot-password", authHandler.ForgotPassword)
+		publicAuth.POST("/reset-password", authHandler.ResetPassword)
+
+		// Edge heartbeat status + webhook management — org admin or global admin.
+		webhooksHandler := handlers.NewWebhooksHandler(database)
+		orgMgmt := api.Group("/organizations/:id")
+		orgMgmt.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			orgMgmt.GET("/edge-status", invitesHandler.EdgeStatus)
+			orgMgmt.GET("/webhooks", webhooksHandler.List)
+			orgMgmt.POST("/webhooks", webhooksHandler.Create)
+			orgMgmt.DELETE("/webhooks/:webhook_id", webhooksHandler.Delete)
+		}
+
 		// Edge config pull endpoint — authenticated via API key, not JWT.
 		// Edge managers call this on startup to get their gateway config + MQTT creds.
 		edgeConfigHandler := handlers.NewEdgeConfigHandler(database)
@@ -675,6 +732,13 @@ func main() {
 		router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 		log.Println("[WARNING] Swagger UI is enabled — disable in production (SWAGGER_ENABLED=true)")
 	}
+
+	// Prometheus metrics endpoint — scraped by Prometheus every 15s.
+	// Protected by network policy (not exposed via Caddy/Traefik by default).
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
+	// Start background DB metrics collector (updates gauges every minute).
+	telemetry.StartDBMetricsCollector(database)
 
 	// Health check endpoints (unauthenticated, for Docker/Kubernetes probes)
 	router.GET("/health", func(c *gin.Context) {
@@ -936,6 +1000,35 @@ func handleAlarmEvent(topic string, payload []byte, db *sql.DB) {
 			OccurredAt:  eventTime.UTC(),
 		})
 	}
+
+	// Deliver webhook events for alarm.active / alarm.cleared to all
+	// subscribed org webhooks. Resolve org_id from tag→gateway join;
+	// failures are logged but never block the alarm pipeline.
+	go func() {
+		var orgID int
+		if err := db.QueryRow(
+			`SELECT g.org_id FROM tags t JOIN gateways g ON t.gateway_id = g.id WHERE t.id = $1`,
+			event.TagID,
+		).Scan(&orgID); err != nil {
+			log.Printf("[ALARM] webhook: could not resolve org for tag %d: %v", event.TagID, err)
+			return
+		}
+		whEvent := "alarm.active"
+		if event.Status == "CLEARED" {
+			whEvent = "alarm.cleared"
+		}
+		handlers.DeliverWebhookEvent(db, orgID, whEvent, map[string]interface{}{
+			"alarm_id":         insertedID,
+			"tag_id":           event.TagID,
+			"tag_alias":        event.TagAlias,
+			"status":           event.Status,
+			"severity":         event.Severity,
+			"message":          event.Message,
+			"value_at_trigger": event.ValueAtTrigger,
+			"threshold":        event.Threshold,
+			"occurred_at":      eventTime.UTC(),
+		})
+	}()
 }
 
 // handleSparkplugUpdate processes Sparkplug B updates from MQTT

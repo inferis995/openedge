@@ -14,15 +14,15 @@
 
 # OpenEdge Industrial Edge Middleware
 
-**Production-Ready Industrial IoT Edge Computing Platform**
+**Multi-Tenant SaaS Industrial IoT Platform**
 
 [![Website](https://img.shields.io/badge/Website-Landing_Page-ccff00?style=flat&logo=vercel)](https://openedge-landing.vercel.app)
 [![Go Version](https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat&logo=go)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Docker](https://img.shields.io/badge/Docker-Supported-2496ED?style=flat&logo=docker)](https://www.docker.com/)
+[![Docker](https://img.shields.io/badge/Docker-Multi--arch-2496ED?style=flat&logo=docker)](https://www.docker.com/)
 [![CESMII i3X](https://img.shields.io/badge/CESMII-i3X%20v1-orange?style=flat)](https://www.cesmii.org/)
 
-⚡ **High-Performance** • 🏭 **Industrial-Grade** • 🔒 **Secure** • 📊 **Real-Time Analytics**
+⚡ **High-Performance** • 🏭 **Industrial-Grade** • 🔒 **Secure** • 🌐 **Multi-Tenant SaaS**
 
 **[🌐 Visit the Landing Page →](https://openedge-landing.vercel.app)**
 
@@ -79,48 +79,78 @@
 
 ## Overview
 
-**OpenEdge** is a professional-grade edge computing middleware for industrial IoT. It bridges the gap between field devices (PLCs, sensors) and cloud systems, providing real-time data collection, alarm management, and a vendor-neutral REST API compatible with the **CESMII i3X v1** standard.
+**OpenEdge** is a production-ready, multi-tenant SaaS platform for Industrial IoT. It bridges the gap between field devices (PLCs, sensors) and cloud systems — providing real-time data collection, alarm management, OEE analytics, and a vendor-neutral REST API compatible with the **CESMII i3X v1** standard.
+
+Each customer organization is fully isolated: siloed data, siloed MQTT credentials, siloed users. The global admin manages organizations; each org's admin manages their own users and infrastructure autonomously.
 
 ### Key Features
 
+**Data & Control**
 - **Multi-Protocol Drivers** — Modbus TCP, Siemens S7, OPC UA, MQTT, Redis
-- **Real-Time Processing** — Sub-second latency with Redis caching
-- **Advanced Alarm System** — Configurable thresholds, delays, hysteresis
-- **CESMII i3X Access API** — Standard vendor-neutral REST interface for equipment and properties
-- **AI-Ops Endpoints** — Optimized for AI agents: anomaly detection, alarm digest, org snapshot
-- **Cloud Sync** — Bidirectional MQTT forwarding with Sparkplug B support
-- **Multi-Organization** — Org-scoped access control with global and org-scoped admins
+- **Real-Time Processing** — Sub-second latency with Redis caching and WebSocket push
 - **Time-Series Database** — TimescaleDB with automatic retention policies
-- **Modern Web UI** — React dashboard with dark/light themes, real-time updates
-- **Zero-Config Start** — `.env` and `JWT_SECRET` auto-generated on first run
+- **Write Commands** — Bidirectional PLC control via MQTT (i3X write permission)
+- **Sparkplug B** — Dual format support (plain MQTT + Sparkplug B)
+
+**Alarms & Analytics**
+- **Advanced Alarm System** — Configurable thresholds, delays, hysteresis, per-tag ACK
+- **OEE Engine** — Multi-profile, shift-aware, ISO 22400 Six Big Losses
+- **AI-Ops Endpoints** — Z-score anomaly detection, alarm digest, org snapshot
+- **Custom KPIs** — Operator-defined metrics with window aggregation
+- **CSV Reports** — History, alarms, audit log exports
+
+**Multi-Tenant SaaS**
+- **Organization Isolation** — Data, MQTT, users all scoped per org
+- **Per-Org MQTT Auth** — Automatic Mosquitto DynSec provisioning on org creation
+- **Edge Installer ZIP** — Download pre-configured edge package (no manual setup)
+- **Edge Status** — Real-time online/offline via Redis heartbeat
+- **Self-Service Onboarding** — Invite flow with email + one-time link (7-day TTL)
+- **Password Reset** — Email-based reset with 1-hour token
+- **Webhooks** — HMAC-SHA256 signed HTTP callbacks on 5 event types
+- **Audit Log** — Full action trail with IP, user-agent, JSON details
+
+**Deployment & Observability**
+- **HTTPS + MQTT/TLS** — Single Let's Encrypt cert via Traefik (no manual cert management)
+- **Coolify Ready** — One-click deploy on Coolify with automatic HTTPS
+- **Cloud-Init Script** — One-command VPS setup (`bash deploy/cloud-init.sh`)
+- **Multi-Arch Docker** — linux/amd64 + linux/arm64 (Raspberry Pi, industrial PCs)
+- **Rootless Containers** — All services run as non-root
+- **Prometheus + Grafana** — Pre-built dashboard, Loki log aggregation
+- **CESMII i3X Access API** — Standard vendor-neutral REST interface
 
 ---
 
 ## Table of Contents
 
-- [Quick Start](#quick-start)
+- [Quick Start (Local Dev)](#quick-start-local-dev)
 - [Architecture](#architecture)
-- [How Drivers Work](#how-drivers-work)
+- [Roles & Permissions](#roles--permissions)
 - [Configuration](#configuration)
 - [Deployment](#deployment)
+  - [Coolify (Recommended)](#coolify-recommended)
+  - [Self-Hosted VPS](#self-hosted-vps)
+  - [Local / On-Prem](#local--on-prem)
+- [Customer Onboarding Flow](#customer-onboarding-flow)
 - [API Reference](#api-reference)
-  - [Authentication](#authentication)
+  - [Authentication & Profile](#authentication--profile)
+  - [Organizations & Invites](#organizations--invites)
+  - [Webhooks](#webhooks)
   - [i3X Access API](#i3x-access-api-cesmii-standard)
   - [AI-Ops Endpoints](#ai-ops-endpoints)
   - [Standard Endpoints](#standard-endpoints)
 - [AI Agent Skills](#ai-agent-skills)
-- [Database Migrations](#database-migrations)
+- [Monitoring Stack](#monitoring-stack)
 - [Troubleshooting](#troubleshooting)
 
 ---
 
-## Quick Start
+## Quick Start (Local Dev)
 
 ### Prerequisites
 
 **Docker Desktop** — [download here](https://www.docker.com/products/docker-desktop/)
 
-**`make`** (Linux/Mac only — Windows uses `openedge.bat` instead):
+**`make`**:
 
 | OS | Command |
 |----|---------|
@@ -132,27 +162,20 @@
 ### Start
 
 ```bash
-# Clone
 git clone https://github.com/inferis995/openedge.git
 cd openedge
 
-# Build + start  (.env and JWT_SECRET created automatically)
-make start
-
-# Wait ~30s, then verify
+make start           # build images + start all services
+# Wait ~30s
 curl http://localhost:8081/ready
-# Expected: {"status":"ready","db":"ok","redis":"ok"}
-
-# Verify all 5 driver images were built
-docker images | grep industrial-driver
-# Must show: modbus, s7, opcua, mqtt, redis
+# {"status":"ready","db":"ok","redis":"ok"}
 ```
 
 Open **http://localhost:3000** — Login: `admin` / `admin123`
 
-> Change the default password after first login.
+> Change the default password immediately after first login.
 
-### Services
+### Local Service Ports
 
 | Service | Port |
 |---------|------|
@@ -167,158 +190,316 @@ Open **http://localhost:3000** — Login: `admin` / `admin123`
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────────────────┐
-│                        OpenEdge                            │
-├────────────────────────────────────────────────────────────┤
-│                                                            │
-│  ┌─────────────┐   ┌──────────────┐   ┌──────────────┐   │
-│  │   Drivers   │──▶│   Historian  │──▶│  Cloud Sync  │   │
-│  │             │   │              │   │              │   │
-│  │ • Modbus    │   │ • Real-time  │   │ • Sparkplug B│   │
-│  │ • S7        │   │ • History    │   │ • Forwarding │   │
-│  │ • OPC UA    │   │ • Alarms     │   │ • Commands   │   │
-│  │ • MQTT      │   │ • Deadband   │   │              │   │
-│  │ • Redis     │   │              │   │              │   │
-│  └─────────────┘   └──────────────┘   └──────────────┘   │
-│         │                                                  │
-│         ▼                                                  │
-│  ┌─────────────┐   ┌──────────────┐   ┌──────────────┐   │
-│  │  PostgreSQL │   │    Redis     │   │   Core API   │   │
-│  │ TimescaleDB │◀─▶│    Cache     │   │  i3X + REST  │   │
-│  └─────────────┘   └──────────────┘   └──────────────┘   │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
+Internet
+   │
+   ├─ HTTPS :443  ──▶  Traefik (TLS termination + Let's Encrypt)
+   └─ MQTTS :8883 ──▶  Traefik TCP ──▶  Mosquitto :1883
+
+                         ┌──────────────────────────────────────┐
+                         │            OpenEdge Core              │
+                         │                                       │
+                         │  Web UI (nginx)  ──▶  Core API (Go)  │
+                         │                         │             │
+                         │              ┌──────────┼──────────┐  │
+                         │              │          │          │  │
+                         │          Postgres    Redis     Mosquitto│
+                         │         TimescaleDB   Cache    DynSec  │
+                         └──────────────────────────────────────┘
+                                         │
+                              (per-org MQTT credentials)
+                                         │
+                         ┌───────────────▼──────────────────┐
+                         │         Edge (customer site)      │
+                         │                                   │
+                         │  driver-manager ──▶  drivers:     │
+                         │                      • Modbus TCP │
+                         │                      • Siemens S7 │
+                         │                      • OPC UA     │
+                         │                      • MQTT       │
+                         │                      • Redis      │
+                         └───────────────────────────────────┘
 ```
+
+**Multi-tenant isolation**: each organization has its own MQTT user (`org-{id}`), ACL topic prefix (`data/{orgName}/#`), and JWT org_id claim. Data is always filtered server-side by org_id — no cross-tenant leakage is possible.
 
 ---
 
-## How Drivers Work
-
-Drivers are Docker images that `driver-manager` spawns **on demand** when you create a Gateway in the UI.
+## Roles & Permissions
 
 ```
-Create Gateway  →  driver-manager starts driver container with GATEWAY_ID
-Delete Gateway  →  driver-manager stops and removes the container
+Global Admin (role=admin, org_id=NULL)
+ ├── Sees and manages ALL organizations
+ ├── Creates/deletes organizations
+ ├── Accesses system settings, audit log, backup/restore
+ └── Cannot be scoped to a single org
+
+Org Admin (role=admin, org_id=N)
+ ├── Sees ONLY their organization (siloed)
+ ├── Invites and manages users in their org
+ ├── Configures gateways, tags, alarms, recipes, shifts
+ ├── Downloads edge installer ZIP
+ ├── Manages webhooks
+ └── Cannot access other orgs or system settings
+
+Org User (role=user, org_id=N)
+ ├── Read-only: dashboard, trends, alarms, KPIs, OEE
+ ├── Can acknowledge alarms
+ └── Cannot create, edit, or delete any configuration
 ```
 
-- **0 driver containers** when no gateways exist — this is normal
-- Each gateway gets its own isolated driver container
-- Driver images must be built before use — handled by `make start`
+### What org admin can do without calling you
+
+Everything from the **Infrastructure** panel (server icon in sidebar):
+- Invite users by email → they receive a link and create their own account
+- Download the pre-configured edge installer ZIP (no manual .env editing)
+- Add/edit/delete gateways and tags
+- Configure alarm thresholds per tag
+- Create recipes (named setpoints)
+- Manage webhooks for external integrations
+- View edge online/offline status in real time
 
 ---
 
 ## Configuration
 
-`make start` automatically creates `.env` from `.env.example` and generates a secure `JWT_SECRET`. No manual setup needed for development.
-
-For production, create `.env` before first run:
+### Environment Variables
 
 ```bash
-cp .env.example .env
-# Edit the values you want to change
-```
-
-### Key Variables
-
-```bash
-# Auto-generated — do not set manually unless you know what you're doing
-JWT_SECRET=<hex_64_chars>
-
-# Data storage (default: ./data/ inside the repo)
-POSTGRES_DATA_PATH=./data/postgres
-REDIS_DATA_PATH=./data/redis
+# Security — generate with: openssl rand -base64 32
+JWT_SECRET=<32+ char random string>
 
 # Database
 POSTGRES_DB=industrial_edge
 POSTGRES_USER=industrial_user
-POSTGRES_PASSWORD=CHANGE_ME_IN_PRODUCTION
+POSTGRES_PASSWORD=<strong password>
 
-# API port
-PORT=8081
+# MQTT
+MQTT_ADMIN_USER=core-api
+MQTT_ADMIN_PASSWORD=<strong password>
 
-# Cloud sync (optional)
-CLOUD_SYNC_ENABLED=false
-CLOUD_MQTT_HOST=
-CLOUD_MQTT_PORT=1883
-CLOUD_MQTT_USERNAME=
-CLOUD_MQTT_PASSWORD=
-CLOUD_MQTT_TOPIC=
+# Public hostname (used for HTTPS, MQTT/TLS, invite links)
+PUBLIC_HOST=app.yourdomain.com
+ACME_EMAIL=you@email.com           # for Let's Encrypt notifications
+
+# Optional: set initial admin password (otherwise admin123)
+OPENEDGE_INITIAL_ADMIN_PASSWORD=<password>
 ```
 
-### Data Storage Path
+`make start` auto-generates `.env` from `.env.example` for local dev.
 
-Data is persisted via bind mount (already wired in `docker-compose.yml`). Default is `./data/` inside the repo. For production, set absolute paths in `.env` **before** the first `make start`:
+### SMTP (for invite emails and password reset)
 
-```bash
-# Linux/Mac
-POSTGRES_DATA_PATH=/opt/openedge/data/postgres
-REDIS_DATA_PATH=/opt/openedge/data/redis
+Set in the UI after first login: **System → Settings → Notifications**
 
-# Windows
-POSTGRES_DATA_PATH=D:/openedge-data/postgres
-REDIS_DATA_PATH=D:/openedge-data/redis
-```
+| Setting | Example |
+|---------|---------|
+| SMTP Host | smtp.gmail.com |
+| SMTP Port | 587 (STARTTLS) or 465 (TLS) |
+| Username | your@gmail.com |
+| Password | Gmail App Password |
+| From | noreply@yourdomain.com |
 
-> Changing these paths after data exists requires a backup + restore.
+Without SMTP, invites and password resets still work — the token URL is logged by core-api and can be sent manually.
 
 ---
 
 ## Deployment
 
-### Linux / Mac
+### Coolify (Recommended)
+
+Coolify handles HTTPS, Let's Encrypt, and reverse proxy automatically.
+
+**1. Install Coolify on a VPS** (Hetzner CX22 ~4€/month works great):
+```bash
+curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
+# Open https://YOUR-VPS-IP:8000 and create your Coolify account
+```
+
+**2. Point DNS**: `app.yourdomain.com → A → YOUR-VPS-IP`
+
+**3. Deploy in Coolify**:
+- New Project → Add Resource → Docker Compose → paste `docker-compose.coolify.yml`
+- Set environment variables in the Coolify UI
+- Set domain to `https://app.yourdomain.com` → Deploy
+
+**4. MQTT/TLS (port 8883)** — paste `deploy/coolify-traefik-mqtt.yml` in:
+- Coolify → Settings → Traefik → Dynamic Configuration
+- Coolify → Settings → Traefik → Port Mappings → add `8883:8883`
+
+Result: `https://app.yourdomain.com` (UI) + `mqtts://app.yourdomain.com:8883` (edge devices).
+
+---
+
+### Self-Hosted VPS
+
+One command installs Docker, configures firewall, sets up systemd service, and starts everything:
 
 ```bash
-make start    # First run: build images + start
-make up       # Start (images already built)
-make down     # Stop all services
-make restart  # Stop + start
-make logs     # Follow logs
-make clean    # Stop + delete all data (irreversible)
+git clone https://github.com/inferis995/openedge.git
+cd openedge
+bash deploy/cloud-init.sh
+# Prompts for domain, email, admin password — then fully automated
 ```
 
-### Windows
+Or manually with the cloud overlay:
 
-Double-click **`openedge.bat`** for the interactive menu, or from cmd/PowerShell:
-
-```cmd
-openedge.bat start    :: build + launch
-openedge.bat stop
-openedge.bat restart
-openedge.bat logs
-openedge.bat status
-openedge.bat clean    :: delete all data (asks confirmation)
+```bash
+cp .env.cloud.example .env
+# Edit PUBLIC_HOST and ACME_EMAIL
+docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
 ```
 
-`openedge.bat` handles `.env` and `JWT_SECRET` generation automatically — no extra tools needed beyond Docker Desktop.
+---
+
+### Local / On-Prem
+
+```bash
+make start     # build + start
+make up        # start (images already built)
+make down      # stop
+make restart   # stop + start
+make logs      # follow logs
+make clean     # stop + delete all data (irreversible)
+```
+
+**Windows** — use `openedge.bat` (interactive menu, no make needed).
+
+---
 
 ### System Requirements
 
-| | Minimum | Recommended (100+ tags) |
-|-|---------|--------------------------|
+| | Minimum | Recommended (100+ tags, 5+ orgs) |
+|-|---------|----------------------------------|
 | CPU | 2 cores | 4 cores |
 | RAM | 4 GB | 8 GB |
 | Disk | 20 GB SSD | 100 GB SSD |
 
 ---
 
+## Customer Onboarding Flow
+
+Everything is automated — zero manual work per customer after initial setup.
+
+```
+Global admin creates org in UI
+         │
+         ▼
+System auto-provisions:
+  • Mosquitto DynSec user (org-{id}) with ACL for data/{orgName}/#
+  • Org MQTT credentials stored in DB
+         │
+         ▼
+Org admin invites users (Infrastructure → Invites → enter email)
+         │
+         ▼
+User receives email with one-time link (/accept-invite?token=...)
+         │
+         ▼
+User sets their password → account created → logs in → sees only their org
+```
+
+**Edge device setup** (also zero manual config for customer):
+1. Org admin clicks "Download Edge Installer"
+2. Gets a ZIP with `docker-compose.yml` + `.env` pre-filled with their MQTT credentials
+3. Runs `docker compose up -d` on their industrial PC
+4. Edge appears as "Online" in their dashboard within 30 seconds
+
+---
+
 ## API Reference
 
-Base URL: `http://localhost:8081`
+Base URL: `https://your-domain.com` (production) or `http://localhost:8081` (dev)
 
-### Authentication
-
-All endpoints except `/health` and `/ready` require a JWT token:
+### Authentication & Profile
 
 ```bash
-TOKEN=$(curl -s -X POST http://localhost:8081/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}' \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+# Login
+POST /api/auth/login
+{"username": "admin", "password": "admin123"}
+# → {"token": "eyJ...", "user": {...}}
 
-# Use in every request
-curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
-  http://localhost:8081/api/i3x/v1/equipment
+# Get own profile
+GET /api/auth/me
+Authorization: Bearer <token>
+
+# Change password
+PUT /api/auth/me/password
+{"old_password": "...", "new_password": "..."}
+
+# Forgot password (sends email, always returns 200)
+POST /api/auth/forgot-password
+{"email": "user@example.com"}
+
+# Reset password with token from email
+POST /api/auth/reset-password
+{"token": "...", "new_password": "..."}
+
+# Accept org invite (public, no auth required)
+POST /api/auth/accept-invite
+{"token": "...", "username": "myname", "password": "..."}
 ```
+
+All protected endpoints require:
+```
+Authorization: Bearer <token>
+X-Organization-ID: <org_id>    # omit for global admin (sees all)
+```
+
+---
+
+### Organizations & Invites
+
+```bash
+# List organizations (global admin only)
+GET /api/organizations
+
+# Create organization
+POST /api/organizations
+{"name": "Acme Corp", "description": "..."}
+
+# Invite a user to an org (org admin only)
+POST /api/organizations/:id/invites
+{"email": "user@example.com", "role": "user"}
+# → sends email with /accept-invite?token=... link (7-day TTL)
+
+# Edge installer ZIP (org admin only)
+GET /api/organizations/:id/edge-installer
+# → downloads pre-configured ZIP with docker-compose + .env
+
+# Edge online/offline status
+GET /api/organizations/:id/edge-status
+# → {"online": true, "last_ping": "2026-06-13T18:00:00Z"}
+```
+
+---
+
+### Webhooks
+
+Receive HTTP POST callbacks when platform events occur. Payloads are signed with HMAC-SHA256 (`X-OpenEdge-Signature` header).
+
+```bash
+# List webhooks for an org
+GET /api/organizations/:id/webhooks
+
+# Create webhook
+POST /api/organizations/:id/webhooks
+{"url": "https://your-service.com/hook", "events": ["alarm.active", "alarm.cleared"]}
+# → {"id": 1, "secret": "wh_sec_abc123..."}   ← secret shown ONCE
+
+# Delete webhook
+DELETE /api/organizations/:id/webhooks/:webhook_id
+```
+
+**Supported events**: `alarm.active`, `alarm.cleared`, `tag.write`, `edge.online`, `edge.offline`
+
+**Verifying signatures**:
+```python
+import hmac, hashlib
+expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+assert request.headers["X-OpenEdge-Signature"] == f"sha256={expected}"
+```
+
+Delivery: 3 retries with exponential backoff (1s, 2s, 4s). Status and last error stored per webhook.
 
 ---
 
@@ -326,11 +507,9 @@ curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
 
 Base path: `/api/i3x/v1/`
 
-Vendor-neutral REST interface compatible with the **CESMII i3X v1** specification. Use this API for integrations with external systems (SCADA, MES, cloud platforms) and AI agents.
+Vendor-neutral REST interface compatible with the **CESMII i3X v1** specification.
 
 #### ID Format
-
-All i3X IDs are prefixed strings:
 
 | Type | Format | Example |
 |------|--------|---------|
@@ -342,133 +521,51 @@ All i3X IDs are prefixed strings:
 
 #### Quality Codes
 
-These codes apply to **all protocols** (Modbus, S7, OPC UA, MQTT, Redis) — the i3X standard uses OPC-UA numeric encoding regardless of the underlying driver.
-
 | Value | Meaning |
 |-------|---------|
 | `192` | Good |
 | `64` | Uncertain |
 | `0` | Bad |
 
-> The standard REST API uses `0=Good, 1=Bad`. The i3X API uses `192=Good, 0=Bad`.
-
 #### Endpoints
 
 ```
-GET  /api/i3x/v1/equipment                        # Full asset hierarchy (org→site→area→gateway)
+GET  /api/i3x/v1/equipment                        # Asset hierarchy (org→site→area→gateway)
 GET  /api/i3x/v1/equipment/:id                    # Single equipment node
-GET  /api/i3x/v1/equipment/:id/properties         # Tags for a gateway, with live values
+GET  /api/i3x/v1/equipment/:id/properties         # Tags for a gateway with live values
 GET  /api/i3x/v1/equipment/:id/properties/:propId # Single property with live value
 GET  /api/i3x/v1/properties                       # All tags in the organization
 GET  /api/i3x/v1/properties/:id                   # Single property with live value
-PUT  /api/i3x/v1/properties/:id/value             # Write value to tag (requires i3x_write or admin)
+PUT  /api/i3x/v1/properties/:id/value             # Write value to tag (i3x_write or admin)
 GET  /api/i3x/v1/alarms                           # Active alarms in i3X format
 GET  /api/i3x/v1/alarms/history                   # Alarm history in i3X format
 ```
 
-#### Example — List equipment
+#### Example — Login and read equipment
 
 ```bash
+TOKEN=$(curl -s -X POST https://app.yourdomain.com/api/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"admin123"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
 curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
-  http://localhost:8081/api/i3x/v1/equipment
-```
-
-```json
-{
-  "items": [
-    {
-      "id": "gw-2",
-      "name": "PLC-Serbatoio1",
-      "type": "Equipment",
-      "parentId": "area-7",
-      "path": "MyOrg/Sito-Crotone/Zona-A/PLC-Serbatoio1",
-      "attributes": {"driver_type": "MODBUS_TCP", "connection_status": "online"}
-    }
-  ],
-  "total": 5
-}
-```
-
-#### Example — Read tag values
-
-```bash
-curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
-  http://localhost:8081/api/i3x/v1/equipment/gw-2/properties
-```
-
-```json
-{
-  "items": [
-    {
-      "id": "tag-42",
-      "name": "Portata_Ingresso",
-      "equipmentId": "gw-2",
-      "dataType": "Float",
-      "historize": true,
-      "current": {"value": 42.5, "quality": 192, "timestamp": "2026-04-27T10:30:00Z"}
-    }
-  ],
-  "total": 12
-}
-```
-
-#### Example — Write to PLC
-
-```bash
-curl -X PUT \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "X-Organization-ID: 1" \
-  -H "Content-Type: application/json" \
-  -d '{"value": 1}' \
-  http://localhost:8081/api/i3x/v1/properties/tag-43/value
-# Response: {"message": "Write command sent"}
-```
-
-Write requires `i3x_write: true` in the user's JWT claims, or admin role. The command is sent asynchronously to the driver via MQTT.
-
-#### Example — Active alarms
-
-```bash
-curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 1" \
-  http://localhost:8081/api/i3x/v1/alarms
-```
-
-```json
-{
-  "items": [
-    {
-      "id": "alarm-45",
-      "propertyId": "tag-42",
-      "propertyName": "Portata_Ingresso",
-      "equipmentId": "gw-2",
-      "equipmentName": "PLC-Serbatoio1",
-      "severity": "Critical",
-      "status": "Active",
-      "alarmType": "high",
-      "message": "Portata massima superata",
-      "value": 98.7,
-      "triggerTime": "2026-04-27T08:15:00Z"
-    }
-  ],
-  "total": 1
-}
+  https://app.yourdomain.com/api/i3x/v1/equipment
 ```
 
 ---
 
 ### AI-Ops Endpoints
 
-Optimized for AI agents and automation — one call returns everything needed.
-
 ```
 GET /api/aiops/summary?hours=24
-    Org-wide snapshot: tag stats (avg/min/max/sample_count), alarm counts, gateway totals
+    Org-wide snapshot: tag stats, alarm counts, gateway totals
 
 GET /api/aiops/anomalies?tag_id=5&window_hours=168&baseline_days=30
-    Z-score anomaly detection. Threshold: |z_score| >= 2.5
+    Z-score anomaly detection (threshold: |z| ≥ 2.5)
 
 GET /api/aiops/alarms/digest?hours=24
-    Alarm digest grouped by severity — for reports and notifications
+    Alarm digest grouped by severity
 ```
 
 ---
@@ -476,21 +573,41 @@ GET /api/aiops/alarms/digest?hours=24
 ### Standard Endpoints
 
 ```
-GET  /health                         # Server health
-GET  /ready                          # Full readiness (DB + Redis)
+GET  /health                              # Server health
+GET  /ready                              # Full readiness (DB + Redis)
+GET  /metrics                            # Prometheus metrics
 
-GET  /api/tags                       # List tags
-GET  /api/tags/:id/current           # Real-time value (quality: 0=Good, 1=Bad)
-POST /api/tags/import                # Bulk import from PLC address format
-GET  /api/tags/export?gateway_id=3   # Export tags as PLC address text
+# Tags
+GET  /api/tags                           # List tags
+GET  /api/tags/:id/current               # Real-time value
+POST /api/tags/import                    # Bulk import (PLC address format)
+GET  /api/tags/export?gateway_id=3       # Export tags
 
-GET  /api/gateways                   # Gateways with connection_status (online/offline/unknown)
-GET  /api/alarms/active              # Active & acknowledged alarms
-GET  /api/history/stats              # Aggregated historical statistics
+# Gateways
+GET  /api/gateways                       # Gateways with connection_status
 
-GET  /api/system                     # System settings
-POST /api/backup                     # Create DB backup
-POST /api/restore                    # Restore from backup
+# Alarms
+GET  /api/alarms/active                  # Active alarms
+GET  /api/alarms/history                 # Alarm history
+POST /api/alarms/:id/ack                 # Acknowledge alarm
+
+# History
+GET  /api/history/stats                  # Aggregated statistics
+
+# System (admin only)
+GET  /api/system/settings                # System settings
+PUT  /api/system/settings                # Update settings
+GET  /api/system/diagnostics             # CPU, disk, DB, Redis status
+GET  /api/system/backup                  # Export backup
+POST /api/system/restore                 # Restore from backup
+
+# Audit log (global admin only)
+GET  /api/audit/logs                     # Action trail with filters
+GET  /api/audit/actions                  # List of action types
+
+# Reports
+GET  /api/reports/history.csv            # Historical data export
+GET  /api/reports/alarms.csv             # Alarms export
 ```
 
 ### Tag Import Format
@@ -499,8 +616,6 @@ POST /api/restore                    # Restore from backup
 POST /api/tags/import
 {"gateway_id": 3, "historize": true, "content": "..."}
 ```
-
-Format: `Alias : DataType AT Address;`
 
 **Modbus TCP:**
 ```
@@ -521,102 +636,133 @@ Supported types: `BOOL`, `INT`, `UINT`, `DINT`, `UDINT`, `REAL`, `STRING`, `WORD
 ### WebSocket
 
 ```
-ws://localhost:8081/ws/realtime
+wss://app.yourdomain.com/ws/realtime
 ```
 
-Real-time tag values, alarm notifications, system events.
+Real-time tag values, alarm notifications, system events. One message per tag update, filtered by org.
 
 ---
 
 ## AI Agent Skills
 
-OpenEdge ships two skill files for AI agents (Claude Code, OpenClaw, and compatible frameworks).
-
-Install from the repo:
+OpenEdge ships two skill files for AI agents (Claude Code and compatible frameworks).
 
 ```bash
-# Clone and the skills are in .claude/skills/
-git clone https://github.com/inferis995/openedge.git
+# Already in the repo at .claude/skills/
+.claude/skills/openedge.md        # Monitor: read data, alarms, anomalies
+.claude/skills/openedge-ops.md    # Ops: deploy, configure, troubleshoot
+```
 
-# Or download individually with curl
-curl -o .claude/skills/openedge.md \
-  https://raw.githubusercontent.com/inferis995/openedge/master/.claude/skills/openedge.md
+### `openedge` — Monitor & Control
 
-curl -o .claude/skills/openedge-ops.md \
-  https://raw.githubusercontent.com/inferis995/openedge/master/.claude/skills/openedge-ops.md
+Read-oriented skill. Gives the agent access to real-time values, alarms, history, anomalies, and OEE data via REST + i3X.
+
+```
+"Leggi il valore corrente di tutti i tag del gateway PLC-1"
+"Ci sono allarmi Critical attivi nell'org 3?"
+"Rileva anomalie sul tag Pressione_Rete dell'ultima settimana"
+"Genera un digest degli allarmi delle ultime 24 ore"
+"Scrivi valore 1 sul tag Pompa_On (richiede i3x_write)"
+"Quanti edge sono online per l'org Acme Corp?"
 ```
 
 ### `openedge-ops` — Deploy & Configure
 
-Gives the agent everything needed to deploy OpenEdge from scratch, create gateways, and import tags.
+Write-oriented skill. Gives the agent everything needed to deploy OpenEdge, manage organizations, invite users, configure gateways, and troubleshoot production issues.
 
 ```
-"Installa OpenEdge e crea un gateway Modbus su 192.168.1.10"
+"Installa OpenEdge su questo VPS con Coolify"
+"Crea una nuova organizzazione per il cliente Acme Corp"
+"Invita mario@acme.com come admin dell'org 3"
 "Importa questi tag S7: DB1_REAL4:REAL:DB1.DBD4, M0_0:BOOL:M0.0"
 "Il driver del gateway non parte — diagnostica e risolvi"
+"Configura il webhook su https://acme.com/hook per alarm.active"
 ```
 
-### `openedge` — Monitor & i3X
+---
 
-Gives the agent read/write access via both the standard API and the i3X Access API.
+## Monitoring Stack
 
+```bash
+make monitoring-up     # start Prometheus + Grafana + Loki + Promtail
+make monitoring-down   # stop
+make monitoring-logs   # follow logs
 ```
-"Leggi il valore corrente di tutti i tag del gateway PLC-1 via i3X"
-"Ci sono allarmi Critical attivi?"
-"Scrivi valore 1 sul tag Pompa_On del gateway PLC-Serbatoio1"
-"Genera un digest degli allarmi delle ultime 24 ore"
-"Rileva anomalie sul tag Pressione_Rete dell'ultima settimana"
-```
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| Grafana | http://localhost:3001 | admin / admin |
+| Prometheus | http://localhost:9090 | — |
+| Loki | http://localhost:3100 | — |
+
+A pre-built **OpenEdge Overview** dashboard is auto-provisioned in Grafana with:
+- Organization / Gateway / Tag / Alarm / User counts
+- HTTP request rate and P95 latency
+- MQTT messages per second
+- All panels filterable by org
+
+Metrics exposed at `/metrics` (Prometheus format):
+- `openedge_orgs_total`
+- `openedge_gateways_total`
+- `openedge_tags_total`
+- `openedge_active_alarms_total`
+- `openedge_users_total`
+- `http_requests_total{method, path, status}`
+- `http_request_duration_seconds{method, path}`
+- `mqtt_messages_received_total`
 
 ---
 
 ## Database Migrations
 
-```bash
-make migrate-status   # Check pending migrations
-make migrate          # Apply pending migrations
-make migrate-down     # Rollback last migration
-```
+All migrations run automatically on startup via `runAutoMigrations()` — no manual SQL needed, including on existing databases being upgraded.
 
-Migrations run automatically on startup. The `migrations_archive/` folder contains the full schema history for reference.
+Migration files in `migrations/` follow the pattern `YYYYMMDD_description.sql`. For a fresh deployment, PostgreSQL also runs them via `docker-entrypoint-initdb.d`.
 
 ---
 
 ## Troubleshooting
 
-**Application refuses to start — "JWT_SECRET environment variable is required"**
-
+**"JWT_SECRET environment variable is required"**
 ```bash
-echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
-make restart
+echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env && make restart
 ```
 
 **Driver container doesn't start after creating a gateway**
-
-Driver images weren't built. Use `make start` instead of `docker-compose up -d`:
-
 ```bash
-docker images | grep industrial-driver  # Check if images exist
-make start                              # Builds images + starts services
+docker images | grep industrial-driver   # check images exist
+make start                               # builds images if missing
 ```
 
 **Login fails with "Invalid Credentials"**
-
 ```bash
-make migrate-status
-make migrate
+docker compose logs core-api | grep "Bootstrap"
+# If no admin was seeded: make clean && make start
 ```
 
-**Check logs**
-
+**Edge shows "Offline" in dashboard**
 ```bash
-make logs
-docker-compose logs -f core-api
-docker-compose logs -f driver-manager
+# Check edge is publishing heartbeats every 30s to sys/edge/{org_id}/ping
+# Check MQTT credentials match what's in the edge .env
+docker compose logs mosquitto | grep "org-"
+```
+
+**Webhook deliveries failing**
+```bash
+# Check webhook URL is publicly reachable
+# Check signature verification in your receiver
+curl -X POST https://your-receiver.com/hook -d '{"test":true}'
+# Last error is stored per webhook — check via GET /api/organizations/:id/webhooks
+```
+
+**Follow logs**
+```bash
+make logs                           # all services
+docker compose logs -f core-api     # API only
+docker compose logs -f mosquitto    # MQTT broker
 ```
 
 **Full reset (deletes all data)**
-
 ```bash
 make clean && make start
 ```

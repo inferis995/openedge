@@ -1,0 +1,108 @@
+# Cloud / SaaS deployment overlay.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
+#   (or: make cloud-up)
+#
+# Requires in .env (copy .env.cloud.example → .env and fill in):
+#   PUBLIC_HOST   your domain, e.g. app.openedge.io
+#   ACME_EMAIL    email for Let's Encrypt notifications
+#
+# What this overlay does:
+#   - Adds Traefik reverse proxy (HTTPS + MQTT/TLS via Let's Encrypt)
+#   - Removes all host port bindings from internal services
+#   - Only ports 80, 443, 8883 are exposed to the internet
+#   - Adds HSTS, X-Frame-Options and other security headers
+
+services:
+
+  # ── Traefik v3 — reverse proxy + automatic TLS ──────────────────────────────
+  traefik:
+    image: traefik:v3.1
+    container_name: openedge-traefik
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=industrial-network
+      # Entrypoints
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.mqtts.address=:8883
+      # Redirect all HTTP → HTTPS permanently
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
+      # Let's Encrypt via TLS-ALPN-01 challenge (no port 80 open needed after initial)
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?Set ACME_EMAIL in .env}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      # JSON access log (Loki / Datadog / CloudWatch compatible)
+      - --accesslog=true
+      - --accesslog.format=json
+      # Structured log output
+      - --log.format=json
+      - --log.level=WARN
+    ports:
+      - "80:80"       # HTTP (redirects to HTTPS)
+      - "443:443"     # HTTPS  (web UI + API)
+      - "8883:8883"   # MQTT over TLS  (edge devices)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-letsencrypt:/letsencrypt
+    restart: unless-stopped
+    networks:
+      - industrial-network
+
+  # ── Web UI — served via Traefik; its built-in nginx proxies /api → core-api ─
+  web-ui:
+    ports: []   # Traefik handles external access
+    labels:
+      - "traefik.enable=true"
+      # HTTPS route
+      - "traefik.http.routers.web.rule=Host(`${PUBLIC_HOST}`)"
+      - "traefik.http.routers.web.entrypoints=websecure"
+      - "traefik.http.routers.web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.web.loadbalancer.server.port=80"
+      # Security headers middleware
+      - "traefik.http.middlewares.sec.headers.stsSeconds=63072000"
+      - "traefik.http.middlewares.sec.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.sec.headers.stsPreload=true"
+      - "traefik.http.middlewares.sec.headers.frameDeny=true"
+      - "traefik.http.middlewares.sec.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.sec.headers.referrerPolicy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.sec.headers.customResponseHeaders.X-Powered-By="
+      - "traefik.http.routers.web.middlewares=sec"
+
+  # ── Core API — internal only; web-ui nginx proxies /api/* to it ─────────────
+  core-api:
+    ports: []
+    environment:
+      ALLOWED_ORIGINS: "https://${PUBLIC_HOST}"
+
+  # ── PostgreSQL — never exposed to internet ───────────────────────────────────
+  postgres:
+    ports: []
+
+  # ── Redis — never exposed to internet ───────────────────────────────────────
+  redis:
+    ports: []
+
+  # ── Mosquitto — MQTT/TLS via Traefik TCP proxy on port 8883 ─────────────────
+  # Traefik terminates TLS (Let's Encrypt cert) and forwards plain MQTT to
+  # mosquitto:1883 inside the Docker network.  No cert sharing required.
+  mosquitto:
+    ports: []   # Traefik handles 8883 externally
+    environment:
+      # Publish the public TLS endpoint to edge devices via the config API
+      MQTT_PUBLIC_HOST: "${PUBLIC_HOST}"
+      MQTT_PUBLIC_PORT: "8883"
+    labels:
+      - "traefik.enable=true"
+      # TCP router for MQTT/TLS: Traefik terminates TLS, forwards plain TCP
+      - "traefik.tcp.routers.mqtts.rule=HostSNI(`${PUBLIC_HOST}`)"
+      - "traefik.tcp.routers.mqtts.entrypoints=mqtts"
+      - "traefik.tcp.routers.mqtts.tls.certresolver=letsencrypt"
+      - "traefik.tcp.services.mqtts.loadbalancer.server.port=1883"
+
+volumes:
+  traefik-letsencrypt:

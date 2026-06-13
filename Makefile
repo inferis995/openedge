@@ -1,6 +1,9 @@
-.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux lint lint-go lint-frontend test test-go test-frontend test-coverage swagger hooks-install
+.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux lint lint-go lint-frontend test test-go test-frontend test-coverage swagger hooks-install cloud-up cloud-down cloud-logs cloud-status monitoring-up monitoring-down monitoring-logs
 
-COMPOSE_ONPREM_TLS = docker-compose -f docker-compose.yml -f docker-compose.onprem-tls.yml --profile backup
+COMPOSE_ONPREM_TLS  = docker-compose -f docker-compose.yml -f docker-compose.onprem-tls.yml --profile backup
+COMPOSE_CLOUD       = docker compose -f docker-compose.yml -f docker-compose.cloud.yml
+COMPOSE_COOLIFY     = docker compose -f docker-compose.coolify.yml
+COMPOSE_MONITORING  = docker compose -f docker-compose.yml -f docker-compose.monitoring.yml --profile monitoring
 
 ## Create .env from example if missing; auto-generate JWT_SECRET if unset or placeholder
 setup-env:
@@ -117,6 +120,69 @@ kiosk-linux:
 	@: $${URL:?URL is required (e.g. URL=https://openedge.local)}
 	./scripts/install-kiosk-linux.sh $(URL)
 
+# ── Cloud / SaaS deployment ──────────────────────────────────────────────────
+## First-time VPS setup (interactive): installs Docker, configures TLS, starts stack.
+## Prefer Coolify for a managed experience (make coolify-build).
+cloud-init: setup-env
+	bash deploy/cloud-init.sh
+
+# ── Coolify deployment (recommended for cloud) ────────────────────────────────
+## Build images locally then push — used when Coolify builds from git
+coolify-build: setup-env
+	$(COMPOSE_COOLIFY) build
+
+## Start coolify stack locally for testing before pushing
+coolify-up: setup-env
+	$(COMPOSE_COOLIFY) up -d
+
+## Stop coolify local stack
+coolify-down:
+	$(COMPOSE_COOLIFY) down
+
+## Start the cloud stack (Traefik + Let's Encrypt + all services)
+cloud-up: setup-env
+	$(COMPOSE_CLOUD) up -d
+	@echo ""
+	@echo "OpenEdge cloud stack started."
+	@echo "  Web UI: https://$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'your-domain')"
+	@echo "  MQTT:   mqtts://$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'your-domain'):8883"
+
+## Stop the cloud stack
+cloud-down:
+	$(COMPOSE_CLOUD) down
+
+## Follow logs of the cloud stack
+cloud-logs:
+	$(COMPOSE_CLOUD) logs -f
+
+## Show health status of cloud services
+cloud-status:
+	$(COMPOSE_CLOUD) ps
+	@echo ""
+	@DOMAIN=$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'localhost'); \
+	 echo "  Checking https://$$DOMAIN/api/health ..."; \
+	 curl -fsSLo /dev/null -w "  HTTP %%{http_code}  %%{time_total}s\n" "https://$$DOMAIN/api/health" 2>/dev/null || \
+	 echo "  ⚠ Not reachable yet (TLS cert may still be issued)"
+
+# ── Observability (Prometheus + Grafana + Loki) ──────────────────────────────
+## Start OpenEdge + Prometheus + Grafana + Loki monitoring stack.
+##   Grafana: http://localhost:3001  (admin / admin)
+##   Prometheus: http://localhost:9090
+monitoring-up: setup-env
+	$(COMPOSE_MONITORING) up -d
+	@echo ""
+	@echo "Monitoring stack started."
+	@echo "  Grafana:    http://localhost:3001  (admin / admin)"
+	@echo "  Prometheus: http://localhost:9090"
+
+## Stop the monitoring stack
+monitoring-down:
+	$(COMPOSE_MONITORING) down
+
+## Follow monitoring logs
+monitoring-logs:
+	$(COMPOSE_MONITORING) logs -f prometheus grafana loki
+
 # ── Code quality ─────────────────────────────────────────────────────────────
 ## Run all linters (Go + frontend)
 lint: lint-go lint-frontend
@@ -157,10 +223,29 @@ hooks-install:
 ## Show available targets
 help:
 	@echo ""
-	@echo "  make start    Build all images and start services (first run)"
-	@echo "  make up       Start services (images already built)"
-	@echo "  make down     Stop all services"
-	@echo "  make restart  Stop then start"
-	@echo "  make logs     Follow logs"
-	@echo "  make clean    Stop and DELETE all data (irreversible)"
+	@echo "  ── Local / on-prem ────────────────────────────────────────"
+	@echo "  make start         Build images and start services (first run)"
+	@echo "  make up            Start services (images already built)"
+	@echo "  make down          Stop all services"
+	@echo "  make restart       Stop then start"
+	@echo "  make logs          Follow logs"
+	@echo "  make clean         Stop and DELETE all data (irreversible)"
+	@echo "  make onprem-tls    Start with internal TLS (self-signed Caddy CA)"
+	@echo ""
+	@echo "  ── Cloud / SaaS ────────────────────────────────────────────"
+	@echo "  make coolify-build Build images for Coolify deployment (recommended)"
+	@echo "  make coolify-up    Test Coolify compose locally"
+	@echo "  make coolify-down  Stop local Coolify stack"
+	@echo "  make cloud-init    Manual VPS setup without Coolify (Traefik direct)"
+	@echo "  make cloud-up      Start manual cloud stack"
+	@echo "  make cloud-logs    Follow cloud logs"
+	@echo "  make cloud-status  Health check"
+	@echo ""
+	@echo "  ── Monitoring (Prometheus + Grafana + Loki) ────────────────"
+	@echo "  make monitoring-up   Start monitoring stack alongside OpenEdge"
+	@echo "  make monitoring-down Stop monitoring stack"
+	@echo ""
+	@echo "  ── Quality ─────────────────────────────────────────────────"
+	@echo "  make lint          Run all linters"
+	@echo "  make test          Run all tests"
 	@echo ""
