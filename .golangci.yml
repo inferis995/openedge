@@ -61,6 +61,13 @@ issues:
       linters:
         - all
 
+    # Typecheck errors in Go module cache (indirect deps like x/net, quic-go)
+    # golangci-lint typechecks transitive deps which can fail due to Go toolchain
+    # version mismatches — these are not our code, not actionable.
+    - path: "go/pkg/mod"
+      linters:
+        - typecheck
+
   # Max issues per linter
   max-issues-per-linter: 50
   max-same-issues: 10
