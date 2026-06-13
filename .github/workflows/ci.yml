@@ -43,16 +43,7 @@ jobs:
           cache: true
 
       - name: Run tests with race detector
-        run: go test -race -coverprofile=coverage.out ./internal/...
-
-      - name: Coverage summary
-        run: go tool cover -func=coverage.out | tail -1
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: go-coverage
-          path: coverage.out
+        run: go test -race ./internal/...
 
   # ── Frontend: lint + type-check ──────────────────────────────────────────────
   frontend-lint:

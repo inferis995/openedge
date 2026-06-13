@@ -1,3 +1,4 @@
+/// <reference types="vitest/globals" />
 import '@testing-library/jest-dom'
 
 // Silence ECharts errors in test environment (canvas not available)

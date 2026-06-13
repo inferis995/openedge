@@ -17,7 +17,6 @@ linters:
     - misspell        # typos in comments/strings
     - noctx           # http requests without context
     - bodyclose       # http response body not closed
-    - sqlcloserows    # sql.Rows not closed
     - nilerr          # returning nil err with nil return value
     - godot           # comments should end with a period
 
