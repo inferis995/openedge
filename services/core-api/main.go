@@ -169,6 +169,21 @@ func main() {
 		} else {
 			log.Println("Subscribed to write commands from external sources")
 		}
+
+		// Subscribe to edge manager heartbeats: sys/edge/{org_id}/ping
+		// Edge manager publishes every 30 s; we store the timestamp in Redis
+		// with a 90 s TTL so the edge-status endpoint can detect offline edges.
+		if err := mqttClient.Subscribe("sys/edge/#", func(topic string, payload []byte) {
+			// topic format: sys/edge/{org_id}/ping
+			parts := strings.Split(topic, "/")
+			if len(parts) == 4 && parts[3] == "ping" {
+				handlers.HandleEdgePing(context.Background(), parts[2], redisClient)
+			}
+		}); err != nil {
+			log.Printf("Warning: Failed to subscribe to edge ping topic: %v", err)
+		} else {
+			log.Println("Subscribed to edge heartbeats")
+		}
 	}
 
 	// Connect to cloud MQTT broker for receiving write commands from cloud
@@ -644,6 +659,23 @@ func main() {
 		orgEdge.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
 		{
 			orgEdge.GET("/edge-installer", installerHandler.Download)
+		}
+
+		// User invites — org admins create one-time invite links for new members.
+		invitesHandler := handlers.NewInvitesHandler(database, redisClient)
+		orgInvites := api.Group("/organizations/:id/invites")
+		orgInvites.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			orgInvites.POST("", invitesHandler.Create)
+		}
+		// Accept invite is public (recipient has no JWT yet).
+		api.Group("/auth").POST("/accept-invite", invitesHandler.AcceptInvite)
+
+		// Edge heartbeat status — reads the Redis ping timestamp set by the MQTT handler.
+		orgEdgeStatus := api.Group("/organizations/:id")
+		orgEdgeStatus.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			orgEdgeStatus.GET("/edge-status", invitesHandler.EdgeStatus)
 		}
 
 		// Edge config pull endpoint — authenticated via API key, not JWT.
