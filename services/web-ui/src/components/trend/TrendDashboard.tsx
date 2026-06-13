@@ -1,5 +1,4 @@
 import React, { useMemo, useCallback, useEffect, useState } from 'react';
-// @ts-ignore - types are in @types/react-grid-layout
 import GridLayout from 'react-grid-layout';
 import { useTrendStore } from '@/stores/useTrendStore';
 import { TrendChart } from './TrendChart';
@@ -202,7 +201,7 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
             };
 
             // Convert history data to chart format [timestamp, value]
-            let data: [number, number | null][] = historyData.map(point => {
+            const data: [number, number | null][] = historyData.map(point => {
                 // Timestamp from API is already in milliseconds - use directly
                 const ts = point.timestamp;
                 // Quality 0 = GOOD, >0 = BAD (show as null/gap)
@@ -377,7 +376,6 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
                 </div>
             )}
 
-            {/* @ts-ignore - GridLayout types are complex */}
             <Grid
                 className="layout"
                 layout={layout}
