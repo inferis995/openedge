@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -184,10 +185,26 @@ func (h *AreasHandler) List(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.Query(
-		"SELECT id, site_id, name, created_at FROM areas WHERE site_id = $1 ORDER BY id",
-		siteID,
-	)
+	userID, hasUserID := middleware.GetUserID(c)
+
+	var areaQuery string
+	var areaArgs []interface{}
+	if !middleware.IsGlobalAdmin(c) && hasUserID {
+		areaQuery = `
+			SELECT id, site_id, name, created_at FROM areas
+			WHERE site_id = $1
+			AND (
+				NOT EXISTS (SELECT 1 FROM user_areas WHERE user_id = $2)
+				OR id IN (SELECT area_id FROM user_areas WHERE user_id = $2)
+			)
+			ORDER BY id`
+		areaArgs = []interface{}{siteID, userID}
+	} else {
+		areaQuery = "SELECT id, site_id, name, created_at FROM areas WHERE site_id = $1 ORDER BY id"
+		areaArgs = []interface{}{siteID}
+	}
+
+	rows, err := h.db.QueryContext(c.Request.Context(), areaQuery, areaArgs...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query areas"})
 		return
@@ -261,6 +278,16 @@ func (h *AreasHandler) Get(c *gin.Context) {
 	if areaOrgID != orgID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to area from another organization"})
 		return
+	}
+
+	// Area scope check for non-global-admin users
+	if !middleware.IsGlobalAdmin(c) {
+		if userID, ok := middleware.GetUserID(c); ok {
+			if !h.userCanAccessArea(userID, area.ID) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to this area"})
+				return
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, area)
@@ -439,6 +466,21 @@ func (h *AreasHandler) Update(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, area)
+}
+
+// userCanAccessArea returns true if the user has access to the given area.
+// If the user has no entries in user_areas, they have access to all areas.
+func (h *AreasHandler) userCanAccessArea(userID, areaID int) bool {
+	var count int
+	err := h.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM user_areas WHERE user_id = $1`, userID).Scan(&count)
+	if err != nil || count == 0 {
+		return true // no restriction
+	}
+	var allowed int
+	err = h.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM user_areas WHERE user_id = $1 AND area_id = $2`, userID, areaID).Scan(&allowed)
+	return err == nil && allowed > 0
 }
 
 // Helper to get all gateway IDs for an area

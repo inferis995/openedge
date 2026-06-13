@@ -1,4 +1,4 @@
-.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux
+.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux lint lint-go lint-frontend test test-go test-frontend test-coverage swagger hooks-install
 
 COMPOSE_ONPREM_TLS = docker-compose -f docker-compose.yml -f docker-compose.onprem-tls.yml --profile backup
 
@@ -116,6 +116,43 @@ update-check:
 kiosk-linux:
 	@: $${URL:?URL is required (e.g. URL=https://openedge.local)}
 	./scripts/install-kiosk-linux.sh $(URL)
+
+# ── Code quality ─────────────────────────────────────────────────────────────
+## Run all linters (Go + frontend)
+lint: lint-go lint-frontend
+
+## Run golangci-lint on Go code
+lint-go:
+	golangci-lint run ./...
+
+## Run ESLint + TypeScript type-check on frontend
+lint-frontend:
+	cd services/web-ui && npm run lint && npx tsc --noEmit
+
+## Run all tests (Go + frontend)
+test: test-go test-frontend
+
+## Run Go tests with race detector
+test-go:
+	JWT_SECRET=local-test-secret-key-minimum-32-chars go test -race ./internal/...
+
+## Run frontend unit tests (single run, no watch)
+test-frontend:
+	cd services/web-ui && npm run test:run
+
+## Run all tests with coverage reports
+test-coverage:
+	JWT_SECRET=local-test-secret-key-minimum-32-chars go test -race -coverprofile=coverage.out ./internal/... && \
+	go tool cover -func=coverage.out | tail -1 && \
+	cd services/web-ui && npm run test:coverage
+
+## Regenerate Swagger/OpenAPI docs
+swagger:
+	swag init -g services/core-api/main.go -o docs/ --parseDependency
+
+## Install git hooks via lefthook
+hooks-install:
+	lefthook install
 
 ## Show available targets
 help:

@@ -104,11 +104,15 @@ func main() {
 	mqttHost := getEnv("MQTT_HOST", "localhost")
 	mqttPort := getEnvInt("MQTT_PORT", 1883)
 	mqttClientID := getEnv("MQTT_CLIENT_ID", "core-api")
+	mqttUser := getEnv("MQTT_USERNAME", "")
+	mqttPass := getEnv("MQTT_PASSWORD", "")
 
 	mqttCfg := mqtt.Config{
 		Host:          mqttHost,
 		Port:          mqttPort,
 		ClientID:      mqttClientID,
+		Username:      mqttUser,
+		Password:      mqttPass,
 		CleanSession:  true,
 		AutoReconnect: true,
 		KeepAlive:     30 * time.Second,
@@ -245,8 +249,15 @@ func main() {
 		MaxAge:           12 * time.Hour,
 	}))
 
+	// Wire up Mosquitto Dynamic Security client (requires MQTT_USERNAME to be the admin user)
+	var dynsecClient *mqtt.DynsecClient
+	if mqttUser != "" {
+		dynsecClient = mqtt.NewDynsecClient(mqttClient)
+		slog.Info("Mosquitto Dynamic Security client ready")
+	}
+
 	// Create handlers with MQTT client and Redis client
-	orgsHandler := handlers.NewOrganizationsHandler(database, mqttClient)
+	orgsHandler := handlers.NewOrganizationsHandler(database, mqttClient, dynsecClient)
 	sitesHandler := handlers.NewSitesHandler(database, mqttClient)
 	areasHandler := handlers.NewAreasHandler(database, mqttClient)
 	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient, redisClient)
@@ -615,6 +626,25 @@ func main() {
 		{
 			audit.GET("/logs", auditHandler.GetAuditLogs)
 			audit.GET("/actions", auditHandler.GetAuditActions)
+		}
+
+		// API keys for edge-to-cloud authentication (org admin only)
+		apiKeysHandler := handlers.NewAPIKeysHandler(database)
+		orgAPIKeys := api.Group("/organizations/:id/api-keys")
+		orgAPIKeys.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			orgAPIKeys.POST("", apiKeysHandler.Create)
+			orgAPIKeys.GET("", apiKeysHandler.List)
+			orgAPIKeys.DELETE("/:key_id", apiKeysHandler.Revoke)
+		}
+
+		// Edge config pull endpoint — authenticated via API key, not JWT.
+		// Edge managers call this on startup to get their gateway config + MQTT creds.
+		edgeConfigHandler := handlers.NewEdgeConfigHandler(database)
+		edge := api.Group("/edge")
+		edge.Use(middleware.RequireAPIKey(database))
+		{
+			edge.GET("/config", edgeConfigHandler.Get)
 		}
 
 		// WebSocket endpoints

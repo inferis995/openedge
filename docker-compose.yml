@@ -56,6 +56,11 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2
     container_name: industrial-mosquitto
+    entrypoint: ["/mosquitto/config/docker-entrypoint.sh"]
+    command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+    environment:
+      MQTT_ADMIN_USER: ${MQTT_ADMIN_USER:-core-api}
+      MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD:?MQTT_ADMIN_PASSWORD is required — set it in .env}
     ports:
       - "18830:1883"     # Internal MQTT broker (non-standard port to avoid conflicts)
       - "9001:9001"      # WebSocket port
@@ -64,7 +69,10 @@ services:
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
     healthcheck:
-      test: [ "CMD", "mosquitto_sub", "-t", "$$SYS/broker/version", "-C", "1", "-i", "healthcheck", "-W", "3" ]
+      test: [ "CMD", "mosquitto_sub", "-t", "$$SYS/broker/version", "-C", "1",
+              "-i", "healthcheck", "-W", "3",
+              "-u", "${MQTT_ADMIN_USER:-core-api}",
+              "-P", "${MQTT_ADMIN_PASSWORD:-}" ]
       interval: 10s
       timeout: 10s
       retries: 5
@@ -93,6 +101,10 @@ services:
       REDIS_PORT: ${REDIS_PORT:-6379}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
+      MQTT_USERNAME: ${MQTT_ADMIN_USER:-core-api}
+      MQTT_PASSWORD: ${MQTT_ADMIN_PASSWORD:-}
+      MQTT_PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
+      MQTT_PUBLIC_PORT: ${MQTT_PUBLIC_PORT:-18830}
       PORT: ${PORT:-8081}
       BACKUP_PATH: /backups
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — run 'make start' or set it in .env}
@@ -164,6 +176,11 @@ services:
       DB_NAME: ${POSTGRES_DB:-industrial_edge}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
+      MQTT_USERNAME: ${MQTT_ADMIN_USER:-core-api}
+      MQTT_PASSWORD: ${MQTT_ADMIN_PASSWORD:-}
+      # Optional: pull config from cloud API instead of local DB
+      # EDGE_API_KEY: <key generated from /api/organizations/:id/api-keys>
+      # EDGE_API_URL: https://your-openedge-domain.com
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     extra_hosts:
@@ -204,6 +221,8 @@ services:
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
       MQTT_CLIENT_ID: engine-historian
+      MQTT_USERNAME: ${MQTT_ADMIN_USER:-core-api}
+      MQTT_PASSWORD: ${MQTT_ADMIN_PASSWORD:-}
       SPARKPLUG_ENABLED: "true"
     depends_on:
       postgres:

@@ -7,6 +7,13 @@ export const sitesApi = {
         return response.data;
     },
 
+    getByOrg: async (orgId: number): Promise<Site[]> => {
+        const response = await api.get('/sites', {
+            headers: { 'X-Organization-ID': orgId.toString() },
+        });
+        return response.data;
+    },
+
     create: async (data: CreateSiteDto): Promise<Site> => {
         const config = {
             headers: {

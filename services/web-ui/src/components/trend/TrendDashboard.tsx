@@ -1,5 +1,4 @@
 import React, { useMemo, useCallback, useEffect, useState } from 'react';
-// @ts-ignore - types are in @types/react-grid-layout
 import GridLayout from 'react-grid-layout';
 import { useTrendStore } from '@/stores/useTrendStore';
 import { TrendChart } from './TrendChart';
@@ -7,7 +6,7 @@ import { TagStatsPanel } from './TagStatsPanel';
 import { ChartSeries, TagWithHierarchy, TrendDataPoint, TAG_COLORS, getAutoInterval } from '@/types/trend';
 import { historyApi, TagStats } from '@/api/history';
 import { useQueries } from '@tanstack/react-query';
-import { Loader2, Plus, BarChart3 } from 'lucide-react';
+import { Loader2, Plus, BarChart3, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
@@ -51,6 +50,8 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
         updateChart,
         addChart,
         liveMode,
+        removeTagFromChart,
+        updateYAxisConfig,
     } = useTrendStore();
 
     const [containerWidth, setContainerWidth] = useState(1200);
@@ -200,7 +201,7 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
             };
 
             // Convert history data to chart format [timestamp, value]
-            let data: [number, number | null][] = historyData.map(point => {
+            const data: [number, number | null][] = historyData.map(point => {
                 // Timestamp from API is already in milliseconds - use directly
                 const ts = point.timestamp;
                 // Quality 0 = GOOD, >0 = BAD (show as null/gap)
@@ -273,6 +274,17 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
                 yAxisIndex: index,
                 isBool,
                 quality: historyData.map(p => p.quality),
+                // Style from YAxisConfig
+                lineType: yAxisConfig?.lineType ?? 'solid',
+                lineWidth: yAxisConfig?.lineWidth ?? 2,
+                chartType: yAxisConfig?.chartType ?? 'line',
+                showMarkers: yAxisConfig?.showMarkers ?? false,
+                visible: yAxisConfig?.visible ?? true,
+                yMin: yAxisConfig?.autoScale === false ? yAxisConfig?.min : undefined,
+                yMax: yAxisConfig?.autoScale === false ? yAxisConfig?.max : undefined,
+                autoScale: yAxisConfig?.autoScale ?? true,
+                yPosition: yAxisConfig?.position ?? (index % 2 === 0 ? 'left' : 'right'),
+                areaOpacity: yAxisConfig?.areaOpacity ?? 0.15,
             };
         });
     }, [charts, tags, historyDataMap, realtimeValues, displayTimeRange]);
@@ -364,7 +376,6 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
                 </div>
             )}
 
-            {/* @ts-ignore - GridLayout types are complex */}
             <Grid
                 className="layout"
                 layout={layout}
@@ -385,6 +396,9 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
                             onActivate={() => setActiveChart(chart.id)}
                             syncGroup="trend-charts"
                             onRemove={() => removeChart(chart.id)}
+                            onRemoveTag={(tagId) => removeTagFromChart(chart.id, tagId)}
+                            onUpdateYAxisConfig={(tagId, updates) => updateYAxisConfig(chart.id, tagId, updates)}
+                            onUpdateTitle={(title) => updateChart(chart.id, { title })}
                         />
                     </div>
                 ))}
@@ -392,30 +406,29 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
 
             {/* Statistics Panel */}
             {allTagsWithColors.length > 0 && (
-                <div className="mt-4 border-t border-border pt-4">
-                    <div className="flex items-center justify-between mb-3">
-                        <button
-                            onClick={() => setShowStats(!showStats)}
-                            className="flex items-center gap-2 text-sm font-semibold text-foreground hover:text-primary transition-colors"
-                        >
-                            <BarChart3 className="w-4 h-4" />
+                <div className="mt-4">
+                    {/* Section header */}
+                    <button
+                        onClick={() => setShowStats(!showStats)}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/40 hover:bg-muted/70 border border-border transition-colors mb-2 group"
+                    >
+                        <BarChart3 className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                        <span className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors">
                             Tag Statistics
-                            <span className="text-xs text-muted-foreground font-normal">
-                                ({allTagsWithColors.length} tags)
-                            </span>
-                            <svg
-                                className={`w-4 h-4 transition-transform ${showStats ? 'rotate-180' : ''}`}
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                            </svg>
-                        </button>
-                    </div>
+                        </span>
+                        <span className="text-[10px] text-muted-foreground font-normal bg-muted px-1.5 py-0.5 rounded">
+                            {allTagsWithColors.length}
+                        </span>
+                        {statsLoading && (
+                            <Loader2 className="w-3 h-3 text-muted-foreground animate-spin ml-1" />
+                        )}
+                        <ChevronDown
+                            className={`w-3.5 h-3.5 text-muted-foreground ml-auto transition-transform duration-200 ${showStats ? '' : '-rotate-90'}`}
+                        />
+                    </button>
 
                     {showStats && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
                             {allTagsWithColors.map(({ tagId, tagName, color, isBool }) => (
                                 <TagStatsPanel
                                     key={tagId}
@@ -424,6 +437,8 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
                                     stats={tagStats.get(tagId) || null}
                                     isLoading={statsLoading}
                                     isBool={isBool}
+                                    data={historyDataMap.get(tagId)}
+                                    timeRange={safeTimeRange}
                                 />
                             ))}
                         </div>

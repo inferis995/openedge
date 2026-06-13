@@ -17,6 +17,8 @@ type User struct {
 	FullName     string     `json:"full_name"`
 	OrgID        *int       `json:"org_id"` // NULL for global admin
 	I3xWrite     bool       `json:"i3x_write"`
+	SiteIDs      []int      `json:"site_ids"`  // empty = access all org sites
+	AreaIDs      []int      `json:"area_ids"`  // empty = access all accessible areas
 	CreatedAt    time.Time  `json:"created_at"`
 }
 

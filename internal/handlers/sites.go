@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -111,10 +112,26 @@ func (h *SitesHandler) List(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.Query(
-		"SELECT id, org_id, name, created_at FROM sites WHERE org_id = $1 ORDER BY id",
-		orgID,
-	)
+	userID, hasUserID := middleware.GetUserID(c)
+	var rows *sql.Rows
+	var err error
+
+	if !middleware.IsGlobalAdmin(c) && hasUserID {
+		// Respect user's site scope: if user_sites is empty → all sites; else → only allowed sites
+		rows, err = h.db.QueryContext(c.Request.Context(), `
+			SELECT id, org_id, name, created_at FROM sites
+			WHERE org_id = $1
+			AND (
+				NOT EXISTS (SELECT 1 FROM user_sites WHERE user_id = $2)
+				OR id IN (SELECT site_id FROM user_sites WHERE user_id = $2)
+			)
+			ORDER BY id`, orgID, userID)
+	} else {
+		rows, err = h.db.QueryContext(c.Request.Context(),
+			"SELECT id, org_id, name, created_at FROM sites WHERE org_id = $1 ORDER BY id",
+			orgID,
+		)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query sites"})
 		return
@@ -181,6 +198,16 @@ func (h *SitesHandler) Get(c *gin.Context) {
 	if site.OrgID != orgID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to site from another organization"})
 		return
+	}
+
+	// Site scope check for non-global-admin users
+	if !middleware.IsGlobalAdmin(c) {
+		if userID, ok := middleware.GetUserID(c); ok {
+			if !h.userCanAccessSite(userID, site.ID) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "Access denied to this site"})
+				return
+			}
+		}
 	}
 
 	c.JSON(http.StatusOK, site)
@@ -374,6 +401,21 @@ func (h *SitesHandler) Update(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, site)
+}
+
+// userCanAccessSite returns true if the user has access to the given site.
+// If the user has no entries in user_sites, they have access to all org sites.
+func (h *SitesHandler) userCanAccessSite(userID, siteID int) bool {
+	var count int
+	err := h.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM user_sites WHERE user_id = $1`, userID).Scan(&count)
+	if err != nil || count == 0 {
+		return true // no restriction
+	}
+	var allowed int
+	err = h.db.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM user_sites WHERE user_id = $1 AND site_id = $2`, userID, siteID).Scan(&allowed)
+	return err == nil && allowed > 0
 }
 
 // Helper to get all gateway IDs for a site

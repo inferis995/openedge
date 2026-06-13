@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -26,6 +27,8 @@ type CreateUserRequest struct {
 	FullName string          `json:"full_name"`
 	OrgID    *int            `json:"org_id"`
 	I3xWrite bool            `json:"i3x_write"`
+	SiteIDs  []int           `json:"site_ids"`
+	AreaIDs  []int           `json:"area_ids"`
 }
 
 // UpdateUserRequest represents the request body for updating a user
@@ -35,14 +38,35 @@ type UpdateUserRequest struct {
 	FullName string          `json:"full_name"`
 	OrgID    *int            `json:"org_id"`
 	I3xWrite *bool           `json:"i3x_write"` // pointer so omitted ≠ false
+	SiteIDs  *[]int          `json:"site_ids"`
+	AreaIDs  *[]int          `json:"area_ids"`
 }
 
-// List returns all users
+type userWithScope struct {
+	ID        int             `json:"id"`
+	Username  string          `json:"username"`
+	Role      models.UserRole `json:"role"`
+	FullName  string          `json:"full_name"`
+	OrgID     *int            `json:"org_id"`
+	OrgName   *string         `json:"org_name,omitempty"`
+	I3xWrite  bool            `json:"i3x_write"`
+	SiteIDs   []int           `json:"site_ids"`
+	AreaIDs   []int           `json:"area_ids"`
+	CreatedAt string          `json:"created_at"`
+}
+
+// List returns all users with their site/area scope.
 func (h *UsersHandler) List(c *gin.Context) {
 	query := `
-		SELECT u.id, u.username, u.role, u.full_name, u.org_id, u.created_at, u.i3x_write, o.name as org_name
+		SELECT u.id, u.username, u.role, u.full_name, u.org_id, u.created_at, u.i3x_write,
+		       o.name as org_name,
+		       COALESCE(array_agg(DISTINCT us.site_id) FILTER (WHERE us.site_id IS NOT NULL), '{}') AS site_ids,
+		       COALESCE(array_agg(DISTINCT ua.area_id) FILTER (WHERE ua.area_id IS NOT NULL), '{}') AS area_ids
 		FROM users u
 		LEFT JOIN organizations o ON u.org_id = o.id
+		LEFT JOIN user_sites us ON u.id = us.user_id
+		LEFT JOIN user_areas ua ON u.id = ua.user_id
+		GROUP BY u.id, o.name
 		ORDER BY u.id
 	`
 	rows, err := h.db.QueryContext(c.Request.Context(), query)
@@ -52,35 +76,31 @@ func (h *UsersHandler) List(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	type UserWithOrgName struct {
-		ID        int             `json:"id"`
-		Username  string          `json:"username"`
-		Role      models.UserRole `json:"role"`
-		FullName  string          `json:"full_name"`
-		OrgID     *int            `json:"org_id"`
-		OrgName   *string         `json:"org_name,omitempty"`
-		I3xWrite  bool            `json:"i3x_write"`
-		CreatedAt string          `json:"created_at"`
-	}
-
-	var users []UserWithOrgName
+	var users []userWithScope
 	for rows.Next() {
-		var user UserWithOrgName
-		if err := rows.Scan(&user.ID, &user.Username, &user.Role, &user.FullName, &user.OrgID, &user.CreatedAt, &user.I3xWrite, &user.OrgName); err != nil {
+		var u userWithScope
+		var siteIDs pq.Int64Array
+		var areaIDs pq.Int64Array
+		if err := rows.Scan(
+			&u.ID, &u.Username, &u.Role, &u.FullName, &u.OrgID, &u.CreatedAt, &u.I3xWrite,
+			&u.OrgName, &siteIDs, &areaIDs,
+		); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan user"})
 			return
 		}
-		users = append(users, user)
+		u.SiteIDs = int64SliceToInt(siteIDs)
+		u.AreaIDs = int64SliceToInt(areaIDs)
+		users = append(users, u)
 	}
 
 	if users == nil {
-		users = []UserWithOrgName{}
+		users = []userWithScope{}
 	}
 
 	c.JSON(http.StatusOK, users)
 }
 
-// Create adds a new user
+// Create adds a new user with optional site/area scope.
 func (h *UsersHandler) Create(c *gin.Context) {
 	var req CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -88,25 +108,27 @@ func (h *UsersHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Hash password
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 		return
 	}
 
-	// Insert user
-	query := `INSERT INTO users (username, password_hash, role, full_name, org_id, i3x_write) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`
-	var user models.User
-	user.Username = req.Username
-	user.Role = req.Role
-	user.FullName = req.FullName
-	user.OrgID = req.OrgID
-	user.I3xWrite = req.I3xWrite
-
-	err = h.db.QueryRowContext(c.Request.Context(), query, req.Username, string(hashedPassword), req.Role, req.FullName, req.OrgID, req.I3xWrite).Scan(&user.ID, &user.CreatedAt)
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
-		// Check for unique constraint violation
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var userID int
+	var createdAt string
+	err = tx.QueryRowContext(c.Request.Context(),
+		`INSERT INTO users (username, password_hash, role, full_name, org_id, i3x_write)
+		 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, created_at`,
+		req.Username, string(hashedPassword), req.Role, req.FullName, req.OrgID, req.I3xWrite,
+	).Scan(&userID, &createdAt)
+	if err != nil {
 		if err.Error() == `pq: duplicate key value violates unique constraint "users_username_key"` {
 			c.JSON(http.StatusConflict, gin.H{"error": "Username already exists"})
 			return
@@ -115,7 +137,31 @@ func (h *UsersHandler) Create(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusCreated, user)
+	if err := insertUserSites(c, tx, userID, req.SiteIDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to assign sites"})
+		return
+	}
+	if err := insertUserAreas(c, tx, userID, req.AreaIDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to assign areas"})
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+		return
+	}
+
+	c.JSON(http.StatusCreated, userWithScope{
+		ID:        userID,
+		Username:  req.Username,
+		Role:      req.Role,
+		FullName:  req.FullName,
+		OrgID:     req.OrgID,
+		I3xWrite:  req.I3xWrite,
+		SiteIDs:   nullableIntSlice(req.SiteIDs),
+		AreaIDs:   nullableIntSlice(req.AreaIDs),
+		CreatedAt: createdAt,
+	})
 }
 
 // Update modifies an existing user
@@ -133,11 +179,11 @@ func (h *UsersHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Check if user exists
 	var existingUser models.User
 	checkQuery := `SELECT id, username, role, full_name, org_id, i3x_write, created_at FROM users WHERE id = $1`
 	err = h.db.QueryRowContext(c.Request.Context(), checkQuery, id).Scan(
-		&existingUser.ID, &existingUser.Username, &existingUser.Role, &existingUser.FullName, &existingUser.OrgID, &existingUser.I3xWrite, &existingUser.CreatedAt,
+		&existingUser.ID, &existingUser.Username, &existingUser.Role, &existingUser.FullName,
+		&existingUser.OrgID, &existingUser.I3xWrite, &existingUser.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -148,22 +194,26 @@ func (h *UsersHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Build update query dynamically
+	tx, err := h.db.BeginTx(c.Request.Context(), nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start transaction"})
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
 	if req.Password != "" {
-		// Update password
 		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 			return
 		}
-		_, err = h.db.ExecContext(c.Request.Context(), `UPDATE users SET password_hash = $1 WHERE id = $2`, string(hashedPassword), id)
+		_, err = tx.ExecContext(c.Request.Context(), `UPDATE users SET password_hash = $1 WHERE id = $2`, string(hashedPassword), id)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})
 			return
 		}
 	}
 
-	// Resolve i3x_write: keep existing value if not provided in the request
 	var existingI3xWrite bool
 	_ = h.db.QueryRowContext(c.Request.Context(), `SELECT i3x_write FROM users WHERE id = $1`, id).Scan(&existingI3xWrite)
 	newI3xWrite := existingI3xWrite
@@ -171,54 +221,71 @@ func (h *UsersHandler) Update(c *gin.Context) {
 		newI3xWrite = *req.I3xWrite
 	}
 
-	// Update role, full_name, org_id, i3x_write
-	updateQuery := `UPDATE users SET role = COALESCE(NULLIF($1, ''), role), full_name = $2, org_id = $3, i3x_write = $4 WHERE id = $5`
-	_, err = h.db.ExecContext(c.Request.Context(), updateQuery, req.Role, req.FullName, req.OrgID, newI3xWrite, id)
+	_, err = tx.ExecContext(c.Request.Context(),
+		`UPDATE users SET role = COALESCE(NULLIF($1, ''), role), full_name = $2, org_id = $3, i3x_write = $4 WHERE id = $5`,
+		req.Role, req.FullName, req.OrgID, newI3xWrite, id,
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update user"})
 		return
 	}
 
-	// Fetch updated user with org name
+	if req.SiteIDs != nil {
+		if _, execErr := tx.ExecContext(c.Request.Context(), `DELETE FROM user_sites WHERE user_id = $1`, id); execErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear site scope"})
+			return
+		}
+		if assignErr := insertUserSitesTx(c, tx, id, *req.SiteIDs); assignErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to assign sites"})
+			return
+		}
+	}
+
+	if req.AreaIDs != nil {
+		if _, execErr := tx.ExecContext(c.Request.Context(), `DELETE FROM user_areas WHERE user_id = $1`, id); execErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to clear area scope"})
+			return
+		}
+		if assignErr := insertUserAreasTx(c, tx, id, *req.AreaIDs); assignErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to assign areas"})
+			return
+		}
+	}
+
+	if commitErr := tx.Commit(); commitErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction"})
+		return
+	}
+
+	// Fetch updated user with all scope info
 	var orgName *string
+	var siteIDs pq.Int64Array
+	var areaIDs pq.Int64Array
 	fullQuery := `
-		SELECT u.id, u.username, u.role, u.full_name, u.org_id, u.i3x_write, u.created_at, o.name as org_name
+		SELECT u.id, u.username, u.role, u.full_name, u.org_id, u.i3x_write, u.created_at, o.name,
+		       COALESCE(array_agg(DISTINCT us.site_id) FILTER (WHERE us.site_id IS NOT NULL), '{}'),
+		       COALESCE(array_agg(DISTINCT ua.area_id) FILTER (WHERE ua.area_id IS NOT NULL), '{}')
 		FROM users u
 		LEFT JOIN organizations o ON u.org_id = o.id
+		LEFT JOIN user_sites us ON u.id = us.user_id
+		LEFT JOIN user_areas ua ON u.id = ua.user_id
 		WHERE u.id = $1
+		GROUP BY u.id, o.name
 	`
+	var resp userWithScope
 	err = h.db.QueryRowContext(c.Request.Context(), fullQuery, id).Scan(
-		&existingUser.ID, &existingUser.Username, &existingUser.Role, &existingUser.FullName,
-		&existingUser.OrgID, &existingUser.I3xWrite, &existingUser.CreatedAt, &orgName,
+		&resp.ID, &resp.Username, &resp.Role, &resp.FullName, &resp.OrgID, &resp.I3xWrite,
+		&resp.CreatedAt, &orgName, &siteIDs, &areaIDs,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch updated user"})
 		return
 	}
+	resp.OrgName = orgName
+	resp.SiteIDs = int64SliceToInt(siteIDs)
+	resp.AreaIDs = int64SliceToInt(areaIDs)
 
-	type UserWithOrgName struct {
-		ID        int             `json:"id"`
-		Username  string          `json:"username"`
-		Role      models.UserRole `json:"role"`
-		FullName  string          `json:"full_name"`
-		OrgID     *int            `json:"org_id"`
-		OrgName   *string         `json:"org_name,omitempty"`
-		I3xWrite  bool            `json:"i3x_write"`
-		CreatedAt string          `json:"created_at"`
-	}
-
-	response := UserWithOrgName{
-		ID:        existingUser.ID,
-		Username:  existingUser.Username,
-		Role:      existingUser.Role,
-		FullName:  existingUser.FullName,
-		OrgID:     existingUser.OrgID,
-		OrgName:   orgName,
-		I3xWrite:  existingUser.I3xWrite,
-		CreatedAt: existingUser.CreatedAt.Format("2006-01-02T15:04:05Z"),
-	}
-
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusOK, resp)
 }
 
 // Delete removes a user
@@ -230,17 +297,14 @@ func (h *UsersHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	// Get current user ID from JWT claims
 	userIDClaim, exists := c.Get("user_id")
 	if exists {
-		// Prevent self-deletion
 		if currentUserID, ok := userIDClaim.(float64); ok && int(currentUserID) == id {
 			c.JSON(http.StatusForbidden, gin.H{"error": "Cannot delete your own account"})
 			return
 		}
 	}
 
-	// Delete user
 	result, err := h.db.ExecContext(c.Request.Context(), `DELETE FROM users WHERE id = $1`, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
@@ -254,4 +318,56 @@ func (h *UsersHandler) Delete(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User deleted successfully"})
+}
+
+// --- helpers ---
+
+func insertUserSites(c *gin.Context, tx *sql.Tx, userID int, siteIDs []int) error {
+	return insertUserSitesTx(c, tx, userID, siteIDs)
+}
+
+func insertUserSitesTx(c *gin.Context, tx *sql.Tx, userID int, siteIDs []int) error {
+	for _, sid := range siteIDs {
+		if _, err := tx.ExecContext(c.Request.Context(),
+			`INSERT INTO user_sites (user_id, site_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+			userID, sid,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func insertUserAreas(c *gin.Context, tx *sql.Tx, userID int, areaIDs []int) error {
+	return insertUserAreasTx(c, tx, userID, areaIDs)
+}
+
+func insertUserAreasTx(c *gin.Context, tx *sql.Tx, userID int, areaIDs []int) error {
+	for _, aid := range areaIDs {
+		if _, err := tx.ExecContext(c.Request.Context(),
+			`INSERT INTO user_areas (user_id, area_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+			userID, aid,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func int64SliceToInt(s pq.Int64Array) []int {
+	if len(s) == 0 {
+		return []int{}
+	}
+	out := make([]int, len(s))
+	for i, v := range s {
+		out[i] = int(v)
+	}
+	return out
+}
+
+func nullableIntSlice(s []int) []int {
+	if s == nil {
+		return []int{}
+	}
+	return s
 }

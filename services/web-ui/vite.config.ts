@@ -22,6 +22,16 @@ export default defineConfig({
     },
     build: {
         target: 'es2015',
-        minify: 'esbuild', // Faster and usually safe
+        minify: 'esbuild',
+        chunkSizeWarningLimit: 1500,
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    vendor: ['react', 'react-dom'],
+                    charts: ['echarts', 'recharts'],
+                    ui: ['@radix-ui/react-dialog', '@radix-ui/react-select', '@radix-ui/react-tabs'],
+                },
+            },
+        },
     }
 })

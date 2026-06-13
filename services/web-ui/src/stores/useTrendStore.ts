@@ -6,6 +6,7 @@ import {
     TimeRange,
     AggregationType,
     TAG_COLORS,
+    YAxisConfig,
 } from '@/types/trend';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
@@ -19,6 +20,7 @@ interface TrendStore extends TrendState {
     addTagToChart: (chartId: string, tagId: number) => void;
     removeTagFromChart: (chartId: string, tagId: number) => void;
     clearChartTags: (chartId: string) => void;
+    updateYAxisConfig: (chartId: string, tagId: number, updates: Partial<YAxisConfig>) => void;
 
     // Time actions
     setTimeRange: (timeRange: TimeRange) => void;
@@ -113,12 +115,18 @@ export const useTrendStore = create<TrendStore>()(
                     if (!chart || chart.tagIds.includes(tagId)) return state;
 
                     const color = get().getNextColor();
-                    const newYAxisConfig = {
+                    const newYAxisConfig: YAxisConfig = {
                         id: generateId(),
                         tagId,
                         autoScale: true,
                         position: (chart.yAxisConfigs.length % 2 === 0 ? 'left' : 'right') as 'left' | 'right',
                         color,
+                        lineType: 'solid',
+                        lineWidth: 2,
+                        chartType: 'line',
+                        showMarkers: false,
+                        visible: true,
+                        areaOpacity: 0.15,
                     };
 
                     return {
@@ -154,6 +162,21 @@ export const useTrendStore = create<TrendStore>()(
                     charts: state.charts.map((c) =>
                         c.id === chartId
                             ? { ...c, tagIds: [], yAxisConfigs: [] }
+                            : c
+                    ),
+                }));
+            },
+
+            updateYAxisConfig: (chartId: string, tagId: number, updates: Partial<YAxisConfig>) => {
+                set((state) => ({
+                    charts: state.charts.map((c) =>
+                        c.id === chartId
+                            ? {
+                                ...c,
+                                yAxisConfigs: c.yAxisConfigs.map((y) =>
+                                    y.tagId === tagId ? { ...y, ...updates } : y
+                                ),
+                            }
                             : c
                     ),
                 }));
