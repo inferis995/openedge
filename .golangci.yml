@@ -41,6 +41,9 @@ linters:
 
   exclusions:
     rules:
+      # "Mosquitto" is an Eclipse project name, not a misspelling of "Mosquito"
+      - linters: [misspell]
+        text: "[Mm]osquitto"
       # Test files: allow more lenient rules
       - path: "_test\\.go"
         linters: [dupl, errcheck, bodyclose]

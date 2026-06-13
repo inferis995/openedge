@@ -638,6 +638,14 @@ func main() {
 			orgAPIKeys.DELETE("/:key_id", apiKeysHandler.Revoke)
 		}
 
+		// Edge installer — generates a ready-to-run ZIP for edge deployment (org admin only)
+		installerHandler := handlers.NewEdgeInstallerHandler(database)
+		orgEdge := api.Group("/organizations/:id")
+		orgEdge.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			orgEdge.GET("/edge-installer", installerHandler.Download)
+		}
+
 		// Edge config pull endpoint — authenticated via API key, not JWT.
 		// Edge managers call this on startup to get their gateway config + MQTT creds.
 		edgeConfigHandler := handlers.NewEdgeConfigHandler(database)
