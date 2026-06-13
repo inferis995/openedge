@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
+	"github.com/ralph/industrial-edge-middleware/internal/notifications"
 	redisclient "github.com/ralph/industrial-edge-middleware/internal/redis"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -102,6 +105,17 @@ func (h *InvitesHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create invite"})
 		return
 	}
+
+	// Send invite email in background — failure is non-fatal; the caller
+	// still gets the token so they can share the link manually.
+	go func() {
+		host := os.Getenv("PUBLIC_HOST")
+		if host == "" {
+			host = "localhost:3000"
+		}
+		inviteURL := fmt.Sprintf("https://%s/accept-invite?token=%s", host, token)
+		notifications.SendInviteEmail(h.db, req.Email, inviteURL)
+	}()
 
 	c.JSON(http.StatusCreated, InviteResponse{
 		ID:        id,
