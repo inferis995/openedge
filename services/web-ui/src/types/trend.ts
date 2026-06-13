@@ -253,12 +253,12 @@ export function calculateTimeRange(preset: TimePreset, now?: Date): { start: Dat
                 start: new Date(refNow.getFullYear(), refNow.getMonth(), refNow.getDate(), 0, 0, 0),
                 end: refNow
             };
-        case 'yesterday':
+        case 'yesterday': {
             const yesterdayStart = new Date(refNow.getFullYear(), refNow.getMonth(), refNow.getDate() - 1, 0, 0, 0);
             const yesterdayEnd = new Date(refNow.getFullYear(), refNow.getMonth(), refNow.getDate() - 1, 23, 59, 59);
             return { start: yesterdayStart, end: yesterdayEnd };
-        case 'currentShift':
-            // Find current shift based on hour
+        }
+        case 'currentShift': {
             const currentHour = refNow.getHours();
             for (const shift of DEFAULT_SHIFTS) {
                 if (shift.startHour <= shift.endHour) {
@@ -279,10 +279,12 @@ export function calculateTimeRange(preset: TimePreset, now?: Date): { start: Dat
                 }
             }
             return { start: new Date(refNow.getTime() - 8 * 60 * 60 * 1000), end: refNow };
-        case 'previousShift':
+        }
+        case 'previousShift': {
             const prevShiftEnd = new Date(refNow.getTime() - 8 * 60 * 60 * 1000);
             const prevShiftStart = new Date(prevShiftEnd.getTime() - 8 * 60 * 60 * 1000);
             return { start: prevShiftStart, end: prevShiftEnd };
+        }
         default:
             return { start: new Date(refNow.getTime() - 60 * 60 * 1000), end: refNow };
     }
