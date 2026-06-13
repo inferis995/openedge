@@ -15,11 +15,12 @@ import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-    Download, Key, UserPlus, WifiOff, Copy, Trash2, RefreshCw, Eye, EyeOff,
+    Download, Key, UserPlus, WifiOff, Copy, Trash2, RefreshCw, Eye, EyeOff, Webhook as WebhookIcon,
 } from 'lucide-react';
 import { organizationsApi } from '@/api/organizations';
 import { apiKeysApi, ApiKey } from '@/api/apiKeys';
 import { invitesApi } from '@/api/invites';
+import { webhooksApi, Webhook, WEBHOOK_EVENTS, WebhookEvent } from '@/api/webhooks';
 import { showApiSuccess, showApiError } from '@/lib/api-error-handler';
 import { toast } from 'sonner';
 
@@ -110,6 +111,38 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
         }
     };
 
+    // ── Webhooks ──────────────────────────────────────────────────────────────
+    const [whURL, setWhURL] = useState('');
+    const [whEvents, setWhEvents] = useState<WebhookEvent[]>([]);
+    const [shownWhSecret, setShownWhSecret] = useState<string | null>(null);
+
+    const { data: webhooks = [], refetch: refetchWebhooks } = useQuery<Webhook[]>({
+        queryKey: ['webhooks', org.id],
+        queryFn: () => webhooksApi.list(org.id),
+        enabled: open,
+    });
+
+    const createWebhookMutation = useMutation({
+        mutationFn: () => webhooksApi.create(org.id, { url: whURL, events: whEvents }),
+        onSuccess: (wh) => {
+            setShownWhSecret(wh.secret ?? null);
+            setWhURL(''); setWhEvents([]);
+            refetchWebhooks();
+            toast.success('Webhook created');
+        },
+        onError: (e) => showApiError(e, 'Failed to create webhook'),
+    });
+
+    const deleteWebhookMutation = useMutation({
+        mutationFn: (id: number) => webhooksApi.delete(org.id, id),
+        onSuccess: () => { refetchWebhooks(); toast.success('Webhook deleted'); },
+        onError: (e) => showApiError(e, 'Failed to delete webhook'),
+    });
+
+    const toggleWhEvent = (ev: WebhookEvent) => {
+        setWhEvents(prev => prev.includes(ev) ? prev.filter(e => e !== ev) : [...prev, ev]);
+    };
+
     // Reset local state when dialog closes
     useEffect(() => {
         if (!open) {
@@ -117,6 +150,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
             setCreatedInvite(null);
             setInviteEmail('');
             setNewKeyName('');
+            setShownWhSecret(null);
         }
     }, [open]);
 
@@ -130,15 +164,16 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                         Infrastructure — {org.name}
                     </DialogTitle>
                     <DialogDescription>
-                        Manage edge deployment, API keys, and team invites for this organization.
+                        Manage edge deployment, API keys, team invites, and webhooks for this organization.
                     </DialogDescription>
                 </DialogHeader>
 
                 <Tabs defaultValue="edge" className="mt-2">
-                    <TabsList className="grid w-full grid-cols-3">
+                    <TabsList className="grid w-full grid-cols-4">
                         <TabsTrigger value="edge">Edge</TabsTrigger>
                         <TabsTrigger value="apikeys">API Keys</TabsTrigger>
                         <TabsTrigger value="invites">Invite Users</TabsTrigger>
+                        <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
                     </TabsList>
 
                     {/* ── EDGE TAB ─────────────────────────────────────────── */}
@@ -356,6 +391,121 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                             The invite link lets the recipient create their own account in this organization.
                             Each link is single-use and expires after 7 days.
                         </p>
+                    </TabsContent>
+
+                    {/* ── WEBHOOKS TAB ─────────────────────────────────────── */}
+                    <TabsContent value="webhooks" className="space-y-4 pt-4">
+                        {shownWhSecret && (
+                            <div className="rounded-lg border border-amber-500 bg-amber-50 dark:bg-amber-950/20 p-4 space-y-2">
+                                <p className="text-sm font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-2">
+                                    <WebhookIcon size={14} /> Webhook signing secret — save this now
+                                </p>
+                                <div className="flex items-center gap-2">
+                                    <code className="flex-1 rounded bg-background px-2 py-1 text-xs font-mono border break-all">
+                                        {shownWhSecret}
+                                    </code>
+                                    <Button variant="ghost" size="icon" onClick={() => {
+                                        navigator.clipboard.writeText(shownWhSecret);
+                                        toast.success('Secret copied');
+                                    }}>
+                                        <Copy size={14} />
+                                    </Button>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Use this to verify the <code>X-OpenEdge-Signature</code> header on incoming requests. It won't be shown again.
+                                </p>
+                            </div>
+                        )}
+
+                        {/* Create webhook */}
+                        <div className="rounded-lg border p-4 space-y-3">
+                            <p className="text-sm font-medium">Add webhook endpoint</p>
+                            <div className="space-y-1.5">
+                                <Label className="text-xs">URL</Label>
+                                <Input
+                                    type="url"
+                                    placeholder="https://your-server.com/hooks/openedge"
+                                    value={whURL}
+                                    onChange={e => setWhURL(e.target.value)}
+                                />
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label className="text-xs">Events to listen for</Label>
+                                <div className="grid grid-cols-2 gap-1.5">
+                                    {WEBHOOK_EVENTS.map(ev => (
+                                        <label key={ev.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={whEvents.includes(ev.value)}
+                                                onChange={() => toggleWhEvent(ev.value)}
+                                                className="rounded"
+                                            />
+                                            {ev.label}
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+                            <Button
+                                onClick={() => createWebhookMutation.mutate()}
+                                disabled={createWebhookMutation.isPending || !whURL || whEvents.length === 0}
+                                size="sm"
+                                className="gap-2"
+                            >
+                                <WebhookIcon size={14} />
+                                {createWebhookMutation.isPending ? 'Creating…' : 'Add Webhook'}
+                            </Button>
+                        </div>
+
+                        {/* List webhooks */}
+                        {webhooks.length > 0 && (
+                            <Table>
+                                <TableHeader>
+                                    <TableRow>
+                                        <TableHead>URL</TableHead>
+                                        <TableHead>Events</TableHead>
+                                        <TableHead>Last call</TableHead>
+                                        <TableHead className="w-[50px]" />
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {webhooks.map(wh => (
+                                        <TableRow key={wh.id}>
+                                            <TableCell className="font-mono text-xs max-w-[200px] truncate" title={wh.url}>
+                                                {wh.url}
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="flex flex-wrap gap-1">
+                                                    {wh.events.map(ev => (
+                                                        <Badge key={ev} variant="secondary" className="text-[10px] px-1 py-0">
+                                                            {ev}
+                                                        </Badge>
+                                                    ))}
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="text-xs text-muted-foreground">
+                                                {wh.last_triggered_at ? (
+                                                    <span className={wh.last_status_code && wh.last_status_code >= 200 && wh.last_status_code < 300
+                                                        ? 'text-green-600' : 'text-red-500'}>
+                                                        {wh.last_status_code} · {formatRelativeTime(wh.last_triggered_at)}
+                                                    </span>
+                                                ) : '—'}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                                                    onClick={() => deleteWebhookMutation.mutate(wh.id)}>
+                                                    <Trash2 size={13} />
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        )}
+                        {webhooks.length === 0 && (
+                            <p className="text-center text-sm text-muted-foreground py-6">
+                                No webhooks configured. Add one to integrate with external systems.
+                            </p>
+                        )}
                     </TabsContent>
                 </Tabs>
             </DialogContent>

@@ -684,11 +684,15 @@ func main() {
 		publicAuth.POST("/forgot-password", authHandler.ForgotPassword)
 		publicAuth.POST("/reset-password", authHandler.ResetPassword)
 
-		// Edge heartbeat status — reads the Redis ping timestamp set by the MQTT handler.
-		orgEdgeStatus := api.Group("/organizations/:id")
-		orgEdgeStatus.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		// Edge heartbeat status + webhook management — org admin or global admin.
+		webhooksHandler := handlers.NewWebhooksHandler(database)
+		orgMgmt := api.Group("/organizations/:id")
+		orgMgmt.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
 		{
-			orgEdgeStatus.GET("/edge-status", invitesHandler.EdgeStatus)
+			orgMgmt.GET("/edge-status", invitesHandler.EdgeStatus)
+			orgMgmt.GET("/webhooks", webhooksHandler.List)
+			orgMgmt.POST("/webhooks", webhooksHandler.Create)
+			orgMgmt.DELETE("/webhooks/:webhook_id", webhooksHandler.Delete)
 		}
 
 		// Edge config pull endpoint — authenticated via API key, not JWT.
