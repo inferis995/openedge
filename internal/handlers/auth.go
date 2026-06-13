@@ -39,6 +39,38 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// ForgotPassword handles POST /api/auth/forgot-password (public).
+// Always returns 200 to prevent email enumeration.
+func (h *AuthHandler) ForgotPassword(c *gin.Context) {
+	var req struct {
+		Email string `json:"email" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email is required"})
+		return
+	}
+	// Non-blocking — user lookup + token insert + email send all happen in background.
+	go h.service.RequestPasswordReset(c.Request.Context(), req.Email)
+	c.JSON(http.StatusOK, gin.H{"message": "If the email is registered you will receive a reset link shortly."})
+}
+
+// ResetPassword handles POST /api/auth/reset-password (public).
+func (h *AuthHandler) ResetPassword(c *gin.Context) {
+	var req struct {
+		Token    string `json:"token"    binding:"required"`
+		Password string `json:"password" binding:"required,min=6"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := h.service.ResetPassword(c.Request.Context(), req.Token, req.Password); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Password updated successfully."})
+}
+
 func (h *AuthHandler) Logout(c *gin.Context) {
 	// Get user info from context (set by auth middleware)
 	userID, exists := c.Get("user_id")

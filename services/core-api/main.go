@@ -668,8 +668,11 @@ func main() {
 		{
 			orgInvites.POST("", invitesHandler.Create)
 		}
-		// Accept invite is public (recipient has no JWT yet).
-		api.Group("/auth").POST("/accept-invite", invitesHandler.AcceptInvite)
+		// Public auth endpoints — no JWT required.
+		publicAuth := api.Group("/auth")
+		publicAuth.POST("/accept-invite", invitesHandler.AcceptInvite)
+		publicAuth.POST("/forgot-password", authHandler.ForgotPassword)
+		publicAuth.POST("/reset-password", authHandler.ResetPassword)
 
 		// Edge heartbeat status — reads the Redis ping timestamp set by the MQTT handler.
 		orgEdgeStatus := api.Group("/organizations/:id")

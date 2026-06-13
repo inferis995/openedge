@@ -151,12 +151,13 @@ func (h *InvitesHandler) AcceptInvite(c *gin.Context) {
 		id    int
 		orgID int
 		role  string
+		email string
 	}
 	lookupQ := `
-		SELECT id, org_id, role
+		SELECT id, org_id, role, email
 		FROM user_invites
 		WHERE token = $1 AND accepted_at IS NULL AND expires_at > NOW()`
-	err := h.db.QueryRowContext(ctx, lookupQ, req.Token).Scan(&inv.id, &inv.orgID, &inv.role)
+	err := h.db.QueryRowContext(ctx, lookupQ, req.Token).Scan(&inv.id, &inv.orgID, &inv.role, &inv.email)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invite token is invalid or has expired"})
 		return
@@ -181,11 +182,11 @@ func (h *InvitesHandler) AcceptInvite(c *gin.Context) {
 
 	var userID int
 	createQ := `
-		INSERT INTO users (username, password_hash, role, full_name, org_id)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO users (username, password_hash, role, full_name, org_id, email)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id`
 	if err = tx.QueryRowContext(ctx, createQ,
-		req.Username, string(hash), inv.role, req.FullName, inv.orgID,
+		req.Username, string(hash), inv.role, req.FullName, inv.orgID, inv.email,
 	).Scan(&userID); err != nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "username already taken"})
 		return

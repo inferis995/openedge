@@ -27,6 +27,8 @@ import OEEKioskPage from '@/pages/OEEKioskPage';
 import I3XPage from '@/pages/I3XPage';
 import AcceptInvitePage from '@/pages/AcceptInvitePage';
 import AuditPage from '@/pages/AuditPage';
+import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
+import ResetPasswordPage from '@/pages/ResetPasswordPage';
 
 import { useEffect, useState, useRef } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -99,8 +101,10 @@ function App() {
     return (
         <Routes>
             <Route path="/login" element={<LoginPage />} />
-            {/* Public route — recipient arrives here from email invite link */}
+            {/* Public routes — no auth required */}
             <Route path="/accept-invite" element={<AcceptInvitePage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
 
             {/* TV/Kiosk mode — full-screen senza sidebar/header. Resta
                 sotto RequireAuth ma fuori dal LayoutWrapper. */}

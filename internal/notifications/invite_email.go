@@ -54,6 +54,48 @@ func loadSMTPCfg(db *sql.DB) (*smtpCfg, bool) {
 	}, true
 }
 
+// SendPasswordResetEmail sends a password reset link to the given address.
+func SendPasswordResetEmail(db *sql.DB, recipientEmail, username, resetURL string) {
+	cfg, ok := loadSMTPCfg(db)
+	if !ok {
+		slog.Warn("password reset email skipped — SMTP not configured", "recipient", recipientEmail)
+		return
+	}
+
+	subject := "OpenEdge — password reset request"
+	body := fmt.Sprintf(`Hello %s,
+
+A password reset was requested for your OpenEdge account.
+
+Click the link below to set a new password (valid for 1 hour):
+
+  %s
+
+If you did not request this, you can safely ignore this email.
+Your password will not be changed.
+`, username, resetURL)
+
+	msg := fmt.Sprintf(
+		"From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",
+		cfg.from, recipientEmail, subject, body,
+	)
+
+	addr := fmt.Sprintf("%s:%d", cfg.host, cfg.port)
+	auth := smtp.PlainAuth("", cfg.username, cfg.password, cfg.host)
+
+	var sendErr error
+	if cfg.useTLS {
+		sendErr = sendImplicitTLSTo(cfg.host, addr, auth, cfg.from, recipientEmail, []byte(msg))
+	} else {
+		sendErr = smtp.SendMail(addr, auth, cfg.from, []string{recipientEmail}, []byte(msg))
+	}
+	if sendErr != nil {
+		slog.Error("password reset email send failed", "recipient", recipientEmail, "err", sendErr)
+	} else {
+		slog.Info("password reset email sent", "recipient", recipientEmail)
+	}
+}
+
 // SendInviteEmail sends a user-invite link to the given recipient address.
 // It reuses the SMTP settings from global_settings (the same settings used
 // for alarm email). If SMTP is not configured the error is logged and the
