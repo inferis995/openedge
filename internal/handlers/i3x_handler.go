@@ -599,14 +599,33 @@ func (h *I3XHandler) GetEquipmentProperty(c *gin.Context) {
 
 // ListProperties handles GET /api/i3x/v1/properties
 // Returns all tags visible to the caller, with current values from Redis.
+// Optional query param: equipment_id=gw-{n} to filter by a specific gateway.
 func (h *I3XHandler) ListProperties(c *gin.Context) {
 	orgFilter := middleware.GetOrgFilterForQuery(c)
 	// Paginate to avoid unbounded JSON for tenants with thousands of tags.
 	limit, offset := paginationParams(c, 200, 5000)
 
+	equipmentIDFilter := c.Query("equipment_id")
+	var gwIDFilter *int
+	if equipmentIDFilter != "" {
+		if id, ok := parseGWID(equipmentIDFilter); ok {
+			gwIDFilter = &id
+		}
+	}
+
 	var q string
 	var args []interface{}
-	if orgFilter != nil {
+	if orgFilter != nil && gwIDFilter != nil {
+		q = `SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id
+		     FROM tags t
+		     JOIN gateways g ON t.gateway_id = g.id
+		     JOIN areas a ON g.area_id = a.id
+		     JOIN sites s ON a.site_id = s.id
+		     WHERE s.org_id = $1 AND t.gateway_id = $2
+		     ORDER BY t.sort_order ASC, t.id ASC
+		     LIMIT $3 OFFSET $4`
+		args = []interface{}{*orgFilter, *gwIDFilter, limit, offset}
+	} else if orgFilter != nil {
 		q = `SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id
 		     FROM tags t
 		     JOIN gateways g ON t.gateway_id = g.id
@@ -616,6 +635,16 @@ func (h *I3XHandler) ListProperties(c *gin.Context) {
 		     ORDER BY t.sort_order ASC, t.id ASC
 		     LIMIT $2 OFFSET $3`
 		args = []interface{}{*orgFilter, limit, offset}
+	} else if gwIDFilter != nil {
+		q = `SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id
+		     FROM tags t
+		     JOIN gateways g ON t.gateway_id = g.id
+		     JOIN areas a ON g.area_id = a.id
+		     JOIN sites s ON a.site_id = s.id
+		     WHERE t.gateway_id = $1
+		     ORDER BY t.sort_order ASC, t.id ASC
+		     LIMIT $2 OFFSET $3`
+		args = []interface{}{*gwIDFilter, limit, offset}
 	} else {
 		q = `SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id
 		     FROM tags t
@@ -915,4 +944,388 @@ func (h *I3XHandler) scanAlarmRows(c *gin.Context, rows *sql.Rows) []i3x.Alarm {
 		items = append(items, alarm)
 	}
 	return items
+}
+
+// ─── History ─────────────────────────────────────────────────────────────────
+
+// GetPropertyHistory handles GET /api/i3x/v1/properties/:id/history
+// Returns raw time-series samples for a tag from the TimescaleDB historian.
+// Query params: from (RFC3339), to (RFC3339), limit (int, default 500, max 5000)
+func (h *I3XHandler) GetPropertyHistory(c *gin.Context) {
+	tagID, ok := parseTagID(c.Param("id"))
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Property ID must be in the form tag-{n}"})
+		return
+	}
+
+	// Org isolation: verify the tag belongs to the caller's org.
+	var ownerOrgID int
+	err := h.db.QueryRow(`
+		SELECT s.org_id
+		FROM tags t
+		JOIN gateways g ON t.gateway_id = g.id
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id
+		WHERE t.id = $1`, tagID).Scan(&ownerOrgID)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Property not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query property"})
+		return
+	}
+	orgFilter := middleware.GetOrgFilterForQuery(c)
+	if orgFilter != nil && *orgFilter != ownerOrgID {
+		c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
+		return
+	}
+
+	// Default time range: last hour.
+	from := time.Now().Add(-1 * time.Hour)
+	to := time.Now()
+	if v := c.Query("from"); v != "" {
+		if t, err2 := time.Parse(time.RFC3339, v); err2 == nil {
+			from = t
+		}
+	}
+	if v := c.Query("to"); v != "" {
+		if t, err2 := time.Parse(time.RFC3339, v); err2 == nil {
+			to = t
+		}
+	}
+	limit := 500
+	if v := c.Query("limit"); v != "" {
+		if n, err2 := strconv.Atoi(v); err2 == nil && n > 0 && n <= 5000 {
+			limit = n
+		}
+	}
+
+	rows, err := h.db.Query(`
+		SELECT time, value FROM tag_history
+		WHERE tag_id = $1 AND time >= $2 AND time <= $3
+		ORDER BY time ASC LIMIT $4`, tagID, from, to, limit)
+	if err != nil {
+		log.Printf("[i3X] GetPropertyHistory query error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query history"})
+		return
+	}
+	defer rows.Close()
+
+	var points []i3x.PropertyHistoryPoint
+	for rows.Next() {
+		var ts time.Time
+		var val sql.NullFloat64
+		if err2 := rows.Scan(&ts, &val); err2 != nil {
+			continue
+		}
+		p := i3x.PropertyHistoryPoint{Timestamp: ts}
+		if val.Valid {
+			v := val.Float64
+			p.Value = &v
+		}
+		points = append(points, p)
+	}
+	if points == nil {
+		points = []i3x.PropertyHistoryPoint{}
+	}
+	c.JSON(http.StatusOK, i3x.ListResponse[i3x.PropertyHistoryPoint]{Items: points, Total: len(points)})
+}
+
+// ─── Equipment children ───────────────────────────────────────────────────────
+
+// GetEquipmentChildren handles GET /api/i3x/v1/equipment/:id/children
+// Returns the direct children of a hierarchy node:
+//
+//	org-{n}  → sites
+//	site-{n} → areas
+//	area-{n} → gateways (Equipment type)
+//	gw-{n}   → empty (leaf node)
+func (h *I3XHandler) GetEquipmentChildren(c *gin.Context) {
+	rawID := c.Param("id")
+	orgFilter := middleware.GetOrgFilterForQuery(c)
+	var items []i3x.Equipment
+
+	switch {
+	case strings.HasPrefix(rawID, "org-"):
+		orgID, ok := parseOrgID(rawID)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Invalid org ID"})
+			return
+		}
+		if orgFilter != nil && *orgFilter != orgID {
+			c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
+			return
+		}
+		var orgName string
+		if err := h.db.QueryRow(`SELECT name FROM organizations WHERE id = $1`, orgID).Scan(&orgName); err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Organization not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		rows, err := h.db.Query(`SELECT id, name FROM sites WHERE org_id = $1 ORDER BY name`, orgID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id int
+			var name string
+			if err2 := rows.Scan(&id, &name); err2 != nil {
+				continue
+			}
+			items = append(items, i3x.Equipment{
+				ID: siteAssemblyID(id), Name: name, Type: i3x.EquipmentTypeAssembly,
+				ParentID: rawID, Path: fmt.Sprintf("%s / %s", orgName, name),
+			})
+		}
+
+	case strings.HasPrefix(rawID, "site-"):
+		siteID, ok := parseSiteID(rawID)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Invalid site ID"})
+			return
+		}
+		var siteName, orgName string
+		var orgID int
+		err := h.db.QueryRow(`SELECT s.name, o.id, o.name FROM sites s JOIN organizations o ON s.org_id=o.id WHERE s.id=$1`, siteID).Scan(&siteName, &orgID, &orgName)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Site not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		if orgFilter != nil && *orgFilter != orgID {
+			c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
+			return
+		}
+		rows, err := h.db.Query(`SELECT id, name FROM areas WHERE site_id = $1 ORDER BY name`, siteID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id int
+			var name string
+			if err2 := rows.Scan(&id, &name); err2 != nil {
+				continue
+			}
+			items = append(items, i3x.Equipment{
+				ID: areaAssemblyID(id), Name: name, Type: i3x.EquipmentTypeAssembly,
+				ParentID: rawID, Path: fmt.Sprintf("%s / %s / %s", orgName, siteName, name),
+			})
+		}
+
+	case strings.HasPrefix(rawID, "area-"):
+		areaID, ok := parseAreaID(rawID)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Invalid area ID"})
+			return
+		}
+		var areaName, siteName, orgName string
+		var siteID, orgID int
+		err := h.db.QueryRow(`
+			SELECT a.name, s.id, s.name, o.id, o.name
+			FROM areas a JOIN sites s ON a.site_id=s.id JOIN organizations o ON s.org_id=o.id
+			WHERE a.id=$1`, areaID).Scan(&areaName, &siteID, &siteName, &orgID, &orgName)
+		if err == sql.ErrNoRows {
+			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Area not found"})
+			return
+		} else if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		if orgFilter != nil && *orgFilter != orgID {
+			c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
+			return
+		}
+		rows, err := h.db.Query(`
+			SELECT g.id, g.name, g.driver_type, g.scan_rate_ms, g.enabled
+			FROM gateways g WHERE g.area_id = $1 ORDER BY g.name`, areaID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id, scanRate int
+			var name, driverType string
+			var enabled bool
+			if err2 := rows.Scan(&id, &name, &driverType, &scanRate, &enabled); err2 != nil {
+				continue
+			}
+			items = append(items, i3x.Equipment{
+				ID: gwEquipmentID(id), Name: name, Type: i3x.EquipmentTypeEquipment,
+				Description: driverType, ParentID: rawID,
+				Path: fmt.Sprintf("%s / %s / %s / %s", orgName, siteName, areaName, name),
+				Attributes: map[string]interface{}{
+					"driver_type": driverType, "scan_rate_ms": scanRate, "enabled": enabled,
+				},
+			})
+		}
+
+	case strings.HasPrefix(rawID, "gw-"):
+		// Gateway is a leaf node — no children.
+		items = []i3x.Equipment{}
+
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "ID must be one of: org-{n}, site-{n}, area-{n}, gw-{n}"})
+		return
+	}
+
+	if items == nil {
+		items = []i3x.Equipment{}
+	}
+	c.JSON(http.StatusOK, i3x.ListResponse[i3x.Equipment]{Items: items, Total: len(items)})
+}
+
+// ─── Alarm acknowledge ────────────────────────────────────────────────────────
+
+// AcknowledgeAlarm handles POST /api/i3x/v1/alarms/:id/acknowledge
+// Sets alarm status to ACKNOWLEDGED. Requires i3x_write permission.
+func (h *I3XHandler) AcknowledgeAlarm(c *gin.Context) {
+	if !middleware.HasI3xWrite(c) {
+		c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "i3X write permission required"})
+		return
+	}
+
+	rawID := strings.TrimPrefix(c.Param("id"), "alarm-")
+	evtID, err := strconv.Atoi(rawID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Alarm ID must be in the form alarm-{n}"})
+		return
+	}
+
+	// Org isolation.
+	var orgID int
+	err = h.db.QueryRow(`
+		SELECT s.org_id FROM alarm_events e
+		JOIN tags t ON e.tag_id = t.id
+		JOIN gateways g ON t.gateway_id = g.id
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id
+		WHERE e.id = $1`, evtID).Scan(&orgID)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Alarm not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query alarm"})
+		return
+	}
+	orgFilter := middleware.GetOrgFilterForQuery(c)
+	if orgFilter != nil && *orgFilter != orgID {
+		c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
+		return
+	}
+
+	// Get username from JWT claims.
+	var username string
+	if raw, exists := c.Get(middleware.UserKey); exists {
+		if claims, ok := raw.(map[string]interface{}); ok {
+			username, _ = claims["username"].(string)
+		}
+	}
+
+	result, err := h.db.Exec(`
+		UPDATE alarm_events
+		SET status = 'ACKNOWLEDGED', ack_time = NOW(), bg_ack_user = $2
+		WHERE id = $1 AND status = 'ACTIVE'`, evtID, username)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to acknowledge alarm"})
+		return
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		c.JSON(http.StatusConflict, gin.H{"code": "NOT_ACTIVE", "message": "Alarm is not in Active state"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "Alarm acknowledged"})
+}
+
+// ─── Batch read ───────────────────────────────────────────────────────────────
+
+// BatchReadProperties handles POST /api/i3x/v1/properties/values
+// Returns current values for up to 500 properties in a single request.
+// Request body: {"ids": ["tag-1", "tag-42", ...]}
+func (h *I3XHandler) BatchReadProperties(c *gin.Context) {
+	var req struct {
+		IDs []string `json:"ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_BODY", "message": err.Error()})
+		return
+	}
+	if len(req.IDs) > 500 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "TOO_MANY_IDS", "message": "Maximum 500 IDs per batch request"})
+		return
+	}
+
+	tagIDs := make([]int, 0, len(req.IDs))
+	for _, rid := range req.IDs {
+		if id, ok := parseTagID(rid); ok {
+			tagIDs = append(tagIDs, id)
+		}
+	}
+	if len(tagIDs) == 0 {
+		c.JSON(http.StatusOK, i3x.ListResponse[i3x.Property]{Items: []i3x.Property{}, Total: 0})
+		return
+	}
+
+	orgFilter := middleware.GetOrgFilterForQuery(c)
+
+	// Build a placeholder list for the IN clause: $1, $2, ...
+	placeholders := make([]string, len(tagIDs))
+	args := make([]interface{}, len(tagIDs))
+	for i, id := range tagIDs {
+		placeholders[i] = fmt.Sprintf("$%d", i+1)
+		args[i] = id
+	}
+
+	q := fmt.Sprintf(`
+		SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id, s.org_id
+		FROM tags t
+		JOIN gateways g ON t.gateway_id = g.id
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id
+		WHERE t.id IN (%s)
+		ORDER BY t.id`, strings.Join(placeholders, ","))
+
+	rows, err := h.db.Query(q, args...)
+	if err != nil {
+		log.Printf("[i3X] BatchReadProperties query error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query properties"})
+		return
+	}
+	defer rows.Close()
+
+	var items []i3x.Property
+	for rows.Next() {
+		var tagID, gwID, ownerOrgID int
+		var alias, dataType string
+		var historize bool
+		if err2 := rows.Scan(&tagID, &alias, &dataType, &historize, &gwID, &ownerOrgID); err2 != nil {
+			continue
+		}
+		if orgFilter != nil && *orgFilter != ownerOrgID {
+			continue
+		}
+		items = append(items, i3x.Property{
+			ID:          tagPropertyID(tagID),
+			Name:        alias,
+			EquipmentID: gwEquipmentID(gwID),
+			DataType:    i3x.MapDataType(dataType),
+			Historize:   historize,
+			Current:     h.currentValueFromRedis(tagID),
+		})
+	}
+	if items == nil {
+		items = []i3x.Property{}
+	}
+	c.JSON(http.StatusOK, i3x.ListResponse[i3x.Property]{Items: items, Total: len(items)})
 }

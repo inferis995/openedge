@@ -756,6 +756,11 @@ func main() {
 
 			i3x.GET("/alarms", i3xHandler.ListAlarms)
 			i3x.GET("/alarms/history", i3xHandler.ListAlarmHistory)
+
+			i3x.GET("/equipment/:id/children", i3xHandler.GetEquipmentChildren)
+			i3x.GET("/properties/:id/history", i3xHandler.GetPropertyHistory)
+			i3x.POST("/properties/values", i3xHandler.BatchReadProperties)
+			i3x.POST("/alarms/:id/acknowledge", i3xHandler.AcknowledgeAlarm)
 		}
 	}
 
