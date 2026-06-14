@@ -89,4 +89,17 @@ export const tagsApi = {
         const response = await api.post('/tags/batch-current', { tag_ids: tagIds });
         return response.data;
     },
+
+    // Tag shadow — last-known value even when edge is offline.
+    // source: "live" (edge online) | "historic" (edge offline, value from DB)
+    getShadow: async (tagId: number): Promise<{ tag_id: number; value: any; quality: number; ts: number; source: 'live' | 'historic' | 'unknown' }> => {
+        const response = await api.get(`/tags/${tagId}/shadow`);
+        return response.data;
+    },
+
+    // Batch shadows for all tags of a gateway.
+    getShadowBatch: async (gatewayId: number): Promise<{ tag_id: number; value: any; quality: number; ts: number; source: string }[]> => {
+        const response = await api.get('/tags/shadows', { params: { gateway_id: gatewayId } });
+        return response.data;
+    },
 };

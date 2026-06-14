@@ -1,9 +1,15 @@
 package handlers
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -174,4 +180,136 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	h.service.Logout(uid, username.(string), ipAddress, userAgent)
 
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
+}
+
+// SSOLogin handles GET /api/auth/sso/:provider/login?org_id=N (or ?email=user@company.com)
+// Redirects the browser to the OAuth2 provider's authorization page.
+func (h *AuthHandler) SSOLogin(c *gin.Context) {
+	provider := c.Param("provider")
+
+	orgIDStr := c.Query("org_id")
+	orgID, _ := strconv.Atoi(orgIDStr)
+
+	var ssoProvider *auth.SSOProvider
+	var err error
+
+	if orgID > 0 {
+		ssoProvider, err = auth.GetSSOProvider(h.db, provider, orgID)
+	} else {
+		// Accept email or domain for automatic org resolution.
+		email := c.Query("email")
+		if email == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "org_id or email required"})
+			return
+		}
+		domain := email
+		if idx := strings.LastIndex(email, "@"); idx >= 0 {
+			domain = email[idx+1:]
+		}
+		ssoProvider, err = auth.GetSSOProviderByDomain(h.db, provider, domain)
+		if err == nil {
+			orgID = ssoProvider.OrgID
+		}
+	}
+
+	if err != nil || ssoProvider == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "SSO provider not configured for this org"})
+		return
+	}
+
+	redirectURL := fmt.Sprintf("https://%s/api/auth/sso/%s/callback", publicHost(), provider)
+	oauthCfg, err := ssoProvider.OAuth2Config(redirectURL)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// PKCE-like state: base64(orgID:randomBytes) — verified in callback
+	stateRaw := make([]byte, 16)
+	_, _ = rand.Read(stateRaw)
+	state := fmt.Sprintf("%d:%s", orgID, base64.RawURLEncoding.EncodeToString(stateRaw))
+
+	url := oauthCfg.AuthCodeURL(state)
+	c.Redirect(http.StatusFound, url)
+}
+
+// SSOCallback handles GET /api/auth/sso/:provider/callback
+// Exchanges the code for a token, fetches user info, upserts the user, and returns a JWT.
+func (h *AuthHandler) SSOCallback(c *gin.Context) {
+	provider := c.Param("provider")
+	code := c.Query("code")
+	state := c.Query("state")
+
+	if code == "" || state == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing code or state"})
+		return
+	}
+
+	// Extract orgID from state
+	parts := strings.SplitN(state, ":", 2)
+	if len(parts) != 2 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+		return
+	}
+	orgID, err := strconv.Atoi(parts[0])
+	if err != nil || orgID <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state org_id"})
+		return
+	}
+
+	ssoProvider, err := auth.GetSSOProvider(h.db, provider, orgID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "SSO provider not configured"})
+		return
+	}
+
+	redirectURL := fmt.Sprintf("https://%s/api/auth/sso/%s/callback", publicHost(), provider)
+	oauthCfg, err := ssoProvider.OAuth2Config(redirectURL)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	token, err := oauthCfg.Exchange(c.Request.Context(), code)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "token exchange failed"})
+		return
+	}
+
+	userInfo, err := auth.FetchUserInfo(c.Request.Context(), provider, token, oauthCfg)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+
+	// If email domain matches another org's SSO config, use that org instead
+	emailDomain := ""
+	if idx := strings.LastIndex(userInfo.Email, "@"); idx >= 0 {
+		emailDomain = userInfo.Email[idx+1:]
+	}
+	if domainProvider, domainErr := auth.GetSSOProviderByDomain(h.db, provider, emailDomain); domainErr == nil {
+		orgID = domainProvider.OrgID
+	}
+
+	userID, role, err := auth.UpsertSSOUser(h.db, userInfo, orgID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "user provisioning failed"})
+		return
+	}
+
+	jwt, err := h.service.GenerateTokenForUser(userID, userInfo.Email, role, orgID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "token generation failed"})
+		return
+	}
+
+	// Redirect to frontend with token in query (frontend stores it in localStorage)
+	c.Redirect(http.StatusFound, fmt.Sprintf("/?sso_token=%s", jwt))
+}
+
+func publicHost() string {
+	if h := os.Getenv("PUBLIC_HOST"); h != "" {
+		return h
+	}
+	return "localhost:8081"
 }

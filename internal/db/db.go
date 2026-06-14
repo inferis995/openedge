@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -570,6 +571,73 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: SSO/OIDC providers (Google, Azure AD) per org.
+	ssoProviders := []string{
+		`CREATE TABLE IF NOT EXISTS sso_providers (
+			id            SERIAL PRIMARY KEY,
+			org_id        INT  NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			provider      TEXT NOT NULL CHECK (provider IN ('google', 'azure')),
+			client_id     TEXT NOT NULL,
+			client_secret TEXT NOT NULL,
+			tenant_id     TEXT,
+			domain_hint   TEXT,
+			enabled       BOOLEAN NOT NULL DEFAULT true,
+			created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (org_id, provider)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_sso_providers_org ON sso_providers(org_id) WHERE enabled = true`,
+		`CREATE INDEX IF NOT EXISTS idx_sso_providers_domain ON sso_providers(domain_hint) WHERE domain_hint IS NOT NULL`,
+	}
+	for _, stmt := range ssoProviders {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			return fmt.Errorf("sso_providers migration: %w", err)
+		}
+	}
+
+	// Migration: granular per-user permissions (extends admin/user role).
+	rolePermissions := []string{
+		`CREATE TABLE IF NOT EXISTS role_permissions (
+			id                     SERIAL PRIMARY KEY,
+			user_id                INT NOT NULL REFERENCES users(id) ON DELETE CASCADE UNIQUE,
+			can_write_tags         BOOLEAN NOT NULL DEFAULT false,
+			can_ack_alarms         BOOLEAN NOT NULL DEFAULT false,
+			can_export_data        BOOLEAN NOT NULL DEFAULT false,
+			can_manage_recipes     BOOLEAN NOT NULL DEFAULT false,
+			can_manage_shifts      BOOLEAN NOT NULL DEFAULT false,
+			can_view_audit         BOOLEAN NOT NULL DEFAULT false,
+			can_download_installer BOOLEAN NOT NULL DEFAULT false,
+			created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_role_permissions_user ON role_permissions(user_id)`,
+	}
+	for _, stmt := range rolePermissions {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			return fmt.Errorf("role_permissions migration: %w", err)
+		}
+	}
+
+	// Seed enterprise notification + connector settings.
+	enterpriseSeed := `
+	INSERT INTO global_settings (key, value, description) VALUES
+		('notif_slack_enabled',    'false', 'When true, alarm events are posted to a Slack channel.'),
+		('notif_slack_webhook_url','',      'Slack Incoming Webhook URL from app.slack.com.'),
+		('notif_teams_enabled',    'false', 'When true, alarm events are posted to a Microsoft Teams channel.'),
+		('notif_teams_webhook_url','',      'Teams Incoming Webhook URL.'),
+		('notif_pagerduty_enabled','false', 'When true, alarm events trigger PagerDuty incidents.'),
+		('notif_pagerduty_routing_key','',  'PagerDuty Events API v2 routing key (32 hex chars).'),
+		('influx_enabled',         'false', 'When true, tag history is pushed to InfluxDB v2 in real time.'),
+		('influx_url',             '',      'InfluxDB v2 base URL, e.g. https://us-east-1-1.aws.cloud2.influxdata.com'),
+		('influx_token',           '',      'InfluxDB v2 API token with write access to the bucket.'),
+		('influx_org',             '',      'InfluxDB organization name or ID.'),
+		('influx_bucket',          '',      'InfluxDB bucket to write into.'),
+		('influx_batch_size',      '500',   'Number of points to batch before flushing to InfluxDB.'),
+		('influx_flush_interval',  '10',    'Seconds between forced flushes even if batch_size not reached.')
+	ON CONFLICT (key) DO NOTHING;`
+	if _, err := db.ExecContext(context.Background(), enterpriseSeed); err != nil {
+		log.Printf("Warning: failed to seed enterprise settings: %v", err)
+	}
+
 	// Bootstrap "safety net" admin: il file migrations/20250308_schema.sql
 	// seedando admin/admin123 gira solo se Postgres trova il volume vuoto
 	// (docker-entrypoint-initdb.d). Su un volume preesistente la seed
@@ -578,6 +646,17 @@ func runAutoMigrations(db *sql.DB) error {
 	// inseriamo l'admin di default. Idempotente via ON CONFLICT.
 	if err := bootstrapAdminIfMissing(db); err != nil {
 		log.Printf("Warning: bootstrap admin check failed: %v", err)
+	}
+
+	// Migration: add LORAWAN as a valid driver_type.
+	// The CHECK constraint must be dropped and re-created because PostgreSQL
+	// does not support ALTER CONSTRAINT … for CHECK constraints.
+	_, _ = db.ExecContext(context.Background(),
+		`ALTER TABLE gateways DROP CONSTRAINT IF EXISTS gateways_driver_type_check`)
+	if _, err := db.ExecContext(context.Background(),
+		`ALTER TABLE gateways ADD CONSTRAINT gateways_driver_type_check
+		 CHECK (driver_type IN ('S7','MODBUS_TCP','MQTT','OPC_UA','LORAWAN'))`); err != nil {
+		log.Printf("Warning: failed to update gateways_driver_type_check: %v", err)
 	}
 
 	log.Println("[DB] Auto-migrations completed successfully")

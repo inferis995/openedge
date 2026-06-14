@@ -275,6 +275,8 @@ type UpdateSettingsRequest struct {
 	// flat-passthrough — keys must start with oee_. Settando i tag id si
 	// passa dalla modalità fallback a quella "tag-driven" (vedi oee.go).
 	OEE map[string]string `json:"oee,omitempty"`
+	// Integrations (InfluxDB, etc.) — flat-passthrough for influx_* keys.
+	Integrations map[string]string `json:"integrations,omitempty"`
 }
 
 // applyPrefixedSettings is the shared upsert loop for flat-passthrough
@@ -507,6 +509,9 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 		return
 	}
 	if err := h.applyPrefixedSettings(c, "oee_", req.OEE); err != nil {
+		return
+	}
+	if err := h.applyPrefixedSettings(c, "influx_", req.Integrations); err != nil {
 		return
 	}
 

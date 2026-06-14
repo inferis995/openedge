@@ -29,8 +29,10 @@ export const gatewaysApi = {
             zero_based: (data as any).zero_based ?? false,
         };
 
-        if (data.driver_type === 'MQTT') {
-            payload.connection_config = {};
+        // GatewaysPage pre-builds connection_config for all driver types including LORAWAN/MQTT.
+        // Use it when present; fall back to field-by-field construction otherwise.
+        if ((data as any).connection_config) {
+            payload.connection_config = (data as any).connection_config;
         } else if (data.driver_type === 'OPC_UA') {
             payload.connection_config = {
                 endpoint: data.endpoint || '',
@@ -40,6 +42,8 @@ export const gatewaysApi = {
                 cert_file: data.cert_file || '',
                 key_file: data.key_file || '',
             };
+        } else if (data.driver_type === 'MQTT') {
+            payload.connection_config = {};
         } else {
             payload.connection_config = {
                 ip_address: data.ip_address,
@@ -93,7 +97,9 @@ export const gatewaysApi = {
                 slave_id: data.slave_id,
             };
         } else if (data.driver_type === 'MQTT') {
-            payload.connection_config = {};
+            payload.connection_config = (data as any).connection_config || {};
+        } else if (data.driver_type === 'LORAWAN') {
+            payload.connection_config = (data as any).connection_config || {};
         } else if (data.ip_address || data.port || data.rack || data.slot || data.slave_id) {
             // Fallback for partial updates without driver_type
             payload.connection_config = {

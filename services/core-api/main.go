@@ -19,6 +19,7 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/ralph/industrial-edge-middleware/docs"
 	"github.com/ralph/industrial-edge-middleware/internal/auth"
+	"github.com/ralph/industrial-edge-middleware/internal/connectors"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/handlers"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
@@ -39,6 +40,7 @@ import (
 // handleAlarmEvent (which is a free function called from a goroutine)
 // can reach it without threading it through every signature.
 var notifDispatcher *notifications.Dispatcher
+var influxWriter *connectors.InfluxDBConnector
 
 func main() {
 	// Structured logging — LOG_FORMAT=json for production (machine-parseable),
@@ -406,6 +408,8 @@ func main() {
 			tags.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), tagsHandler.Delete)
 			tags.PUT("/:id", middleware.RequireRole(models.RoleAdmin), tagsHandler.Update)
 			tags.GET("/:id/current", tagsHandler.GetCurrentValue)
+			tags.GET("/:id/shadow", tagsHandler.GetShadow)
+			tags.GET("/shadows", tagsHandler.GetShadowBatch)
 			tags.POST("/:id/write", tagsHandler.Write)
 		}
 
@@ -683,6 +687,12 @@ func main() {
 		publicAuth.POST("/accept-invite", invitesHandler.AcceptInvite)
 		publicAuth.POST("/forgot-password", authHandler.ForgotPassword)
 		publicAuth.POST("/reset-password", authHandler.ResetPassword)
+		// SSO/OIDC — OAuth2 redirect and callback, no auth required.
+		publicAuth.GET("/sso/:provider/login", authHandler.SSOLogin)
+		publicAuth.GET("/sso/:provider/callback", authHandler.SSOCallback)
+
+		// Fleet, SSO, and RBAC — shared handler instance.
+		fleetHandler := handlers.NewFleetHandler(database, mqttClient, redisClient)
 
 		// Edge heartbeat status + webhook management — org admin or global admin.
 		webhooksHandler := handlers.NewWebhooksHandler(database)
@@ -693,7 +703,27 @@ func main() {
 			orgMgmt.GET("/webhooks", webhooksHandler.List)
 			orgMgmt.POST("/webhooks", webhooksHandler.Create)
 			orgMgmt.DELETE("/webhooks/:webhook_id", webhooksHandler.Delete)
+
+			// OTA edge updates and restart (publishes MQTT sys/update|restart/{org_id}).
+			orgMgmt.POST("/edge-restart", fleetHandler.RestartEdge)
+			orgMgmt.POST("/edge-update", fleetHandler.UpdateEdge)
+
+			// SSO provider configuration per-org (admin only).
+			orgMgmt.GET("/sso-providers", fleetHandler.GetSSOProviders)
+			orgMgmt.POST("/sso-providers", fleetHandler.UpsertSSOProvider)
+			orgMgmt.DELETE("/sso-providers/:provider", fleetHandler.DeleteSSOProvider)
 		}
+
+		// Fleet status (global admin only — spans all orgs).
+		fleetGlobal := api.Group("/fleet")
+		fleetGlobal.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			fleetGlobal.GET("/status", fleetHandler.GetFleetStatus)
+		}
+
+		// User permissions RBAC (admin only).
+		users.GET("/:id/permissions", fleetHandler.GetUserPermissions)
+		users.PUT("/:id/permissions", fleetHandler.UpdateUserPermissions)
 
 		// Edge config pull endpoint — authenticated via API key, not JWT.
 		// Edge managers call this on startup to get their gateway config + MQTT creds.
@@ -739,6 +769,9 @@ func main() {
 
 	// Start background DB metrics collector (updates gauges every minute).
 	telemetry.StartDBMetricsCollector(database)
+
+	// Start InfluxDB v2 push connector (no-op if influx_enabled=false in settings).
+	influxWriter = connectors.NewInfluxDBConnector(database)
 
 	// Health check endpoints (unauthenticated, for Docker/Kubernetes probes)
 	router.GET("/health", func(c *gin.Context) {
@@ -918,6 +951,26 @@ func handleDataUpdate(topic string, payload []byte, redisClient *redis.Client) {
 		if err := redisClient.Publish(channel, string(payload)); err != nil {
 			log.Printf("Error publishing realtime update for org %d: %v", update.OrgID, err)
 		}
+	}
+
+	// 3. InfluxDB v2 push (if enabled in global_settings).
+	if influxWriter != nil {
+		influxWriter.Write(update.TagID, update.OrgID, "", update.Value, update.Quality, update.Timestamp)
+	}
+
+	// 4. Digital Twin shadow — persistent last-known-value with no TTL.
+	// Written on every live MQTT update; survives edge going offline.
+	// GET /api/tags/:id/shadow reads this key, falling back to tag_history.
+	shadowKey := fmt.Sprintf("tag_shadow:%d", update.TagID)
+	shadowPayload, _ := json.Marshal(map[string]interface{}{
+		"tag_id":  update.TagID,
+		"value":   update.Value,
+		"quality": update.Quality,
+		"ts":      update.Timestamp,
+		"source":  "live",
+	})
+	if err := redisClient.Set(shadowKey, string(shadowPayload), 0); err != nil {
+		log.Printf("Error storing tag shadow for tag %d: %v", update.TagID, err)
 	}
 }
 

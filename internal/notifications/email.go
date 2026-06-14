@@ -56,10 +56,10 @@ func newEmailChannel(cfg map[string]string) Channel {
 func (c *emailChannel) Name() string  { return "email" }
 func (c *emailChannel) Enabled() bool { return c.enabled }
 
-func (c *emailChannel) Send(ctx context.Context, e Event) error {
+func (c *emailChannel) Send(ctx context.Context, e *Event) error {
 	subject := fmt.Sprintf("[OpenEdge][%s] %s — %s",
 		strings.ToUpper(e.Severity), strings.ToUpper(e.Status), e.TagAlias)
-	body := renderText(e)
+	body := renderText(*e)
 
 	msg := fmt.Sprintf(
 		"From: %s\r\nTo: %s\r\nSubject: %s\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n%s",

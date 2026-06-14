@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { Routes, Route, Outlet } from 'react-router-dom';
 import MainLayout from '@/components/layout/MainLayout';
 import LoginPage from '@/pages/LoginPage';
 import RequireAuth from '@/components/RequireAuth';
@@ -30,6 +30,8 @@ import AuditPage from '@/pages/AuditPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import ResetPasswordPage from '@/pages/ResetPasswordPage';
 import ProfilePage from '@/pages/ProfilePage';
+import FleetPage from '@/pages/FleetPage';
+import NotFoundPage from '@/pages/NotFoundPage';
 
 import { useEffect, useState, useRef } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -142,10 +144,11 @@ function App() {
                     <Route path="/diagnostics" element={<DiagnosticsPage />} />
                     <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
                     <Route path="/audit" element={<AuditPage />} />
+                    <Route path="/fleet" element={<FleetPage />} />
                 </Route>
             </Route>
 
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFoundPage />} />
         </Routes>
     );
 }

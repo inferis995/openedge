@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, Bell, BellRing, CheckCircle2, Eye, EyeOff, Loader2, Mail, MessageCircle, Send } from 'lucide-react';
+import { AlertCircle, Bell, BellRing, CheckCircle2, Eye, EyeOff, Loader2, Mail, MessageCircle, Send, AlertTriangle } from 'lucide-react';
 
 import { systemApi, NotificationSettings as NS, NotificationTestResult } from '@/api/system';
 import { Button } from '@/components/ui/button';
@@ -75,8 +75,20 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
     const [emailTo, setEmailTo] = useState('');
 
     const [tgEnabled, setTgEnabled] = useState(false);
-    const [tgToken, setTgToken] = useState(''); // same blank-equals-keep rule
+    const [tgToken, setTgToken] = useState('');
     const [tgChatID, setTgChatID] = useState('');
+
+    // Slack
+    const [slackEnabled, setSlackEnabled] = useState(false);
+    const [slackWebhookUrl, setSlackWebhookUrl] = useState('');
+
+    // Microsoft Teams
+    const [teamsEnabled, setTeamsEnabled] = useState(false);
+    const [teamsWebhookUrl, setTeamsWebhookUrl] = useState('');
+
+    // PagerDuty
+    const [pdEnabled, setPdEnabled] = useState(false);
+    const [pdRoutingKey, setPdRoutingKey] = useState('');
 
     const [minSeverity, setMinSeverity] = useState('medium');
     const [onCleared, setOnCleared] = useState(false);
@@ -100,8 +112,17 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
         setEmailTo(initial.notif_email_to ?? '');
 
         setTgEnabled(isTrue(initial.notif_telegram_enabled));
-        // token stays blank — masked on the server
         setTgChatID(initial.notif_telegram_chat_id ?? '');
+
+        setSlackEnabled(isTrue(initial.notif_slack_enabled));
+        setSlackWebhookUrl(initial.notif_slack_webhook_url ?? '');
+
+        setTeamsEnabled(isTrue(initial.notif_teams_enabled));
+        setTeamsWebhookUrl(initial.notif_teams_webhook_url ?? '');
+
+        setPdEnabled(isTrue(initial.notif_pagerduty_enabled));
+        // routing key stays blank — masked on server
+        setPdRoutingKey('');
 
         setMinSeverity(initial.notif_min_severity ?? 'medium');
         setOnCleared(isTrue(initial.notif_on_cleared));
@@ -127,37 +148,58 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
         return errs;
     }, [tgEnabled, tgChatID]);
 
-    const canSave = emailErrors.length === 0 && tgErrors.length === 0 && !saving;
+    const slackErrors = useMemo(() => {
+        if (!slackEnabled) return [] as string[];
+        if (!slackWebhookUrl.trim()) return ['Webhook URL is required'];
+        return [];
+    }, [slackEnabled, slackWebhookUrl]);
+
+    const teamsErrors = useMemo(() => {
+        if (!teamsEnabled) return [] as string[];
+        if (!teamsWebhookUrl.trim()) return ['Webhook URL is required'];
+        return [];
+    }, [teamsEnabled, teamsWebhookUrl]);
+
+    const canSave = emailErrors.length === 0 && tgErrors.length === 0 &&
+        slackErrors.length === 0 && teamsErrors.length === 0 && !saving;
 
     // ── Save ────────────────────────────────────────────────────────────
     const handleSave = async () => {
         setSaving(true);
         setToast(null);
         try {
-            const payload: NS = {
+            const payload = {
                 notif_email_enabled: emailEnabled ? 'true' : 'false',
                 notif_email_smtp_host: emailHost.trim(),
                 notif_email_smtp_port: emailPort.trim(),
                 notif_email_use_tls: emailUseTLS ? 'true' : 'false',
                 notif_email_username: emailUser,
-                notif_email_password: emailPassword, // empty → server keeps stored value
+                notif_email_password: emailPassword,
                 notif_email_from: emailFrom.trim(),
                 notif_email_to: emailTo.trim(),
 
                 notif_telegram_enabled: tgEnabled ? 'true' : 'false',
-                notif_telegram_bot_token: tgToken, // empty → server keeps stored value
+                notif_telegram_bot_token: tgToken,
                 notif_telegram_chat_id: tgChatID.trim(),
+
+                notif_slack_enabled: slackEnabled ? 'true' : 'false',
+                notif_slack_webhook_url: slackWebhookUrl.trim(),
+
+                notif_teams_enabled: teamsEnabled ? 'true' : 'false',
+                notif_teams_webhook_url: teamsWebhookUrl.trim(),
+
+                notif_pagerduty_enabled: pdEnabled ? 'true' : 'false',
+                notif_pagerduty_routing_key: pdRoutingKey,
 
                 notif_min_severity: minSeverity,
                 notif_on_cleared: onCleared ? 'true' : 'false',
                 notif_rate_limit_per_min: rateLimit,
-            };
+            } as NS;
             await systemApi.updateNotifications(payload);
             setToast({ kind: 'success', text: 'Notification settings saved.' });
-            // Clear locally typed secrets so the next render shows the
-            // "stored, leave blank to keep" placeholder again.
             setEmailPassword('');
             setTgToken('');
+            setPdRoutingKey('');
             onSaved?.();
         } catch (e: unknown) {
             setToast({ kind: 'error', text: `Save failed: ${(e as Error)?.message ?? 'unknown error'}` });
@@ -197,10 +239,13 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                             </CardDescription>
                         </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                         {emailEnabled && <Badge className="bg-blue-500/10 text-blue-500 border-none">Email</Badge>}
                         {tgEnabled && <Badge className="bg-emerald-500/10 text-emerald-500 border-none">Telegram</Badge>}
-                        {!emailEnabled && !tgEnabled && (
+                        {slackEnabled && <Badge className="bg-purple-500/10 text-purple-500 border-none">Slack</Badge>}
+                        {teamsEnabled && <Badge className="bg-indigo-500/10 text-indigo-500 border-none">Teams</Badge>}
+                        {pdEnabled && <Badge className="bg-green-500/10 text-green-500 border-none">PagerDuty</Badge>}
+                        {!emailEnabled && !tgEnabled && !slackEnabled && !teamsEnabled && !pdEnabled && (
                             <Badge className="bg-slate-500/10 text-slate-300 border-none">No channel enabled</Badge>
                         )}
                     </div>
@@ -348,6 +393,112 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                     )}
                 </section>
 
+                {/* ── Slack channel ─────────────────────────────────── */}
+                <section className="space-y-3 rounded-md border p-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-sm font-semibold">
+                            {/* Slack logo */}
+                            <svg className="h-4 w-4" viewBox="0 0 122.8 122.8" fill="none">
+                                <path d="M25.8 77.6c0 7.1-5.8 12.9-12.9 12.9S0 84.7 0 77.6s5.8-12.9 12.9-12.9h12.9v12.9z" fill="#E01E5A"/>
+                                <path d="M32.3 77.6c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9v32.3c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V77.6z" fill="#E01E5A"/>
+                                <path d="M45.2 25.8c-7.1 0-12.9-5.8-12.9-12.9S38.1 0 45.2 0s12.9 5.8 12.9 12.9v12.9H45.2z" fill="#36C5F0"/>
+                                <path d="M45.2 32.3c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H12.9C5.8 58.1 0 52.3 0 45.2s5.8-12.9 12.9-12.9H45.2z" fill="#36C5F0"/>
+                                <path d="M97 45.2c0-7.1 5.8-12.9 12.9-12.9s12.9 5.8 12.9 12.9-5.8 12.9-12.9 12.9H97V45.2z" fill="#2EB67D"/>
+                                <path d="M90.5 45.2c0 7.1-5.8 12.9-12.9 12.9s-12.9-5.8-12.9-12.9V12.9C64.7 5.8 70.5 0 77.6 0s12.9 5.8 12.9 12.9v32.3z" fill="#2EB67D"/>
+                                <path d="M77.6 97c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9-12.9-5.8-12.9-12.9V97h12.9z" fill="#ECB22E"/>
+                                <path d="M77.6 90.5c-7.1 0-12.9-5.8-12.9-12.9s5.8-12.9 12.9-12.9h32.3c7.1 0 12.9 5.8 12.9 12.9s-5.8 12.9-12.9 12.9H77.6z" fill="#ECB22E"/>
+                            </svg>
+                            Slack
+                        </div>
+                        <Switch checked={slackEnabled} onCheckedChange={setSlackEnabled} />
+                    </div>
+                    {slackEnabled && (
+                        <div className="space-y-3">
+                            <div className="text-xs text-muted-foreground bg-muted/40 rounded p-2 leading-relaxed">
+                                <strong>Setup:</strong> In Slack, create an App → Incoming Webhooks → Activate → Add to channel → copy the URL below.
+                            </div>
+                            <div className="grid gap-1">
+                                <Label htmlFor="slack-url">Incoming Webhook URL</Label>
+                                <Input id="slack-url" value={slackWebhookUrl}
+                                    onChange={(e) => setSlackWebhookUrl(e.target.value)}
+                                    placeholder="https://hooks.slack.com/services/T.../B.../..." />
+                            </div>
+                            {slackErrors.length > 0 && (
+                                <div className="text-xs text-red-500 flex items-start gap-1">
+                                    <AlertCircle size={14} className="mt-0.5" />
+                                    <ul className="list-disc list-inside">{slackErrors.map((e) => <li key={e}>{e}</li>)}</ul>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </section>
+
+                {/* ── Microsoft Teams channel ────────────────────────── */}
+                <section className="space-y-3 rounded-md border p-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-sm font-semibold">
+                            {/* Teams icon */}
+                            <svg className="h-4 w-4" viewBox="0 0 23 23">
+                                <path fill="#f3f3f3" d="M0 0h23v23H0z"/>
+                                <path fill="#5059C9" d="M13 7.5h5v5.5a4 4 0 0 1-4 4h-1v-9.5z"/>
+                                <path fill="#7B83EB" d="M15 7.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z"/>
+                                <path fill="#5059C9" d="M15.5 7.5H11a.5.5 0 0 0-.5.5V13a4.5 4.5 0 0 0 9 0V8a.5.5 0 0 0-.5-.5h-3.5z"/>
+                                <path fill="#4B53BC" d="M15.5 7.5h-5v5.57A4.5 4.5 0 0 0 15 17.5h.5V7.5z"/>
+                                <path fill="#7B83EB" d="M11 12.5V8a.5.5 0 0 1 .5-.5h4.5v6a4.5 4.5 0 0 1-4.5 4.5 4.5 4.5 0 0 1-4.5-4.5V8a.5.5 0 0 1 .5-.5h3.5z"/>
+                                <path fill="#3D5A98" opacity=".1" d="M11.5 7.5h-1a.5.5 0 0 0-.5.5v5.5a4 4 0 0 0 2 3.46V7.5z"/>
+                                <path fill="#3D5A98" opacity=".2" d="M11 7.5h-.5a.5.5 0 0 0-.5.5v5.5a4 4 0 0 0 2 3.46V8a.5.5 0 0 1 .5-.5H11z"/>
+                                <path fill="#4B53BC" opacity=".2" d="M11.5 7.5v10.5a4 4 0 0 1-2-3.5V8a.5.5 0 0 1 .5-.5h1.5z"/>
+                                <rect fill="#5059C9" x="3" y="7.5" width="9" height="9" rx="4.5"/>
+                            </svg>
+                            Microsoft Teams
+                        </div>
+                        <Switch checked={teamsEnabled} onCheckedChange={setTeamsEnabled} />
+                    </div>
+                    {teamsEnabled && (
+                        <div className="space-y-3">
+                            <div className="text-xs text-muted-foreground bg-muted/40 rounded p-2 leading-relaxed">
+                                <strong>Setup:</strong> In Teams, open a channel → ··· → Connectors → Incoming Webhook → Configure → copy URL below.
+                            </div>
+                            <div className="grid gap-1">
+                                <Label htmlFor="teams-url">Incoming Webhook URL</Label>
+                                <Input id="teams-url" value={teamsWebhookUrl}
+                                    onChange={(e) => setTeamsWebhookUrl(e.target.value)}
+                                    placeholder="https://yourorg.webhook.office.com/webhookb2/..." />
+                            </div>
+                            {teamsErrors.length > 0 && (
+                                <div className="text-xs text-red-500 flex items-start gap-1">
+                                    <AlertCircle size={14} className="mt-0.5" />
+                                    <ul className="list-disc list-inside">{teamsErrors.map((e) => <li key={e}>{e}</li>)}</ul>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </section>
+
+                {/* ── PagerDuty channel ────────────────────────────── */}
+                <section className="space-y-3 rounded-md border p-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-sm font-semibold">
+                            <AlertTriangle size={14} className="text-green-600" />
+                            PagerDuty
+                        </div>
+                        <Switch checked={pdEnabled} onCheckedChange={setPdEnabled} />
+                    </div>
+                    {pdEnabled && (
+                        <div className="space-y-3">
+                            <div className="text-xs text-muted-foreground bg-muted/40 rounded p-2 leading-relaxed">
+                                <strong>Setup:</strong> PagerDuty → Services → Integrations → Add Integration → Events API v2 → copy Routing Key below.
+                                Alarms trigger incidents; CLEARED events auto-resolve them.
+                            </div>
+                            <div className="grid gap-1">
+                                <Label htmlFor="pd-key">Routing Key (32 hex chars)</Label>
+                                <SecretInput id="pd-key" value={pdRoutingKey} onChange={setPdRoutingKey}
+                                    placeholder="••••••••  (stored — leave blank to keep)" />
+                            </div>
+                        </div>
+                    )}
+                </section>
+
                 {/* ── Actions ──────────────────────────────────────── */}
                 <div className="flex items-center gap-3 pt-2 border-t">
                     <Button onClick={handleSave} disabled={!canSave}>
@@ -355,7 +506,7 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                         {saving ? 'Saving...' : 'Save'}
                     </Button>
                     <Button variant="outline" onClick={handleTest}
-                        disabled={testing || (!emailEnabled && !tgEnabled)}>
+                        disabled={testing || (!emailEnabled && !tgEnabled && !slackEnabled && !teamsEnabled && !pdEnabled)}>
                         {testing
                             ? <><Loader2 size={16} className="mr-2 animate-spin" /> Sending test...</>
                             : <><Send size={16} className="mr-2" /> Send test</>}

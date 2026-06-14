@@ -54,6 +54,21 @@ export interface GlobalSettings {
     oee_good_tag?: string;
     oee_target_pieces_per_hour?: string;
     deployment_mode?: string; // 'onprem' | 'cloud' (from the server env)
+    // Slack / Teams / PagerDuty notification channels
+    notif_slack_enabled?: string;
+    notif_slack_webhook_url?: string;
+    notif_teams_enabled?: string;
+    notif_teams_webhook_url?: string;
+    notif_pagerduty_enabled?: string;
+    notif_pagerduty_routing_key?: string;
+    // InfluxDB v2 export connector
+    influx_enabled?: string;
+    influx_url?: string;
+    influx_token?: string;
+    influx_org?: string;
+    influx_bucket?: string;
+    influx_batch_size?: string;
+    influx_flush_interval?: string;
 }
 
 export interface UpdateSettingsRequest {
@@ -82,6 +97,8 @@ export interface UpdateSettingsRequest {
     kpi_targets?: Record<string, string>;
     // OEE config (oee_*) — finestra, target, tag_ids di produzione.
     oee?: Record<string, string>;
+    // InfluxDB and other integrations (influx_*).
+    integrations?: Record<string, string>;
 }
 
 // What the operator edits in the Notifications panel. We keep the shape
@@ -101,6 +118,15 @@ export interface NotificationSettings {
     notif_min_severity?: string;
     notif_on_cleared?: string;
     notif_rate_limit_per_min?: string;
+    // Slack
+    notif_slack_enabled?: string;
+    notif_slack_webhook_url?: string;
+    // Microsoft Teams
+    notif_teams_enabled?: string;
+    notif_teams_webhook_url?: string;
+    // PagerDuty
+    notif_pagerduty_enabled?: string;
+    notif_pagerduty_routing_key?: string;
 }
 
 // Per-channel result of the "Send test" button. ok=false rolls up to a

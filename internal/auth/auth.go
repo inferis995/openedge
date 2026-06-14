@@ -115,6 +115,22 @@ func (s *Service) generateToken(user models.User) (string, error) {
 	return token.SignedString(SecretKey)
 }
 
+// GenerateTokenForUser creates a JWT for an SSO-provisioned user.
+// orgID = 0 is treated as global admin (org_id = NULL in claims).
+func (s *Service) GenerateTokenForUser(userID int, username, role string, orgID int) (string, error) {
+	claims := jwt.MapClaims{
+		"user_id":  userID,
+		"username": username,
+		"role":     role,
+		"exp":      time.Now().Add(24 * time.Hour).Unix(),
+	}
+	if orgID > 0 {
+		claims["org_id"] = orgID
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(SecretKey)
+}
+
 // logAudit writes an audit log entry to the database
 func (s *Service) logAudit(userID *int, username, action, ipAddress, userAgent string, details map[string]interface{}, success bool) {
 	if ipAddress == "" {
