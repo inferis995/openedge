@@ -177,7 +177,7 @@ export default function TrendPage() {
         setPens(prev => [...prev, {
             tagId,
             label: tag.alias || tag.code,
-            unit: tag.eu_unit || undefined,
+            unit: undefined,
             color: PEN_COLORS[colorIdx],
             visible: true,
         }]);
