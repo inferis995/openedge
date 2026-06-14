@@ -800,6 +800,15 @@ func (h *GatewaysHandler) TestConnection(c *gin.Context) {
 		return
 	}
 
+	if driverType == "LORAWAN" {
+		// LoRaWAN devices connect to the Network Server (TTN/ChirpStack), not to us directly.
+		// The driver subscribes to the LNS MQTT broker; no point-to-point test is possible here.
+		host, _ := config["server_host"].(string)
+		app, _ := config["application_id"].(string)
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("LoRaWAN driver configured for LNS %s (app: %s). Uplinks arrive via MQTT integration — no direct TCP test available.", host, app)})
+		return
+	}
+
 	if val, ok := config["ip_address"].(string); ok {
 		ipAddress = val
 	} else {

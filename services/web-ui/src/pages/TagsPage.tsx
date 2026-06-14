@@ -930,19 +930,26 @@ const TagsPage = () => {
 
                                                     <div className="grid gap-2">
                                                         <Label htmlFor="code">
-                                                            {selectedGatewayDriverType === 'MQTT' ? 'MQTT Topic' : 'Tag Code / Address'}
+                                                            {selectedGatewayDriverType === 'MQTT' ? 'MQTT Topic' : selectedGatewayDriverType === 'LORAWAN' ? 'Device / Field' : 'Tag Code / Address'}
                                                         </Label>
                                                         <Input
                                                             id="code"
                                                             value={formData.code}
                                                             onChange={(e) => handleInputChange('code', e.target.value)}
-                                                            placeholder={selectedGatewayDriverType === 'MQTT' ? 'e.g. machine/line1/temp' : 'e.g. %MW100 or 40001'}
+                                                            placeholder={
+                                                                selectedGatewayDriverType === 'MQTT' ? 'e.g. machine/line1/temp' :
+                                                                selectedGatewayDriverType === 'LORAWAN' ? 'e.g. sensor-01/temperature' :
+                                                                'e.g. %MW100 or 40001'
+                                                            }
                                                         />
                                                         {selectedGatewayDriverType === 'MODBUS_TCP' && (
                                                             <p className="text-[10px] text-muted-foreground">Auto-generated from builder above, or type manually</p>
                                                         )}
                                                         {selectedGatewayDriverType === 'MQTT' && (
                                                             <p className="text-[10px] text-emerald-600">Enter the exact MQTT topic the PLC publishes to.</p>
+                                                        )}
+                                                        {selectedGatewayDriverType === 'LORAWAN' && (
+                                                            <p className="text-[10px] text-violet-600">Format: <code>device_id/field</code> — e.g. <code>sensor-01/temperature</code>. Special fields: rssi, snr, f_port. Wildcard device: <code>*/temperature</code></p>
                                                         )}
                                                     </div>
                                                     <div className="grid gap-2">
