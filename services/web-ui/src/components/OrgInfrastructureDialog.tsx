@@ -14,10 +14,12 @@ import {
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
+import { Switch } from '@/components/ui/switch';
 import {
-    Download, Key, UserPlus, WifiOff, Copy, Trash2, RefreshCw, Eye, EyeOff, Webhook as WebhookIcon,
+    Download, Key, UserPlus, WifiOff, Copy, Trash2, RefreshCw, Eye, EyeOff,
+    Webhook as WebhookIcon, Shield, Plus,
 } from 'lucide-react';
-import { organizationsApi } from '@/api/organizations';
+import { organizationsApi, SSOProvider, SSOProviderInput } from '@/api/organizations';
 import { apiKeysApi, ApiKey } from '@/api/apiKeys';
 import { invitesApi } from '@/api/invites';
 import { webhooksApi, Webhook, WEBHOOK_EVENTS, WebhookEvent } from '@/api/webhooks';
@@ -143,6 +145,45 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
         setWhEvents(prev => prev.includes(ev) ? prev.filter(e => e !== ev) : [...prev, ev]);
     };
 
+    // ── SSO Providers ─────────────────────────────────────────────────────────
+    const emptySSO: SSOProviderInput = {
+        provider: 'google', client_id: '', client_secret: '',
+        tenant_id: '', domain_hint: '', enabled: true,
+    };
+    const [ssoForm, setSSOForm] = useState<SSOProviderInput>(emptySSO);
+    const [ssoEditing, setSSOEditing] = useState(false);
+
+    const { data: ssoProviders = [], refetch: refetchSSO } = useQuery<SSOProvider[]>({
+        queryKey: ['sso-providers', org.id],
+        queryFn: () => organizationsApi.listSSOProviders(org.id),
+        enabled: open,
+    });
+
+    const upsertSSOMutation = useMutation({
+        mutationFn: (data: SSOProviderInput) => organizationsApi.upsertSSOProvider(org.id, data),
+        onSuccess: () => {
+            refetchSSO();
+            setSSOForm(emptySSO);
+            setSSOEditing(false);
+            toast.success('SSO provider saved');
+        },
+        onError: (e) => showApiError(e, 'Failed to save SSO provider'),
+    });
+
+    const deleteSSOMutation = useMutation({
+        mutationFn: (provider: string) => organizationsApi.deleteSSOProvider(org.id, provider),
+        onSuccess: () => { refetchSSO(); toast.success('SSO provider removed'); },
+        onError: (e) => showApiError(e, 'Failed to remove SSO provider'),
+    });
+
+    const startEditSSO = (p: SSOProvider) => {
+        setSSOForm({
+            provider: p.provider, client_id: p.client_id, client_secret: '',
+            tenant_id: p.tenant_id ?? '', domain_hint: p.domain_hint ?? '', enabled: p.enabled,
+        });
+        setSSOEditing(true);
+    };
+
     // Reset local state when dialog closes
     useEffect(() => {
         if (!open) {
@@ -151,6 +192,8 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
             setInviteEmail('');
             setNewKeyName('');
             setShownWhSecret(null);
+            setSSOForm(emptySSO);
+            setSSOEditing(false);
         }
     }, [open]);
 
@@ -169,11 +212,12 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                 </DialogHeader>
 
                 <Tabs defaultValue="edge" className="mt-2">
-                    <TabsList className="grid w-full grid-cols-4">
+                    <TabsList className="grid w-full grid-cols-5">
                         <TabsTrigger value="edge">Edge</TabsTrigger>
                         <TabsTrigger value="apikeys">API Keys</TabsTrigger>
                         <TabsTrigger value="invites">Invite Users</TabsTrigger>
                         <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
+                        <TabsTrigger value="sso">SSO</TabsTrigger>
                     </TabsList>
 
                     {/* ── EDGE TAB ─────────────────────────────────────────── */}
@@ -505,6 +549,173 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                             <p className="text-center text-sm text-muted-foreground py-6">
                                 No webhooks configured. Add one to integrate with external systems.
                             </p>
+                        )}
+                    </TabsContent>
+                    {/* ── SSO TAB ──────────────────────────────────────────── */}
+                    <TabsContent value="sso" className="space-y-4 pt-4">
+                        <p className="text-sm text-muted-foreground">
+                            Configure Google or Microsoft (Azure AD) single sign-on so team members
+                            can log in with their corporate credentials.
+                        </p>
+
+                        {/* Provider list */}
+                        {ssoProviders.length > 0 && (
+                            <div className="rounded-md border">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Provider</TableHead>
+                                            <TableHead>Client ID</TableHead>
+                                            <TableHead>Domain hint</TableHead>
+                                            <TableHead>Enabled</TableHead>
+                                            <TableHead className="w-[80px]" />
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {ssoProviders.map(p => (
+                                            <TableRow key={p.provider}>
+                                                <TableCell className="font-medium text-sm capitalize">{p.provider}</TableCell>
+                                                <TableCell>
+                                                    <code className="text-xs bg-muted px-1.5 py-0.5 rounded">
+                                                        {p.client_id.length > 20 ? p.client_id.slice(0, 20) + '…' : p.client_id}
+                                                    </code>
+                                                </TableCell>
+                                                <TableCell className="text-xs text-muted-foreground">
+                                                    {p.domain_hint || '—'}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Badge variant={p.enabled ? 'default' : 'secondary'} className="text-[10px]">
+                                                        {p.enabled ? 'Active' : 'Disabled'}
+                                                    </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <div className="flex gap-1">
+                                                        <Button variant="ghost" size="icon" className="h-7 w-7"
+                                                            onClick={() => startEditSSO(p)}>
+                                                            <Key size={13} />
+                                                        </Button>
+                                                        <Button variant="ghost" size="icon"
+                                                            className="h-7 w-7 text-destructive hover:text-destructive"
+                                                            onClick={() => {
+                                                                if (confirm(`Remove ${p.provider} SSO?`)) {
+                                                                    deleteSSOMutation.mutate(p.provider);
+                                                                }
+                                                            }}>
+                                                            <Trash2 size={13} />
+                                                        </Button>
+                                                    </div>
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        )}
+
+                        {/* Add / Edit form */}
+                        {ssoEditing || ssoProviders.length === 0 ? (
+                            <div className="rounded-lg border p-4 space-y-3">
+                                <p className="text-sm font-medium flex items-center gap-2">
+                                    <Shield size={14} />
+                                    {ssoEditing ? 'Edit SSO Provider' : 'Add SSO Provider'}
+                                </p>
+
+                                <div className="grid gap-3">
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs">Provider</Label>
+                                        <Select
+                                            value={ssoForm.provider}
+                                            onValueChange={v => setSSOForm(f => ({ ...f, provider: v as 'google' | 'azure' }))}
+                                        >
+                                            <SelectTrigger>
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="google">Google Workspace</SelectItem>
+                                                <SelectItem value="azure">Microsoft Azure AD</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs">Client ID</Label>
+                                        <Input
+                                            placeholder="OAuth 2.0 Client ID"
+                                            value={ssoForm.client_id}
+                                            onChange={e => setSSOForm(f => ({ ...f, client_id: e.target.value }))}
+                                        />
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs">
+                                            Client Secret {ssoEditing && <span className="text-muted-foreground">(leave blank to keep current)</span>}
+                                        </Label>
+                                        <Input
+                                            type="password"
+                                            placeholder={ssoEditing ? '••••••••' : 'OAuth 2.0 Client Secret'}
+                                            value={ssoForm.client_secret}
+                                            onChange={e => setSSOForm(f => ({ ...f, client_secret: e.target.value }))}
+                                        />
+                                    </div>
+
+                                    {ssoForm.provider === 'azure' && (
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs">Tenant ID (Azure)</Label>
+                                            <Input
+                                                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                                                value={ssoForm.tenant_id}
+                                                onChange={e => setSSOForm(f => ({ ...f, tenant_id: e.target.value }))}
+                                            />
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs">Email domain hint</Label>
+                                        <Input
+                                            placeholder="company.com — auto-detect org from login email"
+                                            value={ssoForm.domain_hint}
+                                            onChange={e => setSSOForm(f => ({ ...f, domain_hint: e.target.value }))}
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <Switch
+                                            id="sso-enabled"
+                                            checked={ssoForm.enabled}
+                                            onCheckedChange={v => setSSOForm(f => ({ ...f, enabled: v }))}
+                                        />
+                                        <Label htmlFor="sso-enabled" className="text-xs cursor-pointer">
+                                            Enable this provider
+                                        </Label>
+                                    </div>
+
+                                    <div className="flex gap-2 pt-1">
+                                        <Button
+                                            onClick={() => upsertSSOMutation.mutate(ssoForm)}
+                                            disabled={upsertSSOMutation.isPending || !ssoForm.client_id || (!ssoEditing && !ssoForm.client_secret)}
+                                            size="sm"
+                                            className="gap-2"
+                                        >
+                                            <Shield size={13} />
+                                            {upsertSSOMutation.isPending ? 'Saving…' : 'Save Provider'}
+                                        </Button>
+                                        {ssoEditing && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => { setSSOEditing(false); setSSOForm(emptySSO); }}
+                                            >
+                                                Cancel
+                                            </Button>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        ) : (
+                            <Button variant="outline" size="sm" className="gap-2"
+                                onClick={() => setSSOEditing(true)}>
+                                <Plus size={14} /> Add another provider
+                            </Button>
                         )}
                     </TabsContent>
                 </Tabs>
