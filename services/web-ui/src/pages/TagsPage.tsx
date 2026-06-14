@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useDeferredValue } from 'react';
 import { useTags } from '@/hooks/useTags';
 import { tagsApi } from '@/api/tags';
 import { gatewaysApi } from '@/api/gateways';
@@ -55,11 +55,20 @@ interface CurrentValue {
     quality: number;
 }
 
+function SortIcon({ field, current, dir }: { field: string; current: string | null; dir: 'asc' | 'desc' }) {
+    if (current !== field) return <span className="ml-1 opacity-20">↕</span>;
+    return <span className="ml-1">{dir === 'asc' ? '↑' : '↓'}</span>;
+}
+
 const TagsPage = () => {
     const [searchParams] = useSearchParams();
     const gatewayIdParam = searchParams.get('gateway_id');
     const [selectedGatewayId, setSelectedGatewayId] = useState<string>(gatewayIdParam || 'all');
-    const [searchQuery, setSearchQuery] = useState<string>('');
+    const [searchInput, setSearchInput] = useState<string>('');
+    const searchQuery = useDeferredValue(searchInput);
+    const [filterDriverType, setFilterDriverType] = useState('all');
+    const [sortField, setSortField] = useState<'alias' | 'code' | 'data_type' | 'sort_order' | null>(null);
+    const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const { selectedOrgId } = useNavigationStore();
     const { isAdmin } = useAuthStore();
 
@@ -578,6 +587,15 @@ const TagsPage = () => {
         setSelectedTagIds([]);
     };
 
+    const handleSort = (field: 'alias' | 'code' | 'data_type' | 'sort_order') => {
+        if (sortField === field) {
+            setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+        } else {
+            setSortField(field);
+            setSortDir('asc');
+        }
+    };
+
     /*
     const _handleMoveSelected = async (direction: 'up' | 'down') => {
         if (selectedTagIds.length === 0) return;
@@ -701,13 +719,35 @@ const TagsPage = () => {
     }, [selectedGatewayId]);
 
     const tagsList = useMemo(() => {
-        if (!searchQuery) return tags;
-        const lower = searchQuery.toLowerCase();
-        return tags.filter(t =>
-            t.code.toLowerCase().includes(lower) ||
-            (t.alias && t.alias.toLowerCase().includes(lower))
-        );
-    }, [tags, searchQuery]);
+        let filtered = [...tags];
+
+        // Driver type filter
+        if (filterDriverType !== 'all') {
+            const gwDriverMap = new Map(gateways.map(g => [g.id, g.driver_type]));
+            filtered = filtered.filter(t => gwDriverMap.get(t.gateway_id) === filterDriverType);
+        }
+
+        // Search filter
+        if (searchQuery) {
+            const lower = searchQuery.toLowerCase();
+            filtered = filtered.filter(t =>
+                t.code.toLowerCase().includes(lower) ||
+                (t.alias && t.alias.toLowerCase().includes(lower))
+            );
+        }
+
+        // Sort
+        if (sortField) {
+            filtered.sort((a, b) => {
+                const av = (a as any)[sortField] ?? '';
+                const bv = (b as any)[sortField] ?? '';
+                const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true });
+                return sortDir === 'asc' ? cmp : -cmp;
+            });
+        }
+
+        return filtered;
+    }, [tags, searchQuery, filterDriverType, gateways, sortField, sortDir]);
 
     if (isLoading) {
         return <div className="p-8 text-center text-muted-foreground">Loading tags...</div>;
@@ -729,8 +769,8 @@ const TagsPage = () => {
                     <div className="w-[300px]">
                         <Input
                             placeholder="Search tags..."
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
+                            value={searchInput}
+                            onChange={(e) => setSearchInput(e.target.value)}
                             className="w-full"
                         />
                     </div>
@@ -750,6 +790,22 @@ const TagsPage = () => {
                                         {gw.name}
                                     </SelectItem>
                                 ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="w-[160px]">
+                        <Select value={filterDriverType} onValueChange={setFilterDriverType}>
+                            <SelectTrigger className="clip-chamfer-sm">
+                                <SelectValue placeholder="All drivers" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All drivers</SelectItem>
+                                <SelectItem value="S7">Siemens S7</SelectItem>
+                                <SelectItem value="MODBUS_TCP">Modbus TCP</SelectItem>
+                                <SelectItem value="OPC_UA">OPC-UA</SelectItem>
+                                <SelectItem value="MQTT">MQTT</SelectItem>
+                                <SelectItem value="LORAWAN">LoRaWAN</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
@@ -1068,6 +1124,28 @@ const TagsPage = () => {
                 )
             }
 
+            {/* Stats bar */}
+            <div className="flex items-center gap-6 text-sm text-muted-foreground px-1">
+                <span>
+                    <strong className="text-foreground">{tagsList.length}</strong>
+                    {tagsList.length !== tags.length && ` / ${tags.length}`} tags
+                </span>
+                <span>
+                    <strong className="text-green-600">{tagsList.filter(t => {
+                        const v = currentValues.get(t.id);
+                        return v && v.quality === 0;
+                    }).length}</strong> Good quality
+                </span>
+                <span>
+                    <strong className="text-amber-500">{tagsList.filter(t => alarmDefsCount[t.id] > 0).length}</strong> with alarms
+                </span>
+                {(tagsList.length !== tags.length || filterDriverType !== 'all') && (
+                    <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => { setSearchInput(''); setSelectedGatewayId('all'); setFilterDriverType('all'); }}>
+                        Clear filters
+                    </Button>
+                )}
+            </div>
+
             <div className="clip-chamfer border bg-card">
                 <Table>
                     <TableHeader>
@@ -1083,9 +1161,15 @@ const TagsPage = () => {
                                     </Button>
                                 </TableHead>
                             )}
-                            <TableHead>Code</TableHead>
-                            <TableHead>Alias</TableHead>
-                            <TableHead>Type</TableHead>
+                            <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort('code')}>
+                                Code <SortIcon field="code" current={sortField} dir={sortDir} />
+                            </TableHead>
+                            <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort('alias')}>
+                                Alias <SortIcon field="alias" current={sortField} dir={sortDir} />
+                            </TableHead>
+                            <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort('data_type')}>
+                                Type <SortIcon field="data_type" current={sortField} dir={sortDir} />
+                            </TableHead>
                             <TableHead>Current Value</TableHead>
                             <TableHead>History</TableHead>
                             <TableHead>Allarmi</TableHead>
@@ -1173,6 +1257,14 @@ const TagsPage = () => {
 
                                                     return (
                                                         <>
+                                                            {/* Quality dot */}
+                                                            {currentValue && (
+                                                                <span className={[
+                                                                    'inline-block w-2 h-2 rounded-full shrink-0',
+                                                                    currentValue.quality === 0 ? 'bg-green-500' :
+                                                                    currentValue.quality === 1 ? 'bg-yellow-500' : 'bg-red-500'
+                                                                ].join(' ')} />
+                                                            )}
                                                             <div className={`
                                                                 font-mono font-medium px-2 py-1 rounded border min-w-[80px] text-center
                                                                 ${statusClasses.bg} ${statusClasses.border} ${statusClasses.text}
