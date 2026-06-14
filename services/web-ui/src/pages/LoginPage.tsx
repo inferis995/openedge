@@ -4,13 +4,14 @@ import { useAuthStore } from '@/stores/useAuthStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Lock, User as UserIcon, Loader2, Mail } from 'lucide-react';
+import { Lock, User as UserIcon, Loader2, Mail, Eye, EyeOff } from 'lucide-react';
 
 const LoginPage = () => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [showPassword, setShowPassword] = useState(false);
     const [ssoEmail, setSsoEmail] = useState('');
     const [showSsoInput, setShowSsoInput] = useState<'google' | 'azure' | null>(null);
     const navigate = useNavigate();
@@ -108,13 +109,23 @@ const LoginPage = () => {
                                 <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                                 <Input
                                     id="password"
-                                    type="password"
+                                    type={showPassword ? 'text' : 'password'}
                                     required
-                                    className="pl-10"
+                                    className="pl-10 pr-10"
                                     placeholder="••••••••"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
                                 />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPassword(v => !v)}
+                                    className="absolute right-3 top-3 text-muted-foreground hover:text-foreground transition-colors"
+                                    tabIndex={-1}
+                                >
+                                    {showPassword
+                                        ? <EyeOff className="h-4 w-4" />
+                                        : <Eye className="h-4 w-4" />}
+                                </button>
                             </div>
                         </div>
                     </div>

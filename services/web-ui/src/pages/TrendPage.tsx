@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
     Activity, Play, Pause, RefreshCw, Download, PanelLeft, PanelRight,
-    BarChart2, Settings2,
+    BarChart2, Settings2, ZoomOut,
 } from 'lucide-react';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -83,6 +83,7 @@ export default function TrendPage() {
     const [tagMap, setTagMap] = useState<Map<number, TagWithHierarchy>>(new Map());
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [penPanelOpen, setPenPanelOpen] = useState(true);
+    const [zoomStack, setZoomStack] = useState<HistorianRange[]>([]);
     const liveRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     // Load all tags for label lookup
@@ -194,10 +195,21 @@ export default function TrendPage() {
         setPens(prev => prev.map(p => p.tagId === tagId ? { ...p, color } : p));
     }, []);
 
-    // Zoom by drag-select on chart
+    // Zoom by drag-select on chart — push current range to stack first
     const handleZoom = useCallback((fromMs: number, toMs: number) => {
+        setZoomStack(stack => [...stack, timeRange]);
         setTimeRange({ from: new Date(fromMs), to: new Date(toMs), preset: 'custom' });
         setLiveMode(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [timeRange]);
+
+    const handleZoomOut = useCallback(() => {
+        setZoomStack(stack => {
+            const prev = stack[stack.length - 1];
+            if (!prev) return stack;
+            setTimeRange(prev);
+            return stack.slice(0, -1);
+        });
     }, []);
 
     const totalPoints = timestamps.length * pens.length;
@@ -255,6 +267,15 @@ export default function TrendPage() {
                             {liveMode ? <><Pause className="w-3 h-3" /> Stop</> : <><Play className="w-3 h-3" /> Live</>}
                         </Button>
 
+                        {/* Reset zoom */}
+                        {zoomStack.length > 0 && (
+                            <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+                                onClick={handleZoomOut} title="Zoom out">
+                                <ZoomOut className="w-3 h-3" />
+                                {zoomStack.length > 1 ? `Undo (${zoomStack.length})` : 'Reset zoom'}
+                            </Button>
+                        )}
+
                         {/* Refresh */}
                         <Button size="icon" variant="outline" className="h-7 w-7"
                             onClick={() => refetch()} disabled={isFetching || penIds.length === 0}>
@@ -282,7 +303,7 @@ export default function TrendPage() {
                 </div>
 
                 {/* Row 2: date range picker */}
-                <HistorianDatePicker value={timeRange} onChange={(r) => { setTimeRange(r); setLiveMode(false); }} />
+                <HistorianDatePicker value={timeRange} onChange={(r) => { setTimeRange(r); setLiveMode(false); setZoomStack([]); }} />
             </div>
 
             {/* ── CONTENT ────────────────────────────────────────────── */}
