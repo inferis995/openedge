@@ -659,6 +659,40 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: failed to update gateways_driver_type_check: %v", err)
 	}
 
+	// Migration: backup catalog and audit tables.
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS backup_catalog (
+			id             SERIAL PRIMARY KEY,
+			filename       TEXT NOT NULL,
+			size_bytes     BIGINT NOT NULL DEFAULT 0,
+			sha256         TEXT,
+			encrypted      BOOLEAN NOT NULL DEFAULT FALSE,
+			schema_version TEXT,
+			storage        TEXT NOT NULL DEFAULT 'local',
+			s3_key         TEXT,
+			created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			deleted_at     TIMESTAMPTZ,
+			UNIQUE (filename)
+		)`); err != nil {
+		log.Printf("Warning: failed to create backup_catalog: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS backup_audit (
+			id         BIGSERIAL PRIMARY KEY,
+			action     TEXT NOT NULL,
+			filename   TEXT,
+			user_email TEXT,
+			ip_addr    TEXT,
+			details    TEXT,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		log.Printf("Warning: failed to create backup_audit: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE INDEX IF NOT EXISTS idx_backup_audit_created ON backup_audit (created_at DESC)`); err != nil {
+		log.Printf("Warning: failed to create backup_audit index: %v", err)
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }
