@@ -4,6 +4,7 @@ package connectors
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -141,7 +142,7 @@ func (c *InfluxDBConnector) flush() {
 	url := fmt.Sprintf("%s/api/v2/write?org=%s&bucket=%s&precision=ns",
 		strings.TrimRight(cfg.url, "/"), cfg.org, cfg.bucket)
 
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewBufferString(body))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewBufferString(body))
 	if err != nil {
 		log.Printf("[INFLUX] request build error: %v", err)
 		return
@@ -154,21 +155,21 @@ func (c *InfluxDBConnector) flush() {
 		log.Printf("[INFLUX] write error: %v", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		log.Printf("[INFLUX] write returned HTTP %d", resp.StatusCode)
 	}
 }
 
 func (c *InfluxDBConnector) reload() {
-	rows, err := c.db.Query(`
+	rows, err := c.db.QueryContext(context.Background(), `
 		SELECT key, value FROM global_settings
 		WHERE key LIKE 'influx\_%' ESCAPE '\'
 	`)
 	if err != nil {
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	cfg := map[string]string{}
 	for rows.Next() {

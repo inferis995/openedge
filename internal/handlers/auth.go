@@ -226,7 +226,7 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 
 	// PKCE-like state: base64(orgID:randomBytes) — verified in callback
 	stateRaw := make([]byte, 16)
-	rand.Read(stateRaw)
+	_, _ = rand.Read(stateRaw)
 	state := fmt.Sprintf("%d:%s", orgID, base64.RawURLEncoding.EncodeToString(stateRaw))
 
 	url := oauthCfg.AuthCodeURL(state)
@@ -287,7 +287,7 @@ func (h *AuthHandler) SSOCallback(c *gin.Context) {
 	if idx := strings.LastIndex(userInfo.Email, "@"); idx >= 0 {
 		emailDomain = userInfo.Email[idx+1:]
 	}
-	if domainProvider, err := auth.GetSSOProviderByDomain(h.db, provider, emailDomain); err == nil {
+	if domainProvider, domainErr := auth.GetSSOProviderByDomain(h.db, provider, emailDomain); domainErr == nil {
 		orgID = domainProvider.OrgID
 	}
 

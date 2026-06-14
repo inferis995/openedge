@@ -30,7 +30,7 @@ func newSlackChannel(cfg map[string]string) Channel {
 func (s *slackChannel) Name() string  { return "slack" }
 func (s *slackChannel) Enabled() bool { return s.enabled }
 
-func (s *slackChannel) Send(_ context.Context, e Event) error {
+func (s *slackChannel) Send(ctx context.Context, e *Event) error {
 	emoji := severityEmoji(e.Severity)
 	color := severityColor(e.Severity)
 	statusText := "🔴 ACTIVE"
@@ -68,11 +68,16 @@ func (s *slackChannel) Send(_ context.Context, e Event) error {
 	}
 
 	body, _ := json.Marshal(payload)
-	resp, err := s.client.Post(s.webhookURL, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.webhookURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("slack request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("slack post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("slack returned %d", resp.StatusCode)
 	}

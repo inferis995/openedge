@@ -40,8 +40,8 @@ func newTelegramChannel(cfg map[string]string) Channel {
 func (c *telegramChannel) Name() string  { return "telegram" }
 func (c *telegramChannel) Enabled() bool { return c.enabled }
 
-func (c *telegramChannel) Send(ctx context.Context, e Event) error {
-	body := renderMarkdown(e)
+func (c *telegramChannel) Send(ctx context.Context, e *Event) error {
+	body := renderMarkdown(*e)
 	// Telegram limits messages to 4096 chars; truncate defensively even
 	// though we generate ~200 — defends against a future huge description.
 	if len(body) > 4000 {

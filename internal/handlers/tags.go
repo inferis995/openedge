@@ -1197,8 +1197,8 @@ func (h *TagsHandler) GetShadow(c *gin.Context) {
 
 	// Try Redis shadow first (written on every live MQTT update)
 	if h.redisClient != nil {
-		raw, err := h.redisClient.Get(fmt.Sprintf("tag_shadow:%d", id))
-		if err == nil {
+		raw, redisErr := h.redisClient.Get(fmt.Sprintf("tag_shadow:%d", id))
+		if redisErr == nil {
 			var shadow TagShadowResponse
 			if json.Unmarshal([]byte(raw), &shadow) == nil {
 				c.JSON(http.StatusOK, shadow)
@@ -1210,7 +1210,7 @@ func (h *TagsHandler) GetShadow(c *gin.Context) {
 	// Fallback: last row in tag_history
 	var val sql.NullString
 	var ts int64
-	err = h.db.QueryRow(
+	err = h.db.QueryRowContext(c.Request.Context(),
 		`SELECT value, EXTRACT(EPOCH FROM time)::BIGINT * 1000
 		 FROM tag_history WHERE tag_id = $1 ORDER BY time DESC LIMIT 1`, id,
 	).Scan(&val, &ts)
@@ -1248,12 +1248,12 @@ func (h *TagsHandler) GetShadowBatch(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.Query(`SELECT id FROM tags WHERE gateway_id = $1`, gwID)
+	rows, err := h.db.QueryContext(c.Request.Context(), `SELECT id FROM tags WHERE gateway_id = $1`, gwID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	results := []TagShadowResponse{}
 	for rows.Next() {
@@ -1275,7 +1275,7 @@ func (h *TagsHandler) GetShadowBatch(c *gin.Context) {
 		// Fallback: last value from history
 		var val sql.NullString
 		var ts int64
-		if err := h.db.QueryRow(
+		if err := h.db.QueryRowContext(c.Request.Context(),
 			`SELECT value, EXTRACT(EPOCH FROM time)::BIGINT * 1000
 			 FROM tag_history WHERE tag_id = $1 ORDER BY time DESC LIMIT 1`, tagID,
 		).Scan(&val, &ts); err == nil && val.Valid {

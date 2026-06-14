@@ -26,7 +26,7 @@ type SSOProvider struct {
 // GetSSOProvider loads the SSO provider config for an org from DB.
 func GetSSOProvider(db *sql.DB, provider string, orgID int) (*SSOProvider, error) {
 	var p SSOProvider
-	err := db.QueryRow(`
+	err := db.QueryRowContext(context.Background(), `
 		SELECT org_id, provider, client_id, client_secret,
 		       COALESCE(tenant_id,''), COALESCE(domain_hint,'')
 		FROM sso_providers
@@ -42,7 +42,7 @@ func GetSSOProvider(db *sql.DB, provider string, orgID int) (*SSOProvider, error
 // Used during callback to assign an org automatically.
 func GetSSOProviderByDomain(db *sql.DB, provider, emailDomain string) (*SSOProvider, error) {
 	var p SSOProvider
-	err := db.QueryRow(`
+	err := db.QueryRowContext(context.Background(), `
 		SELECT org_id, provider, client_id, client_secret,
 		       COALESCE(tenant_id,''), COALESCE(domain_hint,'')
 		FROM sso_providers
@@ -106,7 +106,7 @@ func FetchUserInfo(ctx context.Context, provider string, token *oauth2.Token, cf
 	if err != nil {
 		return nil, fmt.Errorf("userinfo fetch: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -130,7 +130,7 @@ func UpsertSSOUser(db *sql.DB, info *OIDCUserInfo, orgID int) (int, string, erro
 	// Try to find existing user by email
 	var userID int
 	var role, username string
-	err := db.QueryRow(`
+	err := db.QueryRowContext(context.Background(), `
 		SELECT id, role, username FROM users WHERE email = $1
 	`, info.Email).Scan(&userID, &role, &username)
 	if err == nil {
@@ -161,7 +161,7 @@ func UpsertSSOUser(db *sql.DB, info *OIDCUserInfo, orgID int) (int, string, erro
 	// They cannot log in with password — only via SSO.
 	const ssoPasswordHash = "$2a$10$SSONOLOGINXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 
-	err = db.QueryRow(`
+	err = db.QueryRowContext(context.Background(), `
 		INSERT INTO users (username, password_hash, role, full_name, org_id, email)
 		VALUES ($1, $2, 'user', $3, $4, $5)
 		ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email

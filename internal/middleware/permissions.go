@@ -41,7 +41,7 @@ func RequirePermission(db *sql.DB, perm string) gin.HandlerFunc {
 		var allowed bool
 		// Safe: perm is always a compile-time constant from this package.
 		query := "SELECT " + perm + " FROM role_permissions WHERE user_id = $1"
-		if err := db.QueryRow(query, userID).Scan(&allowed); err != nil {
+		if err := db.QueryRowContext(c.Request.Context(), query, userID).Scan(&allowed); err != nil {
 			// No row → default deny
 			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
 			c.Abort()

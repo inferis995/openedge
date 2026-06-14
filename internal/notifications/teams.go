@@ -30,7 +30,7 @@ func newTeamsChannel(cfg map[string]string) Channel {
 func (t *teamsChannel) Name() string  { return "teams" }
 func (t *teamsChannel) Enabled() bool { return t.enabled }
 
-func (t *teamsChannel) Send(_ context.Context, e Event) error {
+func (t *teamsChannel) Send(ctx context.Context, e *Event) error {
 	themeColor := "FF0000"
 	statusText := "ACTIVE"
 	if e.Status == "CLEARED" {
@@ -60,11 +60,16 @@ func (t *teamsChannel) Send(_ context.Context, e Event) error {
 	}
 
 	body, _ := json.Marshal(payload)
-	resp, err := t.client.Post(t.webhookURL, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.webhookURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("teams request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := t.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("teams post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("teams returned %d", resp.StatusCode)
 	}

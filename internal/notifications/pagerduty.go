@@ -32,13 +32,13 @@ func newPagerDutyChannel(cfg map[string]string) Channel {
 func (p *pagerDutyChannel) Name() string  { return "pagerduty" }
 func (p *pagerDutyChannel) Enabled() bool { return p.enabled }
 
-func (p *pagerDutyChannel) Send(_ context.Context, e Event) error {
+func (p *pagerDutyChannel) Send(ctx context.Context, e *Event) error {
 	eventAction := "trigger"
 	if e.Status == "CLEARED" {
 		eventAction = "resolve"
 	}
 
-	pdSeverity := "warning"
+	var pdSeverity string
 	switch e.Severity {
 	case "critical":
 		pdSeverity = "critical"
@@ -70,11 +70,16 @@ func (p *pagerDutyChannel) Send(_ context.Context, e Event) error {
 	}
 
 	body, _ := json.Marshal(payload)
-	resp, err := p.client.Post(pagerDutyEventsURL, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, pagerDutyEventsURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("pagerduty request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := p.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("pagerduty post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("pagerduty returned %d", resp.StatusCode)
 	}

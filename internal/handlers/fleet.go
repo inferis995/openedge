@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -15,8 +14,8 @@ import (
 
 // FleetHandler manages OTA updates and fleet-level operations.
 type FleetHandler struct {
-	db         *sql.DB
-	mqttClient MQTTClient
+	db          *sql.DB
+	mqttClient  MQTTClient
 	redisClient RedisClient
 }
 
@@ -36,7 +35,7 @@ type EdgeFleetStatus struct {
 // GetFleetStatus handles GET /api/fleet/status (global admin only).
 // Returns the online/offline status of every org's edge agent.
 func (h *FleetHandler) GetFleetStatus(c *gin.Context) {
-	rows, err := h.db.Query(`
+	rows, err := h.db.QueryContext(c.Request.Context(), `
 		SELECT o.id, o.name, COUNT(g.id) as gw_count
 		FROM organizations o
 		LEFT JOIN gateways g ON g.org_id = o.id
@@ -47,7 +46,7 @@ func (h *FleetHandler) GetFleetStatus(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	results := []EdgeFleetStatus{}
 	for rows.Next() {
@@ -58,8 +57,8 @@ func (h *FleetHandler) GetFleetStatus(c *gin.Context) {
 		// Check Redis heartbeat
 		if h.redisClient != nil {
 			key := fmt.Sprintf("edge:ping:%d", s.OrgID)
-			val, err := h.redisClient.Get(key)
-			if err == nil && val != "" {
+			val, redisErr := h.redisClient.Get(key)
+			if redisErr == nil && val != "" {
 				s.Online = true
 				s.LastPing = &val
 			}
@@ -84,7 +83,7 @@ func (h *FleetHandler) RestartEdge(c *gin.Context) {
 
 	topic := fmt.Sprintf("sys/restart/%d", orgID)
 	payload, _ := json.Marshal(map[string]interface{}{
-		"org_id":     orgID,
+		"org_id":       orgID,
 		"requested_at": time.Now().UTC().Format(time.RFC3339),
 	})
 	if err := h.mqttClient.Publish(topic, payload); err != nil {
@@ -108,8 +107,8 @@ func (h *FleetHandler) UpdateEdge(c *gin.Context) {
 		Version string `json:"version" binding:"required"`
 		Image   string `json:"image"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 	if req.Image == "" {
@@ -140,17 +139,7 @@ func (h *FleetHandler) UpdateEdge(c *gin.Context) {
 	})
 }
 
-// MQTTPublishClient is satisfied by the mqtt.Client.
-type mqttPublishClient interface {
-	Publish(topic string, payload []byte) error
-}
-
-// redisGetter is satisfied by the redis.Client wrapper.
-type redisGetter interface {
-	Get(key string) (string, error)
-}
-
-// getSSOProviders handles GET /api/organizations/:id/sso-providers (admin)
+// GetSSOProviders handles GET /api/organizations/:id/sso-providers (admin).
 func (h *FleetHandler) GetSSOProviders(c *gin.Context) {
 	orgID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -158,7 +147,7 @@ func (h *FleetHandler) GetSSOProviders(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.QueryContext(context.Background(), `
+	rows, err := h.db.QueryContext(c.Request.Context(), `
 		SELECT id, provider, client_id, COALESCE(tenant_id,''), COALESCE(domain_hint,''), enabled, created_at
 		FROM sso_providers WHERE org_id = $1 ORDER BY provider
 	`, orgID)
@@ -166,7 +155,7 @@ func (h *FleetHandler) GetSSOProviders(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type SSOProviderRow struct {
 		ID         int    `json:"id"`
@@ -190,7 +179,7 @@ func (h *FleetHandler) GetSSOProviders(c *gin.Context) {
 	c.JSON(http.StatusOK, providers)
 }
 
-// UpsertSSOProvider handles POST /api/organizations/:id/sso-providers
+// UpsertSSOProvider handles POST /api/organizations/:id/sso-providers.
 func (h *FleetHandler) UpsertSSOProvider(c *gin.Context) {
 	orgID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -206,12 +195,12 @@ func (h *FleetHandler) UpsertSSOProvider(c *gin.Context) {
 		DomainHint   string `json:"domain_hint"`
 		Enabled      bool   `json:"enabled"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 
-	_, err = h.db.Exec(`
+	_, err = h.db.ExecContext(c.Request.Context(), `
 		INSERT INTO sso_providers (org_id, provider, client_id, client_secret, tenant_id, domain_hint, enabled)
 		VALUES ($1, $2, $3, $4, NULLIF($5,''), NULLIF($6,''), $7)
 		ON CONFLICT (org_id, provider) DO UPDATE SET
@@ -228,7 +217,7 @@ func (h *FleetHandler) UpsertSSOProvider(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "SSO provider saved"})
 }
 
-// DeleteSSOProvider handles DELETE /api/organizations/:id/sso-providers/:provider
+// DeleteSSOProvider handles DELETE /api/organizations/:id/sso-providers/:provider.
 func (h *FleetHandler) DeleteSSOProvider(c *gin.Context) {
 	orgID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -237,11 +226,14 @@ func (h *FleetHandler) DeleteSSOProvider(c *gin.Context) {
 	}
 	provider := c.Param("provider")
 
-	h.db.Exec(`DELETE FROM sso_providers WHERE org_id = $1 AND provider = $2`, orgID, provider)
+	if _, err := h.db.ExecContext(c.Request.Context(), `DELETE FROM sso_providers WHERE org_id = $1 AND provider = $2`, orgID, provider); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"message": "SSO provider deleted"})
 }
 
-// GetUserPermissions handles GET /api/users/:id/permissions
+// GetUserPermissions handles GET /api/users/:id/permissions.
 func (h *FleetHandler) GetUserPermissions(c *gin.Context) {
 	userID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -261,7 +253,8 @@ func (h *FleetHandler) GetUserPermissions(c *gin.Context) {
 	}
 	p.UserID = userID
 
-	h.db.QueryRow(`
+	// No row → return defaults (all false).
+	_ = h.db.QueryRowContext(c.Request.Context(), `
 		SELECT can_write_tags, can_ack_alarms, can_export_data, can_manage_recipes,
 		       can_manage_shifts, can_view_audit, can_download_installer
 		FROM role_permissions WHERE user_id = $1
@@ -271,7 +264,7 @@ func (h *FleetHandler) GetUserPermissions(c *gin.Context) {
 	c.JSON(http.StatusOK, p)
 }
 
-// UpdateUserPermissions handles PUT /api/users/:id/permissions
+// UpdateUserPermissions handles PUT /api/users/:id/permissions.
 func (h *FleetHandler) UpdateUserPermissions(c *gin.Context) {
 	userID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -288,12 +281,12 @@ func (h *FleetHandler) UpdateUserPermissions(c *gin.Context) {
 		CanViewAudit         bool `json:"can_view_audit"`
 		CanDownloadInstaller bool `json:"can_download_installer"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 
-	_, err = h.db.Exec(`
+	_, err = h.db.ExecContext(c.Request.Context(), `
 		INSERT INTO role_permissions
 			(user_id, can_write_tags, can_ack_alarms, can_export_data, can_manage_recipes,
 			 can_manage_shifts, can_view_audit, can_download_installer, updated_at)

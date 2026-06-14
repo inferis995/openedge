@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -588,7 +589,7 @@ func runAutoMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_sso_providers_domain ON sso_providers(domain_hint) WHERE domain_hint IS NOT NULL`,
 	}
 	for _, stmt := range ssoProviders {
-		if _, err := db.Exec(stmt); err != nil {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
 			return fmt.Errorf("sso_providers migration: %w", err)
 		}
 	}
@@ -611,7 +612,7 @@ func runAutoMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_role_permissions_user ON role_permissions(user_id)`,
 	}
 	for _, stmt := range rolePermissions {
-		if _, err := db.Exec(stmt); err != nil {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
 			return fmt.Errorf("role_permissions migration: %w", err)
 		}
 	}
@@ -628,12 +629,12 @@ func runAutoMigrations(db *sql.DB) error {
 		('influx_enabled',         'false', 'When true, tag history is pushed to InfluxDB v2 in real time.'),
 		('influx_url',             '',      'InfluxDB v2 base URL, e.g. https://us-east-1-1.aws.cloud2.influxdata.com'),
 		('influx_token',           '',      'InfluxDB v2 API token with write access to the bucket.'),
-		('influx_org',             '',      'InfluxDB organisation name or ID.'),
+		('influx_org',             '',      'InfluxDB organization name or ID.'),
 		('influx_bucket',          '',      'InfluxDB bucket to write into.'),
 		('influx_batch_size',      '500',   'Number of points to batch before flushing to InfluxDB.'),
 		('influx_flush_interval',  '10',    'Seconds between forced flushes even if batch_size not reached.')
 	ON CONFLICT (key) DO NOTHING;`
-	if _, err := db.Exec(enterpriseSeed); err != nil {
+	if _, err := db.ExecContext(context.Background(), enterpriseSeed); err != nil {
 		log.Printf("Warning: failed to seed enterprise settings: %v", err)
 	}
 
