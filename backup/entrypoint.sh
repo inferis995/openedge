@@ -61,6 +61,12 @@ fi
     echo "BACKUP_DIR=${BACKUP_DIR:-/backups}"
     echo "BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS}"
     echo "BACKUP_AGE_RECIPIENT=${BACKUP_AGE_RECIPIENT}"
+    echo "BACKUP_MIN_FREE_MB=${BACKUP_MIN_FREE_MB:-500}"
+    echo "AWS_S3_BUCKET=${AWS_S3_BUCKET:-}"
+    echo "AWS_S3_ENDPOINT=${AWS_S3_ENDPOINT:-}"
+    echo "AWS_S3_REGION=${AWS_S3_REGION:-us-east-1}"
+    echo "AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}"
+    echo "AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}"
     echo "MQTT_HOST=${MQTT_HOST:-mosquitto}"
     echo "MQTT_PORT=${MQTT_PORT:-1883}"
     echo "MQTT_TOPIC=${MQTT_TOPIC:-sys/health/backup}"
@@ -77,6 +83,11 @@ if [[ -n "${BACKUP_AGE_RECIPIENT:-}" ]]; then
     echo "[backup] encryption: age (recipient configured)"
 else
     echo "[backup] encryption: NONE (set BACKUP_AGE_RECIPIENT to enable)"
+fi
+if [[ -n "${AWS_S3_BUCKET:-}" ]]; then
+    echo "[backup] S3 destination: s3://${AWS_S3_BUCKET}/ (region: ${AWS_S3_REGION:-us-east-1})"
+else
+    echo "[backup] S3 upload: DISABLED (set AWS_S3_BUCKET to enable)"
 fi
 
 # Start crond in foreground so the container stays alive and SIGTERM works.

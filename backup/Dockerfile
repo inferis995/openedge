@@ -11,7 +11,8 @@ RUN apk add --no-cache \
         tzdata \
         gnupg \
         curl \
-        mosquitto-clients
+        mosquitto-clients \
+        aws-cli
 
 COPY backup-now.sh /usr/local/bin/backup-now
 COPY entrypoint.sh /usr/local/bin/entrypoint

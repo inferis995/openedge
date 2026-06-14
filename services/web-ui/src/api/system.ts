@@ -39,6 +39,12 @@ export interface GlobalSettings {
     backup_schedule?: string;
     backup_retention_days?: string;
     backup_age_recipient?: string;
+    backup_s3_enabled?: string;
+    backup_s3_bucket?: string;
+    backup_s3_endpoint?: string;
+    backup_s3_region?: string;
+    backup_s3_access_key?: string;
+    backup_s3_secret_key?: string;
     kpi_target_alarms_per_day?: string;
     kpi_target_open_critical?: string;
     kpi_target_bad_quality_1h?: string;
@@ -287,5 +293,17 @@ export const systemApi = {
     postRestoreRestart: async (): Promise<PostRestoreResponse> => {
         const response = await api.post('/system/restore/restart');
         return response.data;
-    }
+    },
+
+    // Backup catalog (rich list with sha256, size, storage info)
+    getBackupCatalog: async (): Promise<any[]> => {
+        const response = await api.get('/system/backup/catalog');
+        return response.data;
+    },
+
+    // Audit log for all backup-related operations
+    getBackupAudit: async (): Promise<any[]> => {
+        const response = await api.get('/system/backup/audit');
+        return response.data;
+    },
 };

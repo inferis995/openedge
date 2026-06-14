@@ -458,6 +458,8 @@ func main() {
 			system.GET("/backup/list", backupHandler.ListBackups)
 			system.GET("/backup/files/:filename", middleware.RequireRole(models.RoleAdmin), backupHandler.DownloadBackup)
 			system.DELETE("/backup/files/:filename", middleware.RequireRole(models.RoleAdmin), backupHandler.DeleteBackup)
+			system.GET("/backup/catalog", middleware.RequireRole(models.RoleAdmin), backupHandler.GetCatalog)
+			system.GET("/backup/audit", middleware.RequireRole(models.RoleAdmin), backupHandler.GetAudit)
 
 			// Start backup scheduler
 			go startBackupScheduler(backupHandler)
