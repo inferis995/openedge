@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
@@ -157,6 +158,12 @@ func main() {
 	if err := manager.syncGateways(); err != nil {
 		log.Printf("[DRIVER-MANAGER] Initial gateway sync failed: %v", err)
 	}
+
+	// Subscribe to OTA and restart commands from core-api.
+	go manager.startOTASubscriber(
+		getEnv("MQTT_HOST", "mosquitto"),
+		getEnvInt("MQTT_PORT", 1883),
+	)
 
 	// Start polling loop
 	go manager.pollLoop()
@@ -742,6 +749,106 @@ func (m *Manager) reconnectDB() error {
 	}
 	m.database = database
 	return nil
+}
+
+// startOTASubscriber subscribes to sys/update/# and sys/restart/# via a dedicated
+// MQTT connection. When a message arrives, it pulls the new image (OTA) or
+// restarts all managed containers (restart).
+func (m *Manager) startOTASubscriber(mqttHost string, mqttPort int) {
+	broker := fmt.Sprintf("tcp://%s:%d", mqttHost, mqttPort)
+	opts := mqtt.NewClientOptions().
+		AddBroker(broker).
+		SetClientID("driver-manager-ota").
+		SetAutoReconnect(true).
+		SetConnectRetry(true).
+		SetConnectRetryInterval(5 * time.Second).
+		SetOnConnectHandler(func(c mqtt.Client) {
+			log.Println("[OTA] Connected to MQTT broker, subscribing to sys/update/# and sys/restart/#")
+			c.Subscribe("sys/update/#", 1, m.handleOTAUpdate)
+			c.Subscribe("sys/restart/#", 1, m.handleOTARestart)
+		})
+
+	client := mqtt.NewClient(opts)
+	if tok := client.Connect(); tok.Wait() && tok.Error() != nil {
+		log.Printf("[OTA] Initial MQTT connect failed (will retry): %v", tok.Error())
+	}
+
+	// Block until the manager context is cancelled
+	<-m.ctx.Done()
+	client.Disconnect(500)
+}
+
+// handleOTAUpdate processes sys/update/{org_id}: pulls the new image and
+// recreates every running driver container.
+func (m *Manager) handleOTAUpdate(_ mqtt.Client, msg mqtt.Message) {
+	var payload struct {
+		Version string `json:"version"`
+		Image   string `json:"image"`
+	}
+	if err := json.Unmarshal(msg.Payload(), &payload); err != nil {
+		log.Printf("[OTA] Bad update payload: %v", err)
+		return
+	}
+	if payload.Image == "" || payload.Version == "" {
+		log.Printf("[OTA] Update message missing image or version")
+		return
+	}
+	log.Printf("[OTA] Received OTA update command: image=%s version=%s", payload.Image, payload.Version)
+
+	// Pull the new image
+	pullCtx, cancel := context.WithTimeout(m.ctx, imagePullTimeout)
+	defer cancel()
+
+	reader, err := m.dockerClient.ImagePull(pullCtx, payload.Image, types.ImagePullOptions{})
+	if err != nil {
+		log.Printf("[OTA] Image pull failed: %v", err)
+		return
+	}
+	io.Copy(io.Discard, reader)
+	reader.Close()
+	log.Printf("[OTA] Pulled image %s", payload.Image)
+
+	// Restart all managed containers with the new image
+	m.mu.Lock()
+	gateways := make([]models.Gateway, 0, len(m.gatewayStates))
+	for _, state := range m.gatewayStates {
+		gateways = append(gateways, state.Gateway)
+	}
+	m.mu.Unlock()
+
+	for _, gw := range gateways {
+		log.Printf("[OTA] Restarting container for gateway %d after OTA", gw.ID)
+		m.mu.Lock()
+		_ = m.stopGatewayContainer(gw.ID)
+		m.mu.Unlock()
+		m.mu.Lock()
+		if err := m.startGatewayContainer(gw); err != nil {
+			log.Printf("[OTA] Failed to restart gateway %d: %v", gw.ID, err)
+		}
+		m.mu.Unlock()
+	}
+	log.Printf("[OTA] OTA update complete for %d gateways", len(gateways))
+}
+
+// handleOTARestart processes sys/restart/{org_id}: bounces all running containers.
+func (m *Manager) handleOTARestart(_ mqtt.Client, msg mqtt.Message) {
+	log.Printf("[OTA] Received restart command (topic: %s)", msg.Topic())
+
+	m.mu.Lock()
+	gateways := make([]models.Gateway, 0, len(m.gatewayStates))
+	for _, state := range m.gatewayStates {
+		gateways = append(gateways, state.Gateway)
+	}
+	m.mu.Unlock()
+
+	for _, gw := range gateways {
+		log.Printf("[OTA] Restarting gateway %d on restart command", gw.ID)
+		m.mu.Lock()
+		_ = m.stopGatewayContainer(gw.ID)
+		_ = m.startGatewayContainer(gw)
+		m.mu.Unlock()
+	}
+	log.Printf("[OTA] Restart complete for %d gateways", len(gateways))
 }
 
 func getEnv(key, defaultValue string) string {
