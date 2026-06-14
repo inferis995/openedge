@@ -95,6 +95,8 @@ jobs:
             path: services/driver-manager
           - service: driver-modbus
             path: services/driver-modbus
+          - service: driver-lorawan
+            path: services/driver-lorawan
 
     steps:
       - name: Checkout

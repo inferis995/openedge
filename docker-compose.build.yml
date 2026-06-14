@@ -46,6 +46,14 @@ services:
     networks:
       - industrial-network
 
+  driver-lorawan:
+    build:
+      context: .
+      dockerfile: services/driver-lorawan/Dockerfile
+    image: industrial-driver-lorawan:latest
+    networks:
+      - industrial-network
+
 networks:
   industrial-network:
     driver: bridge

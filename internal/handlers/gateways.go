@@ -156,14 +156,15 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 	}
 
 	// Validate driver_type
-	if req.DriverType != "S7" && req.DriverType != "MODBUS_TCP" && req.DriverType != "MQTT" && req.DriverType != "OPC_UA" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7', 'MODBUS_TCP', 'MQTT', or 'OPC_UA'"})
+	validDriverTypes := map[string]bool{"S7": true, "MODBUS_TCP": true, "MQTT": true, "OPC_UA": true, "LORAWAN": true}
+	if !validDriverTypes[req.DriverType] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7', 'MODBUS_TCP', 'MQTT', 'OPC_UA', or 'LORAWAN'"})
 		return
 	}
 
-	// For non-MQTT/non-OPC_UA drivers, connection_config with IP is required
-	// OPC_UA uses endpoint URL in connection_config instead of ip_address
-	if req.DriverType != "MQTT" && req.DriverType != "OPC_UA" && len(req.ConnectionConfig) == 0 {
+	// For non-MQTT/non-OPC_UA/non-LORAWAN drivers, connection_config with IP is required.
+	noIPDrivers := map[string]bool{"MQTT": true, "OPC_UA": true, "LORAWAN": true}
+	if !noIPDrivers[req.DriverType] && len(req.ConnectionConfig) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "connection_config is required for this driver type"})
 		return
 	}
@@ -625,8 +626,9 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 	}
 
 	// Validate driver_type if provided
-	if req.DriverType != nil && *req.DriverType != "S7" && *req.DriverType != "MODBUS_TCP" && *req.DriverType != "MQTT" && *req.DriverType != "OPC_UA" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7', 'MODBUS_TCP', 'MQTT', or 'OPC_UA'"})
+	validDriverTypesUpdate := map[string]bool{"S7": true, "MODBUS_TCP": true, "MQTT": true, "OPC_UA": true, "LORAWAN": true}
+	if req.DriverType != nil && !validDriverTypesUpdate[*req.DriverType] {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "driver_type must be 'S7', 'MODBUS_TCP', 'MQTT', 'OPC_UA', or 'LORAWAN'"})
 		return
 	}
 
@@ -795,6 +797,15 @@ func (h *GatewaysHandler) TestConnection(c *gin.Context) {
 	if driverType == "MQTT" {
 		// MQTT driver doesn't need TCP test to PLC IP - the PLC connects to our broker
 		c.JSON(http.StatusOK, gin.H{"success": true, "message": "MQTT driver: PLC publishes to the system broker. No direct connection to test."})
+		return
+	}
+
+	if driverType == "LORAWAN" {
+		// LoRaWAN devices connect to the Network Server (TTN/ChirpStack), not to us directly.
+		// The driver subscribes to the LNS MQTT broker; no point-to-point test is possible here.
+		host, _ := config["server_host"].(string)
+		app, _ := config["application_id"].(string)
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": fmt.Sprintf("LoRaWAN driver configured for LNS %s (app: %s). Uplinks arrive via MQTT integration — no direct TCP test available.", host, app)})
 		return
 	}
 

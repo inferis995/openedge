@@ -40,7 +40,7 @@ type Event struct {
 type Channel interface {
 	Name() string                       // for logs ("email", "telegram", …)
 	Enabled() bool                      // operator switch
-	Send(ctx context.Context, e Event) error
+	Send(ctx context.Context, e *Event) error
 }
 
 // Dispatcher owns the notifier lifecycle: it reads the operator
@@ -119,7 +119,7 @@ func (d *Dispatcher) Dispatch(e Event) {
 			if !ch.Enabled() {
 				continue
 			}
-			if err := ch.Send(ctx, e); err != nil {
+			if err := ch.Send(ctx, &e); err != nil {
 				log.Printf("[NOTIF/%s] failed for alarm %d: %v", ch.Name(), e.AlarmID, err)
 			}
 		}
@@ -150,7 +150,7 @@ func (d *Dispatcher) TestSend(ctx context.Context) []error {
 			errs = append(errs, fmt.Errorf("%s: not enabled", ch.Name()))
 			continue
 		}
-		if err := ch.Send(ctx, e); err != nil {
+		if err := ch.Send(ctx, &e); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", ch.Name(), err))
 		}
 	}
@@ -175,6 +175,9 @@ func (d *Dispatcher) reload() {
 	channels := []Channel{
 		newEmailChannel(cfg),
 		newTelegramChannel(cfg),
+		newSlackChannel(cfg),
+		newTeamsChannel(cfg),
+		newPagerDutyChannel(cfg),
 	}
 
 	rateMax := 60

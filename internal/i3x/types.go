@@ -106,6 +106,12 @@ type ListResponse[T any] struct {
 	Total int `json:"total"`
 }
 
+// PropertyHistoryPoint is a single raw sample from the tag historian.
+type PropertyHistoryPoint struct {
+	Value     *float64  `json:"value"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
 // MapDataType converts internal data type strings to i3X DataType
 func MapDataType(internal string) DataType {
 	switch internal {

@@ -329,6 +329,7 @@ const SystemPage = () => {
                         <TabsTrigger value="notifications">{t('system.tab_notifications')}</TabsTrigger>
                         <TabsTrigger value="backup">{t('system.tab_backup')}</TabsTrigger>
                         <TabsTrigger value="kpi">{t('system.tab_kpi')}</TabsTrigger>
+                        <TabsTrigger value="integrations">Integrations</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="mqtt" className="space-y-6 mt-4">
@@ -979,6 +980,10 @@ const SystemPage = () => {
                             onSaved={loadSettings}
                         />
                     </TabsContent>
+
+                    <TabsContent value="integrations" className="mt-4">
+                        <InfluxDBSettings initial={settings ?? undefined} onSaved={loadSettings} />
+                    </TabsContent>
                 </Tabs>
 
                 {/* Footer */}
@@ -993,6 +998,158 @@ const SystemPage = () => {
 
             </div>
         </div>
+    );
+};
+
+// InfluxDB v2 integration settings component
+const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSaved: () => void }) => {
+    const [form, setForm] = useState({
+        influx_enabled: initial?.influx_enabled ?? 'false',
+        influx_url: initial?.influx_url ?? '',
+        influx_token: initial?.influx_token ?? '',
+        influx_org: initial?.influx_org ?? '',
+        influx_bucket: initial?.influx_bucket ?? '',
+        influx_batch_size: initial?.influx_batch_size ?? '500',
+        influx_flush_interval: initial?.influx_flush_interval ?? '10',
+    });
+    const [saving, setSaving] = useState(false);
+    const [msg, setMsg] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (initial) {
+            setForm({
+                influx_enabled: initial.influx_enabled ?? 'false',
+                influx_url: initial.influx_url ?? '',
+                influx_token: initial.influx_token ?? '',
+                influx_org: initial.influx_org ?? '',
+                influx_bucket: initial.influx_bucket ?? '',
+                influx_batch_size: initial.influx_batch_size ?? '500',
+                influx_flush_interval: initial.influx_flush_interval ?? '10',
+            });
+        }
+    }, [initial]);
+
+    const save = async () => {
+        setSaving(true);
+        try {
+            await systemApi.updateSettings({
+                integrations: {
+                    influx_enabled: form.influx_enabled,
+                    influx_url: form.influx_url,
+                    influx_token: form.influx_token,
+                    influx_org: form.influx_org,
+                    influx_bucket: form.influx_bucket,
+                    influx_batch_size: form.influx_batch_size,
+                    influx_flush_interval: form.influx_flush_interval,
+                },
+            });
+            setMsg('Saved');
+            onSaved();
+        } catch {
+            setMsg('Save failed');
+        } finally {
+            setSaving(false);
+            setTimeout(() => setMsg(null), 3000);
+        }
+    };
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                    <Server className="h-5 w-5" /> InfluxDB v2 Push Connector
+                </CardTitle>
+                <CardDescription>
+                    Forward tag history to an InfluxDB v2 bucket using the line protocol.
+                    Data is pushed in batches every N seconds.
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <Label>Enable InfluxDB export</Label>
+                    <Switch
+                        checked={form.influx_enabled === 'true'}
+                        onCheckedChange={(v) => setForm(f => ({ ...f, influx_enabled: v ? 'true' : 'false' }))}
+                    />
+                </div>
+
+                <div className="grid gap-3 opacity-100">
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                            <Label className="text-xs">InfluxDB URL</Label>
+                            <Input
+                                placeholder="https://influxdb.example.com:8086"
+                                value={form.influx_url}
+                                onChange={(e) => setForm(f => ({ ...f, influx_url: e.target.value }))}
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-xs">API Token</Label>
+                            <Input
+                                type="password"
+                                placeholder="your-influxdb-token"
+                                value={form.influx_token}
+                                onChange={(e) => setForm(f => ({ ...f, influx_token: e.target.value }))}
+                            />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                            <Label className="text-xs">Organization</Label>
+                            <Input
+                                placeholder="my-org"
+                                value={form.influx_org}
+                                onChange={(e) => setForm(f => ({ ...f, influx_org: e.target.value }))}
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-xs">Bucket</Label>
+                            <Input
+                                placeholder="openedge"
+                                value={form.influx_bucket}
+                                onChange={(e) => setForm(f => ({ ...f, influx_bucket: e.target.value }))}
+                            />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                            <Label className="text-xs">Batch size (points)</Label>
+                            <Input
+                                type="number"
+                                min={1}
+                                placeholder="500"
+                                value={form.influx_batch_size}
+                                onChange={(e) => setForm(f => ({ ...f, influx_batch_size: e.target.value }))}
+                            />
+                        </div>
+                        <div className="space-y-1">
+                            <Label className="text-xs">Flush interval (seconds)</Label>
+                            <Input
+                                type="number"
+                                min={1}
+                                placeholder="10"
+                                value={form.influx_flush_interval}
+                                onChange={(e) => setForm(f => ({ ...f, influx_flush_interval: e.target.value }))}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
+                    <Button onClick={save} disabled={saving}>
+                        {saving ? 'Saving...' : 'Save InfluxDB Settings'}
+                    </Button>
+                    {msg && <span className="text-sm text-muted-foreground">{msg}</span>}
+                </div>
+
+                <div className="rounded-md bg-muted/50 border p-3 text-xs text-muted-foreground space-y-1">
+                    <p><span className="font-semibold">Measurement:</span> <code>openedge_tag</code></p>
+                    <p><span className="font-semibold">Tags:</span> tag_id, org_id, alias</p>
+                    <p><span className="font-semibold">Fields:</span> value, quality</p>
+                    <p><span className="font-semibold">Precision:</span> nanoseconds</p>
+                </div>
+            </CardContent>
+        </Card>
     );
 };
 

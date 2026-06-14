@@ -84,6 +84,7 @@ const Sidebar = () => {
                 { name: t('nav.diagnostics'), path: '/diagnostics', icon: Activity },
                 { name: t('nav.mqtt_monitor'), path: '/mqtt-monitor', icon: Radio },
                 { name: t('nav.audit_log'), path: '/audit', icon: Shield },
+                { name: 'Fleet', path: '/fleet', icon: Network },
             ]
             : []
         ),

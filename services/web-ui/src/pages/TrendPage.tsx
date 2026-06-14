@@ -1,516 +1,386 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { useQueries } from '@tanstack/react-query';
-import { tagsApi } from '@/api/tags';
-import { historyApi } from '@/api/history';
-import { toast } from 'sonner';
-import mqtt, { type MqttClient } from 'mqtt';
-
-import { TrendToolbar } from '@/components/trend/TrendToolbar';
-import { TagBrowser } from '@/components/trend/TagBrowser';
-import { TrendDashboard } from '@/components/trend/TrendDashboard';
-import { TrendDataTable } from '@/components/trend/TrendDataTable';
-import { useTrendStore } from '@/stores/useTrendStore';
-
-import { decodeSparkplugB, isProtobufData, convertSparkplugQuality } from '@/utils/sparkplugDecoder';
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
-    TagWithHierarchy,
-    TrendDataPoint,
-    calculateTimeRange,
-    getAutoInterval,
-} from '@/types/trend';
+    Activity, Play, Pause, RefreshCw, Download, PanelLeft, PanelRight,
+    BarChart2, Settings2, ZoomOut,
+} from 'lucide-react';
+import {
+    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 
-interface RealtimeValue {
-    tagId: number;
-    value: number;
-    timestamp: number;
-    quality: number;
+import { TagBrowser } from '@/components/trend/TagBrowser';
+import { UPlotChart, type PenSeries } from '@/components/historian/UPlotChart';
+import { HistorianDatePicker, type HistorianRange } from '@/components/historian/HistorianDatePicker';
+import { PenPanel, type Pen, type PenStats } from '@/components/historian/PenPanel';
+
+import { historyApi } from '@/api/history';
+import { tagsApi } from '@/api/tags';
+import { getAutoInterval, type TrendDataPoint, type AggregationType, type TagWithHierarchy } from '@/types/trend';
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const PEN_COLORS = [
+    '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
+    '#06b6d4', '#ec4899', '#f97316', '#6366f1', '#14b8a6',
+    '#a855f7', '#eab308', '#84cc16', '#f43f5e', '#22d3ee',
+];
+
+const AGG_OPTIONS: { value: AggregationType; label: string }[] = [
+    { value: 'mean',  label: 'Mean'  },
+    { value: 'max',   label: 'Max'   },
+    { value: 'min',   label: 'Min'   },
+    { value: 'first', label: 'First' },
+    { value: 'last',  label: 'Last'  },
+];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function defaultRange(): HistorianRange {
+    const to = new Date();
+    const from = new Date(to.getTime() - 60 * 60_000); // last 1h
+    return { from, to, preset: '1h' };
 }
 
-const TrendPage = () => {
-    const {
-        charts,
-        timeRange,
-        liveMode,
-        aggregation,
-        sidebarOpen,
-        dataTableOpen,
-        dataTableHeight,
-        addChart,
-    } = useTrendStore();
+function computeStats(pts: TrendDataPoint[]): PenStats {
+    const vals = pts
+        .filter(p => p.quality === 0 && p.value !== null)
+        .map(p => p.value as number);
+    if (vals.length === 0) return { min: null, max: null, avg: null, last: null, count: 0 };
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
+    const last = vals[vals.length - 1] ?? null;
+    return { min, max, avg, last, count: vals.length };
+}
 
-    const [refreshTrigger, setRefreshTrigger] = useState(0);
-    const [realtimeValues, setRealtimeValues] = useState<Map<number, RealtimeValue>>(new Map());
-    const [isConnected, setIsConnected] = useState(false);
-    const [sidebarWidth, setSidebarWidth] = useState(288);
-    const mqttClientRef = useRef<MqttClient | null>(null);
-    const timerRef = useRef<number | null>(null);
+function exportCSV(pens: Pen[], timestamps: number[], values: (number | null | undefined)[][]): void {
+    if (timestamps.length === 0) return;
+    const headers = ['Timestamp', ...pens.map(p => p.label + (p.unit ? ` (${p.unit})` : ''))];
+    const rows = timestamps.map((ts, i) => {
+        const date = new Date(ts * 1000).toISOString();
+        const vals = values.map(v => v[i] === null || v[i] === undefined ? '' : String(v[i]));
+        return [date, ...vals].join(',');
+    });
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `historian_${new Date().toISOString().slice(0, 16)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+}
 
-    // Drag-to-resize sidebar
-    const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
-        e.preventDefault();
-        const startX = e.clientX;
-        const startWidth = sidebarWidth;
+// ── Main page ─────────────────────────────────────────────────────────────────
 
-        const onMove = (ev: MouseEvent) => {
-            const newWidth = Math.min(Math.max(startWidth + ev.clientX - startX, 180), 540);
-            setSidebarWidth(newWidth);
-        };
-        const onUp = () => {
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-        };
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-        document.addEventListener('mousemove', onMove);
-        document.addEventListener('mouseup', onUp);
-    }, [sidebarWidth]);
+export default function TrendPage() {
+    const [timeRange, setTimeRange] = useState<HistorianRange>(defaultRange);
+    const [liveMode, setLiveMode] = useState(false);
+    const [aggregation, setAggregation] = useState<AggregationType>('mean');
+    const [pens, setPens] = useState<Pen[]>([]);
+    const [tagMap, setTagMap] = useState<Map<number, TagWithHierarchy>>(new Map());
+    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [penPanelOpen, setPenPanelOpen] = useState(true);
+    const [zoomStack, setZoomStack] = useState<HistorianRange[]>([]);
+    const liveRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    // Calculate actual date range.
-    // refreshTrigger is included so live mode shifts the window forward every 10 s.
-    const { start: startDate, end: endDate } = useMemo(() => {
-        if (timeRange.preset === 'custom' && timeRange.customStart && timeRange.customEnd) {
-            // Ensure custom dates are Date objects
-            const start = timeRange.customStart instanceof Date ? timeRange.customStart : new Date(timeRange.customStart);
-            const end = timeRange.customEnd instanceof Date ? timeRange.customEnd : new Date(timeRange.customEnd);
-            return { start, end };
-        }
-        return calculateTimeRange(timeRange.preset);
-    }, [timeRange, refreshTrigger]);
-
-    // Calculate interval
-    const interval = useMemo(() => {
-        return getAutoInterval(startDate, endDate);
-    }, [startDate, endDate]);
-
-    // Fetch all tags with hierarchy
-    const tagsQuery = useQueries({
-        queries: [
-            {
-                queryKey: ['tagsWithHierarchy'],
-                queryFn: (): Promise<TagWithHierarchy[]> => tagsApi.getAllWithHierarchy(),
-                staleTime: 60000,
-            },
-        ],
+    // Load all tags for label lookup
+    const { data: allTags } = useQuery({
+        queryKey: ['tags-with-hierarchy'],
+        queryFn: () => tagsApi.getAllWithHierarchy(),
+        staleTime: 60_000,
     });
 
-    const tags = useMemo(() => {
-        return tagsQuery[0].data || [];
-    }, [tagsQuery]);
-
-    // Get all tag IDs from all charts
-    const allTagIds = useMemo(() => {
-        const ids = new Set<number>();
-        charts.forEach(chart => {
-            chart.tagIds.forEach(id => ids.add(id));
-        });
-        return Array.from(ids);
-    }, [charts]);
-
-    // Fetch historical data
-    const historyQueries = useQueries({
-        queries: allTagIds.map(tagId => ({
-            queryKey: ['history', tagId, startDate.toISOString(), endDate.toISOString(), aggregation, interval, refreshTrigger],
-            queryFn: async () => {
-                const response = await historyApi.query({
-                    tag_id: tagId,
-                    start: startDate.toISOString(),
-                    end: endDate.toISOString(),
-                    agg: aggregation,
-                    interval,
-                });
-                return { tagId, data: response };
-            },
-            enabled: allTagIds.includes(tagId),
-            staleTime: 5000,
-        })),
-    });
-
-    // Build history data map
-    const historyDataMap = useMemo(() => {
-        const map = new Map<number, TrendDataPoint[]>();
-        historyQueries.forEach(query => {
-            if (query.data) {
-                map.set(query.data.tagId, query.data.data);
-            }
-        });
-        return map;
-    }, [historyQueries]);
-
-    // Current values queries
-    const currentQueries = useQueries({
-        queries: allTagIds.map(tagId => ({
-            queryKey: ['current', tagId],
-            queryFn: () => tagsApi.getCurrentValue(tagId),
-            refetchInterval: liveMode ? 3000 : 0,
-            staleTime: 2000,
-            enabled: allTagIds.includes(tagId),
-        })),
-    });
-
-    // Process current query results
     useEffect(() => {
-        currentQueries.forEach((query, index) => {
-            if (query.data && query.isSuccess) {
-                const tagId = allTagIds[index];
-                const ts = query.data.timestamp || Date.now();
+        if (!allTags) return;
+        const m = new Map<number, TagWithHierarchy>();
+        for (const t of allTags) m.set(t.id, t);
+        setTagMap(m);
+    }, [allTags]);
 
-                setRealtimeValues(prev => {
-                    const existing = prev.get(tagId);
-                    if (existing && existing.timestamp >= ts) {
-                        return prev;
-                    }
-                    const next = new Map(prev);
-                    next.set(tagId, {
-                        tagId,
-                        value: typeof query.data!.value === 'boolean'
-                            ? (query.data!.value ? 1 : 0)
-                            : Number(query.data!.value) || 0,
-                        timestamp: ts,
-                        quality: query.data!.quality ?? 0,
-                    });
-                    return next;
-                });
-            }
-        });
-    }, [currentQueries.reduce((acc, q) => acc + (q.dataUpdatedAt || 0), 0), allTagIds.join(',')]);
-
-    // MQTT subscription for real-time updates
+    // Live mode: shift the time window every 10 s
     useEffect(() => {
-        if (!liveMode || allTagIds.length === 0) {
-            if (mqttClientRef.current) {
-                mqttClientRef.current.end();
-                mqttClientRef.current = null;
-            }
-            setIsConnected(false);
-            return;
-        }
-
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/mqtt`;
-
-        const client = mqtt.connect(wsUrl, {
-            clientId: `trend-${Date.now()}`,
-            clean: true,
-            keepalive: 60,
-            reconnectPeriod: 5000,
-        });
-
-        client.on('connect', () => {
-            client.subscribe('data/#');
-            client.subscribe('spBv1.0/#'); // Subscribe to Sparkplug B topics for device status
-            setIsConnected(true);
-        });
-
-        client.on('disconnect', () => setIsConnected(false));
-        client.on('offline', () => setIsConnected(false));
-
-        client.on('message', (topic, payload) => {
-            try {
-                // Handle Sparkplug B messages
-                if (topic.startsWith('spBv1.0/')) {
-                    const parts = topic.split('/');
-                    const msgType = parts[2] || '';
-
-                    if (isProtobufData(payload)) {
-                        const decoded = decodeSparkplugB(payload);
-                        if (decoded) {
-                            // NOTE: DBIRTH/DDEATH/DDATA device status is handled by
-                            // the global useSparkplugListener in App.tsx.
-                            // Here we ONLY extract metric values from DDATA for chart updates.
-                            if (msgType === 'DDATA' || msgType === 'NDATA') {
-                                // Update realtime values for matching tags
-                                decoded.metrics.forEach(metric => {
-                                    if (metric.name) {
-                                        const tag = tags.find(t => {
-                                            const tagAlias = t.alias?.replace(/_/g, '-').toLowerCase();
-                                            return tagAlias === metric.name?.toLowerCase() ||
-                                                t.alias?.toLowerCase() === metric.name?.toLowerCase();
-                                        });
-
-                                        if (tag && allTagIds.includes(tag.id) && metric.value !== null) {
-                                            let numValue: number;
-                                            if (typeof metric.value === 'boolean') {
-                                                numValue = metric.value ? 1 : 0;
-                                            } else if (typeof metric.value === 'number') {
-                                                numValue = metric.value;
-                                            } else {
-                                                numValue = parseFloat(String(metric.value)) || 0;
-                                            }
-
-                                            setRealtimeValues(prev => {
-                                                const next = new Map(prev);
-                                                next.set(tag.id, {
-                                                    tagId: tag.id,
-                                                    value: numValue,
-                                                    timestamp: metric.timestamp || Date.now(),
-                                                    quality: convertSparkplugQuality(metric.quality),
-                                                });
-                                                return next;
-                                            });
-                                        }
-                                    }
-                                });
-                            }
-                        }
-                    }
-                    return;
-                }
-
-                // Handle legacy JSON messages
-                const data = JSON.parse(payload.toString());
-                const parts = topic.split('/');
-                const alias = parts[parts.length - 1];
-
-                const tag = tags.find(t => {
-                    const tagAlias = t.alias?.replace(/_/g, '-').toLowerCase();
-                    return tagAlias === alias?.toLowerCase() ||
-                        t.alias?.toLowerCase() === alias?.toLowerCase();
-                });
-
-                if (tag && allTagIds.includes(tag.id)) {
-                    let numValue: number;
-                    if (typeof data.v === 'boolean') {
-                        numValue = data.v ? 1 : 0;
-                    } else if (typeof data.v === 'number') {
-                        numValue = data.v;
-                    } else {
-                        numValue = parseFloat(data.v) || 0;
-                    }
-
-                    const ts = data.ts || Date.now();
-
-                    setRealtimeValues(prev => {
-                        const next = new Map(prev);
-                        next.set(tag.id, {
-                            tagId: tag.id,
-                            value: numValue,
-                            timestamp: ts,
-                            quality: data.q ?? 0,
-                        });
-                        return next;
-                    });
-                }
-            } catch (e) { }
-        });
-
-        mqttClientRef.current = client;
-
-        return () => {
-            client.end();
-            setIsConnected(false);
-        };
-    }, [liveMode, allTagIds, tags]);
-
-    // Auto-refresh timer
-    useEffect(() => {
-        if (!liveMode || timeRange.preset === 'custom' || timeRange.preset === 'yesterday') {
-            if (timerRef.current) {
-                window.clearInterval(timerRef.current);
-                timerRef.current = null;
-            }
-            return;
-        }
-
-        timerRef.current = window.setInterval(() => {
-            setRefreshTrigger(prev => prev + 1);
-        }, 10000);
-
-        return () => {
-            if (timerRef.current) {
-                window.clearInterval(timerRef.current);
-            }
-        };
+        if (liveRef.current) clearInterval(liveRef.current);
+        if (!liveMode || timeRange.preset === 'custom') return;
+        liveRef.current = setInterval(() => {
+            const ms = presetMs(timeRange.preset ?? '1h');
+            const to = new Date();
+            const from = new Date(to.getTime() - ms);
+            setTimeRange(r => ({ ...r, from, to }));
+        }, 10_000);
+        return () => { if (liveRef.current) clearInterval(liveRef.current); };
     }, [liveMode, timeRange.preset]);
 
-    // Handlers
-    const handleRefresh = useCallback(() => {
-        setRefreshTrigger(prev => prev + 1);
+    const penIds = useMemo(() => pens.map(p => p.tagId), [pens]);
+
+    // Fetch historical data for all selected pens
+    const { data: batchData, isFetching, refetch } = useQuery({
+        queryKey: ['historian-batch', penIds, timeRange.from.toISOString(), timeRange.to.toISOString(), aggregation],
+        queryFn: () => historyApi.batchQuery({
+            tag_ids: penIds,
+            start: timeRange.from.toISOString(),
+            end: timeRange.to.toISOString(),
+            agg: aggregation,
+            interval: getAutoInterval(timeRange.from, timeRange.to),
+        }),
+        enabled: penIds.length > 0,
+        refetchInterval: liveMode ? 10_000 : false,
+        staleTime: 5_000,
+    });
+
+    // Build uPlot-aligned data (seconds timestamps)
+    const { timestamps, values } = useMemo(() => {
+        if (!batchData || pens.length === 0) return { timestamps: [], values: [] };
+        const tsSet = new Set<number>();
+        const maps = pens.map(pen => {
+            const pts: TrendDataPoint[] = (batchData as Record<number, TrendDataPoint[]>)[pen.tagId] ?? [];
+            const m = new Map<number, number | null>();
+            for (const p of pts) {
+                const tsSec = Math.round(p.timestamp / 1000);
+                tsSet.add(tsSec);
+                m.set(tsSec, p.quality === 0 ? p.value : null);
+            }
+            return m;
+        });
+        const sortedTs = Array.from(tsSet).sort((a, b) => a - b);
+        const vals = maps.map(m => sortedTs.map(t => m.get(t) ?? null));
+        return { timestamps: sortedTs, values: vals };
+    }, [batchData, pens]);
+
+    // Compute per-pen stats
+    const pensWithStats = useMemo<Pen[]>(() => {
+        if (!batchData) return pens;
+        return pens.map(pen => {
+            const pts: TrendDataPoint[] = (batchData as Record<number, TrendDataPoint[]>)[pen.tagId] ?? [];
+            return { ...pen, stats: computeStats(pts) };
+        });
+    }, [batchData, pens]);
+
+    // Build PenSeries for uPlot
+    const penSeries = useMemo<PenSeries[]>(() =>
+        pens.map(p => ({
+            tagId: p.tagId,
+            label: p.label,
+            unit: p.unit,
+            color: p.color,
+            visible: p.visible,
+        })), [pens]);
+
+    // Add tag as pen
+    const addPen = useCallback((tagId: number) => {
+        if (pens.some(p => p.tagId === tagId)) return;
+        const tag = tagMap.get(tagId);
+        if (!tag) return;
+        const colorIdx = pens.length % PEN_COLORS.length;
+        setPens(prev => [...prev, {
+            tagId,
+            label: tag.alias || tag.code,
+            unit: undefined,
+            color: PEN_COLORS[colorIdx],
+            visible: true,
+        }]);
+    }, [pens, tagMap]);
+
+    const togglePenVisibility = useCallback((tagId: number) => {
+        setPens(prev => prev.map(p => p.tagId === tagId ? { ...p, visible: !p.visible } : p));
     }, []);
 
-    const handleExportCSV = useCallback(() => {
-        if (historyDataMap.size === 0 || allTagIds.length === 0) {
-            toast.error('No data to export');
-            return;
-        }
-
-        // Build CSV from all data
-        const timestampMap = new Map<number, any>();
-
-        historyDataMap.forEach((data, tagId) => {
-            const tag = tags.find(t => t.id === tagId);
-            const key = tag?.alias || tag?.code || `Tag_${tagId}`;
-
-            data.forEach(point => {
-                // Timestamp from API is already in milliseconds - use directly
-                const ts = point.timestamp;
-                if (!timestampMap.has(ts)) {
-                    const date = new Date(ts);
-                    timestampMap.set(ts, {
-                        timestamp: ts,
-                        date: date.toLocaleDateString('it-IT'),
-                        time: date.toLocaleTimeString('it-IT'),
-                    });
-                }
-                const entry = timestampMap.get(ts);
-                entry[key] = point.quality === 0 ? point.value : null;
-            });
-        });
-
-        // Add realtime values
-        realtimeValues.forEach((rv, tagId) => {
-            if (!allTagIds.includes(tagId)) return;
-            const tag = tags.find(t => t.id === tagId);
-            const key = tag?.alias || tag?.code;
-
-            if (rv.timestamp >= startDate.getTime() && rv.timestamp <= endDate.getTime()) {
-                if (!timestampMap.has(rv.timestamp)) {
-                    const date = new Date(rv.timestamp);
-                    timestampMap.set(rv.timestamp, {
-                        timestamp: rv.timestamp,
-                        date: date.toLocaleDateString('it-IT'),
-                        time: date.toLocaleTimeString('it-IT'),
-                    });
-                }
-                const entry = timestampMap.get(rv.timestamp);
-                if (entry && key) {
-                    entry[key] = rv.quality === 0 ? rv.value : null;
-                }
-            }
-        });
-
-        const sortedData = Array.from(timestampMap.values()).sort((a, b) => a.timestamp - b.timestamp);
-
-        const selectedTags = allTagIds.map(id => tags.find(t => t.id === id)).filter(Boolean);
-        const headers = ['Timestamp', 'Date', 'Time', ...selectedTags.map(t => t!.alias || t!.code)];
-        const rows = sortedData.map(row => {
-            const values = selectedTags.map(tag => {
-                const key = tag!.alias || tag!.code;
-                return row[key] ?? '';
-            });
-            return [
-                new Date(row.timestamp).toISOString(),
-                row.date,
-                row.time,
-                ...values,
-            ];
-        });
-
-        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `trend_export_${new Date().toISOString().split('T')[0]}.csv`;
-        link.click();
-        URL.revokeObjectURL(url);
-        toast.success('CSV exported successfully');
-    }, [historyDataMap, allTagIds, tags, realtimeValues, startDate, endDate]);
-
-    const handleAddChart = useCallback(() => {
-        addChart();
-    }, [addChart]);
-
-    const handleAddTagToChart = useCallback((_tagId: number) => {
-        // Tag is added by the store's addTagToChart which is called from TagBrowser
+    const removePen = useCallback((tagId: number) => {
+        setPens(prev => prev.filter(p => p.tagId !== tagId));
     }, []);
 
-    // Merge realtime values into historyDataMap so the data table always shows
-    // the current live state even before the historian has written it to InfluxDB.
-    // All timestamps are in milliseconds.
-    const mergedDataMap = useMemo(() => {
-        const merged = new Map<number, TrendDataPoint[]>(historyDataMap);
-        realtimeValues.forEach((rv, tagId) => {
-            if (!allTagIds.includes(tagId)) return;
-            const existing = merged.get(tagId) || [];
-            // Timestamps are already in milliseconds
-            const rvTs = rv.timestamp;
-            const lastTs = existing.length > 0 ? existing[existing.length - 1].timestamp : 0;
-            // Only append if the realtime point is newer than the last historical point
-            if (rvTs > lastTs) {
-                merged.set(tagId, [...existing, {
-                    timestamp: rvTs,
-                    value: rv.value,
-                    quality: rv.quality,
-                }]);
-            }
-        });
-        return merged;
-    }, [historyDataMap, realtimeValues, allTagIds]);
+    const changePenColor = useCallback((tagId: number, color: string) => {
+        setPens(prev => prev.map(p => p.tagId === tagId ? { ...p, color } : p));
+    }, []);
 
-    // Calculate stats
-    const totalDataPoints = useMemo(() => {
-        let count = 0;
-        historyDataMap.forEach(data => {
-            count += data.length;
-        });
-        return count;
-    }, [historyDataMap]);
+    // Zoom by drag-select on chart — push current range to stack first
+    const handleZoom = useCallback((fromMs: number, toMs: number) => {
+        setZoomStack(stack => [...stack, timeRange]);
+        setTimeRange({ from: new Date(fromMs), to: new Date(toMs), preset: 'custom' });
+        setLiveMode(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [timeRange]);
 
-    const isLoading = historyQueries.some(q => q.isLoading);
+    const handleZoomOut = useCallback(() => {
+        setZoomStack(stack => {
+            const prev = stack[stack.length - 1];
+            if (!prev) return stack;
+            setTimeRange(prev);
+            return stack.slice(0, -1);
+        });
+    }, []);
+
+    const totalPoints = timestamps.length * pens.length;
 
     return (
-        <div className="h-[calc(100vh-5rem)] flex flex-col bg-background">
-            {/* Toolbar */}
-            <TrendToolbar
-                onRefresh={handleRefresh}
-                onExportCSV={handleExportCSV}
-                onAddChart={handleAddChart}
-                isLoading={isLoading}
-                dataPointsCount={totalDataPoints}
-                tagsCount={allTagIds.length}
-                isMqttConnected={isConnected}
-            />
-
-            {/* Main Content */}
-            <div className="flex-1 flex overflow-hidden min-h-0">
-                {/* Sidebar - Tag Browser */}
-                {sidebarOpen && (
-                    <>
-                        <div style={{ width: sidebarWidth }} className="flex-shrink-0 flex flex-col overflow-hidden min-h-0">
-                            <TagBrowser
-                                onAddTagToChart={handleAddTagToChart}
-                                selectedTagIds={allTagIds}
-                                realtimeValues={realtimeValues}
-                            />
+        <div className="flex flex-col h-full overflow-hidden bg-background">
+            {/* ── TOOLBAR ────────────────────────────────────────────── */}
+            <div className="flex-shrink-0 bg-card border-b px-3 py-2 space-y-2">
+                {/* Row 1: title + actions */}
+                <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                        <Button variant="ghost" size="icon" className="h-7 w-7"
+                            onClick={() => setSidebarOpen(o => !o)}>
+                            <PanelLeft className={`w-4 h-4 ${sidebarOpen ? 'text-primary' : 'text-muted-foreground'}`} />
+                        </Button>
+                        <div className="p-1 bg-primary/10 rounded">
+                            <Activity className="w-4 h-4 text-primary" />
                         </div>
-                        {/* Resize handle */}
-                        <div
-                            className="w-1.5 flex-shrink-0 hover:bg-primary bg-muted cursor-col-resize transition-colors"
-                            onMouseDown={handleSidebarResizeStart}
-                            title="Trascina per ridimensionare"
-                        />
-                    </>
-                )}
-
-                {/* Chart Area */}
-                <div className="flex-1 flex flex-col overflow-hidden">
-                    {/* Dashboard */}
-                    <div className="flex-1 p-3 overflow-y-auto">
-                        <TrendDashboard
-                            tags={tags}
-                            timeRange={{ start: startDate, end: endDate }}
-                            aggregation={aggregation}
-                            realtimeValues={realtimeValues}
-                            refreshTrigger={refreshTrigger}
-                        />
+                        <div>
+                            <h1 className="text-sm font-semibold">Historian</h1>
+                            <p className="text-[10px] text-muted-foreground leading-none">
+                                {pens.length} pen{pens.length !== 1 ? 's' : ''} · {totalPoints.toLocaleString()} pts
+                                {isFetching && <span className="ml-1 text-primary">loading…</span>}
+                                {liveMode && (
+                                    <span className="ml-2 inline-flex items-center gap-1 text-green-500">
+                                        <span className="w-1.5 h-1.5 rounded-full animate-pulse bg-green-500 inline-block" />
+                                        LIVE
+                                    </span>
+                                )}
+                            </p>
+                        </div>
                     </div>
 
-                    {/* Data Table */}
-                    {dataTableOpen && (
-                        <TrendDataTable
-                            data={mergedDataMap}
-                            tags={tags}
-                            selectedTagIds={allTagIds}
-                            onClose={() => useTrendStore.getState().toggleDataTable()}
-                            height={dataTableHeight}
+                    <div className="flex items-center gap-1.5">
+                        {/* Aggregation */}
+                        <Select value={aggregation} onValueChange={v => setAggregation(v as AggregationType)}>
+                            <SelectTrigger className="h-7 w-24 text-xs">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {AGG_OPTIONS.map(o => (
+                                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+
+                        {/* Live */}
+                        <Button
+                            size="sm"
+                            variant={liveMode ? 'default' : 'outline'}
+                            className="h-7 text-xs gap-1"
+                            onClick={() => setLiveMode(m => !m)}
+                            disabled={timeRange.preset === 'custom'}
+                        >
+                            {liveMode ? <><Pause className="w-3 h-3" /> Stop</> : <><Play className="w-3 h-3" /> Live</>}
+                        </Button>
+
+                        {/* Reset zoom */}
+                        {zoomStack.length > 0 && (
+                            <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+                                onClick={handleZoomOut} title="Zoom out">
+                                <ZoomOut className="w-3 h-3" />
+                                {zoomStack.length > 1 ? `Undo (${zoomStack.length})` : 'Reset zoom'}
+                            </Button>
+                        )}
+
+                        {/* Refresh */}
+                        <Button size="icon" variant="outline" className="h-7 w-7"
+                            onClick={() => refetch()} disabled={isFetching || penIds.length === 0}>
+                            <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
+                        </Button>
+
+                        {/* Export CSV */}
+                        <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+                            onClick={() => {
+                                if (timestamps.length === 0) { toast.info('No data to export'); return; }
+                                exportCSV(pens, timestamps, values);
+                                toast.success('CSV exported');
+                            }}
+                            disabled={timestamps.length === 0}>
+                            <Download className="w-3 h-3" />
+                            CSV
+                        </Button>
+
+                        {/* Pen panel toggle */}
+                        <Button variant="ghost" size="icon" className="h-7 w-7"
+                            onClick={() => setPenPanelOpen(o => !o)}>
+                            <PanelRight className={`w-4 h-4 ${penPanelOpen ? 'text-primary' : 'text-muted-foreground'}`} />
+                        </Button>
+                    </div>
+                </div>
+
+                {/* Row 2: date range picker */}
+                <HistorianDatePicker value={timeRange} onChange={(r) => { setTimeRange(r); setLiveMode(false); setZoomStack([]); }} />
+            </div>
+
+            {/* ── CONTENT ────────────────────────────────────────────── */}
+            <div className="flex flex-1 overflow-hidden">
+
+                {/* Left: tag browser */}
+                {sidebarOpen && (
+                    <div className="w-64 flex-shrink-0 border-r overflow-y-auto bg-card/50">
+                        <TagBrowser
+                            onAddTagToChart={addPen}
+                            selectedTagIds={penIds}
                         />
+                    </div>
+                )}
+
+                {/* Center: chart */}
+                <div className="flex-1 flex flex-col overflow-hidden">
+                    {pens.length === 0 ? (
+                        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                            <BarChart2 className="w-16 h-16 opacity-20" />
+                            <div className="text-center">
+                                <p className="font-medium">No pens selected</p>
+                                <p className="text-sm mt-1">Select tags from the browser on the left to start</p>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="flex-1 p-2 overflow-hidden">
+                            <UPlotChart
+                                timestamps={timestamps}
+                                values={values}
+                                pens={penSeries}
+                                height={Math.max(280, window.innerHeight - 220)}
+                                onZoom={handleZoom}
+                            />
+                        </div>
                     )}
                 </div>
+
+                {/* Right: pen panel + stats */}
+                {penPanelOpen && (
+                    <div className="w-56 flex-shrink-0 border-l flex flex-col bg-card/50">
+                        <div className="px-3 py-2 border-b flex items-center gap-1.5">
+                            <Settings2 className="w-3.5 h-3.5 text-muted-foreground" />
+                            <span className="text-xs font-medium">Pens</span>
+                            {pens.length > 0 && (
+                                <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1">
+                                    {pens.length}
+                                </Badge>
+                            )}
+                        </div>
+                        <div className="flex-1 overflow-y-auto">
+                            <PenPanel
+                                pens={pensWithStats}
+                                onToggleVisibility={togglePenVisibility}
+                                onRemove={removePen}
+                                onColorChange={changePenColor}
+                            />
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
-};
+}
 
-export default TrendPage;
+// ── Utility ───────────────────────────────────────────────────────────────────
+
+function presetMs(preset: string): number {
+    const map: Record<string, number> = {
+        '1h':  1  * 60 * 60_000,
+        '4h':  4  * 60 * 60_000,
+        '8h':  8  * 60 * 60_000,
+        '12h': 12 * 60 * 60_000,
+        '24h': 24 * 60 * 60_000,
+        '3d':  3  * 24 * 60 * 60_000,
+        '7d':  7  * 24 * 60 * 60_000,
+        '30d': 30 * 24 * 60 * 60_000,
+    };
+    return map[preset] ?? 60 * 60_000;
+}

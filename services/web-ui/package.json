@@ -45,6 +45,7 @@
     "lucide-react": "^0.460.0",
     "mqtt": "^5.14.1",
     "react": "^18.3.1",
+    "react-day-picker": "^10.0.1",
     "react-dom": "^18.3.1",
     "react-grid-layout": "^2.2.2",
     "react-hook-form": "^7.53.2",
@@ -54,6 +55,7 @@
     "sonner": "^2.0.7",
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
+    "uplot": "^1.6.32",
     "zod": "^3.23.8",
     "zustand": "^5.0.2"
   },

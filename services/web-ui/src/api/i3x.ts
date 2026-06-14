@@ -30,6 +30,11 @@ export interface I3XProperty {
     current?: I3XPropertyValue;
 }
 
+export interface I3XHistoryPoint {
+    value: number | null;
+    timestamp: string;
+}
+
 export interface I3XAlarm {
     id: string;
     propertyId: string;
@@ -56,6 +61,9 @@ export const i3xApi = {
     listEquipment: (): Promise<I3XListResponse<I3XEquipment>> =>
         apiClient.get('/i3x/v1/equipment').then(r => r.data),
 
+    getEquipmentChildren: (id: string): Promise<I3XListResponse<I3XEquipment>> =>
+        apiClient.get(`/i3x/v1/equipment/${id}/children`).then(r => r.data),
+
     listEquipmentProperties: (id: string): Promise<I3XListResponse<I3XProperty>> =>
         apiClient.get(`/i3x/v1/equipment/${id}/properties`).then(r => r.data),
 
@@ -67,4 +75,22 @@ export const i3xApi = {
 
     writePropertyValue: (id: string, value: unknown): Promise<void> =>
         apiClient.put(`/i3x/v1/properties/${id}/value`, { value }).then(r => r.data),
+
+    getPropertyHistory: (
+        id: string,
+        from: string,
+        to: string,
+        limit = 500,
+    ): Promise<I3XListResponse<I3XHistoryPoint>> =>
+        apiClient
+            .get(`/i3x/v1/properties/${id}/history`, {
+                params: { from, to, limit },
+            })
+            .then(r => r.data),
+
+    batchReadProperties: (ids: string[]): Promise<I3XListResponse<I3XProperty>> =>
+        apiClient.post('/i3x/v1/properties/values', { ids }).then(r => r.data),
+
+    acknowledgeAlarm: (id: string): Promise<void> =>
+        apiClient.post(`/i3x/v1/alarms/${id}/acknowledge`).then(r => r.data),
 };
