@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { useGateways } from '@/hooks/useGateways';
 import { useAreas } from '@/hooks/useAreas';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -30,7 +30,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Wifi, ChevronRight, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Wifi, ChevronRight, RefreshCw, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { CreateGatewayDto, Gateway } from '@/types';
@@ -72,6 +72,22 @@ const GatewaysPage = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [testResult, setTestResult] = useState<{ id: number, success: boolean, message: string } | null>(null);
     const [updatingGatewayId, setUpdatingGatewayId] = useState<number | null>(null);
+    const [searchInput, setSearchInput] = useState('');
+    const searchQuery = useDeferredValue(searchInput);
+
+    const filteredGateways = useMemo(() => {
+        if (!searchQuery.trim()) return gateways;
+        const q = searchQuery.toLowerCase();
+        return gateways.filter(gw =>
+            gw.name.toLowerCase().includes(q) ||
+            gw.driver_type.toLowerCase().includes(q) ||
+            (gw.connection_config?.ip_address || '').toLowerCase().includes(q) ||
+            (gw.connection_config?.endpoint || '').toLowerCase().includes(q),
+        );
+    }, [gateways, searchQuery]);
+
+    const onlineCount  = useMemo(() => gateways.filter(g => g.connection_status === 'online').length, [gateways]);
+    const offlineCount = useMemo(() => gateways.filter(g => g.connection_status !== 'online' && g.enabled).length, [gateways]);
 
     // Form State
     const [formData, setFormData] = useState<Partial<ExtendedCreateGatewayDto>>({
@@ -786,6 +802,33 @@ const GatewaysPage = () => {
                 )}
             </div>
 
+            {/* Stats bar */}
+            <div className="flex flex-wrap items-center gap-6 text-sm text-muted-foreground px-1">
+                <span>
+                    <strong className="text-foreground">{gateways.length}</strong> gateway
+                    {filteredGateways.length !== gateways.length && ` (${filteredGateways.length} filtrati)`}
+                </span>
+                <span className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <strong className="text-emerald-600">{onlineCount}</strong> online
+                </span>
+                {offlineCount > 0 && (
+                    <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                        <strong className="text-red-500">{offlineCount}</strong> offline
+                    </span>
+                )}
+                <div className="ml-auto relative w-64">
+                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    <Input
+                        className="pl-8 h-8 text-sm"
+                        placeholder="Cerca per nome, driver, IP..."
+                        value={searchInput}
+                        onChange={e => setSearchInput(e.target.value)}
+                    />
+                </div>
+            </div>
+
             <div className="clip-chamfer border bg-card">
                 <Table>
                     <TableHeader>
@@ -800,14 +843,16 @@ const GatewaysPage = () => {
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {gateways.length === 0 ? (
+                        {filteredGateways.length === 0 ? (
                             <TableRow>
                                 <TableCell colSpan={7} className="h-24 text-center">
-                                    No gateways found. {selectedAreaId ? 'Create one for the selected area.' : 'Select an area to filter or add a new gateway.'}
+                                    {gateways.length === 0
+                                        ? (selectedAreaId ? 'Create one for the selected area.' : 'Select an area to filter or add a new gateway.')
+                                        : 'Nessun gateway corrisponde alla ricerca.'}
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            gateways.map((gw) => (
+                            filteredGateways.map((gw) => (
                                 <TableRow
                                     key={gw.id}
                                     className={`cursor-pointer hover:bg-muted/50 ${!gw.enabled ? 'opacity-50' : ''}`}
@@ -825,15 +870,20 @@ const GatewaysPage = () => {
                                     </TableCell>
                                     <TableCell className="text-xs text-muted-foreground">
                                         {gw.driver_type === 'S7'
-                                            ? `Rack: ${gw.connection_config?.rack || 0}, Slot: ${gw.connection_config?.slot || 0}`
-                                            : gw.driver_type === 'MQTT'
-                                                ? 'PLC → Broker (event-driven)'
+                                            ? `Rack: ${gw.connection_config?.rack ?? 0}, Slot: ${gw.connection_config?.slot ?? 0}`
+                                            : gw.driver_type === 'MODBUS_TCP'
+                                                ? `Port: ${gw.connection_config?.port ?? 502}, Slave: ${gw.connection_config?.slave_id ?? 1}`
                                                 : gw.driver_type === 'OPC_UA'
-                                                    ? `${gw.connection_config?.endpoint || 'No endpoint'}`
-                                                    : `Port: ${gw.connection_config?.port || 502}, ID: ${gw.connection_config?.slave_id || 1}`
+                                                    ? (gw.connection_config?.endpoint || 'No endpoint')
+                                                    : gw.driver_type === 'MQTT'
+                                                        ? (gw.connection_config?.broker_host ? `${gw.connection_config.broker_host}:${gw.connection_config.broker_port ?? 1883}` : 'Internal broker')
+                                                        : gw.driver_type === 'LORAWAN'
+                                                            ? `${gw.connection_config?.server_type ?? 'ttn_v3'} · ${gw.connection_config?.server_host || '—'}`
+                                                            : '—'
                                         }
-                                        <br />
-                                        {gw.driver_type !== 'MQTT' && <>{gw.driver_type === 'OPC_UA' ? `Scan: ${gw.scan_rate_ms}ms` : `Scan: ${gw.scan_rate_ms}ms`}</>}
+                                        {gw.driver_type !== 'MQTT' && gw.driver_type !== 'LORAWAN' && (
+                                            <><br />Scan: {gw.scan_rate_ms >= 1000 ? `${gw.scan_rate_ms / 1000}s` : `${gw.scan_rate_ms}ms`}</>
+                                        )}
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">
