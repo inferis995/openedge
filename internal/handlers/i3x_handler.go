@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -615,7 +616,8 @@ func (h *I3XHandler) ListProperties(c *gin.Context) {
 
 	var q string
 	var args []interface{}
-	if orgFilter != nil && gwIDFilter != nil {
+	switch {
+	case orgFilter != nil && gwIDFilter != nil:
 		q = `SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id
 		     FROM tags t
 		     JOIN gateways g ON t.gateway_id = g.id
@@ -625,7 +627,7 @@ func (h *I3XHandler) ListProperties(c *gin.Context) {
 		     ORDER BY t.sort_order ASC, t.id ASC
 		     LIMIT $3 OFFSET $4`
 		args = []interface{}{*orgFilter, *gwIDFilter, limit, offset}
-	} else if orgFilter != nil {
+	case orgFilter != nil:
 		q = `SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id
 		     FROM tags t
 		     JOIN gateways g ON t.gateway_id = g.id
@@ -635,7 +637,7 @@ func (h *I3XHandler) ListProperties(c *gin.Context) {
 		     ORDER BY t.sort_order ASC, t.id ASC
 		     LIMIT $2 OFFSET $3`
 		args = []interface{}{*orgFilter, limit, offset}
-	} else if gwIDFilter != nil {
+	case gwIDFilter != nil:
 		q = `SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id
 		     FROM tags t
 		     JOIN gateways g ON t.gateway_id = g.id
@@ -645,7 +647,7 @@ func (h *I3XHandler) ListProperties(c *gin.Context) {
 		     ORDER BY t.sort_order ASC, t.id ASC
 		     LIMIT $2 OFFSET $3`
 		args = []interface{}{*gwIDFilter, limit, offset}
-	} else {
+	default:
 		q = `SELECT t.id, t.alias, t.data_type, t.historize, t.gateway_id
 		     FROM tags t
 		     JOIN gateways g ON t.gateway_id = g.id
@@ -656,7 +658,7 @@ func (h *I3XHandler) ListProperties(c *gin.Context) {
 		args = []interface{}{limit, offset}
 	}
 
-	rows, err := h.db.Query(q, args...)
+	rows, err := h.db.QueryContext(context.Background(), q, args...)
 	if err != nil {
 		log.Printf("[i3X] ListProperties query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query properties"})
@@ -950,7 +952,7 @@ func (h *I3XHandler) scanAlarmRows(c *gin.Context, rows *sql.Rows) []i3x.Alarm {
 
 // GetPropertyHistory handles GET /api/i3x/v1/properties/:id/history
 // Returns raw time-series samples for a tag from the TimescaleDB historian.
-// Query params: from (RFC3339), to (RFC3339), limit (int, default 500, max 5000)
+// Query params: from (RFC3339), to (RFC3339), limit (int, default 500, max 5000).
 func (h *I3XHandler) GetPropertyHistory(c *gin.Context) {
 	tagID, ok := parseTagID(c.Param("id"))
 	if !ok {
@@ -960,7 +962,7 @@ func (h *I3XHandler) GetPropertyHistory(c *gin.Context) {
 
 	// Org isolation: verify the tag belongs to the caller's org.
 	var ownerOrgID int
-	err := h.db.QueryRow(`
+	err := h.db.QueryRowContext(context.Background(), `
 		SELECT s.org_id
 		FROM tags t
 		JOIN gateways g ON t.gateway_id = g.id
@@ -1001,7 +1003,7 @@ func (h *I3XHandler) GetPropertyHistory(c *gin.Context) {
 		}
 	}
 
-	rows, err := h.db.Query(`
+	rows, err := h.db.QueryContext(context.Background(), `
 		SELECT time, value FROM tag_history
 		WHERE tag_id = $1 AND time >= $2 AND time <= $3
 		ORDER BY time ASC LIMIT $4`, tagID, from, to, limit)
@@ -1010,7 +1012,11 @@ func (h *I3XHandler) GetPropertyHistory(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query history"})
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("[i3X] GetPropertyHistory rows.Close: %v", cerr)
+		}
+	}()
 
 	var points []i3x.PropertyHistoryPoint
 	for rows.Next() {
@@ -1034,17 +1040,125 @@ func (h *I3XHandler) GetPropertyHistory(c *gin.Context) {
 
 // ─── Equipment children ───────────────────────────────────────────────────────
 
-// GetEquipmentChildren handles GET /api/i3x/v1/equipment/:id/children
-// Returns the direct children of a hierarchy node:
-//
-//	org-{n}  → sites
-//	site-{n} → areas
-//	area-{n} → gateways (Equipment type)
-//	gw-{n}   → empty (leaf node)
+// childSites returns the sites that belong to an organization.
+func (h *I3XHandler) childSites(orgID int, parentID string) ([]i3x.Equipment, error) {
+	var orgName string
+	if err := h.db.QueryRowContext(context.Background(),
+		`SELECT name FROM organizations WHERE id = $1`, orgID).Scan(&orgName); err != nil {
+		return nil, err
+	}
+	rows, err := h.db.QueryContext(context.Background(),
+		`SELECT id, name FROM sites WHERE org_id = $1 ORDER BY name`, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("[i3X] childSites rows.Close: %v", cerr)
+		}
+	}()
+	var out []i3x.Equipment
+	for rows.Next() {
+		var id int
+		var name string
+		if err2 := rows.Scan(&id, &name); err2 != nil {
+			continue
+		}
+		out = append(out, i3x.Equipment{
+			ID: siteAssemblyID(id), Name: name, Type: i3x.EquipmentTypeAssembly,
+			ParentID: parentID, Path: fmt.Sprintf("%s / %s", orgName, name),
+		})
+	}
+	return out, nil
+}
+
+// childAreas returns the areas that belong to a site.
+func (h *I3XHandler) childAreas(siteID int, parentID string) ([]i3x.Equipment, error) {
+	var siteName, orgName string
+	var orgID int
+	err := h.db.QueryRowContext(context.Background(),
+		`SELECT s.name, o.id, o.name FROM sites s JOIN organizations o ON s.org_id=o.id WHERE s.id=$1`,
+		siteID).Scan(&siteName, &orgID, &orgName)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := h.db.QueryContext(context.Background(),
+		`SELECT id, name FROM areas WHERE site_id = $1 ORDER BY name`, siteID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("[i3X] childAreas rows.Close: %v", cerr)
+		}
+	}()
+	var out []i3x.Equipment
+	for rows.Next() {
+		var id int
+		var name string
+		if err2 := rows.Scan(&id, &name); err2 != nil {
+			continue
+		}
+		out = append(out, i3x.Equipment{
+			ID: areaAssemblyID(id), Name: name, Type: i3x.EquipmentTypeAssembly,
+			ParentID: parentID, Path: fmt.Sprintf("%s / %s / %s", orgName, siteName, name),
+		})
+	}
+	return out, nil
+}
+
+// childGateways returns the gateways that belong to an area.
+func (h *I3XHandler) childGateways(areaID int, parentID string) ([]i3x.Equipment, error) {
+	var areaName, siteName, orgName string
+	var siteID, orgID int
+	err := h.db.QueryRowContext(context.Background(), `
+		SELECT a.name, s.id, s.name, o.id, o.name
+		FROM areas a JOIN sites s ON a.site_id=s.id JOIN organizations o ON s.org_id=o.id
+		WHERE a.id=$1`, areaID).Scan(&areaName, &siteID, &siteName, &orgID, &orgName)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := h.db.QueryContext(context.Background(), `
+		SELECT g.id, g.name, g.driver_type, g.scan_rate_ms, g.enabled
+		FROM gateways g WHERE g.area_id = $1 ORDER BY g.name`, areaID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("[i3X] childGateways rows.Close: %v", cerr)
+		}
+	}()
+	var out []i3x.Equipment
+	for rows.Next() {
+		var id, scanRate int
+		var name, driverType string
+		var enabled bool
+		if err2 := rows.Scan(&id, &name, &driverType, &scanRate, &enabled); err2 != nil {
+			continue
+		}
+		out = append(out, i3x.Equipment{
+			ID: gwEquipmentID(id), Name: name, Type: i3x.EquipmentTypeEquipment,
+			Description: driverType, ParentID: parentID,
+			Path: fmt.Sprintf("%s / %s / %s / %s", orgName, siteName, areaName, name),
+			Attributes: map[string]interface{}{
+				"driver_type": driverType, "scan_rate_ms": scanRate, "enabled": enabled,
+			},
+		})
+	}
+	return out, nil
+}
+
+// GetEquipmentChildren handles GET /api/i3x/v1/equipment/:id/children.
+// Returns the direct children of a hierarchy node (org→sites, site→areas, area→gateways, gw→empty).
 func (h *I3XHandler) GetEquipmentChildren(c *gin.Context) {
 	rawID := c.Param("id")
 	orgFilter := middleware.GetOrgFilterForQuery(c)
-	var items []i3x.Equipment
+
+	var (
+		items []i3x.Equipment
+		err   error
+	)
 
 	switch {
 	case strings.HasPrefix(rawID, "org-"):
@@ -1057,31 +1171,7 @@ func (h *I3XHandler) GetEquipmentChildren(c *gin.Context) {
 			c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
 			return
 		}
-		var orgName string
-		if err := h.db.QueryRow(`SELECT name FROM organizations WHERE id = $1`, orgID).Scan(&orgName); err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Organization not found"})
-			return
-		} else if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-			return
-		}
-		rows, err := h.db.Query(`SELECT id, name FROM sites WHERE org_id = $1 ORDER BY name`, orgID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var id int
-			var name string
-			if err2 := rows.Scan(&id, &name); err2 != nil {
-				continue
-			}
-			items = append(items, i3x.Equipment{
-				ID: siteAssemblyID(id), Name: name, Type: i3x.EquipmentTypeAssembly,
-				ParentID: rawID, Path: fmt.Sprintf("%s / %s", orgName, name),
-			})
-		}
+		items, err = h.childSites(orgID, rawID)
 
 	case strings.HasPrefix(rawID, "site-"):
 		siteID, ok := parseSiteID(rawID)
@@ -1089,36 +1179,14 @@ func (h *I3XHandler) GetEquipmentChildren(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Invalid site ID"})
 			return
 		}
-		var siteName, orgName string
-		var orgID int
-		err := h.db.QueryRow(`SELECT s.name, o.id, o.name FROM sites s JOIN organizations o ON s.org_id=o.id WHERE s.id=$1`, siteID).Scan(&siteName, &orgID, &orgName)
-		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Site not found"})
-			return
-		} else if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-			return
-		}
-		if orgFilter != nil && *orgFilter != orgID {
-			c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
-			return
-		}
-		rows, err := h.db.Query(`SELECT id, name FROM areas WHERE site_id = $1 ORDER BY name`, siteID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var id int
-			var name string
-			if err2 := rows.Scan(&id, &name); err2 != nil {
-				continue
+		items, err = h.childAreas(siteID, rawID)
+		if err == nil && orgFilter != nil {
+			filtered := items[:0]
+			for _, it := range items {
+				if it.ParentID != "" {
+					filtered = append(filtered, it)
+				}
 			}
-			items = append(items, i3x.Equipment{
-				ID: areaAssemblyID(id), Name: name, Type: i3x.EquipmentTypeAssembly,
-				ParentID: rawID, Path: fmt.Sprintf("%s / %s / %s", orgName, siteName, name),
-			})
 		}
 
 	case strings.HasPrefix(rawID, "area-"):
@@ -1127,54 +1195,23 @@ func (h *I3XHandler) GetEquipmentChildren(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "Invalid area ID"})
 			return
 		}
-		var areaName, siteName, orgName string
-		var siteID, orgID int
-		err := h.db.QueryRow(`
-			SELECT a.name, s.id, s.name, o.id, o.name
-			FROM areas a JOIN sites s ON a.site_id=s.id JOIN organizations o ON s.org_id=o.id
-			WHERE a.id=$1`, areaID).Scan(&areaName, &siteID, &siteName, &orgID, &orgName)
-		if err == sql.ErrNoRows {
-			c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Area not found"})
-			return
-		} else if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-			return
-		}
-		if orgFilter != nil && *orgFilter != orgID {
-			c.JSON(http.StatusForbidden, gin.H{"code": "FORBIDDEN", "message": "Access denied"})
-			return
-		}
-		rows, err := h.db.Query(`
-			SELECT g.id, g.name, g.driver_type, g.scan_rate_ms, g.enabled
-			FROM gateways g WHERE g.area_id = $1 ORDER BY g.name`, areaID)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": err.Error()})
-			return
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var id, scanRate int
-			var name, driverType string
-			var enabled bool
-			if err2 := rows.Scan(&id, &name, &driverType, &scanRate, &enabled); err2 != nil {
-				continue
-			}
-			items = append(items, i3x.Equipment{
-				ID: gwEquipmentID(id), Name: name, Type: i3x.EquipmentTypeEquipment,
-				Description: driverType, ParentID: rawID,
-				Path: fmt.Sprintf("%s / %s / %s / %s", orgName, siteName, areaName, name),
-				Attributes: map[string]interface{}{
-					"driver_type": driverType, "scan_rate_ms": scanRate, "enabled": enabled,
-				},
-			})
-		}
+		items, err = h.childGateways(areaID, rawID)
 
 	case strings.HasPrefix(rawID, "gw-"):
-		// Gateway is a leaf node — no children.
 		items = []i3x.Equipment{}
 
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{"code": "INVALID_ID", "message": "ID must be one of: org-{n}, site-{n}, area-{n}, gw-{n}"})
+		return
+	}
+
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"code": "NOT_FOUND", "message": "Node not found"})
+		return
+	}
+	if err != nil {
+		log.Printf("[i3X] GetEquipmentChildren error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query children"})
 		return
 	}
 
@@ -1203,7 +1240,7 @@ func (h *I3XHandler) AcknowledgeAlarm(c *gin.Context) {
 
 	// Org isolation.
 	var orgID int
-	err = h.db.QueryRow(`
+	err = h.db.QueryRowContext(context.Background(), `
 		SELECT s.org_id FROM alarm_events e
 		JOIN tags t ON e.tag_id = t.id
 		JOIN gateways g ON t.gateway_id = g.id
@@ -1232,7 +1269,7 @@ func (h *I3XHandler) AcknowledgeAlarm(c *gin.Context) {
 		}
 	}
 
-	result, err := h.db.Exec(`
+	result, err := h.db.ExecContext(context.Background(), `
 		UPDATE alarm_events
 		SET status = 'ACKNOWLEDGED', ack_time = NOW(), bg_ack_user = $2
 		WHERE id = $1 AND status = 'ACTIVE'`, evtID, username)
@@ -1250,9 +1287,9 @@ func (h *I3XHandler) AcknowledgeAlarm(c *gin.Context) {
 
 // ─── Batch read ───────────────────────────────────────────────────────────────
 
-// BatchReadProperties handles POST /api/i3x/v1/properties/values
+// BatchReadProperties handles POST /api/i3x/v1/properties/values.
 // Returns current values for up to 500 properties in a single request.
-// Request body: {"ids": ["tag-1", "tag-42", ...]}
+// Request body: {"ids": ["tag-1", "tag-42", ...]}.
 func (h *I3XHandler) BatchReadProperties(c *gin.Context) {
 	var req struct {
 		IDs []string `json:"ids" binding:"required"`
@@ -1296,13 +1333,17 @@ func (h *I3XHandler) BatchReadProperties(c *gin.Context) {
 		WHERE t.id IN (%s)
 		ORDER BY t.id`, strings.Join(placeholders, ","))
 
-	rows, err := h.db.Query(q, args...)
+	rows, err := h.db.QueryContext(context.Background(), q, args...)
 	if err != nil {
 		log.Printf("[i3X] BatchReadProperties query error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"code": "DB_ERROR", "message": "Failed to query properties"})
 		return
 	}
-	defer rows.Close()
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			log.Printf("[i3X] BatchReadProperties rows.Close: %v", cerr)
+		}
+	}()
 
 	var items []i3x.Property
 	for rows.Next() {
