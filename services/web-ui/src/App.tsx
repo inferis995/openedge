@@ -30,6 +30,7 @@ import AuditPage from '@/pages/AuditPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import ResetPasswordPage from '@/pages/ResetPasswordPage';
 import ProfilePage from '@/pages/ProfilePage';
+import FleetPage from '@/pages/FleetPage';
 
 import { useEffect, useState, useRef } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -142,6 +143,7 @@ function App() {
                     <Route path="/diagnostics" element={<DiagnosticsPage />} />
                     <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
                     <Route path="/audit" element={<AuditPage />} />
+                    <Route path="/fleet" element={<FleetPage />} />
                 </Route>
             </Route>
 

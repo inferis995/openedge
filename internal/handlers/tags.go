@@ -1175,3 +1175,120 @@ func buildTagHierarchy(tags []TagWithHierarchy) []OrganizationHierarchy {
 
 	return result
 }
+
+// TagShadowResponse is the Digital Twin "last known value" for a tag.
+// source="live" when edge is online; "historic" when reading from DB fallback.
+type TagShadowResponse struct {
+	TagID  int         `json:"tag_id"`
+	Value  interface{} `json:"value"`
+	Quality int        `json:"quality"`
+	Ts     int64       `json:"ts"`
+	Source string      `json:"source"` // "live" | "historic" | "unknown"
+}
+
+// GetShadow handles GET /api/tags/:id/shadow.
+// Always returns the last known value even when the edge is offline.
+func (h *TagsHandler) GetShadow(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tag id"})
+		return
+	}
+
+	// Try Redis shadow first (written on every live MQTT update)
+	if h.redisClient != nil {
+		raw, err := h.redisClient.Get(fmt.Sprintf("tag_shadow:%d", id))
+		if err == nil {
+			var shadow TagShadowResponse
+			if json.Unmarshal([]byte(raw), &shadow) == nil {
+				c.JSON(http.StatusOK, shadow)
+				return
+			}
+		}
+	}
+
+	// Fallback: last row in tag_history
+	var val sql.NullString
+	var ts int64
+	err = h.db.QueryRow(
+		`SELECT value, EXTRACT(EPOCH FROM time)::BIGINT * 1000
+		 FROM tag_history WHERE tag_id = $1 ORDER BY time DESC LIMIT 1`, id,
+	).Scan(&val, &ts)
+	if err != nil {
+		c.JSON(http.StatusOK, TagShadowResponse{TagID: id, Source: "unknown"})
+		return
+	}
+
+	var parsed interface{}
+	if val.Valid {
+		if err := json.Unmarshal([]byte(val.String), &parsed); err != nil {
+			parsed = val.String
+		}
+	}
+	c.JSON(http.StatusOK, TagShadowResponse{
+		TagID:   id,
+		Value:   parsed,
+		Quality: 64, // Uncertain — data from history, not live
+		Ts:      ts,
+		Source:  "historic",
+	})
+}
+
+// GetShadowBatch handles GET /api/tags/shadows?gateway_id=X
+// Returns shadows for all tags of a gateway in one call.
+func (h *TagsHandler) GetShadowBatch(c *gin.Context) {
+	gwIDStr := c.Query("gateway_id")
+	if gwIDStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "gateway_id required"})
+		return
+	}
+	gwID, err := strconv.Atoi(gwIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid gateway_id"})
+		return
+	}
+
+	rows, err := h.db.Query(`SELECT id FROM tags WHERE gateway_id = $1`, gwID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
+		return
+	}
+	defer rows.Close()
+
+	results := []TagShadowResponse{}
+	for rows.Next() {
+		var tagID int
+		if rows.Scan(&tagID) != nil {
+			continue
+		}
+		// Try Redis shadow
+		if h.redisClient != nil {
+			raw, err := h.redisClient.Get(fmt.Sprintf("tag_shadow:%d", tagID))
+			if err == nil {
+				var shadow TagShadowResponse
+				if json.Unmarshal([]byte(raw), &shadow) == nil {
+					results = append(results, shadow)
+					continue
+				}
+			}
+		}
+		// Fallback: last value from history
+		var val sql.NullString
+		var ts int64
+		if err := h.db.QueryRow(
+			`SELECT value, EXTRACT(EPOCH FROM time)::BIGINT * 1000
+			 FROM tag_history WHERE tag_id = $1 ORDER BY time DESC LIMIT 1`, tagID,
+		).Scan(&val, &ts); err == nil && val.Valid {
+			var parsed interface{}
+			if json.Unmarshal([]byte(val.String), &parsed) != nil {
+				parsed = val.String
+			}
+			results = append(results, TagShadowResponse{
+				TagID: tagID, Value: parsed, Quality: 64, Ts: ts, Source: "historic",
+			})
+		} else {
+			results = append(results, TagShadowResponse{TagID: tagID, Source: "unknown"})
+		}
+	}
+	c.JSON(http.StatusOK, results)
+}

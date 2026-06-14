@@ -175,6 +175,9 @@ func (d *Dispatcher) reload() {
 	channels := []Channel{
 		newEmailChannel(cfg),
 		newTelegramChannel(cfg),
+		newSlackChannel(cfg),
+		newTeamsChannel(cfg),
+		newPagerDutyChannel(cfg),
 	}
 
 	rateMax := 60

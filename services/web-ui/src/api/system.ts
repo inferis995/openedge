@@ -54,6 +54,14 @@ export interface GlobalSettings {
     oee_good_tag?: string;
     oee_target_pieces_per_hour?: string;
     deployment_mode?: string; // 'onprem' | 'cloud' (from the server env)
+    // InfluxDB v2 export connector
+    influx_enabled?: string;
+    influx_url?: string;
+    influx_token?: string;
+    influx_org?: string;
+    influx_bucket?: string;
+    influx_batch_size?: string;
+    influx_flush_interval?: string;
 }
 
 export interface UpdateSettingsRequest {
@@ -82,6 +90,8 @@ export interface UpdateSettingsRequest {
     kpi_targets?: Record<string, string>;
     // OEE config (oee_*) — finestra, target, tag_ids di produzione.
     oee?: Record<string, string>;
+    // InfluxDB and other integrations (influx_*).
+    integrations?: Record<string, string>;
 }
 
 // What the operator edits in the Notifications panel. We keep the shape

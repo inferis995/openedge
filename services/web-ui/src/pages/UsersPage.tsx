@@ -31,7 +31,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Users, Plus, Trash2, Pencil, Shield, User as UserIcon, Building2, Network, MapPin, Layers } from 'lucide-react';
+import { Users, Plus, Trash2, Pencil, Shield, User as UserIcon, Building2, Network, MapPin, Layers, KeyRound } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Site, Area } from '@/types';
 
@@ -200,7 +200,58 @@ const UsersPage = () => {
     const [editSiteIds, setEditSiteIds] = useState<number[]>([]);
     const [editAreaIds, setEditAreaIds] = useState<number[]>([]);
 
-    const { user: currentUser } = useAuthStore();
+    const { user: currentUser, token } = useAuthStore();
+
+    // RBAC permissions state
+    const [isPermsOpen, setIsPermsOpen] = useState(false);
+    const [permsUser, setPermsUser] = useState<User | null>(null);
+    const [perms, setPerms] = useState({
+        can_write_tags: false,
+        can_ack_alarms: false,
+        can_export_data: false,
+        can_manage_recipes: false,
+        can_manage_shifts: false,
+        can_view_audit: false,
+        can_download_installer: false,
+    });
+    const [permsSaving, setPermsSaving] = useState(false);
+
+    const openPermsDialog = async (user: User) => {
+        setPermsUser(user);
+        try {
+            const r = await fetch(`/api/users/${user.id}/permissions`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (r.ok) {
+                const data = await r.json();
+                setPerms({
+                    can_write_tags: data.can_write_tags ?? false,
+                    can_ack_alarms: data.can_ack_alarms ?? false,
+                    can_export_data: data.can_export_data ?? false,
+                    can_manage_recipes: data.can_manage_recipes ?? false,
+                    can_manage_shifts: data.can_manage_shifts ?? false,
+                    can_view_audit: data.can_view_audit ?? false,
+                    can_download_installer: data.can_download_installer ?? false,
+                });
+            }
+        } catch { /* use defaults */ }
+        setIsPermsOpen(true);
+    };
+
+    const savePerms = async () => {
+        if (!permsUser) return;
+        setPermsSaving(true);
+        try {
+            await fetch(`/api/users/${permsUser.id}/permissions`, {
+                method: 'PUT',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify(perms),
+            });
+            setIsPermsOpen(false);
+        } catch { /* ignore */ } finally {
+            setPermsSaving(false);
+        }
+    };
 
     const fetchUsers = async () => {
         try {
@@ -536,6 +587,17 @@ const UsersPage = () => {
                                     <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
                                     <TableCell className="text-right">
                                         <div className="flex items-center justify-end gap-2">
+                                            {user.role !== 'admin' && (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-8 w-8 text-amber-500 hover:text-amber-700"
+                                                    onClick={() => openPermsDialog(user)}
+                                                    title="Manage Permissions"
+                                                >
+                                                    <KeyRound size={16} />
+                                                </Button>
+                                            )}
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
@@ -561,6 +623,40 @@ const UsersPage = () => {
                     </TableBody>
                 </Table>
             </div>
+
+            {/* Permissions Dialog */}
+            <Dialog open={isPermsOpen} onOpenChange={setIsPermsOpen}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Permissions — {permsUser?.username}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3 py-2">
+                        {([
+                            ['can_write_tags', 'Write Tags (i3x)'],
+                            ['can_ack_alarms', 'Acknowledge Alarms'],
+                            ['can_export_data', 'Export Data'],
+                            ['can_manage_recipes', 'Manage Recipes'],
+                            ['can_manage_shifts', 'Manage Shifts'],
+                            ['can_view_audit', 'View Audit Log'],
+                            ['can_download_installer', 'Download Edge Installer'],
+                        ] as [keyof typeof perms, string][]).map(([key, label]) => (
+                            <label key={key} className="flex items-center justify-between cursor-pointer select-none">
+                                <span className="text-sm">{label}</span>
+                                <Switch
+                                    checked={perms[key]}
+                                    onCheckedChange={(v) => setPerms(p => ({ ...p, [key]: v }))}
+                                />
+                            </label>
+                        ))}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setIsPermsOpen(false)}>Cancel</Button>
+                        <Button onClick={savePerms} disabled={permsSaving}>
+                            {permsSaving ? 'Saving...' : 'Save Permissions'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Edit Dialog */}
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
