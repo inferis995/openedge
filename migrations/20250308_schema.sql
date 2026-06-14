@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS gateways (
     id SERIAL PRIMARY KEY,
     area_id INT NOT NULL REFERENCES areas(id) ON DELETE RESTRICT,
     name TEXT NOT NULL,
-    driver_type VARCHAR(20) NOT NULL CHECK (driver_type IN ('S7', 'MODBUS_TCP', 'MQTT', 'OPC_UA')),
+    driver_type VARCHAR(20) NOT NULL CHECK (driver_type IN ('S7', 'MODBUS_TCP', 'MQTT', 'OPC_UA', 'LORAWAN')),
     connection_config JSONB NOT NULL,
     scan_rate_ms INT DEFAULT 1000,
     enabled BOOLEAN DEFAULT TRUE,

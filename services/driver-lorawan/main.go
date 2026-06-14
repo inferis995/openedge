@@ -133,25 +133,34 @@ type Driver struct {
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	log.SetPrefix("[LORAWAN] ")
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
 
+func run() error {
 	gatewayIDStr := os.Getenv("GATEWAY_ID")
 	if gatewayIDStr == "" {
-		log.Fatal("GATEWAY_ID environment variable is required")
+		return fmt.Errorf("GATEWAY_ID environment variable is required")
 	}
 	gatewayID, err := strconv.Atoi(gatewayIDStr)
 	if err != nil {
-		log.Fatalf("Invalid GATEWAY_ID: %v", err)
+		return fmt.Errorf("invalid GATEWAY_ID: %w", err)
 	}
 
 	db, err := connectDB()
 	if err != nil {
-		log.Fatalf("DB connect: %v", err)
+		return fmt.Errorf("DB connect: %w", err)
 	}
-	defer db.Close()
+	defer func() {
+		if cerr := db.Close(); cerr != nil {
+			log.Printf("DB close: %v", cerr)
+		}
+	}()
 
 	d := &Driver{gatewayID: gatewayID, stopChan: make(chan struct{})}
-	if err := d.loadConfig(db); err != nil {
-		log.Fatalf("Load config: %v", err)
+	if err = d.loadConfig(db); err != nil {
+		return fmt.Errorf("load config: %w", err)
 	}
 
 	// Internal OpenEdge MQTT (for publishing data/#)
@@ -164,7 +173,7 @@ func main() {
 		buildOfflineStatus(gatewayID),
 	)
 	if err != nil {
-		log.Fatalf("Internal MQTT connect: %v", err)
+		return fmt.Errorf("internal MQTT connect: %w", err)
 	}
 	defer d.sysClient.Disconnect(500)
 
@@ -183,7 +192,7 @@ func main() {
 	)
 	if err != nil {
 		d.publishHealth("error")
-		log.Fatalf("LNS MQTT connect: %v", err)
+		return fmt.Errorf("LNS MQTT connect: %w", err)
 	}
 	defer d.lnsClient.Disconnect(500)
 
@@ -201,8 +210,8 @@ func main() {
 			case <-d.stopChan:
 				return
 			case <-t.C:
-				if err := d.loadTags(db); err != nil {
-					log.Printf("Tag reload failed: %v", err)
+				if reloadErr := d.loadTags(db); reloadErr != nil {
+					log.Printf("Tag reload failed: %v", reloadErr)
 				}
 			}
 		}
@@ -214,12 +223,13 @@ func main() {
 	close(d.stopChan)
 	d.publishHealth("offline")
 	log.Printf("Shutting down gateway %d", gatewayID)
+	return nil
 }
 
 // ─── Configuration loading ────────────────────────────────────────────────────
 
 func (d *Driver) loadConfig(db *sql.DB) error {
-	row := db.QueryRow(`
+	row := db.QueryRowContext(context.Background(), `
 		SELECT g.id, g.name, g.connection_config,
 		       o.id AS org_id, o.name AS org_name,
 		       COALESCE(s.name,'') AS site_name,
@@ -512,7 +522,7 @@ func connectDB() (*sql.DB, error) {
 		return nil, err
 	}
 	for i := 0; i < 10; i++ {
-		if err = db.Ping(); err == nil {
+		if err = db.PingContext(context.Background()); err == nil {
 			return db, nil
 		}
 		log.Printf("DB not ready (attempt %d/10): %v", i+1, err)
