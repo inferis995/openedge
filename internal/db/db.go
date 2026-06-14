@@ -648,6 +648,17 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: bootstrap admin check failed: %v", err)
 	}
 
+	// Migration: add LORAWAN as a valid driver_type.
+	// The CHECK constraint must be dropped and re-created because PostgreSQL
+	// does not support ALTER CONSTRAINT … for CHECK constraints.
+	_, _ = db.ExecContext(context.Background(),
+		`ALTER TABLE gateways DROP CONSTRAINT IF EXISTS gateways_driver_type_check`)
+	if _, err := db.ExecContext(context.Background(),
+		`ALTER TABLE gateways ADD CONSTRAINT gateways_driver_type_check
+		 CHECK (driver_type IN ('S7','MODBUS_TCP','MQTT','OPC_UA','LORAWAN'))`); err != nil {
+		log.Printf("Warning: failed to update gateways_driver_type_check: %v", err)
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

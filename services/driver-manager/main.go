@@ -57,9 +57,10 @@ type ResourceLimits struct {
 
 var driverResourceLimits = map[string]ResourceLimits{
 	"S7":        {CPU: 500000000, Memory: 128 * 1024 * 1024},  // 0.5 CPU, 128MB
-	"MODBUS_TCP": {CPU: 250000000, Memory: 64 * 1024 * 1024},   // 0.25 CPU, 64MB
+	"MODBUS_TCP": {CPU: 250000000, Memory: 64 * 1024 * 1024},  // 0.25 CPU, 64MB
 	"MQTT":      {CPU: 250000000, Memory: 64 * 1024 * 1024},   // 0.25 CPU, 64MB
 	"OPC_UA":    {CPU: 1000000000, Memory: 256 * 1024 * 1024}, // 1.0 CPU, 256MB
+	"LORAWAN":   {CPU: 250000000, Memory: 64 * 1024 * 1024},   // 0.25 CPU, 64MB — event-driven, low overhead
 }
 
 // GatewayState tracks the current state of a gateway container
@@ -427,6 +428,9 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 	case "OPC_UA":
 		imageName = "industrial-driver-opcua:latest"
 		containerNamePrefix = "driver-opcua"
+	case "LORAWAN":
+		imageName = "industrial-driver-lorawan:latest"
+		containerNamePrefix = "driver-lorawan"
 	default:
 		return fmt.Errorf("unsupported driver type: %s", gateway.DriverType)
 	}

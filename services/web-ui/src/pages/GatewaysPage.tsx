@@ -52,6 +52,14 @@ interface ExtendedCreateGatewayDto extends Omit<CreateGatewayDto, 'connection_co
     broker_username?: string;
     broker_password?: string;
     broker_client_id?: string;
+    // LoRaWAN fields
+    lora_server_type?: string;
+    lora_server_host?: string;
+    lora_server_port?: number;
+    lora_tls_enabled?: boolean;
+    lora_username?: string;
+    lora_password?: string;
+    lora_application_id?: string;
 }
 
 const GatewaysPage = () => {
@@ -90,6 +98,14 @@ const GatewaysPage = () => {
         broker_username: '',
         broker_password: '',
         broker_client_id: '',
+        // LoRaWAN
+        lora_server_type: 'ttn_v3',
+        lora_server_host: '',
+        lora_server_port: 1883,
+        lora_tls_enabled: false,
+        lora_username: '',
+        lora_password: '',
+        lora_application_id: '',
     });
     const [selectedAreaForCreate, setSelectedAreaForCreate] = useState<string>(
         selectedAreaId ? selectedAreaId.toString() : ''
@@ -115,10 +131,6 @@ const GatewaysPage = () => {
                 key_file: formData.key_file,
             };
         } else if (formData.driver_type === 'MQTT') {
-            // Optional EXTERNAL MQTT broker the driver subscribes to (the
-            // customer's own broker where PLCs publish). Leave broker_host
-            // empty to keep the legacy behaviour (PLCs publish to OpenEdge's
-            // internal broker).
             connection_config = {
                 broker_host: formData.broker_host || '',
                 broker_port: formData.broker_port || 1883,
@@ -127,16 +139,27 @@ const GatewaysPage = () => {
                 broker_password: formData.broker_password || '',
                 broker_client_id: formData.broker_client_id || '',
             };
+        } else if (formData.driver_type === 'LORAWAN') {
+            connection_config = {
+                server_type: formData.lora_server_type || 'ttn_v3',
+                server_host: formData.lora_server_host || '',
+                server_port: formData.lora_server_port || 1883,
+                tls_enabled: !!formData.lora_tls_enabled,
+                username: formData.lora_username || '',
+                password: formData.lora_password || '',
+                application_id: formData.lora_application_id || '',
+            };
         }
         return connection_config;
     };
 
     const handleCreate = async () => {
         if (!formData.name || !selectedAreaForCreate) return;
-        // IP is required for S7 and MODBUS_TCP, not for MQTT or OPC_UA
-        if (formData.driver_type !== 'MQTT' && formData.driver_type !== 'OPC_UA' && !formData.ip_address) return;
-        // Endpoint is required for OPC_UA
+        // IP is required for S7 and MODBUS_TCP only
+        const noIPDrivers = ['MQTT', 'OPC_UA', 'LORAWAN'];
+        if (!noIPDrivers.includes(formData.driver_type!) && !formData.ip_address) return;
         if (formData.driver_type === 'OPC_UA' && !formData.endpoint) return;
+        if (formData.driver_type === 'LORAWAN' && (!formData.lora_server_host || !formData.lora_application_id)) return;
 
         try {
             const connection_config = buildConnectionConfig();
@@ -187,6 +210,14 @@ const GatewaysPage = () => {
             broker_password: '',
             broker_client_id: '',
             key_file: '',
+            // LoRaWAN
+            lora_server_type: 'ttn_v3',
+            lora_server_host: '',
+            lora_server_port: 1883,
+            lora_tls_enabled: false,
+            lora_username: '',
+            lora_password: '',
+            lora_application_id: '',
         });
     };
 
@@ -200,6 +231,8 @@ const GatewaysPage = () => {
         let endpoint = '';
         let broker_host = '', broker_port = 1883, broker_tls = false;
         let broker_username = '', broker_password = '', broker_client_id = '';
+        let lora_server_type = 'ttn_v3', lora_server_host = '', lora_server_port = 1883;
+        let lora_tls_enabled = false, lora_username = '', lora_password = '', lora_application_id = '';
 
         if (gateway.connection_config) {
             const config = gateway.connection_config;
@@ -224,6 +257,14 @@ const GatewaysPage = () => {
                 broker_username = config.broker_username || '';
                 broker_password = config.broker_password || '';
                 broker_client_id = config.broker_client_id || '';
+            } else if (gateway.driver_type === 'LORAWAN') {
+                lora_server_type = config.server_type || 'ttn_v3';
+                lora_server_host = config.server_host || '';
+                lora_server_port = config.server_port || 1883;
+                lora_tls_enabled = !!config.tls_enabled;
+                lora_username = config.username || '';
+                lora_password = config.password || '';
+                lora_application_id = config.application_id || '';
             }
         }
 
@@ -250,6 +291,13 @@ const GatewaysPage = () => {
             broker_username,
             broker_password,
             broker_client_id,
+            lora_server_type,
+            lora_server_host,
+            lora_server_port,
+            lora_tls_enabled,
+            lora_username,
+            lora_password,
+            lora_application_id,
         });
         setIsOpen(true);
     };
@@ -349,6 +397,7 @@ const GatewaysPage = () => {
                                                 <SelectItem value="MODBUS_TCP">Modbus TCP</SelectItem>
                                                 <SelectItem value="MQTT">MQTT Native</SelectItem>
                                                 <SelectItem value="OPC_UA">OPC UA</SelectItem>
+                                                <SelectItem value="LORAWAN">LoRaWAN (TTN / ChirpStack)</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -364,7 +413,7 @@ const GatewaysPage = () => {
                                     />
                                 </div>
 
-                                {formData.driver_type !== 'MQTT' && formData.driver_type !== 'OPC_UA' && (
+                                {formData.driver_type !== 'MQTT' && formData.driver_type !== 'OPC_UA' && formData.driver_type !== 'LORAWAN' && (
                                     <div className="grid grid-cols-2 gap-4">
                                         <div className="grid gap-2">
                                             <Label htmlFor="ip">IP Address</Label>
@@ -532,6 +581,89 @@ const GatewaysPage = () => {
                                                 </label>
                                             </div>
                                         </div>
+                                    </div>
+                                )}
+
+                                {formData.driver_type === 'LORAWAN' && (
+                                    <div className="space-y-4">
+                                        {/* Info box */}
+                                        <div className="p-3 bg-violet-50 dark:bg-violet-950/30 rounded-md border border-violet-200 dark:border-violet-800 text-xs text-violet-800 dark:text-violet-300">
+                                            <p className="font-semibold mb-1">LoRaWAN Network Server Bridge</p>
+                                            <ul className="list-disc list-inside space-y-0.5 text-violet-700 dark:text-violet-400">
+                                                <li>Supporta <strong>The Things Network v3</strong> e <strong>ChirpStack v4</strong></li>
+                                                <li>Tag <strong>Code</strong> = <code>device_id/campo</code> (es. <code>sensor-01/temperature</code>)</li>
+                                                <li>Campi speciali: <code>rssi</code>, <code>snr</code>, <code>f_port</code></li>
+                                                <li>Il wildcard <code>*/campo</code> riceve da qualsiasi device</li>
+                                            </ul>
+                                        </div>
+
+                                        {/* Server type */}
+                                        <div className="grid gap-2">
+                                            <Label className="text-xs">Network Server</Label>
+                                            <Select value={formData.lora_server_type || 'ttn_v3'}
+                                                onValueChange={v => handleInputChange('lora_server_type', v)}>
+                                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="ttn_v3">The Things Network v3</SelectItem>
+                                                    <SelectItem value="chirpstack">ChirpStack v4</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        {/* Application ID */}
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="lora_app" className="text-xs">Application ID</Label>
+                                            <Input id="lora_app" value={formData.lora_application_id || ''}
+                                                onChange={e => handleInputChange('lora_application_id', e.target.value)}
+                                                placeholder={formData.lora_server_type === 'chirpstack' ? 'my-application' : 'my-app (TTN Application ID)'}
+                                            />
+                                        </div>
+
+                                        {/* Server host + port */}
+                                        <div className="grid grid-cols-3 gap-3">
+                                            <div className="col-span-2 grid gap-1">
+                                                <Label htmlFor="lora_host" className="text-xs">Server Host (MQTT)</Label>
+                                                <Input id="lora_host" value={formData.lora_server_host || ''}
+                                                    onChange={e => handleInputChange('lora_server_host', e.target.value)}
+                                                    placeholder={formData.lora_server_type === 'chirpstack'
+                                                        ? 'localhost'
+                                                        : 'eu1.cloud.thethings.network'}
+                                                />
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <Label htmlFor="lora_port" className="text-xs">Port</Label>
+                                                <Input id="lora_port" type="number" value={formData.lora_server_port ?? 1883}
+                                                    onChange={e => handleInputChange('lora_server_port', parseInt(e.target.value) || 1883)} />
+                                            </div>
+                                        </div>
+
+                                        {/* Credentials */}
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="grid gap-1">
+                                                <Label htmlFor="lora_user" className="text-xs">
+                                                    {formData.lora_server_type === 'chirpstack' ? 'MQTT Username' : 'Username (app-id@ttn)'}
+                                                </Label>
+                                                <Input id="lora_user" value={formData.lora_username || ''}
+                                                    onChange={e => handleInputChange('lora_username', e.target.value)}
+                                                    placeholder={formData.lora_server_type === 'chirpstack' ? 'chirpstack' : 'my-app@ttn'}
+                                                    autoComplete="off" />
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <Label htmlFor="lora_pass" className="text-xs">
+                                                    {formData.lora_server_type === 'chirpstack' ? 'MQTT Password' : 'API Key'}
+                                                </Label>
+                                                <Input id="lora_pass" type="password" value={formData.lora_password || ''}
+                                                    onChange={e => handleInputChange('lora_password', e.target.value)}
+                                                    placeholder={formData.lora_server_type === 'chirpstack' ? '••••••••' : 'NNSXS.XXXXXX'}
+                                                    autoComplete="new-password" />
+                                            </div>
+                                        </div>
+
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                            <Switch checked={!!formData.lora_tls_enabled}
+                                                onCheckedChange={v => handleInputChange('lora_tls_enabled', v)} />
+                                            <span className="text-xs">TLS/SSL (porta 8883 tipicamente)</span>
+                                        </label>
                                     </div>
                                 )}
 
