@@ -693,6 +693,7 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: failed to create backup_audit index: %v", err)
 	}
 
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }
