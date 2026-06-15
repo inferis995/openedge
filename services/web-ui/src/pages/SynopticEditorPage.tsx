@@ -352,6 +352,11 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                             <div className="space-y-3">
                                 <p className="text-xs text-muted-foreground">Seleziona un componente, oppure configura la pagina:</p>
                                 <div className="grid gap-2">
+                                    <Label className="text-xs">Nome pagina</Label>
+                                    <Input className="h-8 text-xs" value={synoptic.name}
+                                        onChange={e => setSynoptic({ ...synoptic, name: e.target.value })} />
+                                </div>
+                                <div className="grid gap-2">
                                     <Label className="text-xs">Sfondo</Label>
                                     <input type="color" value={synoptic.background_color}
                                         onChange={e => setSynoptic({ ...synoptic, background_color: e.target.value })}
@@ -483,7 +488,27 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     </div>
                                 )}
 
-                                <div className="grid grid-cols-2 gap-2 pt-1 border-t">
+                                {/* Z-order */}
+                                <div className="flex gap-1 pt-1 border-t">
+                                    <Button variant="outline" size="sm" className="flex-1 h-7 text-xs"
+                                        onClick={() => setWidgets(prev => {
+                                            const idx = prev.findIndex(w => w.id === selected.id);
+                                            if (idx <= 0) return prev;
+                                            const next = [...prev];
+                                            [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                                            return next;
+                                        })}>↓ Indietro</Button>
+                                    <Button variant="outline" size="sm" className="flex-1 h-7 text-xs"
+                                        onClick={() => setWidgets(prev => {
+                                            const idx = prev.findIndex(w => w.id === selected.id);
+                                            if (idx >= prev.length - 1) return prev;
+                                            const next = [...prev];
+                                            [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+                                            return next;
+                                        })}>↑ Avanti</Button>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2">
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Larghezza</Label>
                                         <Input className="h-8 text-xs" type="number" value={selected.w} onChange={e => patchWidget(selected.id, { w: parseInt(e.target.value) || 20 })} />
