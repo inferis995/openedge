@@ -17,6 +17,9 @@ import { cn } from '@/lib/utils';
 import { SynopticWidgetView, WIDGET_CATALOG, LiveValue } from '@/components/synoptics/SynopticWidget';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
+const SNAP = 8; // grid snap size in canvas-pixels
+
+const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 
 interface DragState {
     id: string;
@@ -130,11 +133,32 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         if (!d) return;
         const dx = (e.clientX - d.startX) / scale;
         const dy = (e.clientY - d.startY) / scale;
-        patchWidget(d.id, { x: Math.round(d.origX + dx), y: Math.round(d.origY + dy) });
+        patchWidget(d.id, { x: snap(d.origX + dx), y: snap(d.origY + dy) });
     };
     const onCanvasPointerUp = () => {
         dragRef.current = null;
     };
+
+    // Keyboard shortcuts: Delete/Backspace to remove, Arrow to nudge, Escape to deselect.
+    useEffect(() => {
+        if (!isEdit) return;
+        const handler = (e: KeyboardEvent) => {
+            if ((e.target as HTMLElement).tagName === 'INPUT') return;
+            if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
+                removeWidget(selectedId);
+            } else if (e.key === 'Escape') {
+                setSelectedId(null);
+            } else if (e.key.startsWith('Arrow') && selectedId) {
+                e.preventDefault();
+                const step = e.shiftKey ? SNAP : 1;
+                const nudge = e.key === 'ArrowLeft' ? { x: -step } : e.key === 'ArrowRight' ? { x: step }
+                    : e.key === 'ArrowUp' ? { y: -step } : { y: step };
+                setWidgets(prev => prev.map(w => w.id === selectedId ? { ...w, ...Object.fromEntries(Object.entries(nudge).map(([k, v]) => [k, (w as any)[k] + v])) } : w));
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [isEdit, selectedId]);
 
     const handleSave = async () => {
         if (!synoptic) return;
@@ -257,7 +281,12 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                     >
                         <div
                             className="absolute top-0 left-0 origin-top-left"
-                            style={{ width: synoptic.canvas_w, height: synoptic.canvas_h, transform: `scale(${scale})`, background: synoptic.background_color }}
+                            style={{
+                                width: synoptic.canvas_w, height: synoptic.canvas_h, transform: `scale(${scale})`,
+                                background: synoptic.background_color,
+                                backgroundImage: isEdit ? `radial-gradient(circle, rgba(148,163,184,0.25) 1px, transparent 1px)` : undefined,
+                                backgroundSize: isEdit ? `${SNAP * 2}px ${SNAP * 2}px` : undefined,
+                            }}
                             onPointerMove={onCanvasPointerMove}
                             onPointerUp={onCanvasPointerUp}
                         >
