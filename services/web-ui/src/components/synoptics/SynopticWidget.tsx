@@ -82,7 +82,7 @@ function MotorSymbol({ on, color }: { on: boolean; color: string }) {
     );
 }
 
-function GaugeSymbol({ n, min, max, color, label }: { n: number | null; min: number; max: number; color: string; label: string }) {
+function GaugeSymbol({ n, min, max, color, label, decimals }: { n: number | null; min: number; max: number; color: string; label: string; decimals?: number }) {
     const range = max - min || 1;
     const pct = n === null ? 0 : Math.max(0, Math.min(1, (n - min) / range));
     // 270° sweep from 135° to 405°.
@@ -103,7 +103,7 @@ function GaugeSymbol({ n, min, max, color, label }: { n: number | null; min: num
             <path d={arc(startA, startA + sweep, 38)} fill="none" stroke="#334155" strokeWidth="9" strokeLinecap="round" />
             {n !== null && <path d={arc(startA, endA, 38)} fill="none" stroke={color} strokeWidth="9" strokeLinecap="round" />}
             <text x="50" y="52" textAnchor="middle" fontSize="20" fontWeight="bold" fill="#e2e8f0">
-                {n === null ? '—' : n.toFixed(0)}
+                {n === null ? '—' : n.toFixed(decimals ?? 1)}
             </text>
             <text x="50" y="68" textAnchor="middle" fontSize="9" fill="#94a3b8">{label}</text>
         </svg>
@@ -121,17 +121,13 @@ function ButtonWidget({ widget, active, color, live, onWrite }: {
     const [feedback, setFeedback] = useState<'ok' | 'err' | null>(null);
     const cfg = widget.config || {};
     const isPreview = live === undefined;
+    const isMomentary = !!cfg.momentary;
 
-    const handleClick = async (e: React.MouseEvent) => {
-        e.stopPropagation();
+    const doWrite = async (value: number) => {
         if (!onWrite || isPreview) return;
-        // Toggle: if currently active write off-value, else write on-value.
-        const writeVal = active
-            ? (cfg.writeOffValue ?? 0)
-            : (cfg.writeValue ?? 1);
         setSending(true);
         try {
-            await onWrite(writeVal);
+            await onWrite(value);
             setFeedback('ok');
         } catch {
             setFeedback('err');
@@ -141,6 +137,30 @@ function ButtonWidget({ widget, active, color, live, onWrite }: {
         }
     };
 
+    const handleClick = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isMomentary) return; // momentary is handled by pointer events
+        if (!onWrite || isPreview) return;
+        // Toggle: if currently active write off-value, else write on-value.
+        const writeVal = active
+            ? (cfg.writeOffValue ?? 0)
+            : (cfg.writeValue ?? 1);
+        await doWrite(writeVal);
+    };
+
+    const handlePointerDown = (e: React.PointerEvent) => {
+        e.stopPropagation();
+        if (!isMomentary || isPreview) return;
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        doWrite(cfg.writeValue ?? 1);
+    };
+
+    const handlePointerUp = (e: React.PointerEvent) => {
+        e.stopPropagation();
+        if (!isMomentary || isPreview) return;
+        doWrite(cfg.writeOffValue ?? 0);
+    };
+
     const borderColor = active ? color : '#475569';
     const bgColor = active ? `${color}22` : 'rgba(15,23,42,0.8)';
     const textColor = active ? color : '#94a3b8';
@@ -148,6 +168,8 @@ function ButtonWidget({ widget, active, color, live, onWrite }: {
     return (
         <button
             onClick={handleClick}
+            onPointerDown={handlePointerDown}
+            onPointerUp={handlePointerUp}
             disabled={sending || isPreview}
             className={cn(
                 'w-full h-full rounded-md flex flex-col items-center justify-center gap-0.5',
@@ -170,6 +192,38 @@ function ButtonWidget({ widget, active, color, live, onWrite }: {
                 </>
             )}
         </button>
+    );
+}
+
+function PipeSymbol({ color, pipeShape }: { color: string; pipeShape?: string }) {
+    const stroke = color || '#475569';
+    const shape = pipeShape || 'straight';
+    if (shape === 'corner') {
+        return (
+            <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+                <path d="M 0 50 L 50 50 L 50 100" fill="none" stroke={stroke} strokeWidth="20" strokeLinecap="round" />
+            </svg>
+        );
+    }
+    if (shape === 'tee') {
+        return (
+            <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+                <path d="M 0 50 L 100 50 M 50 0 L 50 50" fill="none" stroke={stroke} strokeWidth="20" strokeLinecap="round" />
+            </svg>
+        );
+    }
+    if (shape === 'cross') {
+        return (
+            <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+                <path d="M 0 50 L 100 50 M 50 0 L 50 100" fill="none" stroke={stroke} strokeWidth="20" strokeLinecap="round" />
+            </svg>
+        );
+    }
+    // straight (default)
+    return (
+        <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+            <rect x="0" y="30" width="100" height="40" rx="20" fill={stroke} />
+        </svg>
     );
 }
 
@@ -229,7 +283,7 @@ export function SynopticWidgetView({ widget, live, onWrite }: {
             );
         }
         case 'gauge':
-            return <GaugeSymbol n={n} min={cfg.min ?? 0} max={cfg.max ?? 100} color={thresholdColor(n, cfg)} label={widget.label || cfg.unit || ''} />;
+            return <GaugeSymbol n={n} min={cfg.min ?? 0} max={cfg.max ?? 100} color={thresholdColor(n, cfg)} label={widget.label || cfg.unit || ''} decimals={cfg.decimals ?? 1} />;
         case 'tank': {
             const min = cfg.min ?? 0, max = cfg.max ?? 100;
             const pct = n === null ? (live === undefined ? 60 : 0) : ((n - min) / ((max - min) || 1)) * 100;
@@ -247,7 +301,7 @@ export function SynopticWidgetView({ widget, live, onWrite }: {
         case 'motor':
             return <MotorSymbol on={live === undefined ? true : isOn(n, cfg)} color={cfg.color || '#10b981'} />;
         case 'pipe':
-            return <div className="w-full h-full rounded-full" style={{ background: cfg.color || '#475569' }} />;
+            return <PipeSymbol color={cfg.color || '#475569'} pipeShape={cfg.pipeShape as string | undefined} />;
         case 'label':
             return (
                 <div className="w-full h-full flex items-center justify-center text-center"

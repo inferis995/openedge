@@ -24,6 +24,16 @@ export interface TagWithHierarchy {
     site_name?: string;
     org_id?: number;
     org_name?: string;
+    // Scaling info
+    scaling_enabled?: boolean;
+    scaling_raw_min?: number;
+    scaling_raw_max?: number;
+    scaling_eu_min?: number;
+    scaling_eu_max?: number;
+    scaling_clamp?: boolean;
+    eu_unit?: string;
+    eu_decimals?: number;
+    invert?: boolean;
 }
 
 export interface ChartConfig {

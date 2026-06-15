@@ -959,20 +959,29 @@ func (h *TagsHandler) Write(c *gin.Context) {
 
 // TagWithHierarchy represents a tag with full hierarchy information
 type TagWithHierarchy struct {
-	ID            int     `json:"id"`
-	GatewayID     int     `json:"gateway_id"`
-	Code          string  `json:"code"`
-	Alias         string  `json:"alias"`
-	DataType      string  `json:"data_type"`
-	Historize     bool    `json:"historize"`
-	GatewayName   string  `json:"gateway_name,omitempty"`
-	DriverType    string  `json:"driver_type,omitempty"`
-	AreaID        int     `json:"area_id,omitempty"`
-	AreaName      string  `json:"area_name,omitempty"`
-	SiteID        int     `json:"site_id,omitempty"`
-	SiteName      string  `json:"site_name,omitempty"`
-	OrgID         int     `json:"org_id,omitempty"`
-	OrgName       string  `json:"org_name,omitempty"`
+	ID             int     `json:"id"`
+	GatewayID      int     `json:"gateway_id"`
+	Code           string  `json:"code"`
+	Alias          string  `json:"alias"`
+	DataType       string  `json:"data_type"`
+	Historize      bool    `json:"historize"`
+	GatewayName    string  `json:"gateway_name,omitempty"`
+	DriverType     string  `json:"driver_type,omitempty"`
+	AreaID         int     `json:"area_id,omitempty"`
+	AreaName       string  `json:"area_name,omitempty"`
+	SiteID         int     `json:"site_id,omitempty"`
+	SiteName       string  `json:"site_name,omitempty"`
+	OrgID          int     `json:"org_id,omitempty"`
+	OrgName        string  `json:"org_name,omitempty"`
+	ScalingEnabled bool    `json:"scaling_enabled"`
+	ScalingRawMin  float64 `json:"scaling_raw_min"`
+	ScalingRawMax  float64 `json:"scaling_raw_max"`
+	ScalingEuMin   float64 `json:"scaling_eu_min"`
+	ScalingEuMax   float64 `json:"scaling_eu_max"`
+	ScalingClamp   bool    `json:"scaling_clamp"`
+	EuUnit         string  `json:"eu_unit"`
+	EuDecimals     int     `json:"eu_decimals"`
+	Invert         bool    `json:"invert"`
 }
 
 // ListWithHierarchy handles GET /api/tags/with-hierarchy
@@ -991,7 +1000,8 @@ func (h *TagsHandler) ListWithHierarchy(c *gin.Context) {
 			g.name as gateway_name, g.driver_type,
 			a.id as area_id, a.name as area_name,
 			s.id as site_id, s.name as site_name,
-			o.id as org_id, o.name as org_name
+			o.id as org_id, o.name as org_name,
+			t.scaling_enabled, t.scaling_raw_min, t.scaling_raw_max, t.scaling_eu_min, t.scaling_eu_max, t.scaling_clamp, t.eu_unit, t.eu_decimals, t.invert
 		FROM tags t
 		JOIN gateways g ON t.gateway_id = g.id
 		JOIN areas a ON g.area_id = a.id
@@ -1021,6 +1031,7 @@ func (h *TagsHandler) ListWithHierarchy(c *gin.Context) {
 			&areaID, &areaName,
 			&siteID, &siteName,
 			&orgIDVal, &orgName,
+			&tag.ScalingEnabled, &tag.ScalingRawMin, &tag.ScalingRawMax, &tag.ScalingEuMin, &tag.ScalingEuMax, &tag.ScalingClamp, &tag.EuUnit, &tag.EuDecimals, &tag.Invert,
 		)
 		if err != nil {
 			log.Printf("[API] Scan error in ListWithHierarchy: %v", err)
@@ -1118,7 +1129,8 @@ func (h *TagsHandler) getTagsWithHierarchy(orgID int) ([]TagWithHierarchy, error
 			g.name as gateway_name, g.driver_type,
 			a.id as area_id, a.name as area_name,
 			s.id as site_id, s.name as site_name,
-			o.id as org_id, o.name as org_name
+			o.id as org_id, o.name as org_name,
+			t.scaling_enabled, t.scaling_raw_min, t.scaling_raw_max, t.scaling_eu_min, t.scaling_eu_max, t.scaling_clamp, t.eu_unit, t.eu_decimals, t.invert
 		FROM tags t
 		JOIN gateways g ON t.gateway_id = g.id
 		JOIN areas a ON g.area_id = a.id
@@ -1146,6 +1158,7 @@ func (h *TagsHandler) getTagsWithHierarchy(orgID int) ([]TagWithHierarchy, error
 			&areaID, &areaName,
 			&siteID, &siteName,
 			&orgIDVal, &orgName,
+			&tag.ScalingEnabled, &tag.ScalingRawMin, &tag.ScalingRawMax, &tag.ScalingEuMin, &tag.ScalingEuMax, &tag.ScalingClamp, &tag.EuUnit, &tag.EuDecimals, &tag.Invert,
 		)
 		if err != nil {
 			return nil, err
