@@ -31,7 +31,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const navigate = useNavigate();
     const { isAdmin } = useAuthStore();
     const { selectedOrgId } = useNavigationStore();
-    const liveValues = useRealtime(selectedOrgId ?? undefined);
+    const { values: liveValues, connected: wsConnected } = useRealtime(selectedOrgId ?? undefined);
 
     const [synoptic, setSynoptic] = useState<Synoptic | null>(null);
     const [widgets, setWidgets] = useState<SynopticWidget[]>([]);
@@ -205,10 +205,23 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 {isSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Salva
                             </Button>
                         </>
-                    ) : isAdmin() && (
-                        <Button variant="outline" size="sm" className="gap-1" onClick={() => navigate(`/synoptics/${synoptic.id}/edit`)}>
-                            <Pencil size={15} /> Modifica
-                        </Button>
+                    ) : (
+                        <>
+                            <span className={cn(
+                                'flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded-full border',
+                                wsConnected
+                                    ? 'text-emerald-600 border-emerald-500/30 bg-emerald-500/10'
+                                    : 'text-slate-500 border-slate-500/30 bg-slate-500/10'
+                            )}>
+                                <span className={cn('w-1.5 h-1.5 rounded-full', wsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400')} />
+                                {wsConnected ? 'LIVE' : 'OFFLINE'}
+                            </span>
+                            {isAdmin() && (
+                                <Button variant="outline" size="sm" className="gap-1" onClick={() => navigate(`/synoptics/${synoptic.id}/edit`)}>
+                                    <Pencil size={15} /> Modifica
+                                </Button>
+                            )}
+                        </>
                     )}
                 </div>
             </div>

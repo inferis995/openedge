@@ -342,7 +342,7 @@ const TagsPage = () => {
 
     // Real-time value integration
     const [currentValues, setCurrentValues] = useState<Map<number, CurrentValue>>(new Map());
-    const realtimeValues = useRealtime(selectedOrgId || undefined);
+    const { values: realtimeValues } = useRealtime(selectedOrgId || undefined);
 
     // Data status detection hook (uses Sparkplug B BIRTH/DEATH)
     const { isDeviceOnline } = useStaleData();
