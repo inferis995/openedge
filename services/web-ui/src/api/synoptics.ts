@@ -40,6 +40,8 @@ export interface SynopticWidget {
 export interface Synoptic {
     id: number;
     org_id: number;
+    site_id: number | null;
+    area_id: number | null;
     name: string;
     description: string;
     background_color: string;
@@ -58,6 +60,8 @@ export interface SynopticListResponse {
 interface SynopticPayload {
     name: string;
     description?: string;
+    site_id?: number | null;
+    area_id?: number | null;
     background_color: string;
     canvas_w: number;
     canvas_h: number;

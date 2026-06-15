@@ -717,6 +717,17 @@ func runAutoMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_synoptics_org ON synoptics(org_id, name)`); err != nil {
 		log.Printf("Warning: failed to create synoptics index: %v", err)
 	}
+	// Synoptics can be filed under the plant hierarchy (site → area → line)
+	// to power a navigation work tree. Both nullable: an org-level synoptic
+	// with no site/area is the "General" node.
+	if _, err := db.ExecContext(context.Background(),
+		`ALTER TABLE synoptics ADD COLUMN IF NOT EXISTS site_id INT REFERENCES sites(id) ON DELETE SET NULL`); err != nil {
+		log.Printf("Warning: failed to add synoptics.site_id: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`ALTER TABLE synoptics ADD COLUMN IF NOT EXISTS area_id INT REFERENCES areas(id) ON DELETE SET NULL`); err != nil {
+		log.Printf("Warning: failed to add synoptics.area_id: %v", err)
+	}
 
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil

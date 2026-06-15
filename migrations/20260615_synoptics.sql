@@ -6,6 +6,8 @@
 CREATE TABLE IF NOT EXISTS synoptics (
     id               SERIAL PRIMARY KEY,
     org_id           INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    site_id          INT REFERENCES sites(id) ON DELETE SET NULL,
+    area_id          INT REFERENCES areas(id) ON DELETE SET NULL,
     name             TEXT NOT NULL,
     description      TEXT,
     background_color VARCHAR(20) NOT NULL DEFAULT '#0f172a',

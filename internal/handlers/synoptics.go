@@ -41,6 +41,8 @@ func NewSynopticsHandler(db *sql.DB) *SynopticsHandler {
 type Synoptic struct {
 	ID              int             `json:"id"`
 	OrgID           int             `json:"org_id"`
+	SiteID          *int            `json:"site_id"`
+	AreaID          *int            `json:"area_id"`
 	Name            string          `json:"name"`
 	Description     string          `json:"description"`
 	BackgroundColor string          `json:"background_color"`
@@ -54,6 +56,8 @@ type Synoptic struct {
 // synopticRequest is the create/update body. Layout is optional on update of
 // metadata-only edits; when omitted it is left untouched.
 type synopticRequest struct {
+	SiteID          *int            `json:"site_id"`
+	AreaID          *int            `json:"area_id"`
 	Name            string          `json:"name"`
 	Description     string          `json:"description"`
 	BackgroundColor string          `json:"background_color"`
@@ -72,7 +76,7 @@ func (h *SynopticsHandler) List(c *gin.Context) {
 	}
 
 	rows, err := h.db.QueryContext(c.Request.Context(), `
-		SELECT id, org_id, name, COALESCE(description,''), background_color,
+		SELECT id, org_id, site_id, area_id, name, COALESCE(description,''), background_color,
 		       canvas_w, canvas_h, layout, created_at, updated_at
 		FROM synoptics WHERE org_id = $1 ORDER BY name`, orgID)
 	if err != nil {
@@ -88,7 +92,7 @@ func (h *SynopticsHandler) List(c *gin.Context) {
 	items := make([]Synoptic, 0)
 	for rows.Next() {
 		var s Synoptic
-		if err := rows.Scan(&s.ID, &s.OrgID, &s.Name, &s.Description, &s.BackgroundColor,
+		if err := rows.Scan(&s.ID, &s.OrgID, &s.SiteID, &s.AreaID, &s.Name, &s.Description, &s.BackgroundColor,
 			&s.CanvasW, &s.CanvasH, &s.Layout, &s.CreatedAt, &s.UpdatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -113,10 +117,10 @@ func (h *SynopticsHandler) Get(c *gin.Context) {
 
 	var s Synoptic
 	err = h.db.QueryRowContext(c.Request.Context(), `
-		SELECT id, org_id, name, COALESCE(description,''), background_color,
+		SELECT id, org_id, site_id, area_id, name, COALESCE(description,''), background_color,
 		       canvas_w, canvas_h, layout, created_at, updated_at
 		FROM synoptics WHERE id = $1 AND org_id = $2`, id, orgID).
-		Scan(&s.ID, &s.OrgID, &s.Name, &s.Description, &s.BackgroundColor,
+		Scan(&s.ID, &s.OrgID, &s.SiteID, &s.AreaID, &s.Name, &s.Description, &s.BackgroundColor,
 			&s.CanvasW, &s.CanvasH, &s.Layout, &s.CreatedAt, &s.UpdatedAt)
 	if err == sql.ErrNoRows {
 		c.JSON(http.StatusNotFound, gin.H{"error": "synoptic not found"})
@@ -154,9 +158,9 @@ func (h *SynopticsHandler) Create(c *gin.Context) {
 
 	var id int
 	err := h.db.QueryRowContext(c.Request.Context(), `
-		INSERT INTO synoptics (org_id, name, description, background_color, canvas_w, canvas_h, layout, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-		orgID, req.Name, req.Description, req.BackgroundColor, req.CanvasW, req.CanvasH, req.Layout, createdBy).
+		INSERT INTO synoptics (org_id, site_id, area_id, name, description, background_color, canvas_w, canvas_h, layout, created_by)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+		orgID, req.SiteID, req.AreaID, req.Name, req.Description, req.BackgroundColor, req.CanvasW, req.CanvasH, req.Layout, createdBy).
 		Scan(&id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -191,9 +195,9 @@ func (h *SynopticsHandler) Update(c *gin.Context) {
 	res, err := h.db.ExecContext(c.Request.Context(), `
 		UPDATE synoptics
 		SET name = $1, description = $2, background_color = $3,
-		    canvas_w = $4, canvas_h = $5, layout = $6, updated_at = NOW()
-		WHERE id = $7 AND org_id = $8`,
-		req.Name, req.Description, req.BackgroundColor, req.CanvasW, req.CanvasH, req.Layout, id, orgID)
+		    canvas_w = $4, canvas_h = $5, layout = $6, site_id = $7, area_id = $8, updated_at = NOW()
+		WHERE id = $9 AND org_id = $10`,
+		req.Name, req.Description, req.BackgroundColor, req.CanvasW, req.CanvasH, req.Layout, req.SiteID, req.AreaID, id, orgID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

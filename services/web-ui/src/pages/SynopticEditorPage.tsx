@@ -137,6 +137,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         try {
             await synopticsApi.update(synoptic.id, {
                 name: synoptic.name, description: synoptic.description,
+                site_id: synoptic.site_id, area_id: synoptic.area_id,
                 background_color: synoptic.background_color,
                 canvas_w: synoptic.canvas_w, canvas_h: synoptic.canvas_h,
                 layout: widgets,
