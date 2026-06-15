@@ -23,11 +23,9 @@ const SNAP = 8; // grid snap size in canvas-pixels
 const snap = (v: number) => Math.round(v / SNAP) * SNAP;
 
 interface DragState {
-    id: string;
     startX: number;
     startY: number;
-    origX: number;
-    origY: number;
+    origPositions: Map<string, { x: number; y: number }>;
 }
 
 const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
@@ -40,7 +38,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const [synoptic, setSynoptic] = useState<Synoptic | null>(null);
     const [widgets, setWidgets] = useState<SynopticWidget[]>([]);
     const [tags, setTags] = useState<TagWithHierarchy[]>([]);
-    const [selectedId, setSelectedId] = useState<string | null>(null);
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'ok' | 'error'>('idle');
@@ -50,6 +48,23 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const isEdit = mode === 'edit';
     const canvasWrapRef = useRef<HTMLDivElement>(null);
     const dragRef = useRef<DragState | null>(null);
+
+    // Undo/Redo history
+    const historyRef = useRef<SynopticWidget[][]>([]);
+    const historyIdxRef = useRef<number>(-1);
+
+    const pushHistory = useCallback((state: SynopticWidget[]) => {
+        historyRef.current = historyRef.current.slice(0, historyIdxRef.current + 1);
+        historyRef.current.push(JSON.parse(JSON.stringify(state)));
+        if (historyRef.current.length > 50) historyRef.current.shift();
+        else historyIdxRef.current++;
+    }, []);
+
+    // single selected widget (null when 0 or 2+ selected)
+    const selected = useMemo(
+        () => selectedIds.length === 1 ? (widgets.find(w => w.id === selectedIds[0]) ?? null) : null,
+        [widgets, selectedIds],
+    );
 
     // Load synoptic + tags.
     useEffect(() => {
@@ -61,7 +76,10 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                     tagsApi.getAllWithHierarchy().catch(() => []),
                 ]);
                 setSynoptic(s);
-                setWidgets(s.layout || []);
+                const initial = s.layout || [];
+                setWidgets(initial);
+                historyRef.current = [JSON.parse(JSON.stringify(initial))];
+                historyIdxRef.current = 0;
                 setTags(tagList);
             } catch (e) {
                 console.error('Failed to load synoptic', e);
@@ -84,8 +102,6 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         return () => window.removeEventListener('resize', recompute);
     }, [synoptic]);
 
-    const selected = useMemo(() => widgets.find(w => w.id === selectedId) || null, [widgets, selectedId]);
-
     const tagValue = useCallback((tagId?: number | null): LiveValue | undefined => {
         if (tagId == null) return undefined; // unbound widget → always preview
         if (mode !== 'view') return undefined; // edit mode → preview
@@ -97,10 +113,23 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
 
     // onWrite: called by button widgets in view mode to write a value to a tag
     // via the i3X interface (PUT /api/i3x/v1/properties/tag-{id}/value).
+    // Applies reverse EU scaling when the tag has scaling enabled.
     const onWrite = useCallback(async (tagId: number, value: number): Promise<void> => {
         if (mode !== 'view') return;
-        await i3xApi.writePropertyValue(`tag-${tagId}`, value);
-    }, [mode]);
+        const tag = tags.find(t => t.id === tagId);
+        let rawValue = value;
+        if (tag?.scaling_enabled && !tag.invert) {
+            const euMin = tag.scaling_eu_min ?? 0;
+            const euMax = tag.scaling_eu_max ?? 100;
+            const rawMin = tag.scaling_raw_min ?? 0;
+            const rawMax = tag.scaling_raw_max ?? 100;
+            const euSpan = euMax - euMin;
+            if (euSpan !== 0) {
+                rawValue = (value - euMin) / euSpan * (rawMax - rawMin) + rawMin;
+            }
+        }
+        await i3xApi.writePropertyValue(`tag-${tagId}`, rawValue);
+    }, [mode, tags]);
 
     // ── Editing actions ────────────────────────────────────────────────────
     const addWidget = (type: SynopticWidget['type']) => {
@@ -110,20 +139,73 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
             label: type === 'label' ? 'Etichetta' : '',
             config: type === 'gauge' || type === 'tank' ? { min: 0, max: 100 } : {},
         };
-        setWidgets(prev => [...prev, w]);
-        setSelectedId(w.id);
+        setWidgets(prev => {
+            const next = [...prev, w];
+            pushHistory(next);
+            return next;
+        });
+        setSelectedIds([w.id]);
     };
 
     const patchWidget = (wid: string, patch: Partial<SynopticWidget>) => {
         setWidgets(prev => prev.map(w => w.id === wid ? { ...w, ...patch } : w));
     };
     const patchConfig = (wid: string, patch: Record<string, unknown>) => {
-        setWidgets(prev => prev.map(w => w.id === wid ? { ...w, config: { ...w.config, ...patch } } : w));
+        setWidgets(prev => {
+            const next = prev.map(w => w.id === wid ? { ...w, config: { ...w.config, ...patch } } : w);
+            pushHistory(next);
+            return next;
+        });
     };
     const removeWidget = (wid: string) => {
-        setWidgets(prev => prev.filter(w => w.id !== wid));
-        setSelectedId(null);
+        setWidgets(prev => {
+            const next = prev.filter(w => w.id !== wid);
+            pushHistory(next);
+            return next;
+        });
+        setSelectedIds(prev => prev.filter(id => id !== wid));
     };
+    const removeWidgets = (wids: string[]) => {
+        const set = new Set(wids);
+        setWidgets(prev => {
+            const next = prev.filter(w => !set.has(w.id));
+            pushHistory(next);
+            return next;
+        });
+        setSelectedIds([]);
+    };
+
+    // Tag binding with auto-fill from scaling metadata
+    const handleTagBind = useCallback((widgetId: string, rawValue: string) => {
+        const tagId = rawValue === 'none' ? null : Number(rawValue);
+        const w = widgets.find(x => x.id === widgetId);
+        if (!w) return;
+
+        let configPatch: Record<string, unknown> = {};
+        if (tagId != null) {
+            const tag = tags.find(t => t.id === tagId);
+            if (tag?.scaling_enabled) {
+                if (w.type === 'value' || w.type === 'gauge') {
+                    if (tag.eu_unit) configPatch.unit = tag.eu_unit;
+                    if (tag.eu_decimals != null) configPatch.decimals = tag.eu_decimals;
+                }
+                if (w.type === 'gauge' || w.type === 'tank' || w.type === 'bargraph') {
+                    if (tag.scaling_eu_min != null) configPatch.min = tag.scaling_eu_min;
+                    if (tag.scaling_eu_max != null) configPatch.max = tag.scaling_eu_max;
+                }
+            }
+        }
+
+        const updated: SynopticWidget = Object.keys(configPatch).length > 0
+            ? { ...w, tagId: tagId ?? undefined, config: { ...w.config, ...configPatch } }
+            : { ...w, tagId: tagId ?? undefined };
+
+        setWidgets(prev => {
+            const next = prev.map(x => x.id === widgetId ? updated : x);
+            pushHistory(next);
+            return next;
+        });
+    }, [widgets, tags, pushHistory]);
 
     // Drag-to-move (pointer events, scale-aware).
     // Capture is set on the widget div (currentTarget) so events follow the pointer
@@ -132,8 +214,34 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const onWidgetPointerDown = (e: React.PointerEvent, w: SynopticWidget) => {
         if (!isEdit) return;
         e.stopPropagation();
-        setSelectedId(w.id);
-        dragRef.current = { id: w.id, startX: e.clientX, startY: e.clientY, origX: w.x, origY: w.y };
+
+        if (e.shiftKey) {
+            // Shift-click: toggle widget in selection (no drag)
+            setSelectedIds(prev =>
+                prev.includes(w.id) ? prev.filter(id => id !== w.id) : [...prev, w.id]
+            );
+            return;
+        }
+
+        // If clicking a widget not in selection, replace selection
+        if (!selectedIds.includes(w.id)) {
+            setSelectedIds([w.id]);
+        }
+
+        // Start drag for all currently selected (or just the clicked one if it's now selected)
+        const currentSelected = selectedIds.includes(w.id) ? selectedIds : [w.id];
+        const origPositions = new Map<string, { x: number; y: number }>();
+        widgets.forEach(widget => {
+            if (currentSelected.includes(widget.id)) {
+                origPositions.set(widget.id, { x: widget.x, y: widget.y });
+            }
+        });
+        // Ensure current widget is included
+        if (!origPositions.has(w.id)) {
+            origPositions.set(w.id, { x: w.x, y: w.y });
+        }
+
+        dragRef.current = { startX: e.clientX, startY: e.clientY, origPositions };
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     };
     const onCanvasPointerMove = (e: React.PointerEvent) => {
@@ -141,9 +249,20 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         if (!d) return;
         const dx = (e.clientX - d.startX) / scale;
         const dy = (e.clientY - d.startY) / scale;
-        patchWidget(d.id, { x: snap(d.origX + dx), y: snap(d.origY + dy) });
+        setWidgets(prev => prev.map(w => {
+            const orig = d.origPositions.get(w.id);
+            if (!orig) return w;
+            return { ...w, x: snap(orig.x + dx), y: snap(orig.y + dy) };
+        }));
     };
     const onCanvasPointerUp = () => {
+        if (dragRef.current) {
+            // Push history after drag ends
+            setWidgets(prev => {
+                pushHistory(prev);
+                return prev;
+            });
+        }
         dragRef.current = null;
     };
 
@@ -151,28 +270,36 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const clipboard = useRef<SynopticWidget | null>(null);
 
     // Keyboard shortcuts: Delete/Backspace remove, Ctrl+D duplicate, Ctrl+C copy,
-    // Ctrl+V paste, Arrow nudge (Shift+Arrow = 8px), Escape deselect.
+    // Ctrl+V paste, Arrow nudge (Shift+Arrow = 8px), Escape deselect, Ctrl+A select all,
+    // Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo.
     useEffect(() => {
         if (!isEdit) return;
         const handler = (e: KeyboardEvent) => {
             if ((e.target as HTMLElement).tagName === 'INPUT') return;
-            if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId) {
-                removeWidget(selectedId);
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (selectedIds.length > 0) {
+                    removeWidgets(selectedIds);
+                }
             } else if (e.key === 'Escape') {
-                setSelectedId(null);
-            } else if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedId) {
+                setSelectedIds([]);
+            } else if ((e.ctrlKey || e.metaKey) && e.key === 'a') {
+                e.preventDefault();
+                setSelectedIds(widgets.map(w => w.id));
+            } else if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedIds.length === 1) {
                 e.preventDefault();
                 setWidgets(prev => {
-                    const src = prev.find(w => w.id === selectedId);
+                    const src = prev.find(w => w.id === selectedIds[0]);
                     if (!src) return prev;
                     const copy = { ...src, id: uid(), x: src.x + SNAP * 2, y: src.y + SNAP * 2 };
                     clipboard.current = copy;
-                    setSelectedId(copy.id);
-                    return [...prev, copy];
+                    setSelectedIds([copy.id]);
+                    const next = [...prev, copy];
+                    pushHistory(next);
+                    return next;
                 });
-            } else if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selectedId) {
+            } else if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selectedIds.length === 1) {
                 setWidgets(prev => {
-                    const src = prev.find(w => w.id === selectedId);
+                    const src = prev.find(w => w.id === selectedIds[0]);
                     if (src) clipboard.current = src;
                     return prev;
                 });
@@ -180,22 +307,41 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                 e.preventDefault();
                 const copy = { ...clipboard.current, id: uid(), x: clipboard.current.x + SNAP * 2, y: clipboard.current.y + SNAP * 2 };
                 clipboard.current = copy;
-                setWidgets(prev => [...prev, copy]);
-                setSelectedId(copy.id);
-            } else if (e.key.startsWith('Arrow') && selectedId) {
+                setWidgets(prev => {
+                    const next = [...prev, copy];
+                    pushHistory(next);
+                    return next;
+                });
+                setSelectedIds([copy.id]);
+            } else if (e.key.startsWith('Arrow') && selectedIds.length > 0) {
                 e.preventDefault();
                 const step = e.shiftKey ? SNAP : 1;
                 setWidgets(prev => prev.map(w => {
-                    if (w.id !== selectedId) return w;
+                    if (!selectedIds.includes(w.id)) return w;
                     const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
                     const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
                     return { ...w, x: w.x + dx, y: w.y + dy };
                 }));
+            } else if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                if (historyIdxRef.current > 0) {
+                    historyIdxRef.current--;
+                    setWidgets(JSON.parse(JSON.stringify(historyRef.current[historyIdxRef.current])));
+                    setSelectedIds([]);
+                }
+            } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+                e.preventDefault();
+                if (historyIdxRef.current < historyRef.current.length - 1) {
+                    historyIdxRef.current++;
+                    setWidgets(JSON.parse(JSON.stringify(historyRef.current[historyIdxRef.current])));
+                    setSelectedIds([]);
+                }
             }
         };
         window.addEventListener('keydown', handler);
         return () => window.removeEventListener('keydown', handler);
-    }, [isEdit, selectedId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isEdit, selectedIds, widgets, pushHistory]);
 
     const handleSave = async () => {
         if (!synoptic) return;
@@ -314,7 +460,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                             width: synoptic.canvas_w * scale,
                             height: synoptic.canvas_h * scale,
                         }}
-                        onClick={() => isEdit && setSelectedId(null)}
+                        onClick={() => isEdit && setSelectedIds([])}
                     >
                         <div
                             className="absolute top-0 left-0 origin-top-left"
@@ -331,9 +477,9 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 <div
                                     key={w.id}
                                     onPointerDown={(e) => onWidgetPointerDown(e, w)}
-                                    onClick={(e) => { if (isEdit) { e.stopPropagation(); setSelectedId(w.id); } }}
+                                    onClick={(e) => { if (isEdit) { e.stopPropagation(); } }}
                                     className={cn('absolute select-none', isEdit && 'cursor-move',
-                                        isEdit && selectedId === w.id && 'outline outline-2 outline-primary outline-offset-2')}
+                                        isEdit && selectedIds.includes(w.id) && 'outline outline-2 outline-primary outline-offset-2')}
                                     style={{ left: w.x, top: w.y, width: w.w, height: w.h, transform: w.rotation ? `rotate(${w.rotation}deg)` : undefined }}
                                 >
                                     <SynopticWidgetView widget={w} live={tagValue(w.tagId)}
@@ -348,7 +494,15 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                 {isEdit && (
                     <div className="space-y-3">
                         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Proprietà</p>
-                        {!selected ? (
+                        {selectedIds.length > 1 ? (
+                            <div className="space-y-3">
+                                <p className="text-xs text-muted-foreground">{selectedIds.length} widget selezionati</p>
+                                <Button variant="destructive" size="sm" className="w-full gap-1"
+                                    onClick={() => removeWidgets(selectedIds)}>
+                                    <Trash2 size={13} /> Elimina selezionati
+                                </Button>
+                            </div>
+                        ) : !selected ? (
                             <div className="space-y-3">
                                 <p className="text-xs text-muted-foreground">Seleziona un componente, oppure configura la pagina:</p>
                                 <div className="grid gap-2">
@@ -381,8 +535,12 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <Button variant="ghost" size="icon" className="h-7 w-7" title="Duplica (Ctrl+D)"
                                             onClick={() => {
                                                 const copy = { ...selected, id: uid(), x: selected.x + SNAP * 2, y: selected.y + SNAP * 2 };
-                                                setWidgets(prev => [...prev, copy]);
-                                                setSelectedId(copy.id);
+                                                setWidgets(prev => {
+                                                    const next = [...prev, copy];
+                                                    pushHistory(next);
+                                                    return next;
+                                                });
+                                                setSelectedIds([copy.id]);
                                             }}><Copy size={13} /></Button>
                                         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeWidget(selected.id)}><Trash2 size={15} /></Button>
                                     </div>
@@ -392,11 +550,16 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Tag</Label>
                                         <Select value={selected.tagId != null ? String(selected.tagId) : 'none'}
-                                            onValueChange={v => patchWidget(selected.id, { tagId: v === 'none' ? null : Number(v) })}>
+                                            onValueChange={v => handleTagBind(selected.id, v)}>
                                             <SelectTrigger className="h-8 text-xs"><SelectValue>{tagLabel(selected.tagId)}</SelectValue></SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="none">Nessun tag</SelectItem>
-                                                {tags.map(t => <SelectItem key={t.id} value={String(t.id)}>{t.alias || t.code}</SelectItem>)}
+                                                {tags.map(t => (
+                                                    <SelectItem key={t.id} value={String(t.id)}>
+                                                        {t.alias || t.code}
+                                                        {t.scaling_enabled && t.eu_unit ? ` [${t.eu_unit}]` : ''}
+                                                    </SelectItem>
+                                                ))}
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -417,6 +580,14 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             <Label className="text-xs">Decimali</Label>
                                             <Input className="h-8 text-xs" type="number" value={selected.config?.decimals ?? 1} onChange={e => patchConfig(selected.id, { decimals: parseInt(e.target.value) || 0 })} />
                                         </div>
+                                    </div>
+                                )}
+
+                                {selected.type === 'value' && (
+                                    <div className="grid gap-1">
+                                        <Label className="text-xs">Dim. testo (px)</Label>
+                                        <Input className="h-8 text-xs" type="number" value={selected.config?.fontSize ?? 22}
+                                            onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 22 })} />
                                     </div>
                                 )}
 
@@ -441,6 +612,22 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     </div>
                                 )}
 
+                                {selected.type === 'pipe' && (
+                                    <div className="grid gap-1">
+                                        <Label className="text-xs">Forma</Label>
+                                        <Select value={String(selected.config?.pipeShape ?? 'straight')}
+                                            onValueChange={v => patchConfig(selected.id, { pipeShape: v })}>
+                                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="straight">Dritto</SelectItem>
+                                                <SelectItem value="corner">Curva (L)</SelectItem>
+                                                <SelectItem value="tee">Derivazione (T)</SelectItem>
+                                                <SelectItem value="cross">Croce (+)</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                )}
+
                                 {selected.type === 'button' && (
                                     <div className="grid grid-cols-2 gap-2">
                                         <div className="grid gap-1">
@@ -451,6 +638,14 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             <Label className="text-xs">Valore OFF</Label>
                                             <Input className="h-8 text-xs" type="number" value={selected.config?.writeOffValue ?? 0} onChange={e => patchConfig(selected.id, { writeOffValue: parseFloat(e.target.value) })} />
                                         </div>
+                                    </div>
+                                )}
+
+                                {selected.type === 'button' && (
+                                    <div className="flex items-center gap-2 col-span-2">
+                                        <input type="checkbox" id="btn-momentary" checked={!!selected.config?.momentary}
+                                            onChange={e => patchConfig(selected.id, { momentary: e.target.checked })} />
+                                        <Label htmlFor="btn-momentary" className="text-xs cursor-pointer">Momentaneo (premi/rilascia)</Label>
                                     </div>
                                 )}
 
