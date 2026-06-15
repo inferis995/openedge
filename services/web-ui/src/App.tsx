@@ -25,6 +25,8 @@ import CustomKPIsPage from '@/pages/CustomKPIsPage';
 import OEEProfilesPage from '@/pages/OEEProfilesPage';
 import OEEKioskPage from '@/pages/OEEKioskPage';
 import I3XPage from '@/pages/I3XPage';
+import SynopticsPage from '@/pages/SynopticsPage';
+import SynopticEditorPage from '@/pages/SynopticEditorPage';
 import AcceptInvitePage from '@/pages/AcceptInvitePage';
 import AuditPage from '@/pages/AuditPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
@@ -134,6 +136,9 @@ function App() {
                     <Route path="/kpis" element={<CustomKPIsPage />} />
                     <Route path="/oee-profiles" element={<OEEProfilesPage />} />
                     <Route path="/i3x" element={<I3XPage />} />
+                    <Route path="/synoptics" element={<SynopticsPage />} />
+                    <Route path="/synoptics/:id" element={<SynopticEditorPage mode="view" />} />
+                    <Route path="/synoptics/:id/edit" element={<SynopticEditorPage mode="edit" />} />
                     <Route path="/users" element={<UsersPage />} />
                     <Route path="/profile" element={<ProfilePage />} />
                 </Route>

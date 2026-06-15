@@ -693,6 +693,31 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: failed to create backup_audit index: %v", err)
 	}
 
+	// Migration: synoptics — SCADA mimic pages. Org-scoped canvas with a
+	// background and a JSONB array of freely positioned widgets that bind to
+	// tags. The whole layout is saved atomically (no per-widget sub-CRUD).
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS synoptics (
+			id               SERIAL PRIMARY KEY,
+			org_id           INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			name             TEXT NOT NULL,
+			description      TEXT,
+			background_color VARCHAR(20) NOT NULL DEFAULT '#0f172a',
+			canvas_w         INT NOT NULL DEFAULT 1280 CHECK (canvas_w > 0),
+			canvas_h         INT NOT NULL DEFAULT 720 CHECK (canvas_h > 0),
+			layout           JSONB NOT NULL DEFAULT '[]',
+			created_by       INT REFERENCES users(id) ON DELETE SET NULL,
+			created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (org_id, name)
+		)`); err != nil {
+		log.Printf("Warning: failed to create synoptics: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE INDEX IF NOT EXISTS idx_synoptics_org ON synoptics(org_id, name)`); err != nil {
+		log.Printf("Warning: failed to create synoptics index: %v", err)
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

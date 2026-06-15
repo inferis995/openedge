@@ -513,6 +513,20 @@ func main() {
 			recipes.GET("/:id/runs", recipesHandler.Runs)
 		}
 
+		// Synoptics — SCADA mimic pages. Reads open to any org member
+		// (operators view the live plant); writes restricted to admins
+		// (the designer is an engineering task).
+		synopticsHandler := handlers.NewSynopticsHandler(database)
+		synoptics := api.Group("/synoptics")
+		synoptics.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			synoptics.GET("", synopticsHandler.List)
+			synoptics.GET("/:id", synopticsHandler.Get)
+			synoptics.POST("", middleware.RequireRole(models.RoleAdmin), synopticsHandler.Create)
+			synoptics.PUT("/:id", middleware.RequireRole(models.RoleAdmin), synopticsHandler.Update)
+			synoptics.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), synopticsHandler.Delete)
+		}
+
 		// Shifts (turni): definizione + assegnazione operatori + detection
 		// turno corrente. Le rotte di lettura sono accessibili a chiunque
 		// sia autenticato (utili sia per admin che per operatore), le

@@ -31,6 +31,7 @@ import {
     Target,
     Gauge,
     Shield,
+    LayoutTemplate,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -73,6 +74,7 @@ const Sidebar = () => {
         { name: t('nav.shifts'), path: '/shifts', icon: Clock },
         { name: t('nav.maintenance'), path: '/maintenance', icon: Wrench },
         { name: t('nav.i3x'), path: '/i3x', icon: Network },
+        { name: 'Sinottici', path: '/synoptics', icon: LayoutTemplate },
     ];
 
     // Admin section — global admins see System + Diagnostics + Users + MQTT monitor + Audit.
