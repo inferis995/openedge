@@ -11,7 +11,9 @@ export type SynopticWidgetType =
     | 'valve'       // valve symbol, open/closed by state
     | 'motor'       // motor symbol, running by state
     | 'pipe'        // static pipe segment (no tag)
-    | 'label';      // static text
+    | 'label'       // static text
+    | 'bargraph'    // horizontal/vertical linear bar
+    | 'button';     // write command button (start/stop/toggle)
 
 export interface SynopticWidget {
     id: string;
@@ -33,6 +35,10 @@ export interface SynopticWidget {
         onValue?: number;        // indicator/pump/valve/motor: value considered "on"/"open"/"running"
         color?: string;          // base/static color (pipe, label, symbol tint)
         fontSize?: number;       // label
+        vertical?: boolean;      // bargraph: true = vertical fill
+        writeValue?: number;     // button: value written on activate (default 1)
+        writeOffValue?: number;  // button: value written on deactivate (default 0)
+        momentary?: boolean;     // button: true = write on press AND release, false = toggle
         [key: string]: unknown;
     };
 }

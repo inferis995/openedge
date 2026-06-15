@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { SynopticWidget } from '@/api/synoptics';
 import { cn } from '@/lib/utils';
 
@@ -109,9 +110,92 @@ function GaugeSymbol({ n, min, max, color, label }: { n: number | null; min: num
     );
 }
 
+function ButtonWidget({ widget, active, color, live, onWrite }: {
+    widget: SynopticWidget;
+    active: boolean;
+    color: string;
+    live?: LiveValue;
+    onWrite?: (value: number) => Promise<void>;
+}) {
+    const [sending, setSending] = useState(false);
+    const [feedback, setFeedback] = useState<'ok' | 'err' | null>(null);
+    const cfg = widget.config || {};
+    const isPreview = live === undefined;
+
+    const handleClick = async (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (!onWrite || isPreview) return;
+        // Toggle: if currently active write off-value, else write on-value.
+        const writeVal = active
+            ? (cfg.writeOffValue ?? 0)
+            : (cfg.writeValue ?? 1);
+        setSending(true);
+        try {
+            await onWrite(writeVal);
+            setFeedback('ok');
+        } catch {
+            setFeedback('err');
+        } finally {
+            setSending(false);
+            setTimeout(() => setFeedback(null), 1500);
+        }
+    };
+
+    const borderColor = active ? color : '#475569';
+    const bgColor = active ? `${color}22` : 'rgba(15,23,42,0.8)';
+    const textColor = active ? color : '#94a3b8';
+
+    return (
+        <button
+            onClick={handleClick}
+            disabled={sending || isPreview}
+            className={cn(
+                'w-full h-full rounded-md flex flex-col items-center justify-center gap-0.5',
+                'border-2 transition-all duration-150 font-medium select-none',
+                !isPreview && !sending && 'hover:brightness-110 active:scale-95',
+                sending && 'opacity-60',
+            )}
+            style={{ borderColor, background: bgColor, color: textColor, fontSize: cfg.fontSize ?? 13 }}
+        >
+            {feedback === 'ok' ? (
+                <span className="text-emerald-400 text-xs">✓</span>
+            ) : feedback === 'err' ? (
+                <span className="text-red-400 text-xs">✗</span>
+            ) : (
+                <>
+                    <span className="truncate px-1 leading-tight">{widget.label || 'Button'}</span>
+                    {!isPreview && (
+                        <span className="text-[9px] opacity-60 leading-tight">{active ? 'ON' : 'OFF'}</span>
+                    )}
+                </>
+            )}
+        </button>
+    );
+}
+
+function BargraphSymbol({ pct, color, vertical }: { pct: number; color: string; vertical: boolean }) {
+    const clamped = Math.max(0, Math.min(100, pct));
+    return vertical ? (
+        <svg viewBox="0 0 30 100" className="w-full h-full" preserveAspectRatio="none">
+            <rect x="4" y="2" width="22" height="96" rx="4" fill="#1e293b" stroke="#475569" strokeWidth="2" />
+            <rect x="6" y={2 + (96 - (clamped / 100) * 92)} width="18" height={(clamped / 100) * 92} rx="2" fill={color} opacity="0.9" />
+        </svg>
+    ) : (
+        <svg viewBox="0 0 100 30" className="w-full h-full" preserveAspectRatio="none">
+            <rect x="2" y="4" width="96" height="22" rx="4" fill="#1e293b" stroke="#475569" strokeWidth="2" />
+            <rect x="4" y="6" width={(clamped / 100) * 92} height="18" rx="2" fill={color} opacity="0.9" />
+        </svg>
+    );
+}
+
 // ── Widget dispatcher ───────────────────────────────────────────────────────
 
-export function SynopticWidgetView({ widget, live }: { widget: SynopticWidget; live?: LiveValue }) {
+// onWrite is provided only in view mode; it writes a value to the tag via i3x.
+export function SynopticWidgetView({ widget, live, onWrite }: {
+    widget: SynopticWidget;
+    live?: LiveValue;
+    onWrite?: (value: number) => Promise<void>;
+}) {
     const cfg = widget.config || {};
     const n = num(live?.value);
     const badQuality = live !== undefined && live.quality >= 2;
@@ -171,6 +255,22 @@ export function SynopticWidgetView({ widget, live }: { widget: SynopticWidget; l
                     <span className="truncate">{widget.label || 'Label'}</span>
                 </div>
             );
+        case 'bargraph': {
+            const min = cfg.min ?? 0, max = cfg.max ?? 100;
+            const pct = n === null ? (live === undefined ? 50 : 0) : ((n - min) / ((max - min) || 1)) * 100;
+            return (
+                <div className="w-full h-full flex flex-col">
+                    <BargraphSymbol pct={pct} color={thresholdColor(n, cfg)} vertical={!!cfg.vertical} />
+                    {widget.label && <span className="text-[9px] text-slate-300 text-center truncate">{widget.label}</span>}
+                </div>
+            );
+        }
+        case 'button': {
+            // Button widget — clickable in view mode, decorative in edit/preview.
+            const active = isOn(n, cfg);
+            const color = cfg.color || '#3b82f6'; // blue-500 default
+            return <ButtonWidget widget={widget} active={active} color={color} live={live} onWrite={onWrite} />;
+        }
         default:
             return null;
     }
@@ -178,13 +278,15 @@ export function SynopticWidgetView({ widget, live }: { widget: SynopticWidget; l
 
 // Catalog used by the designer palette.
 export const WIDGET_CATALOG: { type: SynopticWidget['type']; label: string; needsTag: boolean; defaultW: number; defaultH: number }[] = [
-    { type: 'value', label: 'Value', needsTag: true, defaultW: 110, defaultH: 56 },
-    { type: 'gauge', label: 'Gauge', needsTag: true, defaultW: 90, defaultH: 90 },
-    { type: 'tank', label: 'Tank', needsTag: true, defaultW: 70, defaultH: 110 },
-    { type: 'indicator', label: 'LED', needsTag: true, defaultW: 50, defaultH: 56 },
-    { type: 'pump', label: 'Pump', needsTag: true, defaultW: 70, defaultH: 70 },
-    { type: 'valve', label: 'Valve', needsTag: true, defaultW: 70, defaultH: 70 },
-    { type: 'motor', label: 'Motor', needsTag: true, defaultW: 80, defaultH: 70 },
-    { type: 'pipe', label: 'Pipe', needsTag: false, defaultW: 120, defaultH: 14 },
-    { type: 'label', label: 'Label', needsTag: false, defaultW: 100, defaultH: 30 },
+    { type: 'value',    label: 'Value',    needsTag: true,  defaultW: 110, defaultH: 56 },
+    { type: 'gauge',    label: 'Gauge',    needsTag: true,  defaultW: 90,  defaultH: 90 },
+    { type: 'tank',     label: 'Tank',     needsTag: true,  defaultW: 70,  defaultH: 110 },
+    { type: 'bargraph', label: 'Bar',      needsTag: true,  defaultW: 120, defaultH: 30 },
+    { type: 'indicator',label: 'LED',      needsTag: true,  defaultW: 50,  defaultH: 56 },
+    { type: 'pump',     label: 'Pump',     needsTag: true,  defaultW: 70,  defaultH: 70 },
+    { type: 'valve',    label: 'Valve',    needsTag: true,  defaultW: 70,  defaultH: 70 },
+    { type: 'motor',    label: 'Motor',    needsTag: true,  defaultW: 80,  defaultH: 70 },
+    { type: 'button',   label: 'Button',   needsTag: true,  defaultW: 90,  defaultH: 44 },
+    { type: 'pipe',     label: 'Pipe',     needsTag: false, defaultW: 120, defaultH: 14 },
+    { type: 'label',    label: 'Label',    needsTag: false, defaultW: 100, defaultH: 30 },
 ];

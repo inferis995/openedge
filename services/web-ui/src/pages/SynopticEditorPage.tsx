@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, Trash2, Loader2, Pencil, Monitor, Check, AlertTriangle } from 'lucide-react';
 import { synopticsApi, Synoptic, SynopticWidget } from '@/api/synoptics';
 import { tagsApi } from '@/api/tags';
+import { i3xApi } from '@/api/i3x';
 import { TagWithHierarchy } from '@/types/trend';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -93,6 +94,13 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         // return BAD-quality null so widgets show "—" / grey / off state.
         return v ? { value: v.value, quality: v.quality } : { value: null, quality: 2 };
     }, [liveValues, mode]);
+
+    // onWrite: called by button widgets in view mode to write a value to a tag
+    // via the i3X interface (PUT /api/i3x/v1/properties/tag-{id}/value).
+    const onWrite = useCallback(async (tagId: number, value: number): Promise<void> => {
+        if (mode !== 'view') return;
+        await i3xApi.writePropertyValue(`tag-${tagId}`, value);
+    }, [mode]);
 
     // ── Editing actions ────────────────────────────────────────────────────
     const addWidget = (type: SynopticWidget['type']) => {
@@ -302,7 +310,8 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         isEdit && selectedId === w.id && 'outline outline-2 outline-primary outline-offset-2')}
                                     style={{ left: w.x, top: w.y, width: w.w, height: w.h, transform: w.rotation ? `rotate(${w.rotation}deg)` : undefined }}
                                 >
-                                    <SynopticWidgetView widget={w} live={tagValue(w.tagId)} />
+                                    <SynopticWidgetView widget={w} live={tagValue(w.tagId)}
+                                        onWrite={w.tagId != null ? (v) => onWrite(w.tagId!, v) : undefined} />
                                 </div>
                             ))}
                         </div>
@@ -372,7 +381,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     </div>
                                 )}
 
-                                {(selected.type === 'gauge' || selected.type === 'tank') && (
+                                {(selected.type === 'gauge' || selected.type === 'tank' || selected.type === 'bargraph') && (
                                     <div className="grid grid-cols-2 gap-2">
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Min</Label>
@@ -381,6 +390,27 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Max</Label>
                                             <Input className="h-8 text-xs" type="number" value={selected.config?.max ?? 100} onChange={e => patchConfig(selected.id, { max: parseFloat(e.target.value) || 100 })} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {selected.type === 'bargraph' && (
+                                    <div className="flex items-center gap-2">
+                                        <input type="checkbox" id="bar-vert" checked={!!selected.config?.vertical}
+                                            onChange={e => patchConfig(selected.id, { vertical: e.target.checked })} />
+                                        <Label htmlFor="bar-vert" className="text-xs cursor-pointer">Verticale</Label>
+                                    </div>
+                                )}
+
+                                {selected.type === 'button' && (
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Valore ON</Label>
+                                            <Input className="h-8 text-xs" type="number" value={selected.config?.writeValue ?? 1} onChange={e => patchConfig(selected.id, { writeValue: parseFloat(e.target.value) })} />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Valore OFF</Label>
+                                            <Input className="h-8 text-xs" type="number" value={selected.config?.writeOffValue ?? 0} onChange={e => patchConfig(selected.id, { writeOffValue: parseFloat(e.target.value) })} />
                                         </div>
                                     </div>
                                 )}
@@ -398,14 +428,14 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     </div>
                                 )}
 
-                                {(selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor') && (
+                                {(selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor' || selected.type === 'button') && (
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Valore "attivo" (≥)</Label>
                                         <Input className="h-8 text-xs" type="number" value={selected.config?.onValue ?? 1} onChange={e => patchConfig(selected.id, { onValue: parseFloat(e.target.value) || 0 })} />
                                     </div>
                                 )}
 
-                                {(selected.type === 'label' || selected.type === 'pipe' || selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor') && (
+                                {(selected.type === 'label' || selected.type === 'pipe' || selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor' || selected.type === 'button' || selected.type === 'bargraph') && (
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Colore</Label>
                                         <input type="color" value={String(selected.config?.color ?? '#10b981')} onChange={e => patchConfig(selected.id, { color: e.target.value })} className="h-8 w-full rounded border bg-transparent" />
