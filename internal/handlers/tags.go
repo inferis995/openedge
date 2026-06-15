@@ -48,7 +48,18 @@ type CreateTagRequest struct {
 	HistorizeDeadband *float64 `json:"historize_deadband"`
 	// JsonPath: for MQTT tags whose payload is JSON, extract this dotted path
 	// (e.g. "temp" from {"temp":22}). Empty/omitted = whole payload as value.
-	JsonPath          *string  `json:"json_path"`
+	JsonPath *string `json:"json_path"`
+
+	// EU Scaling
+	ScalingEnabled *bool    `json:"scaling_enabled"`
+	ScalingRawMin  *float64 `json:"scaling_raw_min"`
+	ScalingRawMax  *float64 `json:"scaling_raw_max"`
+	ScalingEuMin   *float64 `json:"scaling_eu_min"`
+	ScalingEuMax   *float64 `json:"scaling_eu_max"`
+	ScalingClamp   *bool    `json:"scaling_clamp"`
+	EuUnit         *string  `json:"eu_unit"`
+	EuDecimals     *int     `json:"eu_decimals"`
+	Invert         *bool    `json:"invert"`
 }
 
 // UpdateTagRequest represents the request body for updating a tag
@@ -59,6 +70,17 @@ type UpdateTagRequest struct {
 	Historize         *bool    `json:"historize"`
 	HistorizeDeadband *float64 `json:"historize_deadband"`
 	JsonPath          *string  `json:"json_path"`
+
+	// EU Scaling
+	ScalingEnabled *bool    `json:"scaling_enabled"`
+	ScalingRawMin  *float64 `json:"scaling_raw_min"`
+	ScalingRawMax  *float64 `json:"scaling_raw_max"`
+	ScalingEuMin   *float64 `json:"scaling_eu_min"`
+	ScalingEuMax   *float64 `json:"scaling_eu_max"`
+	ScalingClamp   *bool    `json:"scaling_clamp"`
+	EuUnit         *string  `json:"eu_unit"`
+	EuDecimals     *int     `json:"eu_decimals"`
+	Invert         *bool    `json:"invert"`
 }
 
 // validateDataType checks if the data_type is valid
@@ -138,19 +160,63 @@ func (h *TagsHandler) Create(c *gin.Context) {
 		historizeDeadband = *req.HistorizeDeadband
 	}
 
+	scalingEnabled := false
+	if req.ScalingEnabled != nil {
+		scalingEnabled = *req.ScalingEnabled
+	}
+	scalingRawMin := 0.0
+	if req.ScalingRawMin != nil {
+		scalingRawMin = *req.ScalingRawMin
+	}
+	scalingRawMax := 100.0
+	if req.ScalingRawMax != nil {
+		scalingRawMax = *req.ScalingRawMax
+	}
+	scalingEuMin := 0.0
+	if req.ScalingEuMin != nil {
+		scalingEuMin = *req.ScalingEuMin
+	}
+	scalingEuMax := 100.0
+	if req.ScalingEuMax != nil {
+		scalingEuMax = *req.ScalingEuMax
+	}
+	scalingClamp := true
+	if req.ScalingClamp != nil {
+		scalingClamp = *req.ScalingClamp
+	}
+	euUnit := ""
+	if req.EuUnit != nil {
+		euUnit = *req.EuUnit
+	}
+	euDecimals := 2
+	if req.EuDecimals != nil {
+		euDecimals = *req.EuDecimals
+	}
+	invert := false
+	if req.Invert != nil {
+		invert = *req.Invert
+	}
+
 	var tag models.Tag
 	err = h.db.QueryRow(
-		`INSERT INTO tags (gateway_id, code, alias, data_type, historize, historize_deadband, json_path, sort_order)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tags WHERE gateway_id = $1))
-		 RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path, created_at`,
-		req.GatewayID,
-		req.Code,
-		req.Alias,
-		req.DataType,
-		historize,
-		historizeDeadband,
-		req.JsonPath, // nullable; pq stores NULL when nil
-	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.JsonPath, &tag.CreatedAt)
+		`INSERT INTO tags (gateway_id, code, alias, data_type, historize, historize_deadband, json_path, sort_order,
+		                   scaling_enabled, scaling_raw_min, scaling_raw_max, scaling_eu_min, scaling_eu_max,
+		                   scaling_clamp, eu_unit, eu_decimals, invert)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7,
+		         (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM tags WHERE gateway_id = $1),
+		         $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		 RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path,
+		           scaling_enabled, scaling_raw_min, scaling_raw_max, scaling_eu_min, scaling_eu_max,
+		           scaling_clamp, eu_unit, eu_decimals, invert, created_at`,
+		req.GatewayID, req.Code, req.Alias, req.DataType, historize, historizeDeadband, req.JsonPath,
+		scalingEnabled, scalingRawMin, scalingRawMax, scalingEuMin, scalingEuMax,
+		scalingClamp, euUnit, euDecimals, invert,
+	).Scan(
+		&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType,
+		&tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.JsonPath,
+		&tag.ScalingEnabled, &tag.ScalingRawMin, &tag.ScalingRawMax, &tag.ScalingEuMin, &tag.ScalingEuMax,
+		&tag.ScalingClamp, &tag.EuUnit, &tag.EuDecimals, &tag.Invert, &tag.CreatedAt,
+	)
 
 	if err != nil {
 		log.Printf("[API] Tag Creation DB Error: %v (gateway_id=%d, code=%s, alias=%s, data_type=%s)", err, req.GatewayID, req.Code, req.Alias, req.DataType)
@@ -240,7 +306,10 @@ func (h *TagsHandler) List(c *gin.Context) {
 		}
 
 		rows, err = h.db.Query(
-			"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path, created_at FROM tags WHERE gateway_id = $1 ORDER BY sort_order ASC, id ASC",
+			`SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path,
+			        scaling_enabled, scaling_raw_min, scaling_raw_max, scaling_eu_min, scaling_eu_max,
+			        scaling_clamp, eu_unit, eu_decimals, invert, created_at
+			 FROM tags WHERE gateway_id = $1 ORDER BY sort_order ASC, id ASC`,
 			gatewayID,
 		)
 	} else if areaIDStr != "" {
@@ -251,7 +320,9 @@ func (h *TagsHandler) List(c *gin.Context) {
 			return
 		}
 		rows, err = h.db.Query(
-			`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.json_path, t.created_at
+			`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.json_path,
+			        t.scaling_enabled, t.scaling_raw_min, t.scaling_raw_max, t.scaling_eu_min, t.scaling_eu_max,
+			        t.scaling_clamp, t.eu_unit, t.eu_decimals, t.invert, t.created_at
 			 FROM tags t
 			 JOIN gateways g ON t.gateway_id = g.id
 			 WHERE g.area_id = $1
@@ -265,14 +336,18 @@ func (h *TagsHandler) List(c *gin.Context) {
 		if orgFilter == nil {
 			// Global admin - get all tags across all organizations
 			rows, err = h.db.Query(
-				`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.json_path, t.created_at
+				`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.json_path,
+				        t.scaling_enabled, t.scaling_raw_min, t.scaling_raw_max, t.scaling_eu_min, t.scaling_eu_max,
+				        t.scaling_clamp, t.eu_unit, t.eu_decimals, t.invert, t.created_at
 				 FROM tags t
 				 ORDER BY t.sort_order ASC, t.id ASC`,
 			)
 		} else {
 			// Regular user - filter by their organization
 			rows, err = h.db.Query(
-				`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.json_path, t.created_at
+				`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.json_path,
+				        t.scaling_enabled, t.scaling_raw_min, t.scaling_raw_max, t.scaling_eu_min, t.scaling_eu_max,
+				        t.scaling_clamp, t.eu_unit, t.eu_decimals, t.invert, t.created_at
 				 FROM tags t
 				 JOIN gateways g ON t.gateway_id = g.id
 				 JOIN areas a ON g.area_id = a.id
@@ -294,7 +369,12 @@ func (h *TagsHandler) List(c *gin.Context) {
 	var tags []models.Tag
 	for rows.Next() {
 		var tag models.Tag
-		if err := rows.Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.JsonPath, &tag.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType,
+			&tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.JsonPath,
+			&tag.ScalingEnabled, &tag.ScalingRawMin, &tag.ScalingRawMax, &tag.ScalingEuMin, &tag.ScalingEuMax,
+			&tag.ScalingClamp, &tag.EuUnit, &tag.EuDecimals, &tag.Invert, &tag.CreatedAt,
+		); err != nil {
 			log.Printf("[API] Scan error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan tag"})
 			return
@@ -340,9 +420,17 @@ func (h *TagsHandler) Get(c *gin.Context) {
 
 	var tag models.Tag
 	err := h.db.QueryRow(
-		"SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path, created_at FROM tags WHERE id = $1",
+		`SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path,
+		        scaling_enabled, scaling_raw_min, scaling_raw_max, scaling_eu_min, scaling_eu_max,
+		        scaling_clamp, eu_unit, eu_decimals, invert, created_at
+		 FROM tags WHERE id = $1`,
 		id,
-	).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType, &tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.JsonPath, &tag.CreatedAt)
+	).Scan(
+		&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType,
+		&tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.JsonPath,
+		&tag.ScalingEnabled, &tag.ScalingRawMin, &tag.ScalingRawMax, &tag.ScalingEuMin, &tag.ScalingEuMax,
+		&tag.ScalingClamp, &tag.EuUnit, &tag.EuDecimals, &tag.Invert, &tag.CreatedAt,
+	)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -585,6 +673,51 @@ func (h *TagsHandler) Update(c *gin.Context) {
 		}
 		argPos++
 	}
+	if req.ScalingEnabled != nil {
+		updates = append(updates, "scaling_enabled = $"+strconv.Itoa(argPos))
+		args = append(args, *req.ScalingEnabled)
+		argPos++
+	}
+	if req.ScalingRawMin != nil {
+		updates = append(updates, "scaling_raw_min = $"+strconv.Itoa(argPos))
+		args = append(args, *req.ScalingRawMin)
+		argPos++
+	}
+	if req.ScalingRawMax != nil {
+		updates = append(updates, "scaling_raw_max = $"+strconv.Itoa(argPos))
+		args = append(args, *req.ScalingRawMax)
+		argPos++
+	}
+	if req.ScalingEuMin != nil {
+		updates = append(updates, "scaling_eu_min = $"+strconv.Itoa(argPos))
+		args = append(args, *req.ScalingEuMin)
+		argPos++
+	}
+	if req.ScalingEuMax != nil {
+		updates = append(updates, "scaling_eu_max = $"+strconv.Itoa(argPos))
+		args = append(args, *req.ScalingEuMax)
+		argPos++
+	}
+	if req.ScalingClamp != nil {
+		updates = append(updates, "scaling_clamp = $"+strconv.Itoa(argPos))
+		args = append(args, *req.ScalingClamp)
+		argPos++
+	}
+	if req.EuUnit != nil {
+		updates = append(updates, "eu_unit = $"+strconv.Itoa(argPos))
+		args = append(args, *req.EuUnit)
+		argPos++
+	}
+	if req.EuDecimals != nil {
+		updates = append(updates, "eu_decimals = $"+strconv.Itoa(argPos))
+		args = append(args, *req.EuDecimals)
+		argPos++
+	}
+	if req.Invert != nil {
+		updates = append(updates, "invert = $"+strconv.Itoa(argPos))
+		args = append(args, *req.Invert)
+		argPos++
+	}
 
 	if len(updates) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No fields to update"})
@@ -597,12 +730,17 @@ func (h *TagsHandler) Update(c *gin.Context) {
 	for i := 1; i < len(updates); i++ {
 		query += ", " + updates[i]
 	}
-	query += " WHERE id = $" + strconv.Itoa(argPos) + " RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path, created_at"
+	query += ` WHERE id = $` + strconv.Itoa(argPos) +
+		` RETURNING id, gateway_id, code, alias, data_type, historize, historize_deadband, sort_order, json_path,
+		            scaling_enabled, scaling_raw_min, scaling_raw_max, scaling_eu_min, scaling_eu_max,
+		            scaling_clamp, eu_unit, eu_decimals, invert, created_at`
 
 	var tag models.Tag
 	err = h.db.QueryRow(query, args...).Scan(
 		&tag.ID, &tag.GatewayID, &tag.Code, &tag.Alias, &tag.DataType,
-		&tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.JsonPath, &tag.CreatedAt,
+		&tag.Historize, &tag.HistorizeDeadband, &tag.SortOrder, &tag.JsonPath,
+		&tag.ScalingEnabled, &tag.ScalingRawMin, &tag.ScalingRawMax, &tag.ScalingEuMin, &tag.ScalingEuMax,
+		&tag.ScalingClamp, &tag.EuUnit, &tag.EuDecimals, &tag.Invert, &tag.CreatedAt,
 	)
 
 	if err != nil {

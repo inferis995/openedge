@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/notifications"
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
+	"github.com/ralph/industrial-edge-middleware/internal/scaling"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	"github.com/ralph/industrial-edge-middleware/internal/telemetry"
@@ -41,6 +43,49 @@ import (
 // can reach it without threading it through every signature.
 var notifDispatcher *notifications.Dispatcher
 var influxWriter *connectors.InfluxDBConnector
+
+// scalingCache maps tag_id → scaling.Config for tags that have EU scaling
+// enabled. Loaded at startup and refreshed every 30 s so config changes
+// from the UI take effect without a restart.
+var scalingCache sync.Map // map[int]scaling.Config
+
+func loadScalingCache(database *sql.DB) {
+	rows, err := database.Query(
+		`SELECT id, scaling_raw_min, scaling_raw_max, scaling_eu_min, scaling_eu_max, scaling_clamp, invert
+		 FROM tags WHERE scaling_enabled = true`,
+	)
+	if err != nil {
+		log.Printf("[scaling] cache load error: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	// Build a temporary map, then swap into the sync.Map atomically.
+	newEntries := map[int]scaling.Config{}
+	for rows.Next() {
+		var id int
+		var cfg scaling.Config
+		cfg.Enabled = true
+		if err := rows.Scan(&id, &cfg.RawMin, &cfg.RawMax, &cfg.EuMin, &cfg.EuMax, &cfg.Clamp, &cfg.Invert); err != nil {
+			log.Printf("[scaling] scan error: %v", err)
+			continue
+		}
+		newEntries[id] = cfg
+	}
+
+	// Delete stale entries.
+	scalingCache.Range(func(k, _ interface{}) bool {
+		if _, keep := newEntries[k.(int)]; !keep {
+			scalingCache.Delete(k)
+		}
+		return true
+	})
+	// Store new/updated entries.
+	for id, cfg := range newEntries {
+		scalingCache.Store(id, cfg)
+	}
+	log.Printf("[scaling] cache refreshed: %d scaled tag(s)", len(newEntries))
+}
 
 func main() {
 	// Structured logging — LOG_FORMAT=json for production (machine-parseable),
@@ -74,6 +119,16 @@ func main() {
 		os.Exit(1)
 	}
 	defer database.Close()
+
+	// Load EU scaling config once at startup, then refresh every 30 s.
+	go func() {
+		loadScalingCache(database)
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for range t.C {
+			loadScalingCache(database)
+		}
+	}()
 
 	// Load Redis configuration (needed before MQTT for health tracking)
 	redisHost := getEnv("REDIS_HOST", "localhost")
@@ -954,6 +1009,23 @@ func handleDataUpdate(topic string, payload []byte, redisClient *redis.Client) {
 
 	if update.TagID == 0 {
 		return
+	}
+
+	// Apply EU scaling if configured for this tag.
+	// The converted value replaces the raw value for all downstream consumers
+	// (Redis cache, WebSocket broadcast, historian, InfluxDB, shadow).
+	if cfg, ok := scalingCache.Load(update.TagID); ok {
+		update.Value = scaling.Apply(update.Value, cfg.(scaling.Config))
+		// Re-encode the payload with the scaled value so Redis/WS get EU data.
+		if scaled, err := json.Marshal(map[string]interface{}{
+			"tag_id": update.TagID,
+			"org_id": update.OrgID,
+			"v":      update.Value,
+			"ts":     update.Timestamp,
+			"q":      update.Quality,
+		}); err == nil {
+			payload = scaled
+		}
 	}
 
 	// 1. Store in Redis for "Current Value" endpoints

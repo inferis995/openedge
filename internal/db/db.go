@@ -729,6 +729,26 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: failed to add synoptics.area_id: %v", err)
 	}
 
+	// Migration: EU scaling columns on tags.
+	// Adds 9 columns for raw-to-engineering-unit conversion (4-20mA, etc.).
+	// All idempotent via ADD COLUMN IF NOT EXISTS.
+	scalingCols := []string{
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS scaling_enabled BOOLEAN NOT NULL DEFAULT false`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS scaling_raw_min DOUBLE PRECISION NOT NULL DEFAULT 0`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS scaling_raw_max DOUBLE PRECISION NOT NULL DEFAULT 100`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS scaling_eu_min  DOUBLE PRECISION NOT NULL DEFAULT 0`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS scaling_eu_max  DOUBLE PRECISION NOT NULL DEFAULT 100`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS scaling_clamp   BOOLEAN NOT NULL DEFAULT true`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS eu_unit         TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS eu_decimals     INT  NOT NULL DEFAULT 2`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS invert          BOOLEAN NOT NULL DEFAULT false`,
+	}
+	for _, stmt := range scalingCols {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			return fmt.Errorf("scaling columns migration: %w", err)
+		}
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }
