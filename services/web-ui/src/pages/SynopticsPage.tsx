@@ -31,6 +31,30 @@ type NodeScope =
     | { kind: 'area'; siteId: number; areaId: number }
     | { kind: 'general' }; // synoptics with no site/area
 
+function TreeRow({ label, depth, active, count, icon, expandable, isExpanded, onToggle, onClick }: {
+    label: string; depth: number; active: boolean; count: number;
+    icon: React.ReactNode; expandable?: boolean; isExpanded?: boolean;
+    onToggle?: () => void; onClick: () => void;
+}) {
+    return (
+        <div
+            onClick={onClick}
+            className={cn('flex items-center gap-1 py-1.5 pr-2 rounded-md cursor-pointer text-sm hover:bg-muted/60 transition-colors',
+                active && 'bg-primary/10 text-primary font-medium')}
+            style={{ paddingLeft: 8 + depth * 14 }}
+        >
+            {expandable ? (
+                <button onClick={(e) => { e.stopPropagation(); onToggle?.(); }} className="p-0.5 -ml-1 text-muted-foreground hover:text-foreground">
+                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </button>
+            ) : <span className="w-3.5" />}
+            {icon}
+            <span className="truncate flex-1">{label}</span>
+            {count > 0 && <span className="text-[10px] text-muted-foreground tabular-nums">{count}</span>}
+        </div>
+    );
+}
+
 function SynopticThumb({ s, h = 130 }: { s: Synoptic; h?: number }) {
     const w = h * (s.canvas_w / s.canvas_h);
     const scale = Math.min(w / s.canvas_w, h / s.canvas_h);
@@ -152,28 +176,6 @@ const SynopticsPage = () => {
         if (scope.kind === 'site') return sites.find(s => s.id === scope.siteId)?.name || 'Sito';
         return areas.find(a => a.id === scope.areaId)?.name || 'Area';
     };
-
-    const TreeRow = ({ label, depth, active, count, icon, expandable, isExpanded, onToggle, onClick }: {
-        label: string; depth: number; active: boolean; count: number;
-        icon: React.ReactNode; expandable?: boolean; isExpanded?: boolean;
-        onToggle?: () => void; onClick: () => void;
-    }) => (
-        <div
-            onClick={onClick}
-            className={cn('flex items-center gap-1 py-1.5 pr-2 rounded-md cursor-pointer text-sm hover:bg-muted/60 transition-colors',
-                active && 'bg-primary/10 text-primary font-medium')}
-            style={{ paddingLeft: 8 + depth * 14 }}
-        >
-            {expandable ? (
-                <button onClick={(e) => { e.stopPropagation(); onToggle?.(); }} className="p-0.5 -ml-1 text-muted-foreground hover:text-foreground">
-                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-                </button>
-            ) : <span className="w-3.5" />}
-            {icon}
-            <span className="truncate flex-1">{label}</span>
-            {count > 0 && <span className="text-[10px] text-muted-foreground tabular-nums">{count}</span>}
-        </div>
-    );
 
     return (
         <div className="space-y-4">

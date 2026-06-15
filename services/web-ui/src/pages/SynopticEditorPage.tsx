@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Trash2, Loader2, Pencil, Monitor } from 'lucide-react';
+import { ArrowLeft, Save, Trash2, Loader2, Pencil, Monitor, Check, AlertTriangle } from 'lucide-react';
 import { synopticsApi, Synoptic, SynopticWidget } from '@/api/synoptics';
 import { tagsApi } from '@/api/tags';
 import { TagWithHierarchy } from '@/types/trend';
@@ -39,6 +39,8 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+    const [loadError, setLoadError] = useState<string | null>(null);
     const [scale, setScale] = useState(1);
 
     const isEdit = mode === 'edit';
@@ -59,6 +61,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                 setTags(tagList);
             } catch (e) {
                 console.error('Failed to load synoptic', e);
+                setLoadError('Errore nel caricamento del sinottico. Riprova.');
             } finally {
                 setIsLoading(false);
             }
@@ -80,10 +83,12 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const selected = useMemo(() => widgets.find(w => w.id === selectedId) || null, [widgets, selectedId]);
 
     const tagValue = useCallback((tagId?: number | null): LiveValue | undefined => {
-        if (mode !== 'view' || tagId == null) return undefined;
+        if (tagId == null) return undefined; // unbound widget → always preview
+        if (mode !== 'view') return undefined; // edit mode → preview
         const v = liveValues.get(tagId);
-        if (!v) return undefined;
-        return { value: v.value, quality: v.quality };
+        // Tag is bound but no live data yet (edge offline / WS not connected) →
+        // return BAD-quality null so widgets show "—" / grey / off state.
+        return v ? { value: v.value, quality: v.quality } : { value: null, quality: 2 };
     }, [liveValues, mode]);
 
     // ── Editing actions ────────────────────────────────────────────────────
@@ -110,30 +115,31 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     };
 
     // Drag-to-move (pointer events, scale-aware).
+    // Capture is set on the widget div (currentTarget) so events follow the pointer
+    // even when it moves outside the widget's bounds. Move/Up handlers live on the
+    // canvas div to avoid losing them during fast drags.
     const onWidgetPointerDown = (e: React.PointerEvent, w: SynopticWidget) => {
         if (!isEdit) return;
         e.stopPropagation();
         setSelectedId(w.id);
         dragRef.current = { id: w.id, startX: e.clientX, startY: e.clientY, origX: w.x, origY: w.y };
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     };
-    const onWidgetPointerMove = (e: React.PointerEvent) => {
+    const onCanvasPointerMove = (e: React.PointerEvent) => {
         const d = dragRef.current;
         if (!d) return;
         const dx = (e.clientX - d.startX) / scale;
         const dy = (e.clientY - d.startY) / scale;
         patchWidget(d.id, { x: Math.round(d.origX + dx), y: Math.round(d.origY + dy) });
     };
-    const onWidgetPointerUp = (e: React.PointerEvent) => {
-        if (dragRef.current) {
-            (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-            dragRef.current = null;
-        }
+    const onCanvasPointerUp = () => {
+        dragRef.current = null;
     };
 
     const handleSave = async () => {
         if (!synoptic) return;
         setIsSaving(true);
+        setSaveStatus('idle');
         try {
             await synopticsApi.update(synoptic.id, {
                 name: synoptic.name, description: synoptic.description,
@@ -142,15 +148,28 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                 canvas_w: synoptic.canvas_w, canvas_h: synoptic.canvas_h,
                 layout: widgets,
             });
+            setSaveStatus('ok');
+            setTimeout(() => setSaveStatus('idle'), 2500);
         } catch (e) {
             console.error('Failed to save synoptic', e);
+            setSaveStatus('error');
+            setTimeout(() => setSaveStatus('idle'), 4000);
         } finally {
             setIsSaving(false);
         }
     };
 
-    if (isLoading || !synoptic) {
+    if (isLoading) {
         return <div className="p-8 flex items-center justify-center text-muted-foreground"><Loader2 className="animate-spin mr-2" /> Caricamento...</div>;
+    }
+    if (loadError || !synoptic) {
+        return (
+            <div className="p-8 flex flex-col items-center justify-center gap-3 text-muted-foreground">
+                <AlertTriangle size={40} className="text-destructive opacity-70" />
+                <p>{loadError || 'Sinottico non trovato.'}</p>
+                <button onClick={() => navigate('/synoptics')} className="text-primary underline text-sm">Torna ai sinottici</button>
+            </div>
+        );
     }
 
     const tagLabel = (tagId?: number | null) => {
@@ -176,6 +195,12 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                             <Button variant="outline" size="sm" className="gap-1" onClick={() => navigate(`/synoptics/${synoptic.id}`)}>
                                 <Monitor size={15} /> Anteprima
                             </Button>
+                            {saveStatus === 'ok' && (
+                                <span className="flex items-center gap-1 text-xs text-emerald-500"><Check size={14} /> Salvato</span>
+                            )}
+                            {saveStatus === 'error' && (
+                                <span className="flex items-center gap-1 text-xs text-destructive"><AlertTriangle size={14} /> Errore</span>
+                            )}
                             <Button size="sm" className="gap-1" onClick={handleSave} disabled={isSaving}>
                                 {isSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Salva
                             </Button>
@@ -220,13 +245,13 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                         <div
                             className="absolute top-0 left-0 origin-top-left"
                             style={{ width: synoptic.canvas_w, height: synoptic.canvas_h, transform: `scale(${scale})`, background: synoptic.background_color }}
+                            onPointerMove={onCanvasPointerMove}
+                            onPointerUp={onCanvasPointerUp}
                         >
                             {widgets.map(w => (
                                 <div
                                     key={w.id}
                                     onPointerDown={(e) => onWidgetPointerDown(e, w)}
-                                    onPointerMove={onWidgetPointerMove}
-                                    onPointerUp={onWidgetPointerUp}
                                     onClick={(e) => { if (isEdit) { e.stopPropagation(); setSelectedId(w.id); } }}
                                     className={cn('absolute select-none', isEdit && 'cursor-move',
                                         isEdit && selectedId === w.id && 'outline outline-2 outline-primary outline-offset-2')}
