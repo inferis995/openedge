@@ -151,9 +151,12 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
             } else if (e.key.startsWith('Arrow') && selectedId) {
                 e.preventDefault();
                 const step = e.shiftKey ? SNAP : 1;
-                const nudge = e.key === 'ArrowLeft' ? { x: -step } : e.key === 'ArrowRight' ? { x: step }
-                    : e.key === 'ArrowUp' ? { y: -step } : { y: step };
-                setWidgets(prev => prev.map(w => w.id === selectedId ? { ...w, ...Object.fromEntries(Object.entries(nudge).map(([k, v]) => [k, (w as any)[k] + v])) } : w));
+                setWidgets(prev => prev.map(w => {
+                    if (w.id !== selectedId) return w;
+                    const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+                    const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+                    return { ...w, x: w.x + dx, y: w.y + dy };
+                }));
             }
         };
         window.addEventListener('keydown', handler);
