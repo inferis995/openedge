@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Trash2, Loader2, Pencil, Monitor, Check, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Save, Trash2, Loader2, Pencil, Monitor, Check, AlertTriangle, Copy } from 'lucide-react';
 import { synopticsApi, Synoptic, SynopticWidget } from '@/api/synoptics';
 import { tagsApi } from '@/api/tags';
 import { i3xApi } from '@/api/i3x';
@@ -147,7 +147,11 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         dragRef.current = null;
     };
 
-    // Keyboard shortcuts: Delete/Backspace to remove, Arrow to nudge, Escape to deselect.
+    // Clipboard ref (module-level copy/paste without serialisation overhead).
+    const clipboard = useRef<SynopticWidget | null>(null);
+
+    // Keyboard shortcuts: Delete/Backspace remove, Ctrl+D duplicate, Ctrl+C copy,
+    // Ctrl+V paste, Arrow nudge (Shift+Arrow = 8px), Escape deselect.
     useEffect(() => {
         if (!isEdit) return;
         const handler = (e: KeyboardEvent) => {
@@ -156,6 +160,28 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                 removeWidget(selectedId);
             } else if (e.key === 'Escape') {
                 setSelectedId(null);
+            } else if ((e.ctrlKey || e.metaKey) && e.key === 'd' && selectedId) {
+                e.preventDefault();
+                setWidgets(prev => {
+                    const src = prev.find(w => w.id === selectedId);
+                    if (!src) return prev;
+                    const copy = { ...src, id: uid(), x: src.x + SNAP * 2, y: src.y + SNAP * 2 };
+                    clipboard.current = copy;
+                    setSelectedId(copy.id);
+                    return [...prev, copy];
+                });
+            } else if ((e.ctrlKey || e.metaKey) && e.key === 'c' && selectedId) {
+                setWidgets(prev => {
+                    const src = prev.find(w => w.id === selectedId);
+                    if (src) clipboard.current = src;
+                    return prev;
+                });
+            } else if ((e.ctrlKey || e.metaKey) && e.key === 'v' && clipboard.current) {
+                e.preventDefault();
+                const copy = { ...clipboard.current, id: uid(), x: clipboard.current.x + SNAP * 2, y: clipboard.current.y + SNAP * 2 };
+                clipboard.current = copy;
+                setWidgets(prev => [...prev, copy]);
+                setSelectedId(copy.id);
             } else if (e.key.startsWith('Arrow') && selectedId) {
                 e.preventDefault();
                 const step = e.shiftKey ? SNAP : 1;
@@ -346,7 +372,15 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                             <div className="space-y-3">
                                 <div className="flex items-center justify-between">
                                     <span className="text-sm font-medium capitalize">{selected.type}</span>
-                                    <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeWidget(selected.id)}><Trash2 size={15} /></Button>
+                                    <div className="flex gap-0.5">
+                                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Duplica (Ctrl+D)"
+                                            onClick={() => {
+                                                const copy = { ...selected, id: uid(), x: selected.x + SNAP * 2, y: selected.y + SNAP * 2 };
+                                                setWidgets(prev => [...prev, copy]);
+                                                setSelectedId(copy.id);
+                                            }}><Copy size={13} /></Button>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeWidget(selected.id)}><Trash2 size={15} /></Button>
+                                    </div>
                                 </div>
 
                                 {WIDGET_CATALOG.find(c => c.type === selected.type)?.needsTag && (
