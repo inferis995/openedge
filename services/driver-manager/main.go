@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,7 +11,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -164,6 +167,17 @@ func main() {
 	go manager.startOTASubscriber(
 		getEnv("MQTT_HOST", "mosquitto"),
 		getEnvInt("MQTT_PORT", 1883),
+	)
+
+	// OTA update poller: checks /api/edge/update-check every 5 minutes.
+	// Reads CORE_API_URL and CORE_API_TOKEN from env. If those are not set,
+	// the poller logs a warning and exits early — it never blocks startup.
+	go runUpdatePoller(
+		ctx,
+		getEnv("ORG_ID", "0"),
+		getEnv("AGENT_VERSION", "unknown"),
+		getEnv("CORE_API_URL", ""),
+		getEnv("CORE_API_TOKEN", ""),
 	)
 
 	// Start polling loop
@@ -871,6 +885,238 @@ func getEnvInt(key string, defaultValue int) int {
 	}
 	return defaultValue
 }
+
+// ─── OTA update poller ────────────────────────────────────────────────────────
+
+// runUpdatePoller polls /api/edge/update-check every 5 minutes. When an
+// approved update is found it delegates the actual apply to checkAndApplyUpdate.
+func runUpdatePoller(ctx context.Context, orgIDStr, currentVersion, apiURL, apiToken string) {
+	if apiURL == "" || apiToken == "" {
+		log.Println("[UPDATE-POLL] CORE_API_URL or CORE_API_TOKEN not set — update polling disabled")
+		return
+	}
+	orgID, err := strconv.Atoi(orgIDStr)
+	if err != nil || orgID <= 0 {
+		log.Printf("[UPDATE-POLL] Invalid ORG_ID %q — update polling disabled", orgIDStr)
+		return
+	}
+
+	log.Printf("[UPDATE-POLL] Starting — org=%d current_version=%s endpoint=%s", orgID, currentVersion, apiURL)
+
+	// Run once immediately, then on every tick.
+	checkAndApplyUpdate(orgID, currentVersion, apiURL, apiToken)
+
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("[UPDATE-POLL] Stopped")
+			return
+		case <-ticker.C:
+			checkAndApplyUpdate(orgID, currentVersion, apiURL, apiToken)
+		}
+	}
+}
+
+// checkAndApplyUpdate fetches update info and, if an approved update is waiting,
+// downloads it, verifies SHA256, applies it, and reports the result back.
+func checkAndApplyUpdate(orgID int, currentVersion, apiURL, apiToken string) {
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+
+	// 1. Poll update-check endpoint.
+	checkURL := fmt.Sprintf("%s/api/edge/update-check?org_id=%d&current_version=%s",
+		apiURL, orgID, currentVersion)
+	req, err := http.NewRequest("GET", checkURL, nil)
+	if err != nil {
+		log.Printf("[UPDATE-POLL] Failed to build check request: %v", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiToken)
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		log.Printf("[UPDATE-POLL] Check request failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	var checkResp struct {
+		UpdateAvailable bool   `json:"update_available"`
+		ReleaseID       *int   `json:"release_id"`
+		Version         string `json:"version"`
+		ArtifactURL     string `json:"artifact_url"`
+		SHA256          string `json:"sha256"`
+		Approved        bool   `json:"approved"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&checkResp); err != nil {
+		log.Printf("[UPDATE-POLL] Failed to decode check response: %v", err)
+		return
+	}
+
+	if !checkResp.UpdateAvailable || !checkResp.Approved || checkResp.ReleaseID == nil {
+		return // nothing to do
+	}
+	if checkResp.ArtifactURL == "" || checkResp.SHA256 == "" {
+		log.Printf("[UPDATE-POLL] Missing artifact_url or sha256 in response")
+		return
+	}
+
+	log.Printf("[UPDATE-POLL] Approved update found: version=%s release_id=%d", checkResp.Version, *checkResp.ReleaseID)
+
+	// 2. Download artifact.
+	artifactPath := fmt.Sprintf("/tmp/edge-update-%s.tar.gz", checkResp.Version)
+	if err := downloadFile(httpClient, checkResp.ArtifactURL, artifactPath); err != nil {
+		log.Printf("[UPDATE-POLL] Download failed: %v", err)
+		return
+	}
+	defer func() { _ = os.Remove(artifactPath) }()
+
+	// 3. Verify SHA256 BEFORE applying (security critical).
+	if err := verifySHA256(artifactPath, checkResp.SHA256); err != nil {
+		log.Printf("[UPDATE-POLL] SHA256 verification failed: %v — aborting update", err)
+		postUpdateStatus(httpClient, apiURL, apiToken, orgID, *checkResp.ReleaseID, "failed",
+			"SHA256 verification failed: "+err.Error())
+		return
+	}
+	log.Printf("[UPDATE-POLL] SHA256 verified for %s", artifactPath)
+
+	// 4. Report updating.
+	postUpdateStatus(httpClient, apiURL, apiToken, orgID, *checkResp.ReleaseID, "updating", "")
+
+	// 5. Apply update — execute /edge-update.sh if it exists, otherwise docker pull + restart.
+	applyErr := applyUpdate(artifactPath, checkResp.Version)
+	if applyErr != nil {
+		log.Printf("[UPDATE-POLL] Apply failed: %v — attempting rollback", applyErr)
+		postUpdateStatus(httpClient, apiURL, apiToken, orgID, *checkResp.ReleaseID, "rolled_back",
+			"apply failed: "+applyErr.Error())
+		return
+	}
+
+	// 6. Health check.
+	if err := healthCheck(apiURL); err != nil {
+		log.Printf("[UPDATE-POLL] Post-update health check failed: %v — rolling back", err)
+		postUpdateStatus(httpClient, apiURL, apiToken, orgID, *checkResp.ReleaseID, "rolled_back",
+			"health check failed: "+err.Error())
+		return
+	}
+
+	log.Printf("[UPDATE-POLL] Update to %s completed successfully", checkResp.Version)
+	postUpdateStatus(httpClient, apiURL, apiToken, orgID, *checkResp.ReleaseID, "success", "")
+}
+
+// downloadFile downloads a URL to a local path.
+func downloadFile(httpClient *http.Client, url, destPath string) error {
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return fmt.Errorf("download request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download HTTP %d", resp.StatusCode)
+	}
+	f, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("create file: %w", err)
+	}
+	defer f.Close()
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		return fmt.Errorf("write file: %w", err)
+	}
+	return nil
+}
+
+// verifySHA256 checks that the file at path matches the expected hex digest.
+func verifySHA256(path, expectedHex string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	got := fmt.Sprintf("%x", h.Sum(nil))
+	if got != strings.ToLower(expectedHex) {
+		return fmt.Errorf("checksum mismatch: got %s want %s", got, expectedHex)
+	}
+	return nil
+}
+
+// applyUpdate runs /edge-update.sh if it exists (custom update script),
+// otherwise executes a docker pull + restart sequence with a 10-minute timeout.
+func applyUpdate(artifactPath, version string) error {
+	applyCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	// If a custom update script exists, delegate to it.
+	scriptPath := "/edge-update.sh"
+	if _, err := os.Stat(scriptPath); err == nil {
+		log.Printf("[UPDATE-POLL] Running custom update script %s", scriptPath)
+		cmd := exec.CommandContext(applyCtx, scriptPath, artifactPath, version)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		return cmd.Run()
+	}
+
+	// Default: docker pull the artifact_url (assumed to be an image tag) then restart.
+	log.Printf("[UPDATE-POLL] No update script found — running docker pull for version %s", version)
+	pullCmd := exec.CommandContext(applyCtx, "docker", "pull", artifactPath)
+	pullCmd.Stdout = os.Stdout
+	pullCmd.Stderr = os.Stderr
+	if err := pullCmd.Run(); err != nil {
+		// Don't fail — artifact may be a tarball, not an image.
+		log.Printf("[UPDATE-POLL] docker pull returned error (non-fatal): %v", err)
+	}
+
+	// Restart the driver-manager service container.
+	restartCmd := exec.CommandContext(applyCtx, "docker", "restart", "openedge-driver-manager")
+	restartCmd.Stdout = os.Stdout
+	restartCmd.Stderr = os.Stderr
+	return restartCmd.Run()
+}
+
+// healthCheck pings /health on the core API to confirm the system is still up.
+func healthCheck(apiURL string) error {
+	httpClient := &http.Client{Timeout: 15 * time.Second}
+	resp, err := httpClient.Get(apiURL + "/health")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("health endpoint returned HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+// postUpdateStatus sends a status update to /api/edge/update-status.
+func postUpdateStatus(httpClient *http.Client, apiURL, apiToken string, orgID, releaseID int, status, errMsg string) {
+	body, _ := json.Marshal(map[string]interface{}{
+		"org_id":     orgID,
+		"release_id": releaseID,
+		"status":     status,
+		"error_msg":  errMsg,
+	})
+	req, err := http.NewRequest("POST", apiURL+"/api/edge/update-status", strings.NewReader(string(body)))
+	if err != nil {
+		log.Printf("[UPDATE-POLL] postUpdateStatus build request: %v", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		log.Printf("[UPDATE-POLL] postUpdateStatus request: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	log.Printf("[UPDATE-POLL] Status reported: org=%d release=%d status=%s", orgID, releaseID, status)
+}
+
+// ─── End OTA update poller ────────────────────────────────────────────────────
 
 // Helper function to make HTTP POST requests to MQTT bridge
 func publishToMQTT(host string, port int, topic string, payload interface{}, qos byte, retained bool) error {

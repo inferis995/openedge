@@ -849,6 +849,26 @@ func main() {
 		{
 			infraGrp.GET("", infraHandler.List)
 		}
+
+		// OTA release management
+		updatesH := handlers.NewUpdatesHandler(database)
+		api.GET("/releases", middleware.RequireAuth, updatesH.ListReleases)
+		api.POST("/releases", middleware.RequireAuth, updatesH.CreateRelease)
+		api.GET("/releases/fleet", middleware.RequireAuth, updatesH.GetFleetUpdateStatus)
+		// Org admin update endpoints
+		orgUpdates := api.Group("/organizations/:id")
+		orgUpdates.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			orgUpdates.GET("/update", updatesH.GetPendingUpdate)
+			orgUpdates.POST("/approve-update", updatesH.ApproveUpdate)
+		}
+		// Edge agent endpoints (RequireAuth only, no admin requirement)
+		edgeUpdate := api.Group("/edge")
+		edgeUpdate.Use(middleware.RequireAuth)
+		{
+			edgeUpdate.GET("/update-check", updatesH.EdgeUpdateCheck)
+			edgeUpdate.POST("/update-status", updatesH.EdgeUpdateStatus)
+		}
 	}
 
 	// Swagger — enabled only when SWAGGER_ENABLED=true (never in production)

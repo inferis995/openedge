@@ -35,6 +35,7 @@ import ProfilePage from '@/pages/ProfilePage';
 import FleetPage from '@/pages/FleetPage';
 import SecurityPage from '@/pages/SecurityPage';
 import InfrastructurePage from '@/pages/InfrastructurePage';
+import ReleasesPage from '@/pages/ReleasesPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 
 import { useEffect, useState, useRef } from 'react';
@@ -152,6 +153,7 @@ function App() {
                     <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
                     <Route path="/audit" element={<AuditPage />} />
                     <Route path="/fleet" element={<FleetPage />} />
+                    <Route path="/releases" element={<ReleasesPage />} />
                     <Route path="/security" element={<SecurityPage />} />
                     <Route path="/infrastructure" element={<InfrastructurePage />} />
                 </Route>
