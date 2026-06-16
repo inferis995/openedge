@@ -749,6 +749,49 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: Security Center — account lockout, MFA prep, last-login tracking
+	securityUserCols := []string{
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INT NOT NULL DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_ip INET`,
+	}
+	for _, stmt := range securityUserCols {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: security user cols migration: %v", err)
+		}
+	}
+	// Migration: gateway heartbeat columns
+	gatewayHeartbeatCols := []string{
+		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`,
+		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS last_seen_ip INET`,
+		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS agent_version VARCHAR(30)`,
+	}
+	for _, stmt := range gatewayHeartbeatCols {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: gateway heartbeat cols migration: %v", err)
+		}
+	}
+	// Migration: security_events table
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS security_events (
+			id         BIGSERIAL PRIMARY KEY,
+			org_id     INT REFERENCES organizations(id) ON DELETE CASCADE,
+			event_type VARCHAR(50) NOT NULL,
+			severity   VARCHAR(10) NOT NULL DEFAULT 'medium',
+			actor      TEXT,
+			resource   TEXT,
+			detail     JSONB,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		log.Printf("Warning: security_events table migration: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE INDEX IF NOT EXISTS idx_sec_events_org_time ON security_events(org_id, created_at DESC)`); err != nil {
+		log.Printf("Warning: security_events index: %v", err)
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

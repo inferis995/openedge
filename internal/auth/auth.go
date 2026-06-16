@@ -54,14 +54,18 @@ func (s *Service) Login(ctx context.Context, req models.LoginRequest) (*models.L
 func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ipAddress, userAgent string) (*models.LoginResponse, error) {
 	var user models.User
 	var passwordHash string
+	var failedCount int
+	var lockedUntil sql.NullTime
 
-	query := `SELECT id, username, password_hash, role, full_name, org_id, i3x_write, created_at FROM users WHERE username = $1`
+	query := `SELECT id, username, password_hash, role, full_name, org_id, i3x_write, created_at,
+	           COALESCE(failed_login_count,0), locked_until
+	           FROM users WHERE username = $1`
 	err := s.db.QueryRowContext(ctx, query, req.Username).Scan(
 		&user.ID, &user.Username, &passwordHash, &user.Role, &user.FullName, &user.OrgID, &user.I3xWrite, &user.CreatedAt,
+		&failedCount, &lockedUntil,
 	)
 
 	if err == sql.ErrNoRows {
-		// Log failed login attempt (user not found)
 		s.logAudit(nil, req.Username, "login", ipAddress, userAgent, map[string]interface{}{
 			"reason": "user_not_found",
 		}, false)
@@ -71,14 +75,37 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 		return nil, err
 	}
 
+	// Account lockout check
+	if lockedUntil.Valid && lockedUntil.Time.After(time.Now()) {
+		s.logAudit(&user.ID, user.Username, "login", ipAddress, userAgent, map[string]interface{}{
+			"reason": "account_locked",
+		}, false)
+		return nil, errors.New("account temporaneamente bloccato, riprova tra qualche minuto")
+	}
+
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
-		// Log failed login attempt (wrong password)
+		newCount := failedCount + 1
+		var lockSQL string
+		if newCount >= 5 {
+			lockSQL = `UPDATE users SET failed_login_count=$1, locked_until=NOW()+INTERVAL '15 minutes' WHERE id=$2`
+		} else {
+			lockSQL = `UPDATE users SET failed_login_count=$1 WHERE id=$2`
+		}
+		go func() { _, _ = s.db.Exec(lockSQL, newCount, user.ID) }()
 		s.logAudit(&user.ID, user.Username, "login", ipAddress, userAgent, map[string]interface{}{
-			"reason": "invalid_password",
+			"reason": "invalid_password", "attempt": newCount,
 		}, false)
 		return nil, errors.New("invalid credentials")
 	}
+
+	// Reset lockout on success
+	go func() {
+		_, _ = s.db.Exec(
+			`UPDATE users SET failed_login_count=0, locked_until=NULL, last_login_at=NOW(), last_login_ip=$1 WHERE id=$2`,
+			ipAddress, user.ID,
+		)
+	}()
 
 	// Generate JWT
 	token, err := s.generateToken(user)
@@ -86,7 +113,6 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 		return nil, err
 	}
 
-	// Log successful login
 	s.logAudit(&user.ID, user.Username, "login", ipAddress, userAgent, map[string]interface{}{
 		"role": user.Role,
 	}, true)
