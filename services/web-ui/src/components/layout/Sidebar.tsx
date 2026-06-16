@@ -32,6 +32,8 @@ import {
     Gauge,
     Shield,
     LayoutTemplate,
+    Server,
+    Lock,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -87,6 +89,8 @@ const Sidebar = () => {
                 { name: t('nav.mqtt_monitor'), path: '/mqtt-monitor', icon: Radio },
                 { name: t('nav.audit_log'), path: '/audit', icon: Shield },
                 { name: 'Fleet', path: '/fleet', icon: Network },
+                { name: 'Security Center', path: '/security', icon: Lock },
+                { name: 'Infrastruttura', path: '/infrastructure', icon: Server },
             ]
             : []
         ),

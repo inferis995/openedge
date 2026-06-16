@@ -831,6 +831,24 @@ func main() {
 			i3x.POST("/properties/values", i3xHandler.BatchReadProperties)
 			i3x.POST("/alarms/:id/acknowledge", i3xHandler.AcknowledgeAlarm)
 		}
+
+		// Security Center endpoints
+		securityHandler := handlers.NewSecurityHandler(database)
+		secGrp := api.Group("/security")
+		secGrp.Use(middleware.RequireAuth)
+		{
+			secGrp.GET("/overview", securityHandler.Overview)
+			secGrp.GET("/events", securityHandler.Events)
+			secGrp.GET("/compliance", securityHandler.Compliance)
+		}
+
+		// Infrastructure overview (admin only)
+		infraHandler := handlers.NewInfrastructureHandler(database)
+		infraGrp := api.Group("/infrastructure")
+		infraGrp.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			infraGrp.GET("", infraHandler.List)
+		}
 	}
 
 	// Swagger — enabled only when SWAGGER_ENABLED=true (never in production)

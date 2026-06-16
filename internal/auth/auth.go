@@ -54,18 +54,18 @@ func (s *Service) Login(ctx context.Context, req models.LoginRequest) (*models.L
 func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ipAddress, userAgent string) (*models.LoginResponse, error) {
 	var user models.User
 	var passwordHash string
-	var failedCount int
+	var failedLoginCount int
 	var lockedUntil sql.NullTime
 
 	query := `SELECT id, username, password_hash, role, full_name, org_id, i3x_write, created_at,
-	           COALESCE(failed_login_count,0), locked_until
-	           FROM users WHERE username = $1`
+	          failed_login_count, locked_until FROM users WHERE username = $1`
 	err := s.db.QueryRowContext(ctx, query, req.Username).Scan(
 		&user.ID, &user.Username, &passwordHash, &user.Role, &user.FullName, &user.OrgID, &user.I3xWrite, &user.CreatedAt,
-		&failedCount, &lockedUntil,
+		&failedLoginCount, &lockedUntil,
 	)
 
 	if err == sql.ErrNoRows {
+		// Log failed login attempt (user not found)
 		s.logAudit(nil, req.Username, "login", ipAddress, userAgent, map[string]interface{}{
 			"reason": "user_not_found",
 		}, false)
@@ -75,37 +75,54 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 		return nil, err
 	}
 
-	// Account lockout check
+	// Check account lockout
 	if lockedUntil.Valid && lockedUntil.Time.After(time.Now()) {
 		s.logAudit(&user.ID, user.Username, "login", ipAddress, userAgent, map[string]interface{}{
-			"reason": "account_locked",
+			"reason":       "account_locked",
+			"locked_until": lockedUntil.Time.Format(time.RFC3339),
 		}, false)
-		return nil, errors.New("account temporaneamente bloccato, riprova tra qualche minuto")
+		// Log security event
+		go func() {
+			_, _ = s.db.Exec(`INSERT INTO security_events (org_id, event_type, severity, actor, resource, detail)
+				VALUES ($1, 'account_locked_attempt', 'high', $2, $3, '{}')`,
+				user.OrgID, user.Username, ipAddress)
+		}()
+		return nil, errors.New("account bloccato fino a " + lockedUntil.Time.Format("15:04:05 02/01/2006"))
 	}
 
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
-		newCount := failedCount + 1
-		var lockSQL string
+		// Increment failed login count
+		newCount := failedLoginCount + 1
 		if newCount >= 5 {
-			lockSQL = `UPDATE users SET failed_login_count=$1, locked_until=NOW()+INTERVAL '15 minutes' WHERE id=$2`
+			// Lock the account for 30 minutes
+			lockUntil := time.Now().Add(30 * time.Minute)
+			_, _ = s.db.ExecContext(ctx,
+				`UPDATE users SET failed_login_count=$1, locked_until=$2 WHERE id=$3`,
+				newCount, lockUntil, user.ID)
+			// Log security event
+			go func() {
+				_, _ = s.db.Exec(`INSERT INTO security_events (org_id, event_type, severity, actor, resource, detail)
+					VALUES ($1, 'account_locked', 'high', $2, $3, '{}')`,
+					user.OrgID, user.Username, ipAddress)
+			}()
 		} else {
-			lockSQL = `UPDATE users SET failed_login_count=$1 WHERE id=$2`
+			_, _ = s.db.ExecContext(ctx,
+				`UPDATE users SET failed_login_count=$1 WHERE id=$2`,
+				newCount, user.ID)
 		}
-		go func() { _, _ = s.db.Exec(lockSQL, newCount, user.ID) }()
+		// Log failed login attempt (wrong password)
 		s.logAudit(&user.ID, user.Username, "login", ipAddress, userAgent, map[string]interface{}{
-			"reason": "invalid_password", "attempt": newCount,
+			"reason":             "invalid_password",
+			"failed_login_count": newCount,
 		}, false)
 		return nil, errors.New("invalid credentials")
 	}
 
-	// Reset lockout on success
-	go func() {
-		_, _ = s.db.Exec(
-			`UPDATE users SET failed_login_count=0, locked_until=NULL, last_login_at=NOW(), last_login_ip=$1 WHERE id=$2`,
-			ipAddress, user.ID,
-		)
-	}()
+	// Successful login — reset lockout state and update last login info
+	_, _ = s.db.ExecContext(ctx,
+		`UPDATE users SET failed_login_count=0, locked_until=NULL, last_login_at=NOW(), last_login_ip=$1 WHERE id=$2`,
+		ipAddress, user.ID)
 
 	// Generate JWT
 	token, err := s.generateToken(user)
@@ -113,6 +130,7 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 		return nil, err
 	}
 
+	// Log successful login
 	s.logAudit(&user.ID, user.Username, "login", ipAddress, userAgent, map[string]interface{}{
 		"role": user.Role,
 	}, true)
