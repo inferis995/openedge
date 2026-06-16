@@ -88,13 +88,33 @@ interface DragState {
     origPositions: Map<string, { x: number; y: number }>;
 }
 
+interface ResizeState {
+    handleId: string;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+    origW: number;
+    origH: number;
+    widgetId: string;
+}
+
+const RESIZE_HANDLES: { id: string; xF: number; yF: number; cursor: string }[] = [
+    { id: 'nw', xF: 0,   yF: 0,   cursor: 'nw-resize' },
+    { id: 'n',  xF: 0.5, yF: 0,   cursor: 'n-resize'  },
+    { id: 'ne', xF: 1,   yF: 0,   cursor: 'ne-resize' },
+    { id: 'e',  xF: 1,   yF: 0.5, cursor: 'e-resize'  },
+    { id: 'se', xF: 1,   yF: 1,   cursor: 'se-resize' },
+    { id: 's',  xF: 0.5, yF: 1,   cursor: 's-resize'  },
+    { id: 'sw', xF: 0,   yF: 1,   cursor: 'sw-resize' },
+    { id: 'w',  xF: 0,   yF: 0.5, cursor: 'w-resize'  },
+];
+
 const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { isAdmin } = useAuthStore();
     const { selectedOrgId } = useNavigationStore();
-    const { values: liveValues, connected: wsConnected } = useRealtime(selectedOrgId ?? undefined);
-
     const [synoptic, setSynoptic] = useState<Synoptic | null>(null);
     const [widgets, setWidgets] = useState<SynopticWidget[]>([]);
     const [tags, setTags] = useState<TagWithHierarchy[]>([]);
@@ -108,6 +128,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const isEdit = mode === 'edit';
     const canvasWrapRef = useRef<HTMLDivElement>(null);
     const dragRef = useRef<DragState | null>(null);
+    const resizeRef = useRef<ResizeState | null>(null);
 
     // Undo/Redo history
     const historyRef = useRef<SynopticWidget[][]>([]);
@@ -125,6 +146,16 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         () => selectedIds.length === 1 ? (widgets.find(w => w.id === selectedIds[0]) ?? null) : null,
         [widgets, selectedIds],
     );
+
+    const canvasTagIds = useMemo(() => {
+        const ids = new Set<number>();
+        for (const w of widgets) {
+            if (w.tagId != null) ids.add(w.tagId);
+        }
+        return ids;
+    }, [widgets]);
+
+    const { values: liveValues, connected: wsConnected } = useRealtime(selectedOrgId ?? undefined, canvasTagIds);
 
     // Load synoptic + tags.
     useEffect(() => {
@@ -241,7 +272,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         const w = widgets.find(x => x.id === widgetId);
         if (!w) return;
 
-        let configPatch: Record<string, unknown> = {};
+        const configPatch: Record<string, unknown> = {};
         if (tagId != null) {
             const tag = tags.find(t => t.id === tagId);
             if (tag?.scaling_enabled) {
@@ -310,6 +341,30 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     };
     const onCanvasPointerMove = (e: React.PointerEvent) => {
+        const r = resizeRef.current;
+        if (r) {
+            const dx = (e.clientX - r.startX) / scale;
+            const dy = (e.clientY - r.startY) / scale;
+            let nx = r.origX, ny = r.origY, nw = r.origW, nh = r.origH;
+            if (r.handleId.includes('e')) {
+                nw = Math.max(SNAP, snap(r.origW + dx));
+            }
+            if (r.handleId.includes('s')) {
+                nh = Math.max(SNAP, snap(r.origH + dy));
+            }
+            if (r.handleId.includes('w')) {
+                const sdx = snap(dx);
+                nx = r.origX + sdx;
+                nw = Math.max(SNAP, r.origW - sdx);
+            }
+            if (r.handleId.includes('n')) {
+                const sdy = snap(dy);
+                ny = r.origY + sdy;
+                nh = Math.max(SNAP, r.origH - sdy);
+            }
+            setWidgets(prev => prev.map(w => w.id === r.widgetId ? { ...w, x: nx, y: ny, w: nw, h: nh } : w));
+            return;
+        }
         const d = dragRef.current;
         if (!d) return;
         const dx = (e.clientX - d.startX) / scale;
@@ -321,13 +376,14 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         }));
     };
     const onCanvasPointerUp = () => {
-        if (dragRef.current) {
-            // Push history after drag ends
+        if (resizeRef.current || dragRef.current) {
+            // Push history after drag/resize ends
             setWidgets(prev => {
                 pushHistory(prev);
                 return prev;
             });
         }
+        resizeRef.current = null;
         dragRef.current = null;
     };
 
@@ -558,6 +614,42 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         onWrite={w.tagId != null ? (v) => onWrite(w.tagId!, v) : undefined} />
                                 </div>
                             ))}
+                            {isEdit && selected && !selected.locked && selectedIds.length === 1 && RESIZE_HANDLES.map(h => {
+                                const hs = 8 / scale; // handle size in canvas-px so it's always 8 screen-px
+                                const hoff = 4 / scale;
+                                return (
+                                    <div
+                                        key={h.id}
+                                        style={{
+                                            position: 'absolute',
+                                            left: selected.x + h.xF * selected.w - hoff,
+                                            top: selected.y + h.yF * selected.h - hoff,
+                                            width: hs,
+                                            height: hs,
+                                            cursor: h.cursor,
+                                            background: 'white',
+                                            border: '1.5px solid #3b82f6',
+                                            borderRadius: 2,
+                                            zIndex: 50,
+                                            pointerEvents: isEdit ? 'auto' : 'none',
+                                        }}
+                                        onPointerDown={(e) => {
+                                            e.stopPropagation();
+                                            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                                            resizeRef.current = {
+                                                handleId: h.id,
+                                                startX: e.clientX,
+                                                startY: e.clientY,
+                                                origX: selected.x,
+                                                origY: selected.y,
+                                                origW: selected.w,
+                                                origH: selected.h,
+                                                widgetId: selected.id,
+                                            };
+                                        }}
+                                    />
+                                );
+                            })}
                         </div>
                     </div>
                 </div>
@@ -785,6 +877,45 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <input type="checkbox" id="btn-momentary" checked={!!selected.config?.momentary}
                                             onChange={e => patchConfig(selected.id, { momentary: e.target.checked })} />
                                         <Label htmlFor="btn-momentary" className="text-xs cursor-pointer">Momentaneo (premi/rilascia)</Label>
+                                    </div>
+                                )}
+
+                                {selected.type === 'button' && (
+                                    <div className="flex items-center gap-2 col-span-2">
+                                        <input type="checkbox" id="btn-confirm" checked={!!selected.config?.requireConfirm}
+                                            onChange={e => patchConfig(selected.id, { requireConfirm: e.target.checked })} />
+                                        <Label htmlFor="btn-confirm" className="text-xs cursor-pointer">Richiedi conferma</Label>
+                                    </div>
+                                )}
+
+                                {selected.type === 'image' && (
+                                    <div className="space-y-2">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Immagine</Label>
+                                            <input type="file" accept="image/*"
+                                                className="text-xs"
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (!file) return;
+                                                    const reader = new FileReader();
+                                                    reader.onload = (ev) => {
+                                                        patchConfig(selected.id, { imageUrl: ev.target?.result as string });
+                                                    };
+                                                    reader.readAsDataURL(file);
+                                                }} />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Adattamento</Label>
+                                            <Select value={String(selected.config?.imageObjectFit ?? 'fill')}
+                                                onValueChange={v => patchConfig(selected.id, { imageObjectFit: v })}>
+                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="fill">Fill</SelectItem>
+                                                    <SelectItem value="contain">Contain</SelectItem>
+                                                    <SelectItem value="cover">Cover</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
                                     </div>
                                 )}
 

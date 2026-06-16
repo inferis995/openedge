@@ -119,6 +119,7 @@ function ButtonWidget({ widget, active, color, live, onWrite }: {
 }) {
     const [sending, setSending] = useState(false);
     const [feedback, setFeedback] = useState<'ok' | 'err' | null>(null);
+    const [confirmPending, setConfirmPending] = useState(false);
     const cfg = widget.config || {};
     const isPreview = live === undefined;
     const isMomentary = !!cfg.momentary;
@@ -145,6 +146,13 @@ function ButtonWidget({ widget, active, color, live, onWrite }: {
         const writeVal = active
             ? (cfg.writeOffValue ?? 0)
             : (cfg.writeValue ?? 1);
+        if (cfg.requireConfirm && !confirmPending) {
+            setConfirmPending(true);
+            return;
+        }
+        if (confirmPending) {
+            setConfirmPending(false);
+        }
         await doWrite(writeVal);
     };
 
@@ -152,22 +160,41 @@ function ButtonWidget({ widget, active, color, live, onWrite }: {
         e.stopPropagation();
         if (!isMomentary || isPreview) return;
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-        doWrite(cfg.writeValue ?? 1);
+        void doWrite(cfg.writeValue ?? 1);
     };
 
     const handlePointerUp = (e: React.PointerEvent) => {
         e.stopPropagation();
         if (!isMomentary || isPreview) return;
-        doWrite(cfg.writeOffValue ?? 0);
+        void doWrite(cfg.writeOffValue ?? 0);
     };
 
     const borderColor = active ? color : '#475569';
     const bgColor = active ? `${color}22` : 'rgba(15,23,42,0.8)';
     const textColor = active ? color : '#94a3b8';
 
+    if (confirmPending && !isMomentary) {
+        const writeVal = active ? (cfg.writeOffValue ?? 0) : (cfg.writeValue ?? 1);
+        return (
+            <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, borderRadius: 6, border: '2px solid #f59e0b', background: 'rgba(245,158,11,0.1)' }}>
+                <span style={{ fontSize: 9, color: '#f59e0b', fontWeight: 600 }}>Confermare?</span>
+                <div style={{ display: 'flex', gap: 4 }}>
+                    <button type="button" style={{ fontSize: 9, padding: '2px 8px', borderRadius: 4, background: '#10b981', color: 'white', border: 'none', cursor: 'pointer' }}
+                        onClick={(e) => { e.stopPropagation(); setConfirmPending(false); void doWrite(writeVal); }}>
+                        Sì
+                    </button>
+                    <button type="button" style={{ fontSize: 9, padding: '2px 8px', borderRadius: 4, background: '#475569', color: 'white', border: 'none', cursor: 'pointer' }}
+                        onClick={(e) => { e.stopPropagation(); setConfirmPending(false); }}>
+                        No
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <button
-            onClick={handleClick}
+            onClick={(e) => { void handleClick(e); }}
             onPointerDown={handlePointerDown}
             onPointerUp={handlePointerUp}
             disabled={sending || isPreview}
@@ -192,6 +219,23 @@ function ButtonWidget({ widget, active, color, live, onWrite }: {
                 </>
             )}
         </button>
+    );
+}
+
+function ImageWidget({ cfg }: { cfg: SynopticWidget['config'] }) {
+    const url = cfg?.imageUrl;
+    if (!url) {
+        return (
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px dashed #475569', borderRadius: 4, background: 'rgba(15,23,42,0.5)' }}>
+                <span style={{ fontSize: 11, color: '#64748b' }}>Immagine</span>
+            </div>
+        );
+    }
+    return (
+        <img src={url} alt=""
+            style={{ width: '100%', height: '100%', objectFit: (cfg?.imageObjectFit as 'fill' | 'contain' | 'cover') ?? 'fill', display: 'block' }}
+            draggable={false}
+        />
     );
 }
 
@@ -325,6 +369,8 @@ export function SynopticWidgetView({ widget, live, onWrite }: {
             const color = cfg.color || '#3b82f6'; // blue-500 default
             return <ButtonWidget widget={widget} active={active} color={color} live={live} onWrite={onWrite} />;
         }
+        case 'image':
+            return <ImageWidget cfg={cfg} />;
         default:
             return null;
     }
@@ -343,4 +389,5 @@ export const WIDGET_CATALOG: { type: SynopticWidget['type']; label: string; need
     { type: 'button',   label: 'Button',   needsTag: true,  defaultW: 90,  defaultH: 44 },
     { type: 'pipe',     label: 'Pipe',     needsTag: false, defaultW: 120, defaultH: 14 },
     { type: 'label',    label: 'Label',    needsTag: false, defaultW: 100, defaultH: 30 },
+    { type: 'image',    label: 'Image',    needsTag: false, defaultW: 200, defaultH: 150 },
 ];

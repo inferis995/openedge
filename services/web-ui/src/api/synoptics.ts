@@ -13,7 +13,8 @@ export type SynopticWidgetType =
     | 'pipe'        // static pipe segment (no tag)
     | 'label'       // static text
     | 'bargraph'    // horizontal/vertical linear bar
-    | 'button';     // write command button (start/stop/toggle)
+    | 'button'      // write command button (start/stop/toggle)
+    | 'image';      // static image background
 
 export interface SynopticWidget {
     id: string;
@@ -39,6 +40,9 @@ export interface SynopticWidget {
         writeValue?: number;     // button: value written on activate (default 1)
         writeOffValue?: number;  // button: value written on deactivate (default 0)
         momentary?: boolean;     // button: true = write on press AND release, false = toggle
+        imageUrl?: string;         // image: data URI or URL
+        imageObjectFit?: string;   // image: 'fill' | 'contain' | 'cover'
+        requireConfirm?: boolean;  // button: ask confirmation before writing
         [key: string]: unknown;
     };
     locked?: boolean;           // prevents accidental drag in the designer
