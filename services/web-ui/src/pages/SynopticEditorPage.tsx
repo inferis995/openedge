@@ -157,6 +157,14 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
 
     const { values: liveValues, connected: wsConnected } = useRealtime(selectedOrgId ?? undefined, canvasTagIds);
 
+    // Redirect non-admin users who land directly on the /edit URL to view mode.
+    useEffect(() => {
+        if (mode === 'edit' && !isAdmin() && id) {
+            navigate(`/synoptics/${id}`, { replace: true });
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mode, id]);
+
     // Load synoptic + tags.
     useEffect(() => {
         if (!id) return;
