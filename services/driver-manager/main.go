@@ -183,6 +183,33 @@ func main() {
 	// Start polling loop
 	go manager.pollLoop()
 
+	// Local health HTTP server for Docker health checks
+	go startHealthServer(getEnv("HEALTH_PORT", "8081"))
+
+	// Heartbeat to core API (sends org status every 30s)
+	apiURL := getEnv("CORE_API_URL", "")
+	apiToken := getEnv("CORE_API_TOKEN", "")
+	agentVersion := getEnv("AGENT_VERSION", "unknown")
+	orgIDStr := getEnv("ORG_ID", "0")
+	orgIDInt := 0
+	if v, err := strconv.Atoi(orgIDStr); err == nil {
+		orgIDInt = v
+	}
+	if apiURL != "" && apiToken != "" && orgIDInt > 0 {
+		go runHeartbeat(orgIDInt, apiURL, apiToken, agentVersion)
+	}
+
+	// MQTT watchdog — reconnects if broker drops
+	brokerURL := fmt.Sprintf("tcp://%s:%d", getEnv("MQTT_HOST", "mosquitto"), getEnvInt("MQTT_PORT", 1883))
+	watchdogOpts := mqtt.NewClientOptions().
+		AddBroker(brokerURL).
+		SetClientID("driver-manager-watchdog").
+		SetAutoReconnect(true)
+	watchdogClient := mqtt.NewClient(watchdogOpts)
+	if tok := watchdogClient.Connect(); tok.Wait() && tok.Error() == nil {
+		go runMQTTWatchdog(watchdogClient, brokerURL, "driver-manager-watchdog")
+	}
+
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -1090,6 +1117,85 @@ func healthCheck(apiURL string) error {
 		return fmt.Errorf("health endpoint returned HTTP %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// runMQTTWatchdog checks MQTT connectivity every 30s and reconnects with exponential backoff.
+func runMQTTWatchdog(mqttClient mqtt.Client, brokerURL, clientID string) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		if !mqttClient.IsConnected() {
+			log.Println("[WATCHDOG] MQTT disconnected, reconnecting...")
+			for attempt, wait := 1, time.Second; attempt <= 10; attempt++ {
+				token := mqttClient.Connect()
+				token.Wait()
+				if mqttClient.IsConnected() {
+					log.Printf("[WATCHDOG] MQTT reconnected after %d attempt(s)", attempt)
+					break
+				}
+				log.Printf("[WATCHDOG] Reconnect attempt %d failed, waiting %s", attempt, wait)
+				time.Sleep(wait)
+				if wait < 60*time.Second {
+					wait *= 2
+				}
+			}
+		}
+	}
+}
+
+// runHeartbeat POSTs to core API every 30s.
+func runHeartbeat(orgID int, apiURL, apiToken, agentVersion string) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		sendHeartbeat(orgID, apiURL, apiToken, agentVersion)
+	}
+}
+
+// sendHeartbeat sends a single heartbeat POST to core API.
+func sendHeartbeat(orgID int, apiURL, apiToken, agentVersion string) {
+	body, _ := json.Marshal(map[string]interface{}{
+		"org_id":        orgID,
+		"agent_version": agentVersion,
+		"ts":            time.Now().Unix(),
+	})
+	req, err := http.NewRequest("POST", apiURL+"/api/edge/heartbeat", strings.NewReader(string(body)))
+	if err != nil {
+		log.Printf("[HEARTBEAT] Failed to build request: %v", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+apiToken)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("[HEARTBEAT] Request failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	log.Printf("[HEARTBEAT] org=%d status=%d", orgID, resp.StatusCode)
+}
+
+// startHealthServer starts a minimal HTTP server for Docker health checks.
+func startHealthServer(port string) {
+	if port == "" {
+		port = "8081"
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"ok","ts":%d}`, time.Now().Unix())
+	})
+	srv := &http.Server{
+		Addr:         ":" + port,
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+	if err := srv.ListenAndServe(); err != nil {
+		log.Printf("[HEALTH] Health server error: %v", err)
+	}
 }
 
 // postUpdateStatus sends a status update to /api/edge/update-status.

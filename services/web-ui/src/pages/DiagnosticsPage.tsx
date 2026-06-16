@@ -1,15 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Cpu, HardDrive, MemoryStick, Network as NetIcon, ServerCog } from 'lucide-react';
+import { Activity, CheckCircle, Cpu, Database, HardDrive, MemoryStick, Network as NetIcon, ServerCog, XCircle } from 'lucide-react';
 
 import { diagnosticsApi, DiskInfo, NetworkIfInfo, ServiceHealth } from '@/api/diagnostics';
+import { healthApi, SystemHealth } from '@/api/health';
 import { Badge } from '@/components/ui/badge';
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 
-// Auto-refresh interval (ms). Short enough that a disk filling fast or a
-// stuck broker becomes visible quickly; long enough not to spam.
 const REFRESH_INTERVAL = 5_000;
+const HEALTH_REFRESH_INTERVAL = 30_000;
 
 const formatBytes = (n: number): string => {
     if (n < 1024) return `${n} B`;
@@ -29,7 +29,6 @@ const formatDuration = (sec: number): string => {
     return `${m}m`;
 };
 
-// Usage colour: green up to 75, amber to 90, red above.
 const usageBarColour = (pct: number): string => {
     if (pct >= 90) return 'bg-red-500';
     if (pct >= 75) return 'bg-amber-500';
@@ -58,11 +57,79 @@ const Card = ({ icon, title, children }: { icon: React.ReactNode; title: string;
     </div>
 );
 
+const StatusIcon = ({ ok }: { ok: boolean }) =>
+    ok ? <CheckCircle size={14} className="text-emerald-500" /> : <XCircle size={14} className="text-red-500" />;
+
+const SystemHealthSection = ({ health }: { health: SystemHealth }) => (
+    <div className="space-y-2">
+        <h3 className="text-sm font-semibold text-muted-foreground">System Health</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <div className="rounded-md border bg-card p-3 flex flex-col gap-1">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Database size={12} /> DB
+                </div>
+                <div className="flex items-center gap-1">
+                    <StatusIcon ok={health.db.ok} />
+                    <span className="text-sm font-medium">{health.db.latency_ms} ms</span>
+                </div>
+                <span className="text-xs text-muted-foreground">{health.db.open_connections} conns</span>
+            </div>
+
+            <div className="rounded-md border bg-card p-3 flex flex-col gap-1">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Database size={12} /> Redis
+                </div>
+                {health.redis ? (
+                    <>
+                        <div className="flex items-center gap-1">
+                            <StatusIcon ok={health.redis.ok} />
+                            <span className="text-sm font-medium">{health.redis.latency_ms} ms</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">{health.redis.ok ? 'connected' : 'disconnected'}</span>
+                    </>
+                ) : (
+                    <span className="text-xs text-muted-foreground">not configured</span>
+                )}
+            </div>
+
+            <div className="rounded-md border bg-card p-3 flex flex-col gap-1">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <MemoryStick size={12} /> Memory
+                </div>
+                <span className="text-sm font-medium">{health.memory.alloc_mb.toFixed(1)} MB</span>
+                <span className="text-xs text-muted-foreground">GC runs: {health.memory.num_gc}</span>
+            </div>
+
+            <div className="rounded-md border bg-card p-3 flex flex-col gap-1">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <Activity size={12} /> Goroutines
+                </div>
+                <span className="text-sm font-medium">{health.goroutines}</span>
+                <span className="text-xs text-muted-foreground">active</span>
+            </div>
+
+            <div className="rounded-md border bg-card p-3 flex flex-col gap-1">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <ServerCog size={12} /> Uptime
+                </div>
+                <span className="text-sm font-medium">{formatDuration(health.uptime_seconds)}</span>
+                <span className="text-xs text-muted-foreground">API process</span>
+            </div>
+        </div>
+    </div>
+);
+
 const DiagnosticsPage = () => {
     const { data, isLoading, isError, error } = useQuery({
         queryKey: ['diagnostics'],
         queryFn: diagnosticsApi.get,
         refetchInterval: REFRESH_INTERVAL,
+    });
+
+    const { data: health } = useQuery({
+        queryKey: ['health-detailed'],
+        queryFn: healthApi.detailed,
+        refetchInterval: HEALTH_REFRESH_INTERVAL,
     });
 
     if (isLoading) return <div className="p-8 text-muted-foreground">Loading...</div>;
@@ -79,6 +146,8 @@ const DiagnosticsPage = () => {
                     Live snapshot of host hardware + back-end services. Refreshes every {REFRESH_INTERVAL / 1000}s.
                 </p>
             </div>
+
+            {health && <SystemHealthSection health={health} />}
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 

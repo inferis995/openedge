@@ -330,6 +330,9 @@ func main() {
 		slog.Info("Mosquitto Dynamic Security client ready")
 	}
 
+	// Health check handler (declared early — used both in unauthenticated /health routes and inside api group)
+	healthH := handlers.NewHealthHandler(database, redisClient)
+
 	// Create handlers with MQTT client and Redis client
 	orgsHandler := handlers.NewOrganizationsHandler(database, mqttClient, dynsecClient)
 	sitesHandler := handlers.NewSitesHandler(database, mqttClient)
@@ -868,7 +871,11 @@ func main() {
 		{
 			edgeUpdate.GET("/update-check", updatesH.EdgeUpdateCheck)
 			edgeUpdate.POST("/update-status", updatesH.EdgeUpdateStatus)
+			edgeUpdate.POST("/heartbeat", healthH.EdgeHeartbeat)
 		}
+
+		// Detailed health diagnostics (authenticated)
+		api.GET("/health/detailed", middleware.RequireAuth, healthH.Detailed)
 	}
 
 	// Swagger — enabled only when SWAGGER_ENABLED=true (never in production)
@@ -887,32 +894,9 @@ func main() {
 	// Start InfluxDB v2 push connector (no-op if influx_enabled=false in settings).
 	influxWriter = connectors.NewInfluxDBConnector(database)
 
-	// Health check endpoints (unauthenticated, for Docker/Kubernetes probes)
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
-	})
-	router.GET("/ready", func(c *gin.Context) {
-		// Check database connection
-		if err := database.Ping(); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status": "not ready",
-				"error":  "database unavailable",
-			})
-			return
-		}
-		// Check Redis connection (optional - service can run without Redis)
-		redisStatus := "available"
-		if redisClient == nil {
-			redisStatus = "unavailable"
-		}
-		c.JSON(http.StatusOK, gin.H{
-			"status": "ready",
-			"checks": gin.H{
-				"database": "available",
-				"redis":    redisStatus,
-			},
-		})
-	})
+	// Health check endpoints (unauthenticated — probed by Docker / load balancers)
+	router.GET("/health", healthH.Live)
+	router.GET("/ready", healthH.Ready)
 
 	// Start server with graceful shutdown
 	port := getEnv("PORT", "8080")

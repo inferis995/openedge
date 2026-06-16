@@ -37,7 +37,7 @@ func Connect(cfg Config) (*sql.DB, error) {
 	// ConnMaxLifetime: maximum amount of time a connection may be reused
 	db.SetConnMaxLifetime(5 * time.Minute)
 	// ConnMaxIdleTime: maximum amount of time a connection may be idle
-	db.SetConnMaxIdleTime(10 * time.Minute)
+	db.SetConnMaxIdleTime(2 * time.Minute)
 
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)

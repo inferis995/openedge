@@ -23,7 +23,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 5
-    restart: "unless-stopped"
+    restart: always
     logging:
       driver: "json-file"
       options:
@@ -44,7 +44,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: "unless-stopped"
+    restart: always
     logging:
       driver: "json-file"
       options:
@@ -123,12 +123,12 @@ services:
       mosquitto:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8081/health" ]
-      interval: 15s
+      test: [ "CMD", "wget", "-qO-", "http://localhost:8081/health" ]
+      interval: 30s
       timeout: 10s
-      start_period: 60s
-      retries: 10
-    restart: "unless-stopped"
+      retries: 3
+      start_period: 30s
+    restart: always
     logging:
       driver: "json-file"
       options:
@@ -191,11 +191,11 @@ services:
       mosquitto:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -h postgres -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge} || exit 1" ]
+      test: [ "CMD", "wget", "-qO-", "http://localhost:8081/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 30s
+      start_period: 20s
     restart: "unless-stopped"
     logging:
       driver: "json-file"
