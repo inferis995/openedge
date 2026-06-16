@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, Trash2, Loader2, Pencil, Monitor, Check, AlertTriangle, Copy } from 'lucide-react';
+import {
+    ArrowLeft, Save, Trash2, Loader2, Pencil, Monitor, Check, AlertTriangle, Copy,
+    Lock, Unlock, AlignLeft, AlignCenterHorizontal, AlignRight,
+    AlignStartVertical, AlignCenterVertical, AlignEndVertical,
+    AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
+    Maximize2, ChevronsUpDown,
+} from 'lucide-react';
 import { synopticsApi, Synoptic, SynopticWidget } from '@/api/synoptics';
 import { tagsApi } from '@/api/tags';
 import { i3xApi } from '@/api/i3x';
@@ -14,8 +20,62 @@ import { Label } from '@/components/ui/label';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+    Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from '@/components/ui/command';
 import { cn } from '@/lib/utils';
 import { SynopticWidgetView, WIDGET_CATALOG, LiveValue } from '@/components/synoptics/SynopticWidget';
+
+// Searchable tag combobox for the properties panel
+function TagCombobox({
+    tags,
+    value,
+    onChange,
+}: {
+    tags: TagWithHierarchy[];
+    value: string;
+    onChange: (val: string) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const current = value === 'none' ? null : tags.find(t => String(t.id) === value);
+    const label = current ? (current.alias || current.code) : 'Nessun tag';
+
+    return (
+        <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>
+                <Button variant="outline" role="combobox" className="h-8 text-xs w-full justify-between font-normal">
+                    <span className="truncate">{label}</span>
+                    <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 p-0" align="start">
+                <Command>
+                    <CommandInput placeholder="Cerca tag…" className="h-8 text-xs" />
+                    <CommandList>
+                        <CommandEmpty className="text-xs">Nessun tag trovato.</CommandEmpty>
+                        <CommandGroup>
+                            <CommandItem value="none" onSelect={() => { onChange('none'); setOpen(false); }}
+                                className="text-xs">
+                                Nessun tag
+                            </CommandItem>
+                            {tags.map(t => (
+                                <CommandItem key={t.id} value={`${t.alias || t.code} ${t.code}`}
+                                    onSelect={() => { onChange(String(t.id)); setOpen(false); }}
+                                    className="text-xs">
+                                    <span className="truncate">{t.alias || t.code}</span>
+                                    {t.scaling_enabled && t.eu_unit && (
+                                        <span className="ml-1 text-[10px] text-muted-foreground">[{t.eu_unit}]</span>
+                                    )}
+                                </CommandItem>
+                            ))}
+                        </CommandGroup>
+                    </CommandList>
+                </Command>
+            </PopoverContent>
+        </Popover>
+    );
+}
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const SNAP = 8; // grid snap size in canvas-pixels
@@ -213,6 +273,11 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     // canvas div to avoid losing them during fast drags.
     const onWidgetPointerDown = (e: React.PointerEvent, w: SynopticWidget) => {
         if (!isEdit) return;
+        if (w.locked) {
+            e.stopPropagation();
+            setSelectedIds([w.id]);
+            return;
+        }
         e.stopPropagation();
 
         if (e.shiftKey) {
@@ -379,12 +444,6 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         );
     }
 
-    const tagLabel = (tagId?: number | null) => {
-        if (tagId == null) return 'Nessun tag';
-        const t = tags.find(t => t.id === tagId);
-        return t ? (t.alias || t.code) : `Tag #${tagId}`;
-    };
-
     return (
         <div className="space-y-4">
             {/* Toolbar */}
@@ -423,6 +482,17 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 <span className={cn('w-1.5 h-1.5 rounded-full', wsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400')} />
                                 {wsConnected ? 'LIVE' : 'OFFLINE'}
                             </span>
+                            <Button variant="outline" size="icon" className="h-8 w-8"
+                                title="Schermo intero"
+                                onClick={() => {
+                                    if (!document.fullscreenElement) {
+                                        document.documentElement.requestFullscreen().catch(() => {});
+                                    } else {
+                                        document.exitFullscreen().catch(() => {});
+                                    }
+                                }}>
+                                <Maximize2 size={14} />
+                            </Button>
                             {isAdmin() && (
                                 <Button variant="outline" size="sm" className="gap-1" onClick={() => navigate(`/synoptics/${synoptic.id}/edit`)}>
                                     <Pencil size={15} /> Modifica
@@ -478,8 +548,10 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     key={w.id}
                                     onPointerDown={(e) => onWidgetPointerDown(e, w)}
                                     onClick={(e) => { if (isEdit) { e.stopPropagation(); } }}
-                                    className={cn('absolute select-none', isEdit && 'cursor-move',
-                                        isEdit && selectedIds.includes(w.id) && 'outline outline-2 outline-primary outline-offset-2')}
+                                    className={cn('absolute select-none',
+                                        isEdit && (w.locked ? 'cursor-default' : 'cursor-move'),
+                                        isEdit && selectedIds.includes(w.id) && 'outline outline-2 outline-primary outline-offset-2',
+                                        isEdit && w.locked && 'opacity-80')}
                                     style={{ left: w.x, top: w.y, width: w.w, height: w.h, transform: w.rotation ? `rotate(${w.rotation}deg)` : undefined }}
                                 >
                                     <SynopticWidgetView widget={w} live={tagValue(w.tagId)}
@@ -497,6 +569,70 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                         {selectedIds.length > 1 ? (
                             <div className="space-y-3">
                                 <p className="text-xs text-muted-foreground">{selectedIds.length} widget selezionati</p>
+                                {/* Align tools */}
+                                <div className="space-y-1">
+                                    <p className="text-[10px] uppercase text-muted-foreground font-semibold tracking-wider">Allinea</p>
+                                    <div className="grid grid-cols-3 gap-1">
+                                        {[
+                                            { icon: <AlignLeft size={13}/>, title: 'Sinistra', align: (ws: SynopticWidget[]) => { const min = Math.min(...ws.map(w => w.x)); return ws.map(w => ({ ...w, x: min })); } },
+                                            { icon: <AlignCenterHorizontal size={13}/>, title: 'Centro H', align: (ws: SynopticWidget[]) => { const cx = (Math.min(...ws.map(w => w.x)) + Math.max(...ws.map(w => w.x + w.w))) / 2; return ws.map(w => ({ ...w, x: Math.round(cx - w.w / 2) })); } },
+                                            { icon: <AlignRight size={13}/>, title: 'Destra', align: (ws: SynopticWidget[]) => { const max = Math.max(...ws.map(w => w.x + w.w)); return ws.map(w => ({ ...w, x: max - w.w })); } },
+                                            { icon: <AlignStartVertical size={13}/>, title: 'Alto', align: (ws: SynopticWidget[]) => { const min = Math.min(...ws.map(w => w.y)); return ws.map(w => ({ ...w, y: min })); } },
+                                            { icon: <AlignCenterVertical size={13}/>, title: 'Centro V', align: (ws: SynopticWidget[]) => { const cy = (Math.min(...ws.map(w => w.y)) + Math.max(...ws.map(w => w.y + w.h))) / 2; return ws.map(w => ({ ...w, y: Math.round(cy - w.h / 2) })); } },
+                                            { icon: <AlignEndVertical size={13}/>, title: 'Basso', align: (ws: SynopticWidget[]) => { const max = Math.max(...ws.map(w => w.y + w.h)); return ws.map(w => ({ ...w, y: max - w.h })); } },
+                                        ].map(({ icon, title, align }) => (
+                                            <Button key={title} variant="outline" size="icon" className="h-7 w-full" title={title}
+                                                onClick={() => {
+                                                    const sel = widgets.filter(w => selectedIds.includes(w.id));
+                                                    const aligned = align(sel);
+                                                    const alignedMap = new Map(aligned.map(w => [w.id, w]));
+                                                    setWidgets(prev => {
+                                                        const next = prev.map(w => alignedMap.get(w.id) ?? w);
+                                                        pushHistory(next);
+                                                        return next;
+                                                    });
+                                                }}>
+                                                {icon}
+                                            </Button>
+                                        ))}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-1 mt-1">
+                                        {[
+                                            { icon: <AlignHorizontalDistributeCenter size={13}/>, title: 'Dist. H', distribute: (ws: SynopticWidget[]) => {
+                                                const sorted = [...ws].sort((a, b) => a.x - b.x);
+                                                const minX = sorted[0].x; const maxX = sorted[sorted.length-1].x + sorted[sorted.length-1].w;
+                                                const totalW = sorted.reduce((s, w) => s + w.w, 0);
+                                                const gap = (maxX - minX - totalW) / (sorted.length - 1);
+                                                let cur = minX;
+                                                return sorted.map(w => { const r = { ...w, x: Math.round(cur) }; cur += w.w + gap; return r; });
+                                            }},
+                                            { icon: <AlignVerticalDistributeCenter size={13}/>, title: 'Dist. V', distribute: (ws: SynopticWidget[]) => {
+                                                const sorted = [...ws].sort((a, b) => a.y - b.y);
+                                                const minY = sorted[0].y; const maxY = sorted[sorted.length-1].y + sorted[sorted.length-1].h;
+                                                const totalH = sorted.reduce((s, w) => s + w.h, 0);
+                                                const gap = (maxY - minY - totalH) / (sorted.length - 1);
+                                                let cur = minY;
+                                                return sorted.map(w => { const r = { ...w, y: Math.round(cur) }; cur += w.h + gap; return r; });
+                                            }},
+                                        ].map(({ icon, title, distribute }) => (
+                                            <Button key={title} variant="outline" size="sm" className="h-7 text-xs gap-1 w-full" title={title}
+                                                disabled={selectedIds.length < 3}
+                                                onClick={() => {
+                                                    const sel = widgets.filter(w => selectedIds.includes(w.id));
+                                                    if (sel.length < 3) return;
+                                                    const distributed = distribute(sel);
+                                                    const distMap = new Map(distributed.map(w => [w.id, w]));
+                                                    setWidgets(prev => {
+                                                        const next = prev.map(w => distMap.get(w.id) ?? w);
+                                                        pushHistory(next);
+                                                        return next;
+                                                    });
+                                                }}>
+                                                {icon} {title}
+                                            </Button>
+                                        ))}
+                                    </div>
+                                </div>
                                 <Button variant="destructive" size="sm" className="w-full gap-1"
                                     onClick={() => removeWidgets(selectedIds)}>
                                     <Trash2 size={13} /> Elimina selezionati
@@ -542,6 +678,17 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                                 });
                                                 setSelectedIds([copy.id]);
                                             }}><Copy size={13} /></Button>
+                                        <Button variant="ghost" size="icon" className="h-7 w-7"
+                                            title={selected.locked ? 'Sblocca widget' : 'Blocca widget'}
+                                            onClick={() => {
+                                                setWidgets(prev => {
+                                                    const next = prev.map(w => w.id === selected.id ? { ...w, locked: !w.locked } : w);
+                                                    pushHistory(next);
+                                                    return next;
+                                                });
+                                            }}>
+                                            {selected.locked ? <Unlock size={13} /> : <Lock size={13} />}
+                                        </Button>
                                         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeWidget(selected.id)}><Trash2 size={15} /></Button>
                                     </div>
                                 </div>
@@ -549,19 +696,11 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 {WIDGET_CATALOG.find(c => c.type === selected.type)?.needsTag && (
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Tag</Label>
-                                        <Select value={selected.tagId != null ? String(selected.tagId) : 'none'}
-                                            onValueChange={v => handleTagBind(selected.id, v)}>
-                                            <SelectTrigger className="h-8 text-xs"><SelectValue>{tagLabel(selected.tagId)}</SelectValue></SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="none">Nessun tag</SelectItem>
-                                                {tags.map(t => (
-                                                    <SelectItem key={t.id} value={String(t.id)}>
-                                                        {t.alias || t.code}
-                                                        {t.scaling_enabled && t.eu_unit ? ` [${t.eu_unit}]` : ''}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                        <TagCombobox
+                                            tags={tags}
+                                            value={selected.tagId != null ? String(selected.tagId) : 'none'}
+                                            onChange={v => handleTagBind(selected.id, v)}
+                                        />
                                     </div>
                                 )}
 

@@ -41,6 +41,7 @@ export interface SynopticWidget {
         momentary?: boolean;     // button: true = write on press AND release, false = toggle
         [key: string]: unknown;
     };
+    locked?: boolean;           // prevents accidental drag in the designer
 }
 
 export interface Synoptic {
