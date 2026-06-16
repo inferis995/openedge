@@ -14,7 +14,9 @@ export type SynopticWidgetType =
     | 'label'       // static text
     | 'bargraph'    // horizontal/vertical linear bar
     | 'button'      // write command button (start/stop/toggle)
-    | 'image';      // static image background
+    | 'image'       // static image background
+    | 'clock'       // real-time clock display
+    | 'setpoint';   // numeric setpoint input with write
 
 export interface SynopticWidget {
     id: string;
@@ -43,6 +45,73 @@ export interface SynopticWidget {
         imageUrl?: string;         // image: data URI or URL
         imageObjectFit?: string;   // image: 'fill' | 'contain' | 'cover'
         requireConfirm?: boolean;  // button: ask confirmation before writing
+        opacity?: number;          // image: 0-100
+
+        // Binary widgets (indicator, pump, valve, motor, button)
+        colorOn?: string;        // color when state=1 (on). default green
+        colorOff?: string;       // color when state=0 (off). default grey
+
+        // Numeric widgets color bands (value, gauge, bargraph, tank)
+        colorBands?: Array<{ above: number; color: string }>;
+
+        // Alarm
+        blinkOnAlarm?: boolean;  // blink widget border when tag in alarm
+
+        // Value widget extras
+        showTimestamp?: boolean;
+        prefix?: string;
+        noDataText?: string;
+        bgColor?: string;
+        tagSecondary?: number;
+
+        // Indicator extras
+        indicatorShape?: string;  // 'circle' | 'square' | 'diamond'
+        blinkWhenOn?: boolean;
+        labelPosition?: string;   // 'below' | 'right' | 'left'
+
+        // Gauge extras
+        showTicks?: boolean;
+        showMinMax?: boolean;
+        arcWidth?: number;
+        showUnit?: boolean;
+
+        // Tank extras
+        tankOrientation?: string; // 'vertical' | 'horizontal'
+        showPercentage?: boolean;
+        showValue?: boolean;
+
+        // Pump/Motor extras
+        showStatus?: boolean;
+        spinSpeed?: string;  // 'slow' | 'normal' | 'fast'
+
+        // Valve extras
+        valveType?: string;   // 'butterfly' | 'gate' | 'ball'
+        tagPosition?: number; // tag id for analog position 0-100
+        showPosition?: boolean;
+
+        // Bargraph extras
+        showBarValue?: boolean;
+        showScale?: boolean;
+
+        // Button extras
+        buttonIcon?: string;  // 'play' | 'stop' | 'power' | 'reset'
+        confirmText?: string;
+        buttonShape?: string; // 'rounded' | 'rect' | 'circle'
+
+        // Label extras
+        bold?: boolean;
+        italic?: boolean;
+        textAlign?: string;   // 'left' | 'center' | 'right'
+        labelBgColor?: string;
+        tagBinding?: number;  // tag id — inserts live value into label text via {{value}}
+
+        // Pipe extras
+        flowEnabled?: boolean;
+        tagFlow?: number;       // tag id — flow animates when tag >= 1
+        flowDirection?: string; // 'right' | 'left' | 'down' | 'up'
+        strokeWidth?: number;
+        flowColor?: string;
+
         [key: string]: unknown;
     };
     locked?: boolean;           // prevents accidental drag in the designer

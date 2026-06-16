@@ -151,11 +151,39 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         const ids = new Set<number>();
         for (const w of widgets) {
             if (w.tagId != null) ids.add(w.tagId);
+            const cfg = w.config;
+            if (!cfg) continue;
+            for (const key of ['tagSecondary', 'tagFlow', 'tagPosition', 'tagBinding'] as const) {
+                const v = cfg[key];
+                if (typeof v === 'number') ids.add(v);
+            }
         }
         return ids;
     }, [widgets]);
 
     const { values: liveValues, connected: wsConnected } = useRealtime(selectedOrgId ?? undefined, canvasTagIds);
+
+    // Fetch active alarms for tags on this canvas (view mode only)
+    const [alarmTagIds, setAlarmTagIds] = useState<Set<number>>(new Set());
+
+    useEffect(() => {
+        if (mode !== 'view' || canvasTagIds.size === 0) return;
+        const fetchAlarms = async () => {
+            try {
+                const res = await fetch('/api/alarms/active', {
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token') ?? ''}` },
+                });
+                if (!res.ok) return;
+                const data = await res.json() as Array<{ tag_id?: number }>;
+                const ids = new Set<number>();
+                for (const a of data) { if (a.tag_id != null) ids.add(a.tag_id); }
+                setAlarmTagIds(ids);
+            } catch { /* ignore */ }
+        };
+        void fetchAlarms();
+        const interval = setInterval(() => void fetchAlarms(), 30_000);
+        return () => clearInterval(interval);
+    }, [mode, canvasTagIds]);
 
     // Redirect non-admin users who land directly on the /edit URL to view mode.
     useEffect(() => {
@@ -262,7 +290,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
             pushHistory(next);
             return next;
         });
-        setSelectedIds(prev => prev.filter(id => id !== wid));
+        setSelectedIds(prev => prev.filter(i => i !== wid));
     };
     const removeWidgets = (wids: string[]) => {
         const set = new Set(wids);
@@ -322,7 +350,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         if (e.shiftKey) {
             // Shift-click: toggle widget in selection (no drag)
             setSelectedIds(prev =>
-                prev.includes(w.id) ? prev.filter(id => id !== w.id) : [...prev, w.id]
+                prev.includes(w.id) ? prev.filter(i => i !== w.id) : [...prev, w.id]
             );
             return;
         }
@@ -619,6 +647,13 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     style={{ left: w.x, top: w.y, width: w.w, height: w.h, transform: w.rotation ? `rotate(${w.rotation}deg)` : undefined }}
                                 >
                                     <SynopticWidgetView widget={w} live={tagValue(w.tagId)}
+                                        liveSecondary={tagValue(
+                                            (w.config?.tagSecondary as number | null | undefined) ??
+                                            (w.config?.tagFlow as number | null | undefined) ??
+                                            (w.config?.tagPosition as number | null | undefined) ??
+                                            (w.config?.tagBinding as number | null | undefined)
+                                        )}
+                                        inAlarm={alarmTagIds.has(w.tagId ?? -1)}
                                         onWrite={w.tagId != null ? (v) => onWrite(w.tagId!, v) : undefined} />
                                 </div>
                             ))}
@@ -896,37 +931,6 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     </div>
                                 )}
 
-                                {selected.type === 'image' && (
-                                    <div className="space-y-2">
-                                        <div className="grid gap-1">
-                                            <Label className="text-xs">Immagine</Label>
-                                            <input type="file" accept="image/*"
-                                                className="text-xs"
-                                                onChange={(e) => {
-                                                    const file = e.target.files?.[0];
-                                                    if (!file) return;
-                                                    const reader = new FileReader();
-                                                    reader.onload = (ev) => {
-                                                        patchConfig(selected.id, { imageUrl: ev.target?.result as string });
-                                                    };
-                                                    reader.readAsDataURL(file);
-                                                }} />
-                                        </div>
-                                        <div className="grid gap-1">
-                                            <Label className="text-xs">Adattamento</Label>
-                                            <Select value={String(selected.config?.imageObjectFit ?? 'fill')}
-                                                onValueChange={v => patchConfig(selected.id, { imageObjectFit: v })}>
-                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="fill">Fill</SelectItem>
-                                                    <SelectItem value="contain">Contain</SelectItem>
-                                                    <SelectItem value="cover">Cover</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                        </div>
-                                    </div>
-                                )}
-
                                 {(selected.type === 'value' || selected.type === 'indicator' || selected.type === 'gauge') && (
                                     <div className="grid grid-cols-2 gap-2">
                                         <div className="grid gap-1">
@@ -958,6 +962,353 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Dimensione testo</Label>
                                         <Input className="h-8 text-xs" type="number" value={selected.config?.fontSize ?? 16} onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 16 })} />
+                                    </div>
+                                )}
+
+                                {/* ── colorOn / colorOff for binary widgets ── */}
+                                {(selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor' || selected.type === 'button') && (
+                                    <div className="grid grid-cols-2 gap-2 pt-1 border-t">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Colore ON</Label>
+                                            <input type="color" value={String(selected.config?.colorOn ?? '#10b981')} onChange={e => patchConfig(selected.id, { colorOn: e.target.value })} className="h-8 w-full rounded border bg-transparent" />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Colore OFF</Label>
+                                            <input type="color" value={String(selected.config?.colorOff ?? '#475569')} onChange={e => patchConfig(selected.id, { colorOff: e.target.value })} className="h-8 w-full rounded border bg-transparent" />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ── colorBands for numeric widgets ── */}
+                                {(selected.type === 'value' || selected.type === 'gauge' || selected.type === 'bargraph' || selected.type === 'tank') && (
+                                    <div className="space-y-1 pt-1 border-t">
+                                        <div className="flex items-center justify-between">
+                                            <Label className="text-xs">Bande colore</Label>
+                                            <Button variant="ghost" size="sm" className="h-6 px-1 text-xs"
+                                                onClick={() => {
+                                                    const bands = [...((selected.config?.colorBands as Array<{above:number;color:string}>) ?? []), { above: 0, color: '#10b981' }];
+                                                    patchConfig(selected.id, { colorBands: bands });
+                                                }}>+ Aggiungi</Button>
+                                        </div>
+                                        <p className="text-[10px] text-muted-foreground">Rosso riservato agli allarmi</p>
+                                        {((selected.config?.colorBands as Array<{above:number;color:string}>) ?? []).map((band, i) => (
+                                            <div key={i} className="flex items-center gap-1">
+                                                <input type="color" value={band.color} className="h-6 w-8 rounded cursor-pointer border"
+                                                    onChange={e => {
+                                                        const bands = [...((selected.config?.colorBands as Array<{above:number;color:string}>) ?? [])];
+                                                        bands[i] = { ...bands[i], color: e.target.value };
+                                                        patchConfig(selected.id, { colorBands: bands });
+                                                    }} />
+                                                <span className="text-[10px] text-muted-foreground">≥</span>
+                                                <Input type="number" className="h-6 text-xs flex-1" value={band.above}
+                                                    onChange={e => {
+                                                        const bands = [...((selected.config?.colorBands as Array<{above:number;color:string}>) ?? [])];
+                                                        bands[i] = { ...bands[i], above: parseFloat(e.target.value) || 0 };
+                                                        patchConfig(selected.id, { colorBands: bands });
+                                                    }} />
+                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive"
+                                                    onClick={() => {
+                                                        const bands = ((selected.config?.colorBands as Array<{above:number;color:string}>) ?? []).filter((_, j) => j !== i);
+                                                        patchConfig(selected.id, { colorBands: bands });
+                                                    }}>×</Button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* ── Value extras ── */}
+                                {selected.type === 'value' && (
+                                    <div className="space-y-2 pt-1 border-t">
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid gap-1">
+                                                <Label className="text-xs">Prefisso</Label>
+                                                <Input className="h-8 text-xs" value={String(selected.config?.prefix ?? '')} onChange={e => patchConfig(selected.id, { prefix: e.target.value || undefined })} />
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <Label className="text-xs">Testo no-dato</Label>
+                                                <Input className="h-8 text-xs" value={String(selected.config?.noDataText ?? '')} placeholder="—" onChange={e => patchConfig(selected.id, { noDataText: e.target.value || undefined })} />
+                                            </div>
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Sfondo</Label>
+                                            <input type="color" value={String(selected.config?.bgColor ?? '#0f172a')} onChange={e => patchConfig(selected.id, { bgColor: e.target.value })} className="h-8 w-full rounded border bg-transparent" />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="show-ts" checked={!!selected.config?.showTimestamp} onChange={e => patchConfig(selected.id, { showTimestamp: e.target.checked })} />
+                                            <Label htmlFor="show-ts" className="text-xs cursor-pointer">Mostra timestamp</Label>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="blink-alarm" checked={!!selected.config?.blinkOnAlarm} onChange={e => patchConfig(selected.id, { blinkOnAlarm: e.target.checked })} />
+                                            <Label htmlFor="blink-alarm" className="text-xs cursor-pointer">Lampeggia in allarme</Label>
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Tag secondario (SP)</Label>
+                                            <TagCombobox tags={tags} value={selected.config?.tagSecondary != null ? String(selected.config.tagSecondary) : 'none'} onChange={v => patchConfig(selected.id, { tagSecondary: v === 'none' ? undefined : Number(v) })} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ── Gauge extras ── */}
+                                {selected.type === 'gauge' && (
+                                    <div className="space-y-2 pt-1 border-t">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Spessore arco</Label>
+                                            <Input className="h-8 text-xs" type="number" value={selected.config?.arcWidth ?? 9} onChange={e => patchConfig(selected.id, { arcWidth: parseInt(e.target.value) || 9 })} />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="show-ticks" checked={!!selected.config?.showTicks} onChange={e => patchConfig(selected.id, { showTicks: e.target.checked })} />
+                                            <Label htmlFor="show-ticks" className="text-xs cursor-pointer">Tacche graduazione</Label>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="show-minmax" checked={!!selected.config?.showMinMax} onChange={e => patchConfig(selected.id, { showMinMax: e.target.checked })} />
+                                            <Label htmlFor="show-minmax" className="text-xs cursor-pointer">Mostra min/max</Label>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="show-unit-g" checked={!!selected.config?.showUnit} onChange={e => patchConfig(selected.id, { showUnit: e.target.checked })} />
+                                            <Label htmlFor="show-unit-g" className="text-xs cursor-pointer">Mostra unità</Label>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ── Tank extras ── */}
+                                {selected.type === 'tank' && (
+                                    <div className="space-y-2 pt-1 border-t">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Orientamento</Label>
+                                            <Select value={String(selected.config?.tankOrientation ?? 'vertical')} onValueChange={v => patchConfig(selected.id, { tankOrientation: v })}>
+                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="vertical">Verticale</SelectItem>
+                                                    <SelectItem value="horizontal">Orizzontale</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="show-pct" checked={!!selected.config?.showPercentage} onChange={e => patchConfig(selected.id, { showPercentage: e.target.checked })} />
+                                            <Label htmlFor="show-pct" className="text-xs cursor-pointer">Mostra percentuale</Label>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="show-val-t" checked={!!selected.config?.showValue} onChange={e => patchConfig(selected.id, { showValue: e.target.checked })} />
+                                            <Label htmlFor="show-val-t" className="text-xs cursor-pointer">Mostra valore EU</Label>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ── Pump/Motor extras ── */}
+                                {(selected.type === 'pump' || selected.type === 'motor') && (
+                                    <div className="space-y-2 pt-1 border-t">
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="show-status" checked={!!selected.config?.showStatus} onChange={e => patchConfig(selected.id, { showStatus: e.target.checked })} />
+                                            <Label htmlFor="show-status" className="text-xs cursor-pointer">Mostra RUN/STOP</Label>
+                                        </div>
+                                        {selected.type === 'pump' && (
+                                            <div className="grid gap-1">
+                                                <Label className="text-xs">Velocità animazione</Label>
+                                                <Select value={String(selected.config?.spinSpeed ?? 'normal')} onValueChange={v => patchConfig(selected.id, { spinSpeed: v })}>
+                                                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="slow">Lenta</SelectItem>
+                                                        <SelectItem value="normal">Normale</SelectItem>
+                                                        <SelectItem value="fast">Veloce</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* ── Valve extras ── */}
+                                {selected.type === 'valve' && (
+                                    <div className="space-y-2 pt-1 border-t">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Tipo valvola</Label>
+                                            <Select value={String(selected.config?.valveType ?? 'butterfly')} onValueChange={v => patchConfig(selected.id, { valveType: v })}>
+                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="butterfly">Farfalla</SelectItem>
+                                                    <SelectItem value="gate">Saracinesca</SelectItem>
+                                                    <SelectItem value="ball">A sfera</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Tag posizione (0-100%)</Label>
+                                            <TagCombobox tags={tags} value={selected.config?.tagPosition != null ? String(selected.config.tagPosition) : 'none'} onChange={v => patchConfig(selected.id, { tagPosition: v === 'none' ? undefined : Number(v) })} />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="show-pos" checked={!!selected.config?.showPosition} onChange={e => patchConfig(selected.id, { showPosition: e.target.checked })} />
+                                            <Label htmlFor="show-pos" className="text-xs cursor-pointer">Mostra % apertura</Label>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ── Bargraph extras ── */}
+                                {selected.type === 'bargraph' && (
+                                    <div className="space-y-2 pt-1 border-t">
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="show-bar-val" checked={!!selected.config?.showBarValue} onChange={e => patchConfig(selected.id, { showBarValue: e.target.checked })} />
+                                            <Label htmlFor="show-bar-val" className="text-xs cursor-pointer">Mostra valore sulla barra</Label>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ── Button extras ── */}
+                                {selected.type === 'button' && (
+                                    <div className="space-y-2 pt-1 border-t">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Forma</Label>
+                                            <Select value={String(selected.config?.buttonShape ?? 'rounded')} onValueChange={v => patchConfig(selected.id, { buttonShape: v })}>
+                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="rounded">Arrotondato</SelectItem>
+                                                    <SelectItem value="rect">Rettangolare</SelectItem>
+                                                    <SelectItem value="circle">Circolare</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Icona</Label>
+                                            <Select value={String(selected.config?.buttonIcon ?? '')} onValueChange={v => patchConfig(selected.id, { buttonIcon: v || undefined })}>
+                                                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Nessuna" /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="">Nessuna</SelectItem>
+                                                    <SelectItem value="play">▶ Play</SelectItem>
+                                                    <SelectItem value="stop">■ Stop</SelectItem>
+                                                    <SelectItem value="power">⏻ Power</SelectItem>
+                                                    <SelectItem value="reset">↺ Reset</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Testo conferma</Label>
+                                            <Input className="h-8 text-xs" value={String(selected.config?.confirmText ?? '')} placeholder="Confermare?" onChange={e => patchConfig(selected.id, { confirmText: e.target.value || undefined })} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ── Label extras ── */}
+                                {selected.type === 'label' && (
+                                    <div className="space-y-2 pt-1 border-t">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Allineamento</Label>
+                                            <Select value={String(selected.config?.textAlign ?? 'center')} onValueChange={v => patchConfig(selected.id, { textAlign: v })}>
+                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="left">Sinistra</SelectItem>
+                                                    <SelectItem value="center">Centro</SelectItem>
+                                                    <SelectItem value="right">Destra</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="flex items-center gap-2">
+                                                <input type="checkbox" id="label-bold" checked={!!selected.config?.bold} onChange={e => patchConfig(selected.id, { bold: e.target.checked })} />
+                                                <Label htmlFor="label-bold" className="text-xs cursor-pointer">Grassetto</Label>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <input type="checkbox" id="label-italic" checked={!!selected.config?.italic} onChange={e => patchConfig(selected.id, { italic: e.target.checked })} />
+                                                <Label htmlFor="label-italic" className="text-xs cursor-pointer">Corsivo</Label>
+                                            </div>
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Sfondo</Label>
+                                            <input type="color" value={String(selected.config?.labelBgColor ?? '#00000000')} onChange={e => patchConfig(selected.id, { labelBgColor: e.target.value })} className="h-8 w-full rounded border bg-transparent" />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Tag per {'{{value}}'}</Label>
+                                            <TagCombobox tags={tags} value={selected.config?.tagBinding != null ? String(selected.config.tagBinding) : 'none'} onChange={v => patchConfig(selected.id, { tagBinding: v === 'none' ? undefined : Number(v) })} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ── Pipe extras ── */}
+                                {selected.type === 'pipe' && (
+                                    <div className="space-y-2 pt-1 border-t">
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="flow-enabled" checked={!!selected.config?.flowEnabled} onChange={e => patchConfig(selected.id, { flowEnabled: e.target.checked })} />
+                                            <Label htmlFor="flow-enabled" className="text-xs cursor-pointer">Animazione flusso</Label>
+                                        </div>
+                                        {selected.config?.flowEnabled && (
+                                            <>
+                                                <div className="grid gap-1">
+                                                    <Label className="text-xs">Tag flusso (ON quando ≥ 1)</Label>
+                                                    <TagCombobox tags={tags} value={selected.config?.tagFlow != null ? String(selected.config.tagFlow) : 'none'} onChange={v => patchConfig(selected.id, { tagFlow: v === 'none' ? undefined : Number(v) })} />
+                                                </div>
+                                                <div className="grid gap-1">
+                                                    <Label className="text-xs">Direzione</Label>
+                                                    <Select value={String(selected.config?.flowDirection ?? 'right')} onValueChange={v => patchConfig(selected.id, { flowDirection: v })}>
+                                                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="right">→ Destra</SelectItem>
+                                                            <SelectItem value="left">← Sinistra</SelectItem>
+                                                            <SelectItem value="down">↓ Giù</SelectItem>
+                                                            <SelectItem value="up">↑ Su</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div className="grid gap-1">
+                                                    <Label className="text-xs">Colore flusso</Label>
+                                                    <input type="color" value={String(selected.config?.flowColor ?? '#ffffff')} onChange={e => patchConfig(selected.id, { flowColor: e.target.value })} className="h-8 w-full rounded border bg-transparent" />
+                                                </div>
+                                            </>
+                                        )}
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Spessore tubo (px)</Label>
+                                            <Input className="h-8 text-xs" type="number" value={selected.config?.strokeWidth ?? 20} onChange={e => patchConfig(selected.id, { strokeWidth: parseInt(e.target.value) || 20 })} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ── Image extras ── */}
+                                {selected.type === 'image' && (
+                                    <div className="space-y-2 pt-1 border-t">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Immagine</Label>
+                                            <input type="file" accept="image/*" className="text-xs text-muted-foreground"
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (!file) return;
+                                                    const reader = new FileReader();
+                                                    reader.onload = (ev) => { patchConfig(selected.id, { imageUrl: ev.target?.result as string }); };
+                                                    reader.readAsDataURL(file);
+                                                }} />
+                                            {selected.config?.imageUrl && <span className="text-[10px] text-emerald-400">✓ Caricata</span>}
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">URL immagine</Label>
+                                            <Input className="h-8 text-xs" placeholder="https://..." value={String(selected.config?.imageUrl ?? '')} onChange={e => patchConfig(selected.id, { imageUrl: e.target.value || undefined })} />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Adattamento</Label>
+                                            <Select value={String(selected.config?.imageObjectFit ?? 'fill')} onValueChange={v => patchConfig(selected.id, { imageObjectFit: v })}>
+                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="fill">Riempi</SelectItem>
+                                                    <SelectItem value="contain">Contieni</SelectItem>
+                                                    <SelectItem value="cover">Copri</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Opacità (%)</Label>
+                                            <Input className="h-8 text-xs" type="number" min={0} max={100} value={selected.config?.opacity ?? 100} onChange={e => patchConfig(selected.id, { opacity: parseInt(e.target.value) || 100 })} />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ── Clock/Setpoint: font size ── */}
+                                {(selected.type === 'clock' || selected.type === 'setpoint') && (
+                                    <div className="grid gap-1">
+                                        <Label className="text-xs">Dim. testo (px)</Label>
+                                        <Input className="h-8 text-xs" type="number" value={selected.config?.fontSize ?? 22} onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 22 })} />
+                                    </div>
+                                )}
+
+                                {/* ── Alarm blink for all tag-bound widgets ── */}
+                                {WIDGET_CATALOG.find(c => c.type === selected.type)?.needsTag && (
+                                    <div className="flex items-center gap-2 pt-1 border-t">
+                                        <input type="checkbox" id="blink-alarm-all" checked={!!selected.config?.blinkOnAlarm} onChange={e => patchConfig(selected.id, { blinkOnAlarm: e.target.checked })} />
+                                        <Label htmlFor="blink-alarm-all" className="text-xs cursor-pointer">Lampeggia in allarme</Label>
                                     </div>
                                 )}
 
