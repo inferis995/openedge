@@ -248,9 +248,10 @@ function PipeSymbol({ color, pipeShape, cfg, flowOn }: {
     );
 }
 
-function ButtonWidget({ widget, active, color, live, onWrite }: {
+function ButtonWidget({ widget, active, color, live, onWrite, onNavigate }: {
     widget: SynopticWidget; active: boolean; color: string;
     live?: LiveValue; onWrite?: (v: number) => Promise<void>;
+    onNavigate?: () => void;
 }) {
     const [sending, setSending] = useState(false);
     const [feedback, setFeedback] = useState<'ok' | 'err' | null>(null);
@@ -280,6 +281,7 @@ function ButtonWidget({ widget, active, color, live, onWrite }: {
     const handleClick = async (e: React.MouseEvent) => {
         e.stopPropagation();
         if (isMomentary) return;
+        if (!onWrite && onNavigate) { onNavigate(); return; }
         if (!onWrite || isPreview) return;
         if (cfg.requireConfirm && !confirmPending) { setConfirmPending(true); return; }
         setConfirmPending(false);
@@ -424,12 +426,13 @@ function ImageWidget({ cfg }: { cfg: SynopticWidget['config'] }) {
 
 // ── Widget dispatcher ───────────────────────────────────────────────────────
 
-export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSecondary }: {
+export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSecondary, onNavigate }: {
     widget: SynopticWidget;
     live?: LiveValue;
     onWrite?: (value: number) => Promise<void>;
     inAlarm?: boolean;
     liveSecondary?: LiveValue;
+    onNavigate?: () => void;
 }) {
     const cfg = widget.config || {};
     const n = num(live?.value);
@@ -615,7 +618,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
         case 'button': {
             const on = isOn(n, cfg);
             const color = alarm ? '#ef4444' : (cfg.color || '#3b82f6');
-            return <ButtonWidget widget={widget} active={on} color={color} live={live} onWrite={onWrite} />;
+            return <ButtonWidget widget={widget} active={on} color={color} live={live} onWrite={onWrite} onNavigate={onNavigate} />;
         }
         case 'clock':
             return <ClockWidget cfg={cfg} />;

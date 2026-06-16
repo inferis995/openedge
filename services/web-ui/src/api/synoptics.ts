@@ -97,6 +97,7 @@ export interface SynopticWidget {
         buttonIcon?: string;  // 'play' | 'stop' | 'power' | 'reset'
         confirmText?: string;
         buttonShape?: string; // 'rounded' | 'rect' | 'circle'
+        navigateSynopticId?: number; // navigate to another synoptic page on click (instead of writing)
 
         // Label extras
         bold?: boolean;

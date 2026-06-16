@@ -118,17 +118,22 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const [synoptic, setSynoptic] = useState<Synoptic | null>(null);
     const [widgets, setWidgets] = useState<SynopticWidget[]>([]);
     const [tags, setTags] = useState<TagWithHierarchy[]>([]);
+    const [synopticList, setSynopticList] = useState<Array<{id: number; name: string}>>([]);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'ok' | 'error'>('idle');
     const [loadError, setLoadError] = useState<string | null>(null);
     const [scale, setScale] = useState(1);
+    const scaleRef = useRef(scale);
 
     const isEdit = mode === 'edit';
     const canvasWrapRef = useRef<HTMLDivElement>(null);
     const dragRef = useRef<DragState | null>(null);
     const resizeRef = useRef<ResizeState | null>(null);
+
+    // Keep scaleRef in sync so pinch-zoom closure can read the current value
+    useEffect(() => { scaleRef.current = scale; }, [scale]);
 
     // Undo/Redo history
     const historyRef = useRef<SynopticWidget[][]>([]);
@@ -198,9 +203,10 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         if (!id) return;
         (async () => {
             try {
-                const [s, tagList] = await Promise.all([
+                const [s, tagList, synRes] = await Promise.all([
                     synopticsApi.get(Number(id)),
                     tagsApi.getAllWithHierarchy().catch(() => []),
+                    synopticsApi.list().catch(() => ({ items: [] })),
                 ]);
                 setSynoptic(s);
                 const initial = s.layout || [];
@@ -208,6 +214,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                 historyRef.current = [JSON.parse(JSON.stringify(initial))];
                 historyIdxRef.current = 0;
                 setTags(tagList);
+                setSynopticList(synRes.items.map(x => ({ id: x.id, name: x.name })));
             } catch (e) {
                 console.error('Failed to load synoptic', e);
                 setLoadError('Errore nel caricamento del sinottico. Riprova.');
@@ -228,6 +235,39 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         window.addEventListener('resize', recompute);
         return () => window.removeEventListener('resize', recompute);
     }, [synoptic]);
+
+    // Pinch-to-zoom for the viewer on mobile/tablet (view mode only).
+    useEffect(() => {
+        if (isEdit) return;
+        const wrapper = canvasWrapRef.current;
+        if (!wrapper) return;
+        let startDist = 0;
+        let startScale = 1;
+        const onTouchStart = (e: TouchEvent) => {
+            if (e.touches.length === 2) {
+                startDist = Math.hypot(
+                    e.touches[0].clientX - e.touches[1].clientX,
+                    e.touches[0].clientY - e.touches[1].clientY,
+                );
+                startScale = scaleRef.current;
+            }
+        };
+        const onTouchMove = (e: TouchEvent) => {
+            if (e.touches.length !== 2 || startDist === 0) return;
+            e.preventDefault();
+            const dist = Math.hypot(
+                e.touches[0].clientX - e.touches[1].clientX,
+                e.touches[0].clientY - e.touches[1].clientY,
+            );
+            setScale(Math.max(0.15, Math.min(4, startScale * (dist / startDist))));
+        };
+        wrapper.addEventListener('touchstart', onTouchStart, { passive: true });
+        wrapper.addEventListener('touchmove', onTouchMove, { passive: false });
+        return () => {
+            wrapper.removeEventListener('touchstart', onTouchStart);
+            wrapper.removeEventListener('touchmove', onTouchMove);
+        };
+    }, [isEdit]);
 
     const tagValue = useCallback((tagId?: number | null): LiveValue | undefined => {
         if (tagId == null) return undefined; // unbound widget → always preview
@@ -654,7 +694,18 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             (w.config?.tagBinding as number | null | undefined)
                                         )}
                                         inAlarm={alarmTagIds.has(w.tagId ?? -1)}
-                                        onWrite={w.tagId != null ? (v) => onWrite(w.tagId!, v) : undefined} />
+                                        onWrite={w.tagId != null && !w.config?.navigateSynopticId ? (v) => onWrite(w.tagId!, v) : undefined}
+                                        onNavigate={!isEdit && w.config?.navigateSynopticId != null
+                                            ? () => navigate(`/synoptics/${w.config!.navigateSynopticId}`)
+                                            : undefined} />
+                                    {!isEdit && alarmTagIds.has(w.tagId ?? -1) && (
+                                        <button
+                                            onClick={e => { e.stopPropagation(); navigate('/alarms'); }}
+                                            style={{ position: 'absolute', top: 2, right: 2, zIndex: 10, cursor: 'pointer', border: 'none', padding: '1px 4px', borderRadius: 3, fontSize: 8, fontWeight: 700, lineHeight: 1.4, background: 'rgba(239,68,68,0.9)', color: 'white' }}
+                                            title="Tag in allarme — clicca per vedere gli allarmi"
+                                            className="animate-pulse"
+                                        >⚠ ALM</button>
+                                    )}
                                 </div>
                             ))}
                             {isEdit && selected && !selected.locked && selectedIds.length === 1 && RESIZE_HANDLES.map(h => {
@@ -1182,6 +1233,19 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Testo conferma</Label>
                                             <Input className="h-8 text-xs" value={String(selected.config?.confirmText ?? '')} placeholder="Confermare?" onChange={e => patchConfig(selected.id, { confirmText: e.target.value || undefined })} />
+                                        </div>
+                                        <div className="grid gap-1 pt-1 border-t">
+                                            <Label className="text-xs">Naviga a sinottico</Label>
+                                            <Select value={String(selected.config?.navigateSynopticId ?? 'none')}
+                                                onValueChange={v => patchConfig(selected.id, { navigateSynopticId: v === 'none' ? undefined : Number(v) })}>
+                                                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Nessuno (scrivi tag)" /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="none">Nessuno (scrivi tag)</SelectItem>
+                                                    {synopticList.filter(s => s.id !== Number(id)).map(s => (
+                                                        <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
                                         </div>
                                     </div>
                                 )}
