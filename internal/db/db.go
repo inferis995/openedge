@@ -796,6 +796,40 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: security_events index: %v", err)
 	}
 
+	// Migration: OTA edge update system.
+	// edge_releases: super admin publishes new edge versions.
+	// org_update_approvals: per-org approval + status tracking.
+	otaUpdates := []string{
+		`CREATE TABLE IF NOT EXISTS edge_releases (
+			id SERIAL PRIMARY KEY,
+			version VARCHAR(30) NOT NULL UNIQUE,
+			release_notes TEXT NOT NULL DEFAULT '',
+			artifact_url TEXT NOT NULL,
+			sha256_checksum CHAR(64) NOT NULL,
+			published_by INT REFERENCES users(id),
+			published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			is_stable BOOLEAN NOT NULL DEFAULT TRUE
+		)`,
+		`CREATE TABLE IF NOT EXISTS org_update_approvals (
+			id SERIAL PRIMARY KEY,
+			org_id INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			release_id INT NOT NULL REFERENCES edge_releases(id),
+			approved_by INT REFERENCES users(id),
+			approved_at TIMESTAMPTZ,
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			started_at TIMESTAMPTZ,
+			completed_at TIMESTAMPTZ,
+			error_msg TEXT,
+			UNIQUE(org_id, release_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_org_approvals_org ON org_update_approvals(org_id)`,
+	}
+	for _, stmt := range otaUpdates {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			return fmt.Errorf("ota updates migration: %w", err)
+		}
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }
