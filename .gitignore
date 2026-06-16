@@ -75,6 +75,7 @@ tasks/
 # Claude local files
 .claude/*.local.md
 .claude/settings.local.json
+.claude/worktrees/
 
 # Compiled services
 services/core-api/core-api
