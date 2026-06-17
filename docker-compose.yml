@@ -1,18 +1,32 @@
-# Load environment variables from .env file (copy .env.example to .env)
-# For production: use Docker secrets or external secret management
+# OpenEdge — Self-Hosted / On-Prem
 #
-# IMPORTANT: Use 'make start' (or the commands in Makefile) to start.
-# This builds driver images first, then starts services.
-# Driver containers (modbus/redis/s7/mqtt/opcua) are NOT started here;
-# they are spawned by driver-manager only when you create a Gateway.
+# USAGE:
+#   make start          — build everything + start (HTTP on :3000)
+#   make onprem-tls     — same + HTTPS on :443 with internal CA
+#   make update         — pull latest + restart
+#
+# Cloud deployments:
+#   Coolify → docker-compose.coolify.yml
+#   VPS     → docker-compose.vps.yml
+#
+# Optional monitoring overlay:
+#   docker compose -f docker-compose.yml -f docker-compose.monitoring.yml --profile monitoring up -d
+#
+# Drivers (modbus/s7/opcua/mqtt/redis/lorawan) are built via profile "drivers"
+# but NOT started automatically — driver-manager spawns them on demand via the
+# Docker socket when you create a Gateway in the UI.
+
 services:
+
+  # ── Infrastructure ───────────────────────────────────────────────────────────
+
   postgres:
     image: timescale/timescaledb:latest-pg16
-    container_name: industrial-postgres
+    container_name: openedge-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-industrial_edge}
       POSTGRES_USER: ${POSTGRES_USER:-industrial_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — set it in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — run 'make start'}
     ports:
       - "5432:5432"
     volumes:
@@ -22,84 +36,81 @@ services:
       - ./backups:/backups
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge}" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge}"]
       interval: 10s
       timeout: 10s
       retries: 5
     restart: always
     logging:
       driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      options: {max-size: "10m", max-file: "3"}
     networks:
-      - industrial-network
+      - openedge-net
 
   redis:
     image: redis:7-alpine
-    container_name: industrial-redis
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    container_name: openedge-redis
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec",
+              "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     ports:
       - "6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: always
     logging:
       driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      options: {max-size: "10m", max-file: "3"}
     networks:
-      - industrial-network
+      - openedge-net
 
   mosquitto:
     image: eclipse-mosquitto:2
-    container_name: industrial-mosquitto
+    container_name: openedge-mosquitto
     entrypoint: ["/mosquitto/config/docker-entrypoint.sh"]
     command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
     environment:
       MQTT_ADMIN_USER: ${MQTT_ADMIN_USER:-core-api}
-      MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD:?MQTT_ADMIN_PASSWORD is required — set it in .env}
+      MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD:?MQTT_ADMIN_PASSWORD is required — run 'make start'}
     ports:
-      - "18830:1883"     # Internal MQTT broker (non-standard port to avoid conflicts)
-      - "9001:9001"      # WebSocket port
+      - "18830:1883"
+      - "9001:9001"
     volumes:
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
     healthcheck:
-      test: [ "CMD", "mosquitto_sub", "-t", "$$SYS/broker/version", "-C", "1",
-              "-i", "healthcheck", "-W", "3",
-              "-u", "${MQTT_ADMIN_USER:-core-api}",
-              "-P", "${MQTT_ADMIN_PASSWORD:-}" ]
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/broker/version", "-C", "1",
+             "-i", "healthcheck", "-W", "3",
+             "-u", "${MQTT_ADMIN_USER:-core-api}",
+             "-P", "${MQTT_ADMIN_PASSWORD:-}"]
       interval: 10s
       timeout: 10s
       retries: 5
     restart: always
     logging:
       driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      options: {max-size: "10m", max-file: "3"}
     networks:
-      - industrial-network
+      - openedge-net
+
+  # ── Application ──────────────────────────────────────────────────────────────
 
   core-api:
     build:
       context: .
       dockerfile: services/core-api/Dockerfile
     image: openedge-core-api:latest
-    container_name: industrial-core-api
+    container_name: openedge-core-api
     environment:
       DB_HOST: postgres
       DB_PORT: ${DB_PORT:-5432}
       DB_USER: ${POSTGRES_USER:-industrial_user}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-}
       DB_NAME: ${POSTGRES_DB:-industrial_edge}
       REDIS_HOST: redis
       REDIS_PORT: ${REDIS_PORT:-6379}
@@ -111,7 +122,7 @@ services:
       MQTT_PUBLIC_PORT: ${MQTT_PUBLIC_PORT:-18830}
       PORT: ${PORT:-8081}
       BACKUP_PATH: /backups
-      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — run 'make start' or set it in .env}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — run 'make start'}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -127,7 +138,7 @@ services:
       mosquitto:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://localhost:8081/health" ]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -135,25 +146,23 @@ services:
     restart: always
     logging:
       driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      options: {max-size: "10m", max-file: "3"}
     networks:
-      - industrial-network
+      - openedge-net
 
   web-ui:
     build:
       context: .
       dockerfile: services/web-ui/Dockerfile
     image: openedge-web-ui:latest
-    container_name: industrial-web-ui
+    container_name: openedge-web-ui
     ports:
       - "${WEB_UI_PORT:-3000}:80"
     depends_on:
       core-api:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/nginx-health" ]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/nginx-health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -161,30 +170,33 @@ services:
     restart: always
     logging:
       driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      options: {max-size: "10m", max-file: "3"}
     networks:
-      - industrial-network
+      - openedge-net
 
   driver-manager:
     build:
       context: .
       dockerfile: services/driver-manager/Dockerfile
-    container_name: industrial-driver-manager
+    image: openedge-driver-manager:latest
+    container_name: openedge-driver-manager
     environment:
       DB_HOST: postgres
       DB_PORT: ${DB_PORT:-5432}
       DB_USER: ${POSTGRES_USER:-industrial_user}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-}
       DB_NAME: ${POSTGRES_DB:-industrial_edge}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
       MQTT_USERNAME: ${MQTT_ADMIN_USER:-core-api}
       MQTT_PASSWORD: ${MQTT_ADMIN_PASSWORD:-}
-      # Optional: pull config from cloud API instead of local DB
-      # EDGE_API_KEY: <key generated from /api/organizations/:id/api-keys>
-      # EDGE_API_URL: https://your-openedge-domain.com
+      # Remote edge (cloud-hosted): set CORE_API_URL + CORE_API_TOKEN
+      # Leave empty for on-prem (uses local DB directly)
+      CORE_API_URL: ${CORE_API_URL:-}
+      CORE_API_TOKEN: ${CORE_API_TOKEN:-}
+      ORG_ID: ${ORG_ID:-0}
+      AGENT_VERSION: ${AGENT_VERSION:-v1.0.0}
+      HEALTH_PORT: "8081"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     extra_hosts:
@@ -195,7 +207,7 @@ services:
       mosquitto:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://localhost:8081/health" ]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -203,22 +215,21 @@ services:
     restart: always
     logging:
       driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      options: {max-size: "10m", max-file: "3"}
     networks:
-      - industrial-network
+      - openedge-net
 
   engine-historian:
     build:
       context: .
       dockerfile: services/engine-historian/Dockerfile
-    container_name: industrial-engine-historian
+    image: openedge-engine-historian:latest
+    container_name: openedge-engine-historian
     environment:
       DB_HOST: postgres
       DB_PORT: ${DB_PORT:-5432}
       DB_USER: ${POSTGRES_USER:-industrial_user}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-}
       DB_NAME: ${POSTGRES_DB:-industrial_edge}
       REDIS_HOST: redis
       REDIS_PORT: ${REDIS_PORT:-6379}
@@ -235,65 +246,105 @@ services:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -h postgres -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge} && redis-cli -h redis ping | grep -q PONG || exit 1" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
     restart: always
     logging:
       driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+      options: {max-size: "10m", max-file: "3"}
     networks:
-      - industrial-network
+      - openedge-net
 
-  # Nightly database backup. Opt-in via the "backup" profile to keep the
-  # base stack minimal for developers; production installs should enable
-  # it (the on-prem TLS overlay enables it automatically).
-  #
-  #   docker compose --profile local --profile backup up -d
-  #
-  # Encryption: leave BACKUP_AGE_RECIPIENT empty to write plaintext
-  # backups (acceptable when /backups is on an encrypted volume). Set it
-  # to an age recipient (`age-keygen -o key.txt && grep public key.txt`)
-  # for backups you intend to copy to a USB key / external NAS.
-  backup:
-    profiles: ["backup"]
-    build:
-      context: ./backup
-    image: openedge-backup:latest
-    container_name: openedge-backup
-    restart: always
+  # ── TLS reverse proxy (profile: tls) ─────────────────────────────────────────
+  # Enabled by: make onprem-tls
+  # Caddy issues a cert from its own internal CA — no internet needed.
+  # After first start: make export-root-ca → install on operator PCs once.
+  caddy:
+    profiles: ["tls"]
+    image: caddy:2
+    container_name: openedge-caddy
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "443:443/udp"
     environment:
-      PGHOST: postgres
-      PGUSER: ${POSTGRES_USER:-industrial_user}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-industrial_pass}
-      PGDATABASE: ${POSTGRES_DB:-industrial_edge}
-      BACKUP_DIR: /backups
-      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
-      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 3 * * *}
-      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
-      MQTT_HOST: mosquitto
-      MQTT_PORT: 1883
-      TZ: ${TZ:-Europe/Rome}
+      PUBLIC_HOST: ${PUBLIC_HOST:-openedge.local}
     volumes:
-      - ./backups:/backups
+      - ./caddy/Caddyfile.onprem:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
     depends_on:
-      postgres:
+      web-ui:
         condition: service_healthy
     networks:
-      - industrial-network
+      - openedge-net
+
+  # ── Drivers (profile: drivers — build-only, spawned by driver-manager) ───────
+  # These images are built but never started directly.
+  # driver-manager spawns them via Docker socket when you create a Gateway.
+  driver-modbus:
+    profiles: ["drivers"]
+    build:
+      context: .
+      dockerfile: services/driver-modbus/Dockerfile
+    image: industrial-driver-modbus:latest
+    networks:
+      - openedge-net
+
+  driver-s7:
+    profiles: ["drivers"]
+    build:
+      context: .
+      dockerfile: services/driver-s7/Dockerfile
+    image: industrial-driver-s7:latest
+    networks:
+      - openedge-net
+
+  driver-opcua:
+    profiles: ["drivers"]
+    build:
+      context: .
+      dockerfile: services/driver-opcua/Dockerfile
+    image: industrial-driver-opcua:latest
+    networks:
+      - openedge-net
+
+  driver-mqtt:
+    profiles: ["drivers"]
+    build:
+      context: .
+      dockerfile: services/driver-mqtt/Dockerfile
+    image: industrial-driver-mqtt:latest
+    networks:
+      - openedge-net
+
+  driver-redis:
+    profiles: ["drivers"]
+    build:
+      context: .
+      dockerfile: services/driver-redis/Dockerfile
+    image: industrial-driver-redis:latest
+    networks:
+      - openedge-net
+
+  driver-lorawan:
+    profiles: ["drivers"]
+    build:
+      context: .
+      dockerfile: services/driver-lorawan/Dockerfile
+    image: industrial-driver-lorawan:latest
+    networks:
+      - openedge-net
 
 networks:
-  industrial-network:
+  openedge-net:
     driver: bridge
-    name: industrial-network
+    name: openedge-net
 
 volumes:
   pgdata:
     driver: local
   redisdata:
+    driver: local
+  caddy-data:
+    driver: local
+  caddy-config:
     driver: local

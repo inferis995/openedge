@@ -353,7 +353,7 @@ sudo make install-service
 ### Cloud / SaaS
 
 ```bash
-make cloud-up           # docker-compose.cloud.yml (multi-tenant, behind Traefik)
+make vps-up             # docker-compose.vps.yml (multi-tenant, behind Traefik)
 ```
 
 For Coolify deployment: use `docker-compose.coolify.yml`.
@@ -401,7 +401,7 @@ Or manually with the cloud overlay:
 ```bash
 cp .env.cloud.example .env
 # Edit PUBLIC_HOST and ACME_EMAIL
-docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
+docker compose -f docker-compose.vps.yml up -d
 ```
 
 ---
