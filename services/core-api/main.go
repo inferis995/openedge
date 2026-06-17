@@ -876,6 +876,7 @@ func main() {
 
 		// Detailed health diagnostics (authenticated)
 		api.GET("/health/detailed", middleware.RequireAuth, healthH.Detailed)
+		api.GET("/db/stats", middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin), healthH.DBStats)
 	}
 
 	// Swagger — enabled only when SWAGGER_ENABLED=true (never in production)
@@ -890,6 +891,17 @@ func main() {
 
 	// Start background DB metrics collector (updates gauges every minute).
 	telemetry.StartDBMetricsCollector(database)
+
+	// Start historian retention worker
+	retentionDays := 365
+	var historianRetentionVal string
+	if err := database.QueryRowContext(context.Background(),
+		`SELECT value FROM global_settings WHERE key = 'historian_retention_days'`).Scan(&historianRetentionVal); err == nil {
+		if n, err := strconv.Atoi(historianRetentionVal); err == nil {
+			retentionDays = n
+		}
+	}
+	db.StartHistorianRetentionWorker(database, retentionDays)
 
 	// Start InfluxDB v2 push connector (no-op if influx_enabled=false in settings).
 	influxWriter = connectors.NewInfluxDBConnector(database)

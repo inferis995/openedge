@@ -104,6 +104,54 @@ func (h *HealthHandler) Detailed(c *gin.Context) {
 	})
 }
 
+// DBStats handles GET /api/db/stats — database size and historian statistics.
+func (h *HealthHandler) DBStats(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	var dbSizeMB float64
+	_ = h.db.QueryRowContext(ctx, `SELECT pg_database_size(current_database()) / 1048576.0`).Scan(&dbSizeMB)
+
+	var histRows int64
+	var histSizeMB float64
+	_ = h.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tag_history`).Scan(&histRows)
+	_ = h.db.QueryRowContext(ctx, `SELECT pg_total_relation_size('tag_history') / 1048576.0`).Scan(&histSizeMB)
+
+	var oldestTs, newestTs sql.NullTime
+	_ = h.db.QueryRowContext(ctx, `SELECT MIN(time), MAX(time) FROM tag_history`).Scan(&oldestTs, &newestTs)
+
+	type tableRow struct {
+		Table  string  `json:"table"`
+		Rows   int64   `json:"rows"`
+		SizeMB float64 `json:"size_mb"`
+	}
+	rows, _ := h.db.QueryContext(ctx, `
+		SELECT relname, n_live_tup, pg_total_relation_size(relid)/1048576.0
+		FROM pg_stat_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 6`)
+	var tables []tableRow
+	if rows != nil {
+		defer rows.Close()
+		for rows.Next() {
+			var t tableRow
+			_ = rows.Scan(&t.Table, &t.Rows, &t.SizeMB)
+			tables = append(tables, t)
+		}
+	}
+
+	resp := gin.H{
+		"db_size_mb":        dbSizeMB,
+		"historian_rows":    histRows,
+		"historian_size_mb": histSizeMB,
+		"tables":            tables,
+	}
+	if oldestTs.Valid {
+		resp["oldest_ts"] = oldestTs.Time
+	}
+	if newestTs.Valid {
+		resp["newest_ts"] = newestTs.Time
+	}
+	c.JSON(200, resp)
+}
+
 // EdgeHeartbeat handles POST /api/edge/heartbeat (requires auth).
 // Edge agent PINGs core API every 30s; we update gateways.last_seen_at + agent_version.
 func (h *HealthHandler) EdgeHeartbeat(c *gin.Context) {

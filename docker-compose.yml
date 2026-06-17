@@ -16,8 +16,11 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ${POSTGRES_DATA_PATH:-./data/postgres}:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro
+      - ./backups:/backups
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-industrial_user} -d ${POSTGRES_DB:-industrial_edge}" ]
       interval: 10s
@@ -33,12 +36,13 @@ services:
       - industrial-network
 
   redis:
-    image: redis/redis-stack:latest
+    image: redis:7-alpine
     container_name: industrial-redis
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
     ports:
       - "6379:6379"
     volumes:
-      - ${REDIS_DATA_PATH:-./data/redis}:/data
+      - redisdata:/data
     healthcheck:
       test: [ "CMD", "redis-cli", "ping" ]
       interval: 10s
@@ -76,7 +80,7 @@ services:
       interval: 10s
       timeout: 10s
       retries: 5
-    restart: "unless-stopped"
+    restart: always
     logging:
       driver: "json-file"
       options:
@@ -154,7 +158,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    restart: "unless-stopped"
+    restart: always
     logging:
       driver: "json-file"
       options:
@@ -196,7 +200,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
-    restart: "unless-stopped"
+    restart: always
     logging:
       driver: "json-file"
       options:
@@ -237,7 +241,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    restart: "unless-stopped"
+    restart: always
     logging:
       driver: "json-file"
       options:
@@ -262,7 +266,7 @@ services:
       context: ./backup
     image: openedge-backup:latest
     container_name: openedge-backup
-    restart: unless-stopped
+    restart: always
     environment:
       PGHOST: postgres
       PGUSER: ${POSTGRES_USER:-industrial_user}
@@ -287,3 +291,9 @@ networks:
   industrial-network:
     driver: bridge
     name: industrial-network
+
+volumes:
+  pgdata:
+    driver: local
+  redisdata:
+    driver: local

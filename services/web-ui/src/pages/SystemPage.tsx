@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { systemApi, GlobalSettings, UpdateSettingsRequest, BackupFileInfo, ServiceStatus } from '@/api/system';
+import { healthApi } from '@/api/health';
 import NotificationsSettings from '@/components/system/NotificationsSettings';
 import BackupConfig from '@/components/system/BackupConfig';
 import KPITargets from '@/components/system/KPITargets';
+import { DBStatsResponse } from '@/api/health';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -103,9 +105,18 @@ const SystemPage = () => {
     const [postRestoreLoading, setPostRestoreLoading] = useState<boolean>(false);
     const [postRestoreResults, setPostRestoreResults] = useState<ServiceStatus[] | null>(null);
 
+    // Database stats
+    const [dbStats, setDbStats] = useState<DBStatsResponse | null>(null);
+    const [dbStatsLoading, setDbStatsLoading] = useState(false);
+    const [historianRetentionDays, setHistorianRetentionDays] = useState<number>(365);
+    const [historianRetentionSaving, setHistorianRetentionSaving] = useState(false);
+
     useEffect(() => {
         loadSettings();
         loadBackupList();
+        loadDBStats();
+        const dbStatsInterval = setInterval(loadDBStats, 60000);
+        return () => clearInterval(dbStatsInterval);
     }, []);
 
     const loadSettings = async () => {
@@ -138,10 +149,27 @@ const SystemPage = () => {
             if (data.cloud_mqtt_password) setCloudMqttPassword(data.cloud_mqtt_password);
             if (data.cloud_mqtt_topic) setCloudMqttTopic(data.cloud_mqtt_topic);
 
+            if (data.historian_retention_days !== undefined) {
+                const days = parseInt(data.historian_retention_days, 10);
+                setHistorianRetentionDays(isNaN(days) ? 365 : days);
+            }
+
         } catch (error) {
             console.error('Failed to load settings:', error);
         } finally {
             setSettingsLoading(false);
+        }
+    };
+
+    const loadDBStats = async () => {
+        setDbStatsLoading(true);
+        try {
+            const data = await healthApi.dbStats();
+            setDbStats(data);
+        } catch (error) {
+            console.error('Failed to load DB stats:', error);
+        } finally {
+            setDbStatsLoading(false);
         }
     };
 
@@ -273,6 +301,19 @@ const SystemPage = () => {
         }
     };
 
+    const handleSaveHistorianRetention = async () => {
+        setHistorianRetentionSaving(true);
+        try {
+            await systemApi.updateSettings({ historian_retention_days: historianRetentionDays });
+            setMessage({ type: 'success', text: 'Historian retention saved.' });
+        } catch (error) {
+            console.error(error);
+            setMessage({ type: 'error', text: 'Failed to save historian retention.' });
+        } finally {
+            setHistorianRetentionSaving(false);
+        }
+    };
+
     const handleDeleteBackup = async (filename: string) => {
         if (confirm(`Eliminare il backup ${filename}?`)) {
             try {
@@ -330,6 +371,7 @@ const SystemPage = () => {
                         <TabsTrigger value="backup">{t('system.tab_backup')}</TabsTrigger>
                         <TabsTrigger value="kpi">{t('system.tab_kpi')}</TabsTrigger>
                         <TabsTrigger value="integrations">Integrations</TabsTrigger>
+                        <TabsTrigger value="database">Database</TabsTrigger>
                     </TabsList>
 
                     <TabsContent value="mqtt" className="space-y-6 mt-4">
@@ -983,6 +1025,162 @@ const SystemPage = () => {
 
                     <TabsContent value="integrations" className="mt-4">
                         <InfluxDBSettings initial={settings ?? undefined} onSaved={loadSettings} />
+                    </TabsContent>
+
+                    <TabsContent value="database" className="space-y-6 mt-4">
+                        {/* DB Stats Card */}
+                        <Card className="border-border shadow-sm bg-card">
+                            <CardHeader className="pb-4 border-b border-border">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                                        <HardDrive className="h-4 w-4 text-primary" />
+                                    </div>
+                                    <div>
+                                        <CardTitle className="text-base text-foreground">Database Statistics</CardTitle>
+                                        <CardDescription className="text-xs mt-0.5">Live PostgreSQL stats — refreshed every 60s</CardDescription>
+                                    </div>
+                                    <Button variant="ghost" size="icon" className="ml-auto h-8 w-8" onClick={loadDBStats} disabled={dbStatsLoading}>
+                                        <RefreshCw className={`h-4 w-4 ${dbStatsLoading ? 'animate-spin' : ''}`} />
+                                    </Button>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="pt-5 space-y-4">
+                                {dbStatsLoading && !dbStats ? (
+                                    <div className="text-sm text-muted-foreground py-4 text-center">Loading...</div>
+                                ) : dbStats ? (
+                                    <>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                            <div className="bg-muted/40 rounded-lg p-3 space-y-1">
+                                                <p className="text-xs text-muted-foreground">DB Total Size</p>
+                                                <p className="text-lg font-semibold text-foreground font-mono">{dbStats.db_size_mb.toFixed(1)} MB</p>
+                                            </div>
+                                            <div className="bg-muted/40 rounded-lg p-3 space-y-1">
+                                                <p className="text-xs text-muted-foreground">Historian Rows</p>
+                                                <p className="text-lg font-semibold text-foreground font-mono">{dbStats.historian_rows.toLocaleString()}</p>
+                                            </div>
+                                            <div className="bg-muted/40 rounded-lg p-3 space-y-1">
+                                                <p className="text-xs text-muted-foreground">Historian Size</p>
+                                                <p className="text-lg font-semibold text-foreground font-mono">{dbStats.historian_size_mb.toFixed(1)} MB</p>
+                                            </div>
+                                            {dbStats.oldest_ts && (
+                                                <div className="bg-muted/40 rounded-lg p-3 space-y-1">
+                                                    <p className="text-xs text-muted-foreground">Oldest Data</p>
+                                                    <p className="text-sm font-mono text-foreground">{formatDate(dbStats.oldest_ts)}</p>
+                                                </div>
+                                            )}
+                                            {dbStats.newest_ts && (
+                                                <div className="bg-muted/40 rounded-lg p-3 space-y-1">
+                                                    <p className="text-xs text-muted-foreground">Newest Data</p>
+                                                    <p className="text-sm font-mono text-foreground">{formatDate(dbStats.newest_ts)}</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                        {dbStats.tables && dbStats.tables.length > 0 && (
+                                            <div className="mt-4">
+                                                <p className="text-xs font-medium text-muted-foreground mb-2">Top Tables by Size</p>
+                                                <div className="border border-border rounded-lg overflow-hidden">
+                                                    <table className="w-full text-xs">
+                                                        <thead className="bg-muted/50">
+                                                            <tr>
+                                                                <th className="text-left px-3 py-2 text-muted-foreground font-medium">Table</th>
+                                                                <th className="text-right px-3 py-2 text-muted-foreground font-medium">Rows</th>
+                                                                <th className="text-right px-3 py-2 text-muted-foreground font-medium">Size MB</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody className="divide-y divide-border">
+                                                            {dbStats.tables.map((t, i) => (
+                                                                <tr key={i} className="hover:bg-muted/20">
+                                                                    <td className="px-3 py-2 font-mono text-foreground">{t.table}</td>
+                                                                    <td className="px-3 py-2 text-right text-muted-foreground">{t.rows.toLocaleString()}</td>
+                                                                    <td className="px-3 py-2 text-right text-muted-foreground">{t.size_mb.toFixed(2)}</td>
+                                                                </tr>
+                                                            ))}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    <div className="text-sm text-muted-foreground py-4 text-center">No data available</div>
+                                )}
+                            </CardContent>
+                        </Card>
+
+                        {/* Historian Retention Card */}
+                        <Card className="border-border shadow-sm bg-card">
+                            <CardHeader className="pb-4 border-b border-border">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 clip-hex bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
+                                        <Settings2 className="h-4 w-4 text-amber-500" />
+                                    </div>
+                                    <div>
+                                        <CardTitle className="text-base text-foreground">Historian Retention</CardTitle>
+                                        <CardDescription className="text-xs mt-0.5">Days to retain historian data (0 = disabled)</CardDescription>
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="pt-5 space-y-4">
+                                <div className="flex gap-3 items-center">
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        max={3650}
+                                        value={historianRetentionDays}
+                                        onChange={(e) => setHistorianRetentionDays(parseInt(e.target.value) || 0)}
+                                        className="w-40 font-mono text-sm"
+                                    />
+                                    <span className="text-sm text-muted-foreground">days</span>
+                                    <Button
+                                        onClick={handleSaveHistorianRetention}
+                                        disabled={historianRetentionSaving}
+                                        size="sm"
+                                        className="gap-2"
+                                    >
+                                        <CheckCircle className="h-3.5 w-3.5" />
+                                        {historianRetentionSaving ? 'Saving...' : 'Save'}
+                                    </Button>
+                                </div>
+                                <p className="text-xs text-muted-foreground">
+                                    Daily cleanup worker removes rows older than this threshold from <code>tag_history</code>. Set to 0 to disable.
+                                </p>
+                                <p className="text-xs text-destructive flex items-center gap-1.5">
+                                    <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                                    Deleted data cannot be recovered. Ensure backups exist before reducing retention.
+                                </p>
+                            </CardContent>
+                        </Card>
+
+                        {/* CLI Backup Card */}
+                        <Card className="border-border shadow-sm bg-card">
+                            <CardHeader className="pb-4 border-b border-border">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 clip-hex bg-muted border border-border flex items-center justify-center flex-shrink-0">
+                                        <FileArchive className="h-4 w-4 text-muted-foreground" />
+                                    </div>
+                                    <div>
+                                        <CardTitle className="text-base text-foreground">CLI Backup & Restore</CardTitle>
+                                        <CardDescription className="text-xs mt-0.5">Run on the host where Docker is running</CardDescription>
+                                    </div>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="pt-5 space-y-3">
+                                <div className="bg-muted/50 rounded-lg p-4 space-y-3 font-mono text-xs">
+                                    <div>
+                                        <p className="text-muted-foreground mb-1">Backup (optional: days to keep)</p>
+                                        <code className="text-foreground">./scripts/backup.sh [days_to_keep]</code>
+                                    </div>
+                                    <div className="border-t border-border pt-3">
+                                        <p className="text-muted-foreground mb-1">Restore from a backup file</p>
+                                        <code className="text-foreground">./scripts/restore.sh backups/openedge_YYYYMMDD_HHMMSS.sql.gz</code>
+                                    </div>
+                                    <div className="border-t border-border pt-3">
+                                        <p className="text-muted-foreground mb-1">Backup location</p>
+                                        <code className="text-foreground">./backups/</code>
+                                    </div>
+                                </div>
+                            </CardContent>
+                        </Card>
                     </TabsContent>
                 </Tabs>
 

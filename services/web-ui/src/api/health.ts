@@ -8,7 +8,18 @@ export interface SystemHealth {
   uptime_seconds: number;
 }
 
+export interface DBStatsResponse {
+  db_size_mb: number;
+  historian_rows: number;
+  historian_size_mb: number;
+  oldest_ts?: string;
+  newest_ts?: string;
+  tables: Array<{ table: string; rows: number; size_mb: number }>;
+}
+
 export const healthApi = {
   detailed: (): Promise<SystemHealth> =>
     api.get('/health/detailed').then(r => r.data),
+  dbStats: (): Promise<DBStatsResponse> =>
+    api.get('/db/stats').then(r => r.data),
 };

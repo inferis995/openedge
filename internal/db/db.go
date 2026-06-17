@@ -830,8 +830,48 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: historian retention days setting
+	historianSeed := `
+	INSERT INTO global_settings (key, value, description) VALUES
+		('historian_retention_days', '365', 'Number of days to retain historian data. 0 disables automatic cleanup.')
+	ON CONFLICT (key) DO NOTHING;`
+	if _, err := db.Exec(historianSeed); err != nil {
+		log.Printf("Warning: failed to seed historian_retention_days: %v", err)
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
+}
+
+// StartHistorianRetentionWorker runs a daily cleanup of old historian data.
+// retentionDays <= 0 disables cleanup.
+func StartHistorianRetentionWorker(db *sql.DB, retentionDays int) {
+	if retentionDays <= 0 {
+		return
+	}
+	go func() {
+		time.Sleep(5 * time.Minute) // delay initial run
+		for {
+			runHistorianCleanup(db, retentionDays)
+			time.Sleep(24 * time.Hour)
+		}
+	}()
+}
+
+func runHistorianCleanup(db *sql.DB, retentionDays int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	cutoff := time.Now().AddDate(0, 0, -retentionDays)
+	result, err := db.ExecContext(ctx, `DELETE FROM tag_history WHERE time < $1`, cutoff)
+	if err != nil {
+		log.Printf("[HISTORIAN] Cleanup error: %v", err)
+		return
+	}
+	rows, _ := result.RowsAffected()
+	if rows > 0 {
+		log.Printf("[HISTORIAN] Removed %d rows older than %d days", rows, retentionDays)
+		_, _ = db.ExecContext(ctx, `VACUUM ANALYZE tag_history`)
+	}
 }
 
 // bootstrapAdminIfMissing assicura che esista almeno un utente admin
