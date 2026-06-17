@@ -835,7 +835,7 @@ func runAutoMigrations(db *sql.DB) error {
 	INSERT INTO global_settings (key, value, description) VALUES
 		('historian_retention_days', '365', 'Number of days to retain historian data. 0 disables automatic cleanup.')
 	ON CONFLICT (key) DO NOTHING;`
-	if _, err := db.Exec(historianSeed); err != nil {
+	if _, err := db.ExecContext(context.Background(), historianSeed); err != nil {
 		log.Printf("Warning: failed to seed historian_retention_days: %v", err)
 	}
 

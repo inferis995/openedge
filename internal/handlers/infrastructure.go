@@ -10,6 +10,59 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 )
 
+// parseGatewayConnConfig extracts host/port from the JSONB connection_config field
+// and fills in default ports and TLS detection for the given entry.
+func parseGatewayConnConfig(connConfig []byte, entry *GatewayInfraEntry) {
+	var cfg map[string]interface{}
+	if len(connConfig) > 0 {
+		if err := json.Unmarshal(connConfig, &cfg); err == nil {
+			if h, ok := cfg["host"].(string); ok {
+				entry.Host = h
+			}
+			if p, ok := cfg["port"].(float64); ok {
+				entry.Port = int(p)
+			}
+		}
+	}
+	if entry.Port == 0 {
+		switch entry.DriverType {
+		case "MODBUS":
+			entry.Port = 502
+		case "OPC_UA":
+			entry.Port = 4840
+		case "S7":
+			entry.Port = 102
+		case "MQTT":
+			entry.Port = 1883
+		}
+	}
+	if entry.DriverType == "LORAWAN" {
+		entry.TLSEnabled = true
+	} else {
+		entry.TLSEnabled = entry.Port == 8883 || entry.Port == 4843
+	}
+}
+
+// computeInfraSummary aggregates online/offline/TLS/auth counts from a gateway list.
+func computeInfraSummary(gateways []GatewayInfraEntry) InfrastructureSummary {
+	s := InfrastructureSummary{Total: len(gateways)}
+	for i := range gateways {
+		g := &gateways[i]
+		if g.Online {
+			s.Online++
+		} else {
+			s.Offline++
+		}
+		if !g.TLSEnabled {
+			s.TLSMissing++
+		}
+		if g.MQTTAuth {
+			s.MQTTAuthOK++
+		}
+	}
+	return s
+}
+
 type InfrastructureHandler struct{ db *sql.DB }
 
 func NewInfrastructureHandler(db *sql.DB) *InfrastructureHandler {
@@ -82,7 +135,7 @@ func (h *InfrastructureHandler) List(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var gateways []GatewayInfraEntry
 	for rows.Next() {
@@ -111,41 +164,7 @@ func (h *InfrastructureHandler) List(c *gin.Context) {
 			entry.AgentVersion = &agentVersion.String
 		}
 
-		// Parse connection_config
-		var cfg map[string]interface{}
-		if len(connConfig) > 0 {
-			if err := json.Unmarshal(connConfig, &cfg); err == nil {
-				if h, ok := cfg["host"].(string); ok {
-					entry.Host = h
-				}
-				if p, ok := cfg["port"].(float64); ok {
-					entry.Port = int(p)
-				}
-			}
-		}
-
-		// Default port by driver
-		if entry.Port == 0 {
-			switch entry.DriverType {
-			case "MODBUS":
-				entry.Port = 502
-			case "OPC_UA":
-				entry.Port = 4840
-			case "S7":
-				entry.Port = 102
-			case "MQTT":
-				entry.Port = 1883
-			}
-		}
-
-		// TLS detection
-		switch entry.DriverType {
-		case "LORAWAN":
-			entry.TLSEnabled = true
-		default:
-			entry.TLSEnabled = entry.Port == 8883 || entry.Port == 4843
-		}
-
+		parseGatewayConnConfig(connConfig, &entry)
 		entry.MQTTAuth = true // always true since dynsec
 
 		gateways = append(gateways, entry)
@@ -155,22 +174,7 @@ func (h *InfrastructureHandler) List(c *gin.Context) {
 		gateways = []GatewayInfraEntry{}
 	}
 
-	summary := InfrastructureSummary{
-		Total: len(gateways),
-	}
-	for _, g := range gateways {
-		if g.Online {
-			summary.Online++
-		} else {
-			summary.Offline++
-		}
-		if !g.TLSEnabled {
-			summary.TLSMissing++
-		}
-		if g.MQTTAuth {
-			summary.MQTTAuthOK++
-		}
-	}
+	summary := computeInfraSummary(gateways)
 
 	c.JSON(http.StatusOK, InfrastructureResponse{
 		Gateways: gateways,

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -11,9 +12,60 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 )
 
+// countScoped runs a COUNT query scoped to global (no args) or a specific org ($1).
+func (h *SecurityHandler) countScoped(ctx context.Context, isGlobal bool, orgID *int, globalQ, orgQ string) int64 {
+	var count int64
+	if isGlobal {
+		_ = h.db.QueryRowContext(ctx, globalQ).Scan(&count)
+	} else if orgID != nil {
+		_ = h.db.QueryRowContext(ctx, orgQ, *orgID).Scan(&count)
+	}
+	return count
+}
+
+// appendEventRows runs query and appends scanned SecurityEventRows to dst.
+func (h *SecurityHandler) appendEventRows(ctx context.Context, dst []SecurityEventRow, query string, args []interface{}) []SecurityEventRow {
+	rows, err := h.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return dst
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var r SecurityEventRow
+		var orgIDScan sql.NullInt64
+		if scanErr := rows.Scan(&r.ID, &orgIDScan, &r.EventType, &r.Severity, &r.Actor, &r.Resource, &r.Detail, &r.CreatedAt); scanErr == nil {
+			if orgIDScan.Valid {
+				oid := int(orgIDScan.Int64)
+				r.OrgID = &oid
+			}
+			dst = append(dst, r)
+		}
+	}
+	return dst
+}
+
 type SecurityHandler struct{ db *sql.DB }
 
 func NewSecurityHandler(db *sql.DB) *SecurityHandler { return &SecurityHandler{db: db} }
+
+// computeSecurityScore converts a ScoreBreakdown into a 0-100 score.
+func computeSecurityScore(b ScoreBreakdown) int {
+	score := 100
+	if !b.MFAAnyAdmin {
+		score -= 15
+	}
+	if !b.StrongPasswordPolicy {
+		score -= 5
+	}
+	if !b.MQTTTLS {
+		score -= 10
+	}
+	if !b.BackupFresh {
+		score -= 10
+	}
+	return score
+}
+
 
 type ScoreBreakdown struct {
 	AuditLogging         bool `json:"audit_logging"`
@@ -59,19 +111,11 @@ func (h *SecurityHandler) Overview(c *gin.Context) {
 	}
 
 	// Check MFA
-	var mfaCount int
-	var mfaQuery string
-	var mfaArgs []interface{}
-	if isGlobal {
-		mfaQuery = `SELECT COUNT(*) FROM users WHERE role='admin' AND totp_enabled=TRUE AND org_id IS NOT NULL`
-	} else if orgIDVal != nil {
-		mfaQuery = `SELECT COUNT(*) FROM users WHERE role='admin' AND totp_enabled=TRUE AND org_id=$1`
-		mfaArgs = []interface{}{*orgIDVal}
-	}
-	if mfaQuery != "" {
-		_ = h.db.QueryRowContext(c.Request.Context(), mfaQuery, mfaArgs...).Scan(&mfaCount)
-		breakdown.MFAAnyAdmin = mfaCount > 0
-	}
+	mfaCount := h.countScoped(c.Request.Context(), isGlobal, orgIDVal,
+		`SELECT COUNT(*) FROM users WHERE role='admin' AND totp_enabled=TRUE AND org_id IS NOT NULL`,
+		`SELECT COUNT(*) FROM users WHERE role='admin' AND totp_enabled=TRUE AND org_id=$1`,
+	)
+	breakdown.MFAAnyAdmin = mfaCount > 0
 
 	// Check MQTT TLS
 	var mqttTLSVal string
@@ -89,62 +133,21 @@ func (h *SecurityHandler) Overview(c *gin.Context) {
 		}
 	}
 
-	// Compute score
-	score := 100
-	if !breakdown.MFAAnyAdmin {
-		score -= 15
-	}
-	if !breakdown.StrongPasswordPolicy {
-		score -= 5
-	}
-	if !breakdown.MQTTTLS {
-		score -= 10
-	}
-	if !breakdown.BackupFresh {
-		score -= 10
-	}
+	score := computeSecurityScore(breakdown)
 
-	// failed_logins_24h
-	var failedLogins int64
-	var flQuery string
-	var flArgs []interface{}
-	if isGlobal {
-		flQuery = `SELECT COUNT(*) FROM audit_logs WHERE action='login' AND success=FALSE AND created_at > NOW()-INTERVAL '24 hours'`
-	} else if orgIDVal != nil {
-		flQuery = `SELECT COUNT(*) FROM audit_logs WHERE action='login' AND success=FALSE AND created_at > NOW()-INTERVAL '24 hours' AND org_id=$1`
-		flArgs = []interface{}{*orgIDVal}
-	}
-	if flQuery != "" {
-		_ = h.db.QueryRowContext(c.Request.Context(), flQuery, flArgs...).Scan(&failedLogins)
-	}
-
-	// locked_accounts
-	var lockedAccounts int64
-	var laQuery string
-	var laArgs []interface{}
-	if isGlobal {
-		laQuery = `SELECT COUNT(*) FROM users WHERE locked_until > NOW() AND org_id IS NOT NULL`
-	} else if orgIDVal != nil {
-		laQuery = `SELECT COUNT(*) FROM users WHERE locked_until > NOW() AND org_id=$1`
-		laArgs = []interface{}{*orgIDVal}
-	}
-	if laQuery != "" {
-		_ = h.db.QueryRowContext(c.Request.Context(), laQuery, laArgs...).Scan(&lockedAccounts)
-	}
-
-	// security_events_24h
-	var secEvents24h int64
-	var seQuery string
-	var seArgs []interface{}
-	if isGlobal {
-		seQuery = `SELECT COUNT(*) FROM security_events WHERE created_at > NOW()-INTERVAL '24 hours'`
-	} else if orgIDVal != nil {
-		seQuery = `SELECT COUNT(*) FROM security_events WHERE created_at > NOW()-INTERVAL '24 hours' AND org_id=$1`
-		seArgs = []interface{}{*orgIDVal}
-	}
-	if seQuery != "" {
-		_ = h.db.QueryRowContext(c.Request.Context(), seQuery, seArgs...).Scan(&secEvents24h)
-	}
+	ctx := c.Request.Context()
+	failedLogins := h.countScoped(ctx, isGlobal, orgIDVal,
+		`SELECT COUNT(*) FROM audit_logs WHERE action='login' AND success=FALSE AND created_at > NOW()-INTERVAL '24 hours'`,
+		`SELECT COUNT(*) FROM audit_logs WHERE action='login' AND success=FALSE AND created_at > NOW()-INTERVAL '24 hours' AND org_id=$1`,
+	)
+	lockedAccounts := h.countScoped(ctx, isGlobal, orgIDVal,
+		`SELECT COUNT(*) FROM users WHERE locked_until > NOW() AND org_id IS NOT NULL`,
+		`SELECT COUNT(*) FROM users WHERE locked_until > NOW() AND org_id=$1`,
+	)
+	secEvents24h := h.countScoped(ctx, isGlobal, orgIDVal,
+		`SELECT COUNT(*) FROM security_events WHERE created_at > NOW()-INTERVAL '24 hours'`,
+		`SELECT COUNT(*) FROM security_events WHERE created_at > NOW()-INTERVAL '24 hours' AND org_id=$1`,
+	)
 
 	// NIS2 checks
 	nis2Total := 12
@@ -224,24 +227,10 @@ func (h *SecurityHandler) Events(c *gin.Context) {
 	}
 
 	if seQuery != "" {
-		seRows, err := h.db.QueryContext(c.Request.Context(), seQuery, seArgs...)
-		if err == nil {
-			defer seRows.Close()
-			for seRows.Next() {
-				var r SecurityEventRow
-				var orgIDScan sql.NullInt64
-				if err := seRows.Scan(&r.ID, &orgIDScan, &r.EventType, &r.Severity, &r.Actor, &r.Resource, &r.Detail, &r.CreatedAt); err == nil {
-					if orgIDScan.Valid {
-						oid := int(orgIDScan.Int64)
-						r.OrgID = &oid
-					}
-					rows = append(rows, r)
-				}
-			}
-		}
+		rows = h.appendEventRows(c.Request.Context(), rows, seQuery, seArgs)
 	}
 
-	// Synthetic events from audit_logs (login failures)
+	// Synthetic events from audit_logs (login failures).
 	var alQuery string
 	var alArgs []interface{}
 	if isGlobal {
@@ -262,21 +251,7 @@ func (h *SecurityHandler) Events(c *gin.Context) {
 	}
 
 	if alQuery != "" {
-		alRows, err := h.db.QueryContext(c.Request.Context(), alQuery, alArgs...)
-		if err == nil {
-			defer alRows.Close()
-			for alRows.Next() {
-				var r SecurityEventRow
-				var orgIDScan sql.NullInt64
-				if err := alRows.Scan(&r.ID, &orgIDScan, &r.EventType, &r.Severity, &r.Actor, &r.Resource, &r.Detail, &r.CreatedAt); err == nil {
-					if orgIDScan.Valid {
-						oid := int(orgIDScan.Int64)
-						r.OrgID = &oid
-					}
-					rows = append(rows, r)
-				}
-			}
-		}
+		rows = h.appendEventRows(c.Request.Context(), rows, alQuery, alArgs)
 	}
 
 	// Sort by created_at desc and limit
@@ -348,14 +323,14 @@ func (h *SecurityHandler) Compliance(c *gin.Context) {
 		mqttPassed = mqttTLSVal == "true"
 	}
 
-	mfaDetail := "MFA non configurato su nessun admin"
+	mfaDetail := "MFA non attivato su nessun admin"
 	if mfaPassed {
 		mfaDetail = fmt.Sprintf("%d admin con MFA abilitato", mfaCount)
 	}
 
 	checks := []ComplianceCheck{
 		{ID: "risk_management", Name: "Gestione del rischio", Article: "Art. 21(2)(a)", Passed: true, Detail: "Audit log attivo"},
-		{ID: "incident_handling", Name: "Gestione incidenti", Article: "Art. 21(2)(b)", Passed: false, Detail: "Nessun workflow di incident report configurato"},
+		{ID: "incident_handling", Name: "Gestione incidenti", Article: "Art. 21(2)(b)", Passed: false, Detail: "Nessun workflow di incident report attivo"},
 		{ID: "business_continuity", Name: "Continuità operativa", Article: "Art. 21(2)(c)", Passed: backupPassed, Detail: "Backup con verifica integrità SHA-256"},
 		{ID: "supply_chain", Name: "Sicurezza supply chain", Article: "Art. 21(2)(d)", Passed: false, Detail: "Versioni componenti edge non monitorate"},
 		{ID: "network_security", Name: "Sicurezza di rete", Article: "Art. 21(2)(e)", Passed: mqttPassed, Detail: "MQTT non cifrato (TLS assente)"},
@@ -364,7 +339,7 @@ func (h *SecurityHandler) Compliance(c *gin.Context) {
 		{ID: "cryptography", Name: "Crittografia", Article: "Art. 21(2)(h)", Passed: true, Detail: "Bcrypt password, SHA-256 backup, JWT HS256"},
 		{ID: "vulnerability_mgmt", Name: "Gestione vulnerabilità", Article: "Art. 21(2)(e)", Passed: false, Detail: "Nessun monitoraggio versioni/CVE"},
 		{ID: "audit_logging", Name: "Logging e monitoraggio", Article: "Art. 21(2)(f)", Passed: true, Detail: "Audit log completo con IP e user agent"},
-		{ID: "account_security", Name: "Sicurezza account", Article: "Art. 21(2)(i)", Passed: true, Detail: "Rate limiting login + lockout automatico"},
+		{ID: "account_security", Name: "Sicurezza account", Article: "Art. 21(2)(i)", Passed: true, Detail: "Rate limiting login + lockout attivo"},
 		{ID: "data_protection", Name: "Protezione dati", Article: "Art. 21(2)(h)", Passed: true, Detail: "Backup con hash integrità, password hashed"},
 	}
 

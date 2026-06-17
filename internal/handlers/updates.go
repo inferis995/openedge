@@ -54,7 +54,7 @@ func (h *UpdatesHandler) ListReleases(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type releaseRow struct {
 		ID           int    `json:"id"`
@@ -151,7 +151,7 @@ func (h *UpdatesHandler) CreateRelease(c *gin.Context) {
 			log.Printf("[UPDATES] failed to fetch orgs for release %d: %v", releaseID, err)
 			return
 		}
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var orgID int
 			if err := rows.Scan(&orgID); err != nil {
@@ -207,7 +207,7 @@ func (h *UpdatesHandler) GetFleetUpdateStatus(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	type fleetRow struct {
 		OrgID       int        `json:"org_id"`
@@ -354,8 +354,8 @@ func (h *UpdatesHandler) ApproveUpdate(c *gin.Context) {
 	var body struct {
 		ReleaseID int `json:"release_id" binding:"required"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if bindErr := c.ShouldBindJSON(&body); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
 		return
 	}
 

@@ -24,8 +24,7 @@ func Apply(raw interface{}, cfg Config) interface{} {
 	}
 
 	// Boolean inversion — linear scaling makes no sense for BOOL.
-	switch v := raw.(type) {
-	case bool:
+	if v, ok := raw.(bool); ok {
 		if cfg.Invert {
 			return !v
 		}

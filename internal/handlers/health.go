@@ -129,7 +129,7 @@ func (h *HealthHandler) DBStats(c *gin.Context) {
 		FROM pg_stat_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 6`)
 	var tables []tableRow
 	if rows != nil {
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var t tableRow
 			_ = rows.Scan(&t.Table, &t.Rows, &t.SizeMB)

@@ -83,7 +83,7 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 		}, false)
 		// Log security event
 		go func() {
-			_, _ = s.db.Exec(`INSERT INTO security_events (org_id, event_type, severity, actor, resource, detail)
+			_, _ = s.db.ExecContext(context.Background(), `INSERT INTO security_events (org_id, event_type, severity, actor, resource, detail)
 				VALUES ($1, 'account_locked_attempt', 'high', $2, $3, '{}')`,
 				user.OrgID, user.Username, ipAddress)
 		}()
@@ -102,7 +102,7 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 				newCount, lockUntil, user.ID)
 			// Log security event
 			go func() {
-				_, _ = s.db.Exec(`INSERT INTO security_events (org_id, event_type, severity, actor, resource, detail)
+				_, _ = s.db.ExecContext(context.Background(), `INSERT INTO security_events (org_id, event_type, severity, actor, resource, detail)
 					VALUES ($1, 'account_locked', 'high', $2, $3, '{}')`,
 					user.OrgID, user.Username, ipAddress)
 			}()
