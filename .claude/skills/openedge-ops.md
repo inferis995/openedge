@@ -1,8 +1,8 @@
 ---
 name: openedge-ops
-description: OpenEdge Operations — installa OpenEdge in produzione (Coolify/VPS/on-prem), gestisci organizzazioni, invita utenti, configura gateway/tag, webhook, troubleshoot container/driver/DB, backup/restore. Multi-tenant SaaS.
-version: 4.0.0
-tags: [industrial, iot, devops, docker, deploy, coolify, traefik, saas, multi-tenant, install, troubleshoot, mqtt, webhooks, invites]
+description: OpenEdge Operations — installa OpenEdge in produzione (Coolify/VPS/on-prem), gestisci organizzazioni, invita utenti, configura gateway/tag, webhook, troubleshoot container/driver/DB, backup/restore. Multi-tenant SaaS. on-prem, self-hosted, security-center, ota-updates, backup, monitoring, health-checks.
+version: 4.1.0
+tags: [industrial, iot, devops, docker, deploy, coolify, traefik, saas, multi-tenant, install, troubleshoot, mqtt, webhooks, invites, on-prem, self-hosted, security-center, ota-updates, backup, monitoring, health-checks]
 requires: [docker, curl, git]
 ---
 
@@ -95,6 +95,91 @@ make start     # genera .env, builda immagini, avvia tutto
 ```
 
 **Windows**: doppio click su `openedge.bat` → menù interattivo.
+
+---
+
+## On-Prem (factory / self-hosted — raccomandato per clienti industriali)
+
+Tutto gira sulla macchina del cliente. Nessuna dipendenza cloud. Compatibile air-gap.
+
+### Linux (raccomandato)
+
+```bash
+# 1. Prerequisiti: Docker 24+, Docker Compose plugin
+curl -fsSL https://get.docker.com | bash
+
+# 2. Clona il repo
+git clone https://github.com/inferis995/openedge.git /opt/openedge
+cd /opt/openedge
+
+# 3. Configura (auto-genera JWT_SECRET)
+make setup-env
+# Modifica .env: imposta POSTGRES_PASSWORD, MQTT_ADMIN_PASSWORD, PUBLIC_HOST
+
+# 4. Build e avvio
+make start
+# Web UI: http://localhost:3000
+# API:    http://localhost:8081
+# Login di default: admin / admin123 (CAMBIA SUBITO)
+
+# 5. Abilita HTTPS con CA interna (raccomandato)
+make onprem-tls
+# Caddy emette un certificato self-signed per PUBLIC_HOST (es. openedge.local)
+# Esporta e installa la CA su ogni PC operatore:
+make export-root-ca
+
+# 6. Installa come servizio di sistema (auto-start al boot, sopravvive ai riavvii)
+sudo make install-service
+```
+
+### Windows (PC industriale)
+
+```powershell
+# Da PowerShell elevato nella cartella del repo:
+.\windows\install-service.ps1
+# Registra "OpenEdge" come Windows Service usando WinSW
+# Si avvia automaticamente al boot, prima del login utente
+# Log: .\logs\openedge.out.log
+
+# Verifica:
+Get-Service OpenEdge
+```
+
+### Monitoring On-Prem
+
+```bash
+# Avvia Prometheus + Grafana + Loki (metriche, dashboard, log)
+docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml --profile monitoring up -d
+# Grafana:    http://localhost:3030 (admin/admin)
+# Prometheus: http://localhost:9090
+# Metriche esposte su: http://localhost:8081/metrics
+```
+
+### Backup & Restore
+
+```bash
+# Backup manuale (aggiunge timestamp, rotazione 30 giorni di default)
+./scripts/backup.sh 30
+
+# Backup schedulato: aggiungi al crontab
+echo "0 3 * * * /opt/openedge/scripts/backup.sh 30" | crontab -
+
+# Restore (5 secondi di warning prima di sovrascrivere)
+./scripts/restore.sh backups/openedge_20260617_030000.sql.gz
+```
+
+### Health Checks
+
+```bash
+# Liveness (sempre 200 se il processo è vivo)
+curl http://localhost:8081/health
+
+# Readiness (controlla DB + Redis)
+curl http://localhost:8081/ready
+
+# Diagnostica completa (richiede token auth)
+curl -H "Authorization: Bearer TOKEN" http://localhost:8081/api/health/detailed
+```
 
 ---
 
@@ -541,6 +626,71 @@ make restart       # stop + start
 make logs          # tutti i log
 make monitoring-up # avvia stack monitoraggio
 ```
+
+---
+
+## Security Center
+
+La dashboard Security Center (solo admin, `/security`) fornisce:
+- Punteggio di sicurezza 0-100 con breakdown
+- Checklist di conformità NIS2 Art. 21 (12 controlli)
+- Feed eventi di sicurezza (blocchi account, tentativi di login falliti)
+- Inventario infrastruttura con stato TLS/auth
+
+### Blocco account
+5 tentativi di login falliti → blocco di 30 minuti. Si resetta automaticamente al login corretto.
+L'admin può sbloccare tramite: `PUT /api/users/:id` (impostare `locked_until: null`).
+
+### OTA Edge Updates (super admin)
+
+1. Il super admin pubblica una release: UI → Releases → "Pubblica Release"
+   - Richiede: versione, URL artifact, checksum SHA256 (64 caratteri hex)
+   - Crea automaticamente un'approvazione `pending` per ogni org
+
+2. L'org admin approva: banner dashboard "Aggiornamento vX.X.X disponibile" → "Rivedi & Approva"
+
+3. L'edge agent (driver-manager) controlla `/api/edge/update-check` ogni 5 minuti
+   - Se `approved=true`: scarica l'artifact, verifica SHA256, applica l'aggiornamento
+   - Health check post-aggiornamento → rollback automatico in caso di errore
+   - Riporta lo stato: `updating` → `success` oppure `rolled_back`
+
+Stato della flotta: UI → Releases → tabella Fleet Status
+
+---
+
+## Amministrazione Multi-Tenant
+
+### Ciclo di vita tenant
+
+```bash
+# 1. Crea org (super admin)
+POST /api/organizations
+{"name": "Acme Industries"}
+
+# 2. Invita org admin
+POST /api/organizations/:id/invites
+{"email": "admin@acme.com", "role": "admin"}
+# L'utente riceve un'email con il link di registrazione
+
+# 3. Deploy edge: l'org admin scarica l'installer
+GET /api/organizations/:id/edge-installer
+# Restituisce un ZIP con docker-compose pre-configurato per l'org
+
+# 4. Monitora tutte le org (super admin)
+GET /api/fleet/status          # tutti gli edge online/offline
+GET /api/infrastructure        # tutti i gateway con IP/stato TLS
+GET /api/security/overview     # punteggio di sicurezza globale
+```
+
+### Isolamento Org
+- Tutti i dati filtrati per `org_id` — nessuna fuga di dati cross-tenant
+- Credenziali MQTT per-org (DynSec ACL)
+- Header X-Organization-ID validato contro JWT — spoofing bloccato a livello middleware
+- Admin globale: `role=admin` AND `org_id IS NULL` nel JWT
+
+### Retention Storico (per deployment)
+Configurabile da UI → System → Database → Retention Days (default 365).
+Un worker gira ogni giorno: cancella le righe vecchie + VACUUM ANALYZE automatico.
 
 ---
 

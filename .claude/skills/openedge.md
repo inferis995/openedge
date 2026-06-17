@@ -1,8 +1,8 @@
 ---
 name: openedge
-description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, OEE via REST + i3X. Multi-tenant SaaS: ogni org è isolata. Usa openedge-ops per deploy/configurazione.
-version: 4.0.0
-tags: [industrial, iot, alarms, historian, timeseries, scada, i3x, cesmii, monitoring, multi-tenant, saas, oee, webhooks]
+description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, OEE via REST + i3X. Multi-tenant SaaS: ogni org è isolata. Security Center, infrastruttura, fleet status, health endpoints, OTA update check, edge heartbeat. Usa openedge-ops per deploy/configurazione.
+version: 4.1.0
+tags: [industrial, iot, alarms, historian, timeseries, scada, i3x, cesmii, monitoring, multi-tenant, saas, oee, webhooks, security, nis2, infrastructure, health, ota, fleet]
 ---
 
 # OpenEdge — Skill di monitoraggio e controllo
@@ -501,6 +501,54 @@ Risposta:
 Azioni disponibili:
 ```
 GET /api/audit/actions
+```
+
+---
+
+## 12. Security Center API
+
+```
+GET /api/security/overview     # punteggio, NIS2 passed/total, eventi 24h
+GET /api/security/events       # feed eventi di sicurezza (?limit=50)
+GET /api/security/compliance   # checklist NIS2 a 12 punti
+
+GET /api/infrastructure        # tutti i gateway: IP, porta, TLS, stato online
+GET /api/db/stats              # dimensione DB, righe historian, dimensioni tabelle
+
+GET /api/releases              # release edge disponibili (super admin)
+GET /api/releases/fleet        # stato aggiornamento per-org (super admin)
+GET /api/organizations/:id/update  # aggiornamento pending per questa org
+```
+
+---
+
+## 13. Health Endpoints (non autenticati)
+
+```
+GET /health           # liveness: sempre 200 {"status":"ok","ts":...}
+GET /ready            # readiness: 200 se DB+Redis ok, 503 se non ok
+GET /api/health/detailed   # diagnostica completa (richiede auth)
+```
+
+Risposta `/api/health/detailed`:
+```json
+{
+  "db": {"ok": true, "latency_ms": 2, "open_connections": 5, "in_use": 1},
+  "redis": {"ok": true, "latency_ms": 1},
+  "memory": {"alloc_mb": 45.2, "sys_mb": 120.0, "num_gc": 12},
+  "goroutines": 42,
+  "uptime_seconds": 86400
+}
+```
+
+---
+
+## 14. Edge Heartbeat & Stato
+
+```
+POST /api/edge/heartbeat          # l'edge agent fa PING ogni 30s
+POST /api/edge/update-status      # l'edge riporta lo stato dell'aggiornamento OTA
+GET  /api/edge/update-check       # l'edge controlla se ci sono aggiornamenti approvati
 ```
 
 ---
