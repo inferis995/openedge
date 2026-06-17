@@ -1,8 +1,9 @@
-.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux lint lint-go lint-frontend test test-go test-frontend test-coverage swagger hooks-install vps-up vps-down vps-logs vps-status monitoring-up monitoring-down monitoring-logs
+.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux lint lint-go lint-frontend test test-go test-frontend test-coverage swagger hooks-install vps-up vps-up-edge vps-down vps-logs vps-status coolify-build coolify-up coolify-down monitoring-up monitoring-down monitoring-logs
 
 COMPOSE         = docker compose
 COMPOSE_TLS     = docker compose --profile tls
-COMPOSE_VPS     = docker compose -f docker-compose.vps.yml
+COMPOSE_VPS          = docker compose -f docker-compose.yml -f docker-compose.vps.yml
+COMPOSE_VPS_EDGE     = docker compose -f docker-compose.yml -f docker-compose.vps.yml --profile edge
 COMPOSE_COOLIFY = docker compose -f docker-compose.coolify.yml
 COMPOSE_MONITORING = docker compose --profile monitoring
 
@@ -149,9 +150,19 @@ vps-init: setup-env
 
 ## Start the VPS stack (Traefik + Let's Encrypt + all services)
 vps-up: setup-env
+	$(COMPOSE_VPS) build
 	$(COMPOSE_VPS) up -d
 	@echo ""
 	@echo "OpenEdge VPS stack started."
+	@echo "  Web UI: https://$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'your-domain')"
+	@echo "  MQTT:   mqtts://$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'your-domain'):8883"
+
+## Start the VPS stack + edge (driver-manager on the same VPS — all-in-one cloud)
+vps-up-edge: setup-env
+	$(COMPOSE_VPS_EDGE) build
+	$(COMPOSE_VPS_EDGE) up -d
+	@echo ""
+	@echo "OpenEdge VPS + Edge stack started (server + drivers on same machine)."
 	@echo "  Web UI: https://$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'your-domain')"
 	@echo "  MQTT:   mqtts://$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'your-domain'):8883"
 
@@ -177,9 +188,13 @@ vps-status:
 coolify-build: setup-env
 	$(COMPOSE_COOLIFY) build
 
-## Test Coolify compose locally before pushing
+## Test Coolify compose locally before pushing (server only)
 coolify-up: setup-env
 	$(COMPOSE_COOLIFY) up -d
+
+## Test Coolify compose locally + driver-manager (all-in-one)
+coolify-up-edge: setup-env
+	$(COMPOSE_COOLIFY) --profile edge up -d
 
 ## Stop local Coolify test stack
 coolify-down:
@@ -256,14 +271,16 @@ help:
 	@echo "  make export-root-ca  Export Caddy CA cert for operator PCs"
 	@echo ""
 	@echo "  ── Cloud / VPS (Traefik + Let's Encrypt) ──────────────────"
-	@echo "  make vps-up          Start VPS stack"
+	@echo "  make vps-up          Start VPS stack (server only)"
+	@echo "  make vps-up-edge     Start VPS stack + driver-manager (all-in-one)"
 	@echo "  make vps-down        Stop VPS stack"
 	@echo "  make vps-logs        Follow VPS logs"
 	@echo "  make vps-status      Health check"
 	@echo ""
 	@echo "  ── Coolify (recommended for cloud) ─────────────────────────"
 	@echo "  make coolify-build   Build images for Coolify"
-	@echo "  make coolify-up      Test Coolify compose locally"
+	@echo "  make coolify-up      Test Coolify compose locally (server only)"
+	@echo "  make coolify-up-edge Test Coolify compose locally + driver-manager"
 	@echo ""
 	@echo "  ── Backup / Restore ────────────────────────────────────────"
 	@echo "  make backup-now      Take a backup immediately"

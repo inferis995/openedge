@@ -104,6 +104,51 @@ services:
       - "traefik.tcp.routers.mqtts.tls.certresolver=letsencrypt"
       - "traefik.tcp.services.mqtts.loadbalancer.server.port=1883"
 
+  # ── Driver Manager — optional, profile: edge ────────────────────────────────
+  # Use when the VPS also acts as the edge (no separate factory machines).
+  # docker compose -f docker-compose.yml -f docker-compose.vps.yml --profile edge up -d
+  # Or: make vps-up-edge
+  driver-manager:
+    profiles: ["edge"]
+    build:
+      context: .
+      dockerfile: services/driver-manager/Dockerfile
+    image: openedge-driver-manager:latest
+    container_name: openedge-driver-manager
+    environment:
+      DB_HOST: postgres
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${POSTGRES_USER:-industrial_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:-}
+      DB_NAME: ${POSTGRES_DB:-industrial_edge}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      MQTT_USERNAME: ${MQTT_ADMIN_USER:-core-api}
+      MQTT_PASSWORD: ${MQTT_ADMIN_PASSWORD:-}
+      CORE_API_URL: ${CORE_API_URL:-}
+      CORE_API_TOKEN: ${CORE_API_TOKEN:-}
+      ORG_ID: ${ORG_ID:-0}
+      AGENT_VERSION: ${AGENT_VERSION:-v1.0.0}
+      HEALTH_PORT: "8081"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
   # ── Monitoring — always on in VPS/cloud ──────────────────────────────────────
   prometheus:
     image: prom/prometheus:v3.4.0
