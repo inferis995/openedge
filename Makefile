@@ -15,8 +15,21 @@ setup-env:
 		SECRET=$$(openssl rand -hex 32); \
 		grep -v "^JWT_SECRET=" .env > .env.tmp && mv .env.tmp .env; \
 		printf "JWT_SECRET=$$SECRET\n" >> .env; \
-		echo "[setup] Generated JWT_SECRET and saved to .env"; \
+		echo "[setup] Generated JWT_SECRET"; \
 	fi
+	@if grep -q "^POSTGRES_PASSWORD=CHANGE_ME" .env; then \
+		PG_PASS=$$(openssl rand -hex 16); \
+		grep -v "^POSTGRES_PASSWORD=" .env > .env.tmp && mv .env.tmp .env; \
+		printf "POSTGRES_PASSWORD=$$PG_PASS\n" >> .env; \
+		echo "[setup] Generated POSTGRES_PASSWORD"; \
+	fi
+	@if grep -q "^MQTT_ADMIN_PASSWORD=CHANGE_ME" .env; then \
+		MQTT_PASS=$$(openssl rand -hex 16); \
+		grep -v "^MQTT_ADMIN_PASSWORD=" .env > .env.tmp && mv .env.tmp .env; \
+		printf "MQTT_ADMIN_PASSWORD=$$MQTT_PASS\n" >> .env; \
+		echo "[setup] Generated MQTT_ADMIN_PASSWORD"; \
+	fi
+	@echo "[setup] .env ready — edit POSTGRES_PASSWORD / MQTT_ADMIN_PASSWORD if you want custom values"
 
 ## Build all images (main services + all driver images)
 build:
