@@ -1,7 +1,7 @@
 ---
 name: openedge-ops
-description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), VPS con Traefik, Coolify. Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring, OTA updates, security.
-version: 5.0.0
+description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), VPS con Traefik, Coolify. Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security.
+version: 5.1.0
 tags: [industrial, iot, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan]
 requires: [docker, curl, git]
 ---
@@ -264,20 +264,77 @@ OPENEDGE_INITIAL_ADMIN_PASSWORD=<password>
 
 ---
 
-## Monitoring (opzionale)
+## Monitoring
+
+### Architettura
+
+| Deploy | Monitoring |
+|--------|-----------|
+| Self-hosted / On-prem | Opzionale — `make monitoring-up` |
+| VPS / Cloud | **Sempre attivo** — incluso in `docker-compose.vps.yml` |
+| Coolify | Configurabile manualmente post-deploy |
+
+### On-prem — avvio monitoring
 
 ```bash
-make monitoring-up    # avvia Prometheus + Grafana + Loki
-make monitoring-down  # ferma
+make monitoring-up
+# Avvia: Prometheus, Grafana, AlertManager, Loki, Promtail
+#        + postgres-exporter, redis-exporter, node-exporter, mosquitto-exporter
 ```
 
 | Servizio | URL | Credenziali |
 |---------|-----|-------------|
-| Grafana | http://localhost:3001 | admin / admin |
+| Grafana | http://localhost:3001 | admin / `GRAFANA_ADMIN_PASSWORD` da .env |
 | Prometheus | http://localhost:9090 | — |
-| Core API metrics | http://localhost:8081/metrics | — |
+| AlertManager | http://localhost:9093 | — |
 
-Dashboard "OpenEdge Overview" e datasource già provisionati automaticamente.
+Dashboard provisionati automaticamente:
+- **OpenEdge Operations** — API rate/latency/errors, DB connections, Redis, MQTT msg/s, log panel
+- **Infrastructure** — CPU, RAM, disco, rete, disk I/O, table size PostgreSQL
+
+### Metriche raccolte
+
+| Exporter | Cosa misura |
+|----------|------------|
+| `core-api` | HTTP rate, latency p50/p95/p99, errors, goroutines |
+| `postgres-exporter` | Connessioni, query lente, table size, vacuum lag |
+| `redis-exporter` | Memoria, hit rate, eviction, commands/s |
+| `node-exporter` | CPU, RAM, disco, rete host |
+| `mosquitto-exporter` | Client connessi, messages/s |
+
+### Alert rules attivi
+
+| Alert | Trigger | Severity |
+|-------|---------|---------|
+| `CoreAPIDown` | API irraggiungibile >1 min | critical |
+| `APIHighLatency` | p99 >2s per 3 min | warning |
+| `DBConnectionsHigh` | >20 connessioni per 5 min | warning |
+| `PostgresDown` | exporter irraggiungibile | critical |
+| `RedisDown` | exporter irraggiungibile | critical |
+| `DiskSpaceLow` | disco <15% | warning |
+| `DiskSpaceCritical` | disco <5% | critical |
+| `HighMemoryUsage` | RAM >90% per 5 min | warning |
+| `MQTTBrokerDown` | Mosquitto irraggiungibile >2 min | critical |
+| `RedisEvictingKeys` | eviction >10 chiavi/s | warning |
+
+### Configura AlertManager (routing notifiche)
+
+Modifica `monitoring/alertmanager.yml`:
+```yaml
+# Email (già configurato, imposta ALERTMANAGER_EMAIL_TO in .env)
+# Slack: decommenta slack_configs e imposta ALERTMANAGER_SLACK_WEBHOOK
+# PagerDuty: decommenta pagerduty_configs e imposta ALERTMANAGER_PAGERDUTY_KEY
+```
+
+Ricarica senza restart:
+```bash
+curl -X POST http://localhost:9093/-/reload
+```
+
+### VPS — Grafana accessibile via HTTPS
+
+In VPS mode, Grafana è esposto via Traefik su `https://grafana.tuadominio.com`.
+Password configurata in `.env` → `GRAFANA_ADMIN_PASSWORD` (auto-generata da `make setup-env`).
 
 ---
 

@@ -4,7 +4,7 @@ COMPOSE         = docker compose
 COMPOSE_TLS     = docker compose --profile tls
 COMPOSE_VPS     = docker compose -f docker-compose.vps.yml
 COMPOSE_COOLIFY = docker compose -f docker-compose.coolify.yml
-COMPOSE_MONITORING = docker compose -f docker-compose.monitoring.yml --profile monitoring
+COMPOSE_MONITORING = docker compose --profile monitoring
 
 ## Create .env from example if missing; auto-generate JWT_SECRET if unset or placeholder
 setup-env:
@@ -30,7 +30,13 @@ setup-env:
 		printf "MQTT_ADMIN_PASSWORD=$$MQTT_PASS\n" >> .env; \
 		echo "[setup] Generated MQTT_ADMIN_PASSWORD"; \
 	fi
-	@echo "[setup] .env ready — edit POSTGRES_PASSWORD / MQTT_ADMIN_PASSWORD if you want custom values"
+	@if ! grep -q "^GRAFANA_ADMIN_PASSWORD=" .env || grep -q "^GRAFANA_ADMIN_PASSWORD=CHANGE_ME" .env; then \
+		GF_PASS=$$(openssl rand -hex 12); \
+		grep -v "^GRAFANA_ADMIN_PASSWORD=" .env > .env.tmp && mv .env.tmp .env; \
+		printf "GRAFANA_ADMIN_PASSWORD=$$GF_PASS\n" >> .env; \
+		echo "[setup] Generated GRAFANA_ADMIN_PASSWORD"; \
+	fi
+	@echo "[setup] .env ready — all secrets auto-generated"
 
 ## Build all images — core services + all drivers (modbus/s7/opcua/mqtt/redis/lorawan)
 build: setup-env
@@ -180,23 +186,23 @@ coolify-down:
 	$(COMPOSE_COOLIFY) down
 
 # ── Observability (Prometheus + Grafana + Loki) ──────────────────────────────
-## Start OpenEdge + Prometheus + Grafana + Loki monitoring stack.
-##   Grafana: http://localhost:3001  (admin / admin)
-##   Prometheus: http://localhost:9090
+## Start full stack + monitoring (Prometheus, Grafana, AlertManager, Loki + 4 exporters)
 monitoring-up: setup-env
+	$(COMPOSE) --profile drivers --profile monitoring build
 	$(COMPOSE_MONITORING) up -d
 	@echo ""
 	@echo "Monitoring stack started."
-	@echo "  Grafana:    http://localhost:3001  (admin / admin)"
-	@echo "  Prometheus: http://localhost:9090"
+	@echo "  Grafana:      http://localhost:3001  (admin / $$(grep ^GRAFANA_ADMIN_PASSWORD .env 2>/dev/null | cut -d= -f2 || echo admin))"
+	@echo "  Prometheus:   http://localhost:9090"
+	@echo "  AlertManager: http://localhost:9093"
 
-## Stop the monitoring stack
+## Stop the monitoring stack (leaves core services running)
 monitoring-down:
 	$(COMPOSE_MONITORING) down
 
 ## Follow monitoring logs
 monitoring-logs:
-	$(COMPOSE_MONITORING) logs -f prometheus grafana loki
+	$(COMPOSE_MONITORING) logs -f prometheus grafana alertmanager loki
 
 # ── Code quality ─────────────────────────────────────────────────────────────
 ## Run all linters (Go + frontend)

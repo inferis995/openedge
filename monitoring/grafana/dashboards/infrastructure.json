@@ -1,0 +1,70 @@
+{
+  "title": "OpenEdge Infrastructure",
+  "uid": "openedge-infra",
+  "tags": ["openedge","infrastructure"],
+  "timezone": "browser",
+  "refresh": "60s",
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "id": 1, "type": "stat", "title": "CPU Usage",
+      "gridPos": {"x":0,"y":0,"w":6,"h":4},
+      "targets": [{"expr":"100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)","legendFormat":"CPU %"}],
+      "fieldConfig": {"defaults":{"unit":"percent","min":0,"max":100,"color":{"mode":"thresholds"},"thresholds":{"steps":[{"value":0,"color":"green"},{"value":70,"color":"yellow"},{"value":90,"color":"red"}]}}}
+    },
+    {
+      "id": 2, "type": "stat", "title": "Memory Usage",
+      "gridPos": {"x":6,"y":0,"w":6,"h":4},
+      "targets": [{"expr":"(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100","legendFormat":"RAM %"}],
+      "fieldConfig": {"defaults":{"unit":"percent","min":0,"max":100,"color":{"mode":"thresholds"},"thresholds":{"steps":[{"value":0,"color":"green"},{"value":75,"color":"yellow"},{"value":90,"color":"red"}]}}}
+    },
+    {
+      "id": 3, "type": "stat", "title": "Disk Usage /",
+      "gridPos": {"x":12,"y":0,"w":6,"h":4},
+      "targets": [{"expr":"(1 - node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"}) * 100","legendFormat":"Disk %"}],
+      "fieldConfig": {"defaults":{"unit":"percent","min":0,"max":100,"color":{"mode":"thresholds"},"thresholds":{"steps":[{"value":0,"color":"green"},{"value":70,"color":"yellow"},{"value":85,"color":"red"}]}}}
+    },
+    {
+      "id": 4, "type": "stat", "title": "Disk Free",
+      "gridPos": {"x":18,"y":0,"w":6,"h":4},
+      "targets": [{"expr":"node_filesystem_avail_bytes{mountpoint=\"/\"}","legendFormat":"Free"}],
+      "fieldConfig": {"defaults":{"unit":"bytes","color":{"mode":"thresholds"},"thresholds":{"steps":[{"value":0,"color":"red"},{"value":5368709120,"color":"yellow"},{"value":21474836480,"color":"green"}]}}}
+    },
+    {
+      "id": 5, "type": "timeseries", "title": "CPU & Memory Over Time",
+      "gridPos": {"x":0,"y":4,"w":12,"h":8},
+      "targets": [
+        {"expr":"100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)","legendFormat":"CPU %"},
+        {"expr":"(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100","legendFormat":"RAM %"}
+      ],
+      "fieldConfig": {"defaults":{"unit":"percent","min":0,"max":100}}
+    },
+    {
+      "id": 6, "type": "timeseries", "title": "Network I/O",
+      "gridPos": {"x":12,"y":4,"w":12,"h":8},
+      "targets": [
+        {"expr":"rate(node_network_receive_bytes_total{device!~\"lo|veth.*\"}[5m])","legendFormat":"Recv {{device}}"},
+        {"expr":"rate(node_network_transmit_bytes_total{device!~\"lo|veth.*\"}[5m])","legendFormat":"Sent {{device}}"}
+      ],
+      "fieldConfig": {"defaults":{"unit":"Bps"}}
+    },
+    {
+      "id": 7, "type": "timeseries", "title": "Disk I/O",
+      "gridPos": {"x":0,"y":12,"w":12,"h":8},
+      "targets": [
+        {"expr":"rate(node_disk_read_bytes_total[5m])","legendFormat":"Read {{device}}"},
+        {"expr":"rate(node_disk_written_bytes_total[5m])","legendFormat":"Write {{device}}"}
+      ],
+      "fieldConfig": {"defaults":{"unit":"Bps"}}
+    },
+    {
+      "id": 8, "type": "timeseries", "title": "PostgreSQL Table Size Growth",
+      "gridPos": {"x":12,"y":12,"w":12,"h":8},
+      "targets": [
+        {"expr":"topk(5, pg_stat_user_tables_n_live_tup)","legendFormat":"{{relname}}"}
+      ],
+      "fieldConfig": {"defaults":{"unit":"short"}}
+    }
+  ],
+  "time": {"from": "now-3h", "to": "now"}
+}

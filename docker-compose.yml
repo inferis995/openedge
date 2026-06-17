@@ -277,6 +277,147 @@ services:
     networks:
       - openedge-net
 
+  # ── Monitoring (profile: monitoring) ─────────────────────────────────────────
+  # Enable with: make monitoring-up  (Grafana :3001, Prometheus :9090)
+  # Always-on in cloud: included without profile in docker-compose.vps.yml
+
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v3.4.0
+    container_name: openedge-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  grafana:
+    profiles: ["monitoring"]
+    image: grafana/grafana:12.0.2
+    container_name: openedge-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_INSTALL_PLUGINS: "grafana-clock-panel"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  alertmanager:
+    profiles: ["monitoring"]
+    image: prom/alertmanager:v0.28.1
+    container_name: openedge-alertmanager
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    ports:
+      - "9093:9093"
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  loki:
+    profiles: ["monitoring"]
+    image: grafana/loki:3.5.0
+    container_name: openedge-loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  promtail:
+    profiles: ["monitoring"]
+    image: grafana/promtail:3.5.0
+    container_name: openedge-promtail
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./monitoring/promtail.yml:/etc/promtail/config.yml:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  postgres-exporter:
+    profiles: ["monitoring"]
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: openedge-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-industrial_user}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-industrial_edge}?sslmode=disable"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  redis-exporter:
+    profiles: ["monitoring"]
+    image: oliver006/redis_exporter:v1.67.0
+    container_name: openedge-redis-exporter
+    environment:
+      REDIS_ADDR: redis:6379
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  node-exporter:
+    profiles: ["monitoring"]
+    image: prom/node-exporter:v1.9.1
+    container_name: openedge-node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    pid: host
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  mosquitto-exporter:
+    profiles: ["monitoring"]
+    image: sapcc/mosquitto-exporter:0.8.0
+    container_name: openedge-mosquitto-exporter
+    environment:
+      BROKER_ENDPOINT: "tcp://mosquitto:1883"
+      MQTT_USER: ${MQTT_ADMIN_USER:-core-api}
+      MQTT_PASS: ${MQTT_ADMIN_PASSWORD:-}
+    depends_on:
+      - mosquitto
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
   # ── Drivers (profile: drivers — build-only, spawned by driver-manager) ───────
   # These images are built but never started directly.
   # driver-manager spawns them via Docker socket when you create a Gateway.
@@ -347,4 +488,12 @@ volumes:
   caddy-data:
     driver: local
   caddy-config:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  alertmanager-data:
+    driver: local
+  loki-data:
     driver: local

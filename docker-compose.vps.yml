@@ -23,7 +23,7 @@ services:
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
-      - --providers.docker.network=industrial-network
+      - --providers.docker.network=openedge-net
       # Entrypoints
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
@@ -51,7 +51,7 @@ services:
       - traefik-letsencrypt:/letsencrypt
     restart: unless-stopped
     networks:
-      - industrial-network
+      - openedge-net
 
   # ── Web UI — served via Traefik; its built-in nginx proxies /api → core-api ─
   web-ui:
@@ -104,5 +104,127 @@ services:
       - "traefik.tcp.routers.mqtts.tls.certresolver=letsencrypt"
       - "traefik.tcp.services.mqtts.loadbalancer.server.port=1883"
 
+  # ── Monitoring — always on in VPS/cloud ──────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v3.4.0
+    container_name: openedge-prometheus
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert.rules.yml:/etc/prometheus/alert.rules.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+      - "--web.enable-lifecycle"
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    container_name: openedge-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.${PUBLIC_HOST}`)"
+      - "traefik.http.routers.grafana.entrypoints=websecure"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    container_name: openedge-alertmanager
+    volumes:
+      - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  loki:
+    image: grafana/loki:3.5.0
+    container_name: openedge-loki
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki-data:/loki
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  promtail:
+    image: grafana/promtail:3.5.0
+    container_name: openedge-promtail
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./monitoring/promtail.yml:/etc/promtail/config.yml:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: openedge-postgres-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-industrial_user}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-industrial_edge}?sslmode=disable"
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.67.0
+    container_name: openedge-redis-exporter
+    environment:
+      REDIS_ADDR: redis:6379
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: openedge-node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    pid: host
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
+  mosquitto-exporter:
+    image: sapcc/mosquitto-exporter:0.8.0
+    container_name: openedge-mosquitto-exporter
+    environment:
+      BROKER_ENDPOINT: "tcp://mosquitto:1883"
+      MQTT_USER: ${MQTT_ADMIN_USER:-core-api}
+      MQTT_PASS: ${MQTT_ADMIN_PASSWORD:-}
+    restart: unless-stopped
+    networks:
+      - openedge-net
+
 volumes:
   traefik-letsencrypt:
+  prometheus-data:
+  grafana-data:
+  alertmanager-data:
+  loki-data:

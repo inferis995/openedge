@@ -9,7 +9,7 @@ clients:
   - url: http://loki:3100/loki/api/v1/push
 
 scrape_configs:
-  - job_name: docker
+  - job_name: docker-containers
     static_configs:
       - targets:
           - localhost
@@ -21,5 +21,15 @@ scrape_configs:
           expressions:
             stream: stream
             log: log
+            time: time
+            attrs: attrs
+      - json:
+          source: attrs
+          expressions:
+            container_name: "io.kubernetes.container.name"
+      - docker: {}
       - labels:
           stream:
+          container_name:
+      - output:
+          source: log

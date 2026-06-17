@@ -1,14 +1,41 @@
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  external_labels:
+    instance: openedge
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+rule_files:
+  - "alert.rules.yml"
 
 scrape_configs:
-  - job_name: "openedge-core-api"
+
+  - job_name: openedge-api
     static_configs:
       - targets: ["core-api:8081"]
     metrics_path: /metrics
-    scrape_interval: 15s
+    scrape_interval: 10s
 
-  - job_name: "prometheus"
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  - job_name: mosquitto
+    static_configs:
+      - targets: ["mosquitto-exporter:9234"]
+
+  - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
