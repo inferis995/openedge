@@ -1,7 +1,7 @@
 ---
 name: openedge-ops
-description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), VPS con Traefik, Coolify. Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security.
-version: 5.1.0
+description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), VPS con Traefik, Coolify, edge profile. Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security. VPS e Coolify ora hanno profilo `edge` per all-in-one.
+version: 5.2.0
 tags: [industrial, iot, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan]
 requires: [docker, curl, git]
 ---
@@ -30,6 +30,23 @@ Dove vuoi installare OpenEdge?
                             HTTPS automatico con Let's Encrypt + Traefik.
 3. Coolify                — piattaforma PaaS self-hosted. Gestisce HTTPS e deploy automaticamente.
                             Raccomandato per chi vuole il cloud senza gestire Traefik a mano.
+```
+
+### Step 1b — Server-only o All-in-one (solo se VPS o Coolify)
+
+```
+Vuoi che i driver industriali girino sullo stesso server (all-in-one)
+oppure su macchine di fabbrica separate (server-only)?
+
+1. Server-only (raccomandato per SaaS multi-tenant)
+   — il server cloud gestisce solo API, UI e database
+   — gli edge fisici (driver-manager) girano su macchine separate in fabbrica
+   — ogni org scarica il proprio edge installer ZIP dalla UI
+
+2. All-in-one (utile per demo, dev, o deployment piccoli)
+   — driver-manager gira direttamente sul VPS/Coolify
+   — non servono macchine edge separate
+   — attiva il profilo `edge` nel compose
 ```
 
 ### Step 2 — Sistema operativo (solo se on-prem)
@@ -196,6 +213,23 @@ Porta: 8883 (mqtts://app.tuazienda.com:8883)
 Traefik gestisce TLS automaticamente.
 ```
 
+### All-in-one (server + edge sulla stessa macchina)
+
+Se vuoi che i driver girano direttamente sul VPS (senza edge fisici separati):
+
+```bash
+make vps-up-edge
+# Avvia: Traefik + monitoring + core + driver-manager
+```
+
+### Server only (raccomandato per SaaS multi-tenant)
+
+```bash
+make vps-up
+# Gli edge fisici si connettono via MQTT TLS :8883
+# Ogni org scarica il proprio edge installer ZIP dalla UI
+```
+
 ---
 
 ## Deploy D — Coolify
@@ -223,16 +257,21 @@ Passo 4 — MQTT/TLS porta 8883
   Coolify → Settings → Traefik → Port Mappings → aggiungi 8883:8883
 ```
 
+### All-in-one su Coolify
+
+Per avere driver-manager sullo stesso server Coolify, attiva il profilo `edge`:
+- In Coolify → Resource → Environment: aggiungi variable `COMPOSE_PROFILES=edge`
+- Oppure testa in locale: `make coolify-up-edge`
+
 ---
 
 ## File compose — struttura
 
 | File | Uso |
 |------|-----|
-| `docker-compose.yml` | Self-hosted/on-prem. Include tutti i driver. TLS con `--profile tls` |
-| `docker-compose.vps.yml` | VPS con Traefik + Let's Encrypt |
-| `docker-compose.coolify.yml` | Coolify — standalone, no overlay |
-| `docker-compose.monitoring.yml` | Overlay opzionale: Prometheus + Grafana + Loki |
+| `docker-compose.yml` | Self-hosted/on-prem. Tutti i driver inclusi. TLS con `--profile tls`. Monitoring con `--profile monitoring` |
+| `docker-compose.vps.yml` | VPS con Traefik + Let's Encrypt. Monitoring sempre attivo. Driver-manager con `--profile edge` (`make vps-up-edge`) |
+| `docker-compose.coolify.yml` | Coolify — standalone. Driver-manager con `--profile edge` |
 
 **Driver inclusi automaticamente** (nessun file extra necessario):
 Modbus TCP · Siemens S7 · OPC-UA · MQTT · Redis · **LoRaWAN** — tutti buildati con `make start`.
@@ -556,6 +595,10 @@ make export-root-ca  # esporta CA per browser operatori
 make backup-now      # backup immediato
 make update          # upgrade sicuro
 make monitoring-up   # Prometheus + Grafana + Loki
+make vps-up          # VPS — server only (edge su macchine separate)
+make vps-up-edge     # VPS — all-in-one (server + driver-manager stesso VPS)
+make coolify-up      # Coolify — server only
+make coolify-up-edge # Coolify — all-in-one
 make help            # lista completa comandi
 ```
 

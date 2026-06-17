@@ -108,6 +108,10 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 - **Password Reset** — Email-based reset with 1-hour token
 - **Webhooks** — HMAC-SHA256 signed HTTP callbacks on 5 event types
 - **Audit Log** — Full action trail with IP, user-agent, JSON details
+- **Tag Shadows** — Last-known value always available (source: live/historic) — edge can go offline without losing last state
+- **SSO / OIDC** — Google and Azure AD (Microsoft Entra) single sign-on; automatic user provisioning by email domain
+- **Granular RBAC** — Per-user permission flags: write_tags, ack_alarms, export_data, manage_recipes, manage_shifts, view_audit, download_installer
+- **Self-Service Invites** — Email invite flow with one-time link (7-day TTL), no admin involvement needed after setup
 
 **Deployment & Observability**
 - **HTTPS + MQTT/TLS** — Single Let's Encrypt cert via Traefik (no manual cert management)
@@ -117,6 +121,8 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 - **Rootless Containers** — All services run as non-root
 - **Prometheus + Grafana** — Pre-built dashboard, Loki log aggregation
 - **CESMII i3X Access API** — Standard vendor-neutral REST interface
+- **Edge Profile** — `--profile edge` on VPS and Coolify composes adds driver-manager for all-in-one deployments
+- **Slack / Teams / PagerDuty** — Native notification channels in addition to email and Telegram
 
 **Security & Compliance**
 - **Security Center** — NIS2 Art. 21 compliance dashboard, 0-100 security score, 12-point checklist
@@ -128,7 +134,8 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 - **OTA Updates** — Secure over-the-air edge agent updates with SHA256 verification, org-admin approval flow, auto-rollback
 - **Health Monitoring** — Liveness/readiness probes, MQTT watchdog with auto-reconnect, edge heartbeat
 - **Data Management** — Named Docker volumes, PostgreSQL tuning, historian retention (configurable), backup/restore scripts
-- **Fleet Management** — Per-org update status, fleet-wide deployment view for super admin
+- **Fleet Management** — Global admin fleet view: all orgs with edge online/offline status, last ping, agent version
+- **InfluxDB v2 Connector** — Continuous export to InfluxDB (configurable batch size + flush interval, watermark-based, zero data loss)
 
 ---
 
@@ -352,11 +359,19 @@ sudo make install-service
 
 ### Cloud / SaaS
 
+Two options depending on whether the edge runs on the same server or on separate factory machines:
+
+**Server only** (edge agents connect remotely via MQTT TLS):
 ```bash
-make vps-up             # docker-compose.vps.yml (multi-tenant, behind Traefik)
+make vps-up          # Traefik + Let's Encrypt + monitoring always on
 ```
 
-For Coolify deployment: use `docker-compose.coolify.yml`.
+**All-in-one** (driver-manager on the same VPS — demos, small deployments):
+```bash
+make vps-up-edge     # adds driver-manager to the VPS stack
+```
+
+For Coolify deployment: use `docker-compose.coolify.yml`. Activate the `edge` profile to include driver-manager on the same Coolify instance.
 
 ---
 
@@ -383,6 +398,9 @@ curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
 
 Result: `https://app.yourdomain.com` (UI) + `mqtts://app.yourdomain.com:8883` (edge devices).
 
+**5. All-in-one** (optional — driver-manager on Coolify):
+Add `COMPOSE_PROFILES=edge` to environment variables in Coolify UI, then redeploy.
+
 ---
 
 ### Self-Hosted VPS
@@ -401,7 +419,7 @@ Or manually with the cloud overlay:
 ```bash
 cp .env.cloud.example .env
 # Edit PUBLIC_HOST and ACME_EMAIL
-docker compose -f docker-compose.vps.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d
 ```
 
 ---
@@ -738,33 +756,31 @@ Write-oriented skill. Gives the agent everything needed to deploy OpenEdge, mana
 
 ## Monitoring Stack
 
+### On-prem
 ```bash
-make monitoring-up     # start Prometheus + Grafana + Loki + Promtail
+make monitoring-up     # start Prometheus + Grafana + AlertManager + Loki + 4 exporters
 make monitoring-down   # stop
 make monitoring-logs   # follow logs
 ```
 
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| Grafana | http://localhost:3001 | admin / admin |
+### VPS / Cloud
+Monitoring is **always active** in `docker-compose.vps.yml` — no extra commands needed.
+Grafana is available at `https://grafana.YOUR_DOMAIN` with credentials from `GRAFANA_ADMIN_PASSWORD` in `.env`.
+
+| Service | On-prem URL | Credentials |
+|---------|-------------|-------------|
+| Grafana | http://localhost:3001 | admin / `GRAFANA_ADMIN_PASSWORD` |
 | Prometheus | http://localhost:9090 | — |
-| Loki | http://localhost:3100 | — |
+| AlertManager | http://localhost:9093 | — |
 
-A pre-built **OpenEdge Overview** dashboard is auto-provisioned in Grafana with:
-- Organization / Gateway / Tag / Alarm / User counts
-- HTTP request rate and P95 latency
-- MQTT messages per second
-- All panels filterable by org
+**Alert rules (10 active)**:
+- CoreAPIDown, APIHighLatency (p99 >2s), DBConnectionsHigh
+- PostgresDown, RedisDown, MQTTBrokerDown
+- DiskSpaceLow (<15%), DiskSpaceCritical (<5%), HighMemoryUsage (>90%), RedisEvictingKeys
 
-Metrics exposed at `/metrics` (Prometheus format):
-- `openedge_orgs_total`
-- `openedge_gateways_total`
-- `openedge_tags_total`
-- `openedge_active_alarms_total`
-- `openedge_users_total`
-- `http_requests_total{method, path, status}`
-- `http_request_duration_seconds{method, path}`
-- `mqtt_messages_received_total`
+Dashboards auto-provisioned:
+- **OpenEdge Operations** — API rate/latency/errors, DB connections, Redis, MQTT msg/s, logs
+- **Infrastructure** — CPU, RAM, disk, network, disk I/O, PostgreSQL table sizes
 
 ---
 
