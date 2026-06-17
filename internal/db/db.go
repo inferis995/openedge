@@ -37,7 +37,7 @@ func Connect(cfg Config) (*sql.DB, error) {
 	// ConnMaxLifetime: maximum amount of time a connection may be reused
 	db.SetConnMaxLifetime(5 * time.Minute)
 	// ConnMaxIdleTime: maximum amount of time a connection may be idle
-	db.SetConnMaxIdleTime(10 * time.Minute)
+	db.SetConnMaxIdleTime(2 * time.Minute)
 
 	if err := db.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
@@ -693,9 +693,185 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: failed to create backup_audit index: %v", err)
 	}
 
+	// Migration: synoptics — SCADA mimic pages. Org-scoped canvas with a
+	// background and a JSONB array of freely positioned widgets that bind to
+	// tags. The whole layout is saved atomically (no per-widget sub-CRUD).
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS synoptics (
+			id               SERIAL PRIMARY KEY,
+			org_id           INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			name             TEXT NOT NULL,
+			description      TEXT,
+			background_color VARCHAR(20) NOT NULL DEFAULT '#0f172a',
+			canvas_w         INT NOT NULL DEFAULT 1280 CHECK (canvas_w > 0),
+			canvas_h         INT NOT NULL DEFAULT 720 CHECK (canvas_h > 0),
+			layout           JSONB NOT NULL DEFAULT '[]',
+			created_by       INT REFERENCES users(id) ON DELETE SET NULL,
+			created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (org_id, name)
+		)`); err != nil {
+		log.Printf("Warning: failed to create synoptics: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE INDEX IF NOT EXISTS idx_synoptics_org ON synoptics(org_id, name)`); err != nil {
+		log.Printf("Warning: failed to create synoptics index: %v", err)
+	}
+	// Synoptics can be filed under the plant hierarchy (site → area → line)
+	// to power a navigation work tree. Both nullable: an org-level synoptic
+	// with no site/area is the "General" node.
+	if _, err := db.ExecContext(context.Background(),
+		`ALTER TABLE synoptics ADD COLUMN IF NOT EXISTS site_id INT REFERENCES sites(id) ON DELETE SET NULL`); err != nil {
+		log.Printf("Warning: failed to add synoptics.site_id: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`ALTER TABLE synoptics ADD COLUMN IF NOT EXISTS area_id INT REFERENCES areas(id) ON DELETE SET NULL`); err != nil {
+		log.Printf("Warning: failed to add synoptics.area_id: %v", err)
+	}
+
+	// Migration: EU scaling columns on tags.
+	// Adds 9 columns for raw-to-engineering-unit conversion (4-20mA, etc.).
+	// All idempotent via ADD COLUMN IF NOT EXISTS.
+	scalingCols := []string{
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS scaling_enabled BOOLEAN NOT NULL DEFAULT false`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS scaling_raw_min DOUBLE PRECISION NOT NULL DEFAULT 0`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS scaling_raw_max DOUBLE PRECISION NOT NULL DEFAULT 100`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS scaling_eu_min  DOUBLE PRECISION NOT NULL DEFAULT 0`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS scaling_eu_max  DOUBLE PRECISION NOT NULL DEFAULT 100`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS scaling_clamp   BOOLEAN NOT NULL DEFAULT true`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS eu_unit         TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS eu_decimals     INT  NOT NULL DEFAULT 2`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS invert          BOOLEAN NOT NULL DEFAULT false`,
+	}
+	for _, stmt := range scalingCols {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			return fmt.Errorf("scaling columns migration: %w", err)
+		}
+	}
+
+	// Migration: security center — account lockout, MFA, last login tracking
+	securityUserCols := []string{
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_login_count INT NOT NULL DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret TEXT`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN NOT NULL DEFAULT FALSE`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_ip INET`,
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ DEFAULT NOW()`,
+	}
+	for _, stmt := range securityUserCols {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: security user cols migration: %v", err)
+		}
+	}
+
+	// Migration: gateway heartbeat columns
+	gatewayHeartbeatCols := []string{
+		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`,
+		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS last_seen_ip INET`,
+		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS agent_version VARCHAR(30)`,
+	}
+	for _, stmt := range gatewayHeartbeatCols {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: gateway heartbeat cols migration: %v", err)
+		}
+	}
+
+	// Migration: security_events table
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS security_events (
+			id         BIGSERIAL PRIMARY KEY,
+			org_id     INT REFERENCES organizations(id) ON DELETE CASCADE,
+			event_type VARCHAR(50) NOT NULL,
+			severity   VARCHAR(10) NOT NULL DEFAULT 'medium',
+			actor      TEXT,
+			resource   TEXT,
+			detail     JSONB,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		log.Printf("Warning: security_events table migration: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE INDEX IF NOT EXISTS idx_sec_events_org_time ON security_events(org_id, created_at DESC)`); err != nil {
+		log.Printf("Warning: security_events index: %v", err)
+	}
+
+	// Migration: OTA edge update system.
+	// edge_releases: super admin publishes new edge versions.
+	// org_update_approvals: per-org approval + status tracking.
+	otaUpdates := []string{
+		`CREATE TABLE IF NOT EXISTS edge_releases (
+			id SERIAL PRIMARY KEY,
+			version VARCHAR(30) NOT NULL UNIQUE,
+			release_notes TEXT NOT NULL DEFAULT '',
+			artifact_url TEXT NOT NULL,
+			sha256_checksum CHAR(64) NOT NULL,
+			published_by INT REFERENCES users(id),
+			published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			is_stable BOOLEAN NOT NULL DEFAULT TRUE
+		)`,
+		`CREATE TABLE IF NOT EXISTS org_update_approvals (
+			id SERIAL PRIMARY KEY,
+			org_id INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			release_id INT NOT NULL REFERENCES edge_releases(id),
+			approved_by INT REFERENCES users(id),
+			approved_at TIMESTAMPTZ,
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			started_at TIMESTAMPTZ,
+			completed_at TIMESTAMPTZ,
+			error_msg TEXT,
+			UNIQUE(org_id, release_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_org_approvals_org ON org_update_approvals(org_id)`,
+	}
+	for _, stmt := range otaUpdates {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			return fmt.Errorf("ota updates migration: %w", err)
+		}
+	}
+
+	// Migration: historian retention days setting
+	historianSeed := `
+	INSERT INTO global_settings (key, value, description) VALUES
+		('historian_retention_days', '365', 'Number of days to retain historian data. 0 disables automatic cleanup.')
+	ON CONFLICT (key) DO NOTHING;`
+	if _, err := db.ExecContext(context.Background(), historianSeed); err != nil {
+		log.Printf("Warning: failed to seed historian_retention_days: %v", err)
+	}
 
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
+}
+
+// StartHistorianRetentionWorker runs a daily cleanup of old historian data.
+// retentionDays <= 0 disables cleanup.
+func StartHistorianRetentionWorker(db *sql.DB, retentionDays int) {
+	if retentionDays <= 0 {
+		return
+	}
+	go func() {
+		time.Sleep(5 * time.Minute) // delay initial run
+		for {
+			runHistorianCleanup(db, retentionDays)
+			time.Sleep(24 * time.Hour)
+		}
+	}()
+}
+
+func runHistorianCleanup(db *sql.DB, retentionDays int) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	cutoff := time.Now().AddDate(0, 0, -retentionDays)
+	result, err := db.ExecContext(ctx, `DELETE FROM tag_history WHERE time < $1`, cutoff)
+	if err != nil {
+		log.Printf("[HISTORIAN] Cleanup error: %v", err)
+		return
+	}
+	rows, _ := result.RowsAffected()
+	if rows > 0 {
+		log.Printf("[HISTORIAN] Removed %d rows older than %d days", rows, retentionDays)
+		_, _ = db.ExecContext(ctx, `VACUUM ANALYZE tag_history`)
+	}
 }
 
 // bootstrapAdminIfMissing assicura che esista almeno un utente admin

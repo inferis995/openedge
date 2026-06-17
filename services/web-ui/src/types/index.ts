@@ -47,6 +47,16 @@ export interface Tag {
     historize_interval_ms?: number;
     deadband_mode?: 'absolute' | 'percent';
     deadband_value?: number;
+    // EU Scaling — raw-to-engineering-unit conversion applied at ingestion.
+    scaling_enabled?: boolean;
+    scaling_raw_min?: number;
+    scaling_raw_max?: number;
+    scaling_eu_min?: number;
+    scaling_eu_max?: number;
+    scaling_clamp?: boolean;
+    eu_unit?: string;
+    eu_decimals?: number;
+    invert?: boolean;
     created_at?: string;
 }
 
@@ -95,6 +105,16 @@ export interface CreateTagDto {
     historize: boolean;
     deadband_value?: number;
     json_path?: string; // MQTT only — empty = whole payload
+    // EU Scaling
+    scaling_enabled?: boolean;
+    scaling_raw_min?: number;
+    scaling_raw_max?: number;
+    scaling_eu_min?: number;
+    scaling_eu_max?: number;
+    scaling_clamp?: boolean;
+    eu_unit?: string;
+    eu_decimals?: number;
+    invert?: boolean;
 }
 
 export interface OpcUaNode {

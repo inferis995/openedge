@@ -103,6 +103,27 @@ const OrganizationsPage = () => {
 
     return (
         <div className="space-y-6">
+            {/* Tenant stats banner */}
+            <div className="grid grid-cols-3 gap-4">
+                <div className="rounded-lg border bg-card p-4 text-center">
+                    <div className="text-3xl font-bold text-primary">{organizations.length}</div>
+                    <div className="text-sm text-muted-foreground mt-1">Tenant totali</div>
+                </div>
+                <div className="rounded-lg border bg-card p-4 text-center">
+                    <div className="text-3xl font-bold text-green-600">{organizations.length}</div>
+                    <div className="text-sm text-muted-foreground mt-1">Attivi</div>
+                </div>
+                <div className="rounded-lg border bg-card p-4 text-center flex flex-col items-center justify-center">
+                    <a
+                        href="/fleet"
+                        className="text-sm font-medium text-primary hover:underline"
+                    >
+                        Vedi Fleet →
+                    </a>
+                    <div className="text-xs text-muted-foreground mt-1">Stato edge per org</div>
+                </div>
+            </div>
+
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>

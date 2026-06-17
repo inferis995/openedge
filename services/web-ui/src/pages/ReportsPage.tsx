@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, FileText, BellRing, ShieldCheck } from 'lucide-react';
+import { Download, FileText, BellRing, ShieldCheck, Shield, Server } from 'lucide-react';
 
 import api from '@/api/client';
 import { tagsApi } from '@/api/tags';
@@ -9,6 +9,8 @@ import { showApiError } from '@/lib/api-error-handler';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { securityApi } from '@/api/security';
+import { infrastructureApi } from '@/api/infrastructure';
 
 // Default ISO-8601 helpers used by the date inputs. We work in the
 // operator's LOCAL timezone in the UI; the API converts back to UTC.
@@ -165,6 +167,158 @@ const ReportsPage = () => {
                 )}
 
             </div>
+
+            {/* Conformità & Sicurezza section */}
+            {isAdmin() && (
+                <div className="space-y-3">
+                    <h3 className="font-semibold flex items-center gap-2">
+                        <Shield size={16} /> Conformità &amp; Sicurezza
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="rounded-md border bg-card p-4 space-y-3">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+                                <ShieldCheck size={16} /> Report NIS2 (JSON)
+                            </div>
+                            <p className="text-sm">Stato conformità NIS2 Art. 21 — tutti i check con esito e dettaglio.</p>
+                            <Button
+                                className="gap-2"
+                                onClick={async () => {
+                                    try {
+                                        const [overview, compliance] = await Promise.all([
+                                            securityApi.overview(),
+                                            securityApi.compliance(),
+                                        ]);
+                                        const report = {
+                                            type: 'NIS2_COMPLIANCE_REPORT',
+                                            generated_at: new Date().toISOString(),
+                                            security_score: overview.score,
+                                            nis2_checks_passed: overview.nis2_checks_passed,
+                                            nis2_checks_total: overview.nis2_checks_total,
+                                            failed_logins_24h: overview.failed_logins_24h,
+                                            locked_accounts: overview.locked_accounts,
+                                            compliance_checks: compliance,
+                                        };
+                                        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = `nis2-report-${new Date().toISOString().slice(0, 10)}.json`;
+                                        a.click();
+                                        URL.revokeObjectURL(url);
+                                    } catch (e) {
+                                        showApiError(e, 'Export failed');
+                                    }
+                                }}
+                            >
+                                <Download size={16} /> Download JSON
+                            </Button>
+                        </div>
+
+                        <div className="rounded-md border bg-card p-4 space-y-3">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+                                <Shield size={16} /> Security Events (CSV)
+                            </div>
+                            <p className="text-sm">Ultimi 50 eventi di sicurezza — login falliti, account bloccati, accessi negati.</p>
+                            <Button
+                                className="gap-2"
+                                onClick={async () => {
+                                    try {
+                                        const events = await securityApi.events(50);
+                                        const headers = ['ID', 'Tipo', 'Gravità', 'Attore', 'Risorsa', 'Data'];
+                                        const rows = events.map(e => [
+                                            String(e.id),
+                                            e.event_type,
+                                            e.severity,
+                                            e.actor ?? '',
+                                            e.resource ?? '',
+                                            new Date(e.created_at).toLocaleString('it-IT'),
+                                        ]);
+                                        const csv = [headers, ...rows].map(r => r.map(f => `"${f}"`).join(',')).join('\n');
+                                        const blob = new Blob([csv], { type: 'text/csv' });
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = `security-events-${new Date().toISOString().slice(0, 10)}.csv`;
+                                        a.click();
+                                        URL.revokeObjectURL(url);
+                                    } catch (e) {
+                                        showApiError(e, 'Export failed');
+                                    }
+                                }}
+                            >
+                                <Download size={16} /> Download CSV
+                            </Button>
+                        </div>
+
+                        <div className="rounded-md border bg-card p-4 space-y-3">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+                                <Server size={16} /> Inventario Gateway (CSV)
+                            </div>
+                            <p className="text-sm">Elenco completo gateway con stato TLS, versione agente e stato online/offline.</p>
+                            <Button
+                                className="gap-2"
+                                onClick={async () => {
+                                    try {
+                                        const { gateways } = await infrastructureApi.list();
+                                        const headers = ['ID', 'Nome', 'Organizzazione', 'Driver', 'Host', 'Porta', 'Online', 'TLS', 'Auth', 'Versione', 'Tag'];
+                                        const rows = gateways.map(g => [
+                                            String(g.id),
+                                            g.name,
+                                            g.org_name,
+                                            g.driver_type,
+                                            g.host,
+                                            String(g.port),
+                                            g.online ? 'SI' : 'NO',
+                                            g.tls_enabled ? 'SI' : 'NO',
+                                            g.mqtt_auth ? 'SI' : 'NO',
+                                            g.agent_version ?? '',
+                                            String(g.tag_count),
+                                        ]);
+                                        const csv = [headers, ...rows].map(r => r.map(f => `"${f}"`).join(',')).join('\n');
+                                        const blob = new Blob([csv], { type: 'text/csv' });
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = `gateway-inventory-${new Date().toISOString().slice(0, 10)}.csv`;
+                                        a.click();
+                                        URL.revokeObjectURL(url);
+                                    } catch (e) {
+                                        showApiError(e, 'Export failed');
+                                    }
+                                }}
+                            >
+                                <Download size={16} /> Download CSV
+                            </Button>
+                        </div>
+
+                        <div className="rounded-md border bg-card p-4 space-y-3">
+                            <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+                                <ShieldCheck size={16} /> Security Score (JSON)
+                            </div>
+                            <p className="text-sm">Score di sicurezza con breakdown per categoria — adatto per audit esterni.</p>
+                            <Button
+                                className="gap-2"
+                                onClick={async () => {
+                                    try {
+                                        const overview = await securityApi.overview();
+                                        const blob = new Blob([JSON.stringify(overview, null, 2)], { type: 'application/json' });
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = `security-score-${new Date().toISOString().slice(0, 10)}.json`;
+                                        a.click();
+                                        URL.revokeObjectURL(url);
+                                    } catch (e) {
+                                        showApiError(e, 'Export failed');
+                                    }
+                                }}
+                            >
+                                <Download size={16} /> Download JSON
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="rounded-md border bg-card p-4">
                 <div className="flex items-center justify-between mb-3">

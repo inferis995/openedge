@@ -2,29 +2,43 @@ import { useEffect, useState, useRef } from 'react';
 
 interface RealtimeUpdate {
     tag_id: number;
-    v: any;
+    v: unknown;
     ts: number;
     q: number;
 }
 
-export const useRealtime = (orgId: number | undefined) => {
-    const [values, setValues] = useState<Map<number, { value: any; timestamp: number; quality: number }>>(new Map());
+export interface RealtimeResult {
+    values: Map<number, { value: unknown; timestamp: number; quality: number }>;
+    connected: boolean;
+}
+
+export const useRealtime = (orgId: number | undefined, tagIds?: ReadonlySet<number>): RealtimeResult => {
+    const [values, setValues] = useState<Map<number, { value: unknown; timestamp: number; quality: number }>>(new Map());
+    const [connected, setConnected] = useState(false);
     const ws = useRef<WebSocket | null>(null);
+    const tagIdsRef = useRef<ReadonlySet<number> | undefined>(tagIds);
+
+    // Keep ref in sync without causing WS reconnect
+    useEffect(() => {
+        tagIdsRef.current = tagIds;
+    }, [tagIds]);
 
     useEffect(() => {
         if (!orgId) return;
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        // Use relative path to go through Nginx proxy (which handles /api/ws/ -> core-api:8081)
         const wsUrl = `${protocol}//${window.location.host}/api/ws/realtime?org_id=${orgId}`;
 
-        console.log(`[WS] Connecting to ${wsUrl}`);
+        console.warn(`[WS] Connecting to ${wsUrl}`);
         const socket = new WebSocket(wsUrl);
         ws.current = socket;
 
         socket.onmessage = (event) => {
             try {
-                const update: RealtimeUpdate = JSON.parse(event.data);
+                const update: RealtimeUpdate = JSON.parse(event.data as string);
+                const filter = tagIdsRef.current;
+                // Skip if filter is active and tag not in set
+                if (filter && filter.size > 0 && !filter.has(update.tag_id)) return;
                 setValues(prev => {
                     const next = new Map(prev);
                     next.set(update.tag_id, {
@@ -40,24 +54,27 @@ export const useRealtime = (orgId: number | undefined) => {
         };
 
         socket.onopen = () => {
-            console.log('[WS] Connected');
+            console.warn('[WS] Connected');
+            setConnected(true);
         };
 
         socket.onclose = () => {
-            console.log('[WS] Disconnected');
-            // Reconnect logic could be added here
+            console.warn('[WS] Disconnected');
+            setConnected(false);
         };
 
         socket.onerror = (error) => {
             console.error('[WS] Error', error);
+            setConnected(false);
         };
 
         return () => {
             if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
                 socket.close();
             }
+            setConnected(false);
         };
     }, [orgId]);
 
-    return values;
+    return { values, connected };
 };

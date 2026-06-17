@@ -75,6 +75,8 @@ export interface GlobalSettings {
     influx_bucket?: string;
     influx_batch_size?: string;
     influx_flush_interval?: string;
+    // Historian data retention
+    historian_retention_days?: string;
 }
 
 export interface UpdateSettingsRequest {
@@ -105,6 +107,8 @@ export interface UpdateSettingsRequest {
     oee?: Record<string, string>;
     // InfluxDB and other integrations (influx_*).
     integrations?: Record<string, string>;
+    // Historian retention (days)
+    historian_retention_days?: number;
 }
 
 // What the operator edits in the Notifications panel. We keep the shape

@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/notifications"
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
+	"github.com/ralph/industrial-edge-middleware/internal/scaling"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	"github.com/ralph/industrial-edge-middleware/internal/telemetry"
@@ -41,6 +43,49 @@ import (
 // can reach it without threading it through every signature.
 var notifDispatcher *notifications.Dispatcher
 var influxWriter *connectors.InfluxDBConnector
+
+// scalingCache maps tag_id → scaling.Config for tags that have EU scaling
+// enabled. Loaded at startup and refreshed every 30 s so config changes
+// from the UI take effect without a restart.
+var scalingCache sync.Map // map[int]scaling.Config
+
+func loadScalingCache(database *sql.DB) {
+	rows, err := database.Query(
+		`SELECT id, scaling_raw_min, scaling_raw_max, scaling_eu_min, scaling_eu_max, scaling_clamp, invert
+		 FROM tags WHERE scaling_enabled = true`,
+	)
+	if err != nil {
+		log.Printf("[scaling] cache load error: %v", err)
+		return
+	}
+	defer rows.Close()
+
+	// Build a temporary map, then swap into the sync.Map atomically.
+	newEntries := map[int]scaling.Config{}
+	for rows.Next() {
+		var id int
+		var cfg scaling.Config
+		cfg.Enabled = true
+		if err := rows.Scan(&id, &cfg.RawMin, &cfg.RawMax, &cfg.EuMin, &cfg.EuMax, &cfg.Clamp, &cfg.Invert); err != nil {
+			log.Printf("[scaling] scan error: %v", err)
+			continue
+		}
+		newEntries[id] = cfg
+	}
+
+	// Delete stale entries.
+	scalingCache.Range(func(k, _ interface{}) bool {
+		if _, keep := newEntries[k.(int)]; !keep {
+			scalingCache.Delete(k)
+		}
+		return true
+	})
+	// Store new/updated entries.
+	for id, cfg := range newEntries {
+		scalingCache.Store(id, cfg)
+	}
+	log.Printf("[scaling] cache refreshed: %d scaled tag(s)", len(newEntries))
+}
 
 func main() {
 	// Structured logging — LOG_FORMAT=json for production (machine-parseable),
@@ -74,6 +119,16 @@ func main() {
 		os.Exit(1)
 	}
 	defer database.Close()
+
+	// Load EU scaling config once at startup, then refresh every 30 s.
+	go func() {
+		loadScalingCache(database)
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for range t.C {
+			loadScalingCache(database)
+		}
+	}()
 
 	// Load Redis configuration (needed before MQTT for health tracking)
 	redisHost := getEnv("REDIS_HOST", "localhost")
@@ -274,6 +329,9 @@ func main() {
 		dynsecClient = mqtt.NewDynsecClient(mqttClient)
 		slog.Info("Mosquitto Dynamic Security client ready")
 	}
+
+	// Health check handler (declared early — used both in unauthenticated /health routes and inside api group)
+	healthH := handlers.NewHealthHandler(database, redisClient)
 
 	// Create handlers with MQTT client and Redis client
 	orgsHandler := handlers.NewOrganizationsHandler(database, mqttClient, dynsecClient)
@@ -511,6 +569,20 @@ func main() {
 			// audited with the actor's user_id + username for accountability.
 			recipes.POST("/:id/load", recipesHandler.Load)
 			recipes.GET("/:id/runs", recipesHandler.Runs)
+		}
+
+		// Synoptics — SCADA mimic pages. Reads open to any org member
+		// (operators view the live plant); writes restricted to admins
+		// (the designer is an engineering task).
+		synopticsHandler := handlers.NewSynopticsHandler(database)
+		synoptics := api.Group("/synoptics")
+		synoptics.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			synoptics.GET("", synopticsHandler.List)
+			synoptics.GET("/:id", synopticsHandler.Get)
+			synoptics.POST("", middleware.RequireRole(models.RoleAdmin), synopticsHandler.Create)
+			synoptics.PUT("/:id", middleware.RequireRole(models.RoleAdmin), synopticsHandler.Update)
+			synoptics.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), synopticsHandler.Delete)
 		}
 
 		// Shifts (turni): definizione + assegnazione operatori + detection
@@ -762,6 +834,49 @@ func main() {
 			i3x.POST("/properties/values", i3xHandler.BatchReadProperties)
 			i3x.POST("/alarms/:id/acknowledge", i3xHandler.AcknowledgeAlarm)
 		}
+
+		// Security Center endpoints
+		securityHandler := handlers.NewSecurityHandler(database)
+		secGrp := api.Group("/security")
+		secGrp.Use(middleware.RequireAuth)
+		{
+			secGrp.GET("/overview", securityHandler.Overview)
+			secGrp.GET("/events", securityHandler.Events)
+			secGrp.GET("/compliance", securityHandler.Compliance)
+		}
+
+		// Infrastructure overview (admin only)
+		infraHandler := handlers.NewInfrastructureHandler(database)
+		infraGrp := api.Group("/infrastructure")
+		infraGrp.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			infraGrp.GET("", infraHandler.List)
+		}
+
+		// OTA release management
+		updatesH := handlers.NewUpdatesHandler(database)
+		api.GET("/releases", middleware.RequireAuth, updatesH.ListReleases)
+		api.POST("/releases", middleware.RequireAuth, updatesH.CreateRelease)
+		api.GET("/releases/fleet", middleware.RequireAuth, updatesH.GetFleetUpdateStatus)
+		// Org admin update endpoints
+		orgUpdates := api.Group("/organizations/:id")
+		orgUpdates.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			orgUpdates.GET("/update", updatesH.GetPendingUpdate)
+			orgUpdates.POST("/approve-update", updatesH.ApproveUpdate)
+		}
+		// Edge agent endpoints (RequireAuth only, no admin requirement)
+		edgeUpdate := api.Group("/edge")
+		edgeUpdate.Use(middleware.RequireAuth)
+		{
+			edgeUpdate.GET("/update-check", updatesH.EdgeUpdateCheck)
+			edgeUpdate.POST("/update-status", updatesH.EdgeUpdateStatus)
+			edgeUpdate.POST("/heartbeat", healthH.EdgeHeartbeat)
+		}
+
+		// Detailed health diagnostics (authenticated)
+		api.GET("/health/detailed", middleware.RequireAuth, healthH.Detailed)
+		api.GET("/db/stats", middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin), healthH.DBStats)
 	}
 
 	// Swagger — enabled only when SWAGGER_ENABLED=true (never in production)
@@ -777,35 +892,23 @@ func main() {
 	// Start background DB metrics collector (updates gauges every minute).
 	telemetry.StartDBMetricsCollector(database)
 
+	// Start historian retention worker
+	retentionDays := 365
+	var historianRetentionVal string
+	if err := database.QueryRowContext(context.Background(),
+		`SELECT value FROM global_settings WHERE key = 'historian_retention_days'`).Scan(&historianRetentionVal); err == nil {
+		if n, err := strconv.Atoi(historianRetentionVal); err == nil {
+			retentionDays = n
+		}
+	}
+	db.StartHistorianRetentionWorker(database, retentionDays)
+
 	// Start InfluxDB v2 push connector (no-op if influx_enabled=false in settings).
 	influxWriter = connectors.NewInfluxDBConnector(database)
 
-	// Health check endpoints (unauthenticated, for Docker/Kubernetes probes)
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "healthy"})
-	})
-	router.GET("/ready", func(c *gin.Context) {
-		// Check database connection
-		if err := database.Ping(); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"status": "not ready",
-				"error":  "database unavailable",
-			})
-			return
-		}
-		// Check Redis connection (optional - service can run without Redis)
-		redisStatus := "available"
-		if redisClient == nil {
-			redisStatus = "unavailable"
-		}
-		c.JSON(http.StatusOK, gin.H{
-			"status": "ready",
-			"checks": gin.H{
-				"database": "available",
-				"redis":    redisStatus,
-			},
-		})
-	})
+	// Health check endpoints (unauthenticated — probed by Docker / load balancers)
+	router.GET("/health", healthH.Live)
+	router.GET("/ready", healthH.Ready)
 
 	// Start server with graceful shutdown
 	port := getEnv("PORT", "8080")
@@ -940,6 +1043,23 @@ func handleDataUpdate(topic string, payload []byte, redisClient *redis.Client) {
 
 	if update.TagID == 0 {
 		return
+	}
+
+	// Apply EU scaling if configured for this tag.
+	// The converted value replaces the raw value for all downstream consumers
+	// (Redis cache, WebSocket broadcast, historian, InfluxDB, shadow).
+	if cfg, ok := scalingCache.Load(update.TagID); ok {
+		update.Value = scaling.Apply(update.Value, cfg.(scaling.Config))
+		// Re-encode the payload with the scaled value so Redis/WS get EU data.
+		if scaled, err := json.Marshal(map[string]interface{}{
+			"tag_id": update.TagID,
+			"org_id": update.OrgID,
+			"v":      update.Value,
+			"ts":     update.Timestamp,
+			"q":      update.Quality,
+		}); err == nil {
+			payload = scaled
+		}
 	}
 
 	// 1. Store in Redis for "Current Value" endpoints

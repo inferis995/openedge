@@ -25,12 +25,17 @@ import CustomKPIsPage from '@/pages/CustomKPIsPage';
 import OEEProfilesPage from '@/pages/OEEProfilesPage';
 import OEEKioskPage from '@/pages/OEEKioskPage';
 import I3XPage from '@/pages/I3XPage';
+import SynopticsPage from '@/pages/SynopticsPage';
+import SynopticEditorPage from '@/pages/SynopticEditorPage';
 import AcceptInvitePage from '@/pages/AcceptInvitePage';
 import AuditPage from '@/pages/AuditPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import ResetPasswordPage from '@/pages/ResetPasswordPage';
 import ProfilePage from '@/pages/ProfilePage';
 import FleetPage from '@/pages/FleetPage';
+import SecurityPage from '@/pages/SecurityPage';
+import InfrastructurePage from '@/pages/InfrastructurePage';
+import ReleasesPage from '@/pages/ReleasesPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 
 import { useEffect, useState, useRef } from 'react';
@@ -134,6 +139,9 @@ function App() {
                     <Route path="/kpis" element={<CustomKPIsPage />} />
                     <Route path="/oee-profiles" element={<OEEProfilesPage />} />
                     <Route path="/i3x" element={<I3XPage />} />
+                    <Route path="/synoptics" element={<SynopticsPage />} />
+                    <Route path="/synoptics/:id" element={<SynopticEditorPage mode="view" />} />
+                    <Route path="/synoptics/:id/edit" element={<SynopticEditorPage mode="edit" />} />
                     <Route path="/users" element={<UsersPage />} />
                     <Route path="/profile" element={<ProfilePage />} />
                 </Route>
@@ -145,6 +153,9 @@ function App() {
                     <Route path="/mqtt-monitor" element={<MqttMonitorPage />} />
                     <Route path="/audit" element={<AuditPage />} />
                     <Route path="/fleet" element={<FleetPage />} />
+                    <Route path="/releases" element={<ReleasesPage />} />
+                    <Route path="/security" element={<SecurityPage />} />
+                    <Route path="/infrastructure" element={<InfrastructurePage />} />
                 </Route>
             </Route>
 

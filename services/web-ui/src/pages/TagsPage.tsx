@@ -124,7 +124,15 @@ const TagsPage = () => {
         historize: false,
         deadband_value: 0.1,
         json_path: '',
-
+        scaling_enabled: false,
+        scaling_raw_min: 4,
+        scaling_raw_max: 20,
+        scaling_eu_min: 0,
+        scaling_eu_max: 100,
+        scaling_clamp: true,
+        eu_unit: '',
+        eu_decimals: 2,
+        invert: false,
     });
 
     // Modbus builder state
@@ -342,7 +350,7 @@ const TagsPage = () => {
 
     // Real-time value integration
     const [currentValues, setCurrentValues] = useState<Map<number, CurrentValue>>(new Map());
-    const realtimeValues = useRealtime(selectedOrgId || undefined);
+    const { values: realtimeValues } = useRealtime(selectedOrgId || undefined);
 
     // Data status detection hook (uses Sparkplug B BIRTH/DEATH)
     const { isDeviceOnline } = useStaleData();
@@ -404,7 +412,16 @@ const TagsPage = () => {
                 data_type: 'REAL',
                 historize: false,
                 deadband_value: 0.1,
-        json_path: '',
+                json_path: '',
+                scaling_enabled: false,
+                scaling_raw_min: 4,
+                scaling_raw_max: 20,
+                scaling_eu_min: 0,
+                scaling_eu_max: 100,
+                scaling_clamp: true,
+                eu_unit: '',
+                eu_decimals: 2,
+                invert: false,
             });
         } catch (error) {
             console.error('Failed to save tag', error);
@@ -420,6 +437,15 @@ const TagsPage = () => {
             historize: tag.historize,
             deadband_value: tag.historize_deadband || 0.1,
             json_path: tag.json_path || '',
+            scaling_enabled: tag.scaling_enabled ?? false,
+            scaling_raw_min: tag.scaling_raw_min ?? 4,
+            scaling_raw_max: tag.scaling_raw_max ?? 20,
+            scaling_eu_min: tag.scaling_eu_min ?? 0,
+            scaling_eu_max: tag.scaling_eu_max ?? 100,
+            scaling_clamp: tag.scaling_clamp ?? true,
+            eu_unit: tag.eu_unit ?? '',
+            eu_decimals: tag.eu_decimals ?? 2,
+            invert: tag.invert ?? false,
         });
         setIsOpen(true);
     };
@@ -479,8 +505,16 @@ const TagsPage = () => {
             data_type: 'REAL',
             historize: false,
             deadband_value: 0.1,
-        json_path: '',
-
+            json_path: '',
+            scaling_enabled: false,
+            scaling_raw_min: 4,
+            scaling_raw_max: 20,
+            scaling_eu_min: 0,
+            scaling_eu_max: 100,
+            scaling_clamp: true,
+            eu_unit: '',
+            eu_decimals: 2,
+            invert: false,
         });
         setIsOpen(true);
     };
@@ -928,6 +962,7 @@ const TagsPage = () => {
                                     <Tabs defaultValue="general" className="w-full mt-4">
                                         <TabsList className="mb-4">
                                             <TabsTrigger value="general">Generale</TabsTrigger>
+                                            <TabsTrigger value="scaling">Conversione EU</TabsTrigger>
                                             {updatingTagId && <TabsTrigger value="alarms">Allarmi</TabsTrigger>}
                                         </TabsList>
                                         <TabsContent value="general">
@@ -1091,6 +1126,177 @@ const TagsPage = () => {
                                             <DialogFooter>
                                                 <Button onClick={handleSaveWithValidation}>{updatingTagId ? 'Update Tag' : 'Create Tag'}</Button>
                                             </DialogFooter>
+                                        </TabsContent>
+
+                                        <TabsContent value="scaling">
+                                            <div className="space-y-6 py-2">
+                                                {/* Enable toggle */}
+                                                <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
+                                                    <div>
+                                                        <p className="font-medium text-sm">Conversione EU abilitata</p>
+                                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                                            Converte il valore raw (es. 4–20 mA) in unità ingegneristiche prima di salvarlo e trasmetterlo.
+                                                        </p>
+                                                    </div>
+                                                    <Switch
+                                                        checked={formData.scaling_enabled ?? false}
+                                                        onCheckedChange={v => handleInputChange('scaling_enabled', v)}
+                                                    />
+                                                </div>
+
+                                                {formData.scaling_enabled && (
+                                                    <>
+                                                        {/* Bool tag: only show invert */}
+                                                        {formData.data_type === 'BOOL' ? (
+                                                            <div className="space-y-4">
+                                                                <div className="flex items-center justify-between p-4 rounded-lg border">
+                                                                    <div>
+                                                                        <p className="font-medium text-sm">Inverti valore booleano</p>
+                                                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                                                            true → false, false → true
+                                                                        </p>
+                                                                    </div>
+                                                                    <Switch
+                                                                        checked={formData.invert ?? false}
+                                                                        onCheckedChange={v => handleInputChange('invert', v)}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="space-y-5">
+                                                                {/* Raw range */}
+                                                                <div className="space-y-3">
+                                                                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Intervallo Raw (segnale fisico)</h4>
+                                                                    <div className="grid grid-cols-2 gap-4">
+                                                                        <div className="grid gap-2">
+                                                                            <Label htmlFor="sc-raw-min">Raw Min</Label>
+                                                                            <Input
+                                                                                id="sc-raw-min"
+                                                                                type="number"
+                                                                                step="any"
+                                                                                value={formData.scaling_raw_min ?? 4}
+                                                                                onChange={e => handleInputChange('scaling_raw_min', parseFloat(e.target.value) || 0)}
+                                                                                placeholder="es. 4"
+                                                                            />
+                                                                            <p className="text-xs text-muted-foreground">Valore raw minimo (es. 4 mA)</p>
+                                                                        </div>
+                                                                        <div className="grid gap-2">
+                                                                            <Label htmlFor="sc-raw-max">Raw Max</Label>
+                                                                            <Input
+                                                                                id="sc-raw-max"
+                                                                                type="number"
+                                                                                step="any"
+                                                                                value={formData.scaling_raw_max ?? 20}
+                                                                                onChange={e => handleInputChange('scaling_raw_max', parseFloat(e.target.value) || 0)}
+                                                                                placeholder="es. 20"
+                                                                            />
+                                                                            <p className="text-xs text-muted-foreground">Valore raw massimo (es. 20 mA)</p>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* EU range */}
+                                                                <div className="space-y-3">
+                                                                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Intervallo EU (unità ingegneristiche)</h4>
+                                                                    <div className="grid grid-cols-2 gap-4">
+                                                                        <div className="grid gap-2">
+                                                                            <Label htmlFor="sc-eu-min">EU Min</Label>
+                                                                            <Input
+                                                                                id="sc-eu-min"
+                                                                                type="number"
+                                                                                step="any"
+                                                                                value={formData.scaling_eu_min ?? 0}
+                                                                                onChange={e => handleInputChange('scaling_eu_min', parseFloat(e.target.value) || 0)}
+                                                                                placeholder="es. 0"
+                                                                            />
+                                                                        </div>
+                                                                        <div className="grid gap-2">
+                                                                            <Label htmlFor="sc-eu-max">EU Max</Label>
+                                                                            <Input
+                                                                                id="sc-eu-max"
+                                                                                type="number"
+                                                                                step="any"
+                                                                                value={formData.scaling_eu_max ?? 100}
+                                                                                onChange={e => handleInputChange('scaling_eu_max', parseFloat(e.target.value) || 0)}
+                                                                                placeholder="es. 100"
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Unit + decimals */}
+                                                                <div className="grid grid-cols-2 gap-4">
+                                                                    <div className="grid gap-2">
+                                                                        <Label htmlFor="sc-unit">Unità (EU)</Label>
+                                                                        <Input
+                                                                            id="sc-unit"
+                                                                            value={formData.eu_unit ?? ''}
+                                                                            onChange={e => handleInputChange('eu_unit', e.target.value)}
+                                                                            placeholder="es. °C, bar, %, m³/h"
+                                                                        />
+                                                                    </div>
+                                                                    <div className="grid gap-2">
+                                                                        <Label htmlFor="sc-dec">Decimali</Label>
+                                                                        <Input
+                                                                            id="sc-dec"
+                                                                            type="number"
+                                                                            min={0}
+                                                                            max={6}
+                                                                            value={formData.eu_decimals ?? 2}
+                                                                            onChange={e => handleInputChange('eu_decimals', parseInt(e.target.value) || 0)}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Clamp toggle */}
+                                                                <div className="flex items-center justify-between p-3 rounded-lg border">
+                                                                    <div>
+                                                                        <p className="font-medium text-sm">Clamp output all'intervallo EU</p>
+                                                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                                                            Valori fuori range vengono saturati a EU Min / EU Max
+                                                                        </p>
+                                                                    </div>
+                                                                    <Switch
+                                                                        checked={formData.scaling_clamp ?? true}
+                                                                        onCheckedChange={v => handleInputChange('scaling_clamp', v)}
+                                                                    />
+                                                                </div>
+
+                                                                {/* Live formula preview */}
+                                                                <div className="p-4 rounded-lg bg-muted/50 border font-mono text-sm space-y-1">
+                                                                    <p className="text-muted-foreground text-xs font-sans font-semibold uppercase tracking-wider mb-2">Anteprima formula</p>
+                                                                    {(() => {
+                                                                        const rawMin = formData.scaling_raw_min ?? 4;
+                                                                        const rawMax = formData.scaling_raw_max ?? 20;
+                                                                        const euMin = formData.scaling_eu_min ?? 0;
+                                                                        const euMax = formData.scaling_eu_max ?? 100;
+                                                                        const unit = formData.eu_unit || 'EU';
+                                                                        const dec = formData.eu_decimals ?? 2;
+                                                                        const span = rawMax - rawMin;
+                                                                        const convert = (r: number) =>
+                                                                            span === 0 ? euMin : ((r - rawMin) / span) * (euMax - euMin) + euMin;
+                                                                        const mid = rawMin + (rawMax - rawMin) / 2;
+                                                                        return (
+                                                                            <div className="space-y-1 text-xs">
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Raw {rawMin}</span><span className="text-emerald-400">→ {convert(rawMin).toFixed(dec)} {unit}</span></div>
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Raw {mid.toFixed(1)}</span><span className="text-emerald-400">→ {convert(mid).toFixed(dec)} {unit}</span></div>
+                                                                                <div className="flex justify-between"><span className="text-muted-foreground">Raw {rawMax}</span><span className="text-emerald-400">→ {convert(rawMax).toFixed(dec)} {unit}</span></div>
+                                                                            </div>
+                                                                        );
+                                                                    })()}
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                )}
+
+                                                {!formData.scaling_enabled && (
+                                                    <div className="text-center py-8 text-muted-foreground text-sm">
+                                                        <p>Abilita la conversione EU per configurare il mapping raw → ingegneristico.</p>
+                                                        <p className="mt-1 text-xs">Esempio: segnale 4–20 mA → 0–100 °C</p>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </TabsContent>
 
                                         {updatingTagId && (
@@ -1274,13 +1480,19 @@ const TagsPage = () => {
                                                                         ? (currentValue.value ? 'TRUE' : 'FALSE')
                                                                         : (currentValue.value !== null && currentValue.value !== undefined
                                                                             ? (typeof currentValue.value === 'number'
-                                                                                ? (tag.data_type === 'DINT' || tag.data_type === 'INT'
-                                                                                    ? Math.round(currentValue.value).toLocaleString()
-                                                                                    : currentValue.value.toLocaleString(undefined, { maximumFractionDigits: 2 }))
+                                                                                ? (tag.scaling_enabled && tag.eu_decimals != null
+                                                                                    ? currentValue.value.toFixed(tag.eu_decimals)
+                                                                                    : (tag.data_type === 'DINT' || tag.data_type === 'INT'
+                                                                                        ? Math.round(currentValue.value).toLocaleString()
+                                                                                        : currentValue.value.toLocaleString(undefined, { maximumFractionDigits: 2 })))
                                                                                 : currentValue.value.toString())
                                                                             : '-')
                                                                 ) : '-'}
                                                             </div>
+                                                            {/* EU unit badge */}
+                                                            {(tag as any).scaling_enabled && (tag as any).eu_unit && (
+                                                                <span className="text-xs text-muted-foreground font-mono">{(tag as any).eu_unit}</span>
+                                                            )}
 
                                                             {/* Quality indicator */}
                                                             {currentValue && (

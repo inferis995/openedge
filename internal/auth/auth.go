@@ -54,10 +54,14 @@ func (s *Service) Login(ctx context.Context, req models.LoginRequest) (*models.L
 func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ipAddress, userAgent string) (*models.LoginResponse, error) {
 	var user models.User
 	var passwordHash string
+	var failedLoginCount int
+	var lockedUntil sql.NullTime
 
-	query := `SELECT id, username, password_hash, role, full_name, org_id, i3x_write, created_at FROM users WHERE username = $1`
+	query := `SELECT id, username, password_hash, role, full_name, org_id, i3x_write, created_at,
+	          failed_login_count, locked_until FROM users WHERE username = $1`
 	err := s.db.QueryRowContext(ctx, query, req.Username).Scan(
 		&user.ID, &user.Username, &passwordHash, &user.Role, &user.FullName, &user.OrgID, &user.I3xWrite, &user.CreatedAt,
+		&failedLoginCount, &lockedUntil,
 	)
 
 	if err == sql.ErrNoRows {
@@ -71,14 +75,54 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 		return nil, err
 	}
 
+	// Check account lockout
+	if lockedUntil.Valid && lockedUntil.Time.After(time.Now()) {
+		s.logAudit(&user.ID, user.Username, "login", ipAddress, userAgent, map[string]interface{}{
+			"reason":       "account_locked",
+			"locked_until": lockedUntil.Time.Format(time.RFC3339),
+		}, false)
+		// Log security event
+		go func() {
+			_, _ = s.db.ExecContext(context.Background(), `INSERT INTO security_events (org_id, event_type, severity, actor, resource, detail)
+				VALUES ($1, 'account_locked_attempt', 'high', $2, $3, '{}')`,
+				user.OrgID, user.Username, ipAddress)
+		}()
+		return nil, errors.New("account bloccato fino a " + lockedUntil.Time.Format("15:04:05 02/01/2006"))
+	}
+
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte(req.Password)); err != nil {
+		// Increment failed login count
+		newCount := failedLoginCount + 1
+		if newCount >= 5 {
+			// Lock the account for 30 minutes
+			lockUntil := time.Now().Add(30 * time.Minute)
+			_, _ = s.db.ExecContext(ctx,
+				`UPDATE users SET failed_login_count=$1, locked_until=$2 WHERE id=$3`,
+				newCount, lockUntil, user.ID)
+			// Log security event
+			go func() {
+				_, _ = s.db.ExecContext(context.Background(), `INSERT INTO security_events (org_id, event_type, severity, actor, resource, detail)
+					VALUES ($1, 'account_locked', 'high', $2, $3, '{}')`,
+					user.OrgID, user.Username, ipAddress)
+			}()
+		} else {
+			_, _ = s.db.ExecContext(ctx,
+				`UPDATE users SET failed_login_count=$1 WHERE id=$2`,
+				newCount, user.ID)
+		}
 		// Log failed login attempt (wrong password)
 		s.logAudit(&user.ID, user.Username, "login", ipAddress, userAgent, map[string]interface{}{
-			"reason": "invalid_password",
+			"reason":             "invalid_password",
+			"failed_login_count": newCount,
 		}, false)
 		return nil, errors.New("invalid credentials")
 	}
+
+	// Successful login — reset lockout state and update last login info
+	_, _ = s.db.ExecContext(ctx,
+		`UPDATE users SET failed_login_count=0, locked_until=NULL, last_login_at=NOW(), last_login_ip=$1 WHERE id=$2`,
+		ipAddress, user.ID)
 
 	// Generate JWT
 	token, err := s.generateToken(user)

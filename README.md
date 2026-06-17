@@ -118,6 +118,18 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 - **Prometheus + Grafana** — Pre-built dashboard, Loki log aggregation
 - **CESMII i3X Access API** — Standard vendor-neutral REST interface
 
+**Security & Compliance**
+- **Security Center** — NIS2 Art. 21 compliance dashboard, 0-100 security score, 12-point checklist
+- **Account Lockout** — 5-strike 30-min lock, last-login IP tracking, security event feed
+- **Audit Trail** — Full audit log with IP, user agent, action, success/failure
+- **Infrastructure Dashboard** — Real-time inventory: all gateways with IP, port, TLS status, online state
+
+**Platform Management**
+- **OTA Updates** — Secure over-the-air edge agent updates with SHA256 verification, org-admin approval flow, auto-rollback
+- **Health Monitoring** — Liveness/readiness probes, MQTT watchdog with auto-reconnect, edge heartbeat
+- **Data Management** — Named Docker volumes, PostgreSQL tuning, historian retention (configurable), backup/restore scripts
+- **Fleet Management** — Per-org update status, fleet-wide deployment view for super admin
+
 ---
 
 ## Table of Contents
@@ -127,6 +139,8 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 - [Roles & Permissions](#roles--permissions)
 - [Configuration](#configuration)
 - [Deployment](#deployment)
+  - [On-Premise (recommended for factories)](#on-premise-recommended-for-factories)
+  - [Cloud / SaaS](#cloud--saas)
   - [Coolify (Recommended)](#coolify-recommended)
   - [Self-Hosted VPS](#self-hosted-vps)
   - [Local / On-Prem](#local--on-prem)
@@ -304,6 +318,47 @@ Without SMTP, invites and password resets still work — the token URL is logged
 ---
 
 ## Deployment
+
+### On-Premise (recommended for factories)
+
+Everything runs on the customer's Linux or Windows machine. No cloud dependency.
+
+**Linux (recommended)**
+```bash
+# 1. Clone and configure
+git clone https://github.com/inferis995/openedge.git /opt/openedge
+cd /opt/openedge
+make setup-env          # creates .env with random JWT_SECRET
+
+# 2. First run (builds images, starts services)
+make start
+
+# 3. Enable TLS (optional but recommended)
+make onprem-tls         # Caddy with internal CA, HTTPS on :443
+
+# 4. Install as system service (auto-starts at boot)
+sudo make install-service
+
+# 5. Backup (add to cron)
+./scripts/backup.sh 30  # keeps 30 days
+```
+
+**Windows**
+```powershell
+# From an elevated PowerShell in the repo folder:
+.\windows\install-service.ps1
+# Registers OpenEdge as a Windows Service (starts at boot, before login)
+```
+
+### Cloud / SaaS
+
+```bash
+make cloud-up           # docker-compose.cloud.yml (multi-tenant, behind Traefik)
+```
+
+For Coolify deployment: use `docker-compose.coolify.yml`.
+
+---
 
 ### Coolify (Recommended)
 

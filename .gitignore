@@ -75,6 +75,7 @@ tasks/
 # Claude local files
 .claude/*.local.md
 .claude/settings.local.json
+.claude/worktrees/
 
 # Compiled services
 services/core-api/core-api
@@ -84,6 +85,7 @@ services/driver-manager/driver-manager
 # Backup files (keep directory, exclude content)
 backups/*.zip
 backups/*.sql
+backups/*.sql.gz
 
 # Release archives (keep folder, exclude content)
 release-*/openedge-*.tar.gz
