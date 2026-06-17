@@ -1,8 +1,8 @@
 ---
 name: openedge-ops
-description: OpenEdge Operations — installa OpenEdge in produzione (Coolify/VPS/on-prem), gestisci organizzazioni, invita utenti, configura gateway/tag, webhook, troubleshoot container/driver/DB, backup/restore. Multi-tenant SaaS. on-prem, self-hosted, security-center, ota-updates, backup, monitoring, health-checks.
-version: 4.1.0
-tags: [industrial, iot, devops, docker, deploy, coolify, traefik, saas, multi-tenant, install, troubleshoot, mqtt, webhooks, invites, on-prem, self-hosted, security-center, ota-updates, backup, monitoring, health-checks]
+description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), VPS con Traefik, Coolify. Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring, OTA updates, security.
+version: 5.0.0
+tags: [industrial, iot, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan]
 requires: [docker, curl, git]
 ---
 
@@ -10,329 +10,391 @@ requires: [docker, curl, git]
 
 Skill per **installare, configurare e risolvere problemi** di OpenEdge in produzione.
 
-OpenEdge è una piattaforma **multi-tenant SaaS**: un'unica istanza serve N clienti
-(organizzazioni), ognuno isolato. Il global admin gestisce le org; ogni org admin
-gestisce autonomamente i propri utenti e la propria infrastruttura dalla UI.
-
-> Questa skill **scrive** sul sistema (deploy, config, restart, inviti).
-> Per **leggere** lo stato (allarmi, valori, OEE, anomalie) usa `openedge.md`.
+> **Regola #1**: prima di fare qualsiasi cosa, chiedi all'utente cosa vuole installare/fare.
+> Non assumere nulla. Usa il flusso di onboarding qui sotto.
 
 ---
 
-## Variabili d'ambiente attese
+## Onboarding — Chiedi sempre queste domande prima di procedere
 
-```bash
-OPENEDGE_DIR=/home/user/openedge    # path repo locale
-OPENEDGE_HOST=app.yourdomain.com    # dominio produzione
-OPENEDGE_PORT=443
-OPENEDGE_PROTOCOL=https
-OPENEDGE_USERNAME=admin
-OPENEDGE_PASSWORD=admin123
-OPENEDGE_ORG_ID=1
+Se l'utente non specifica esattamente cosa vuole, fai queste domande nell'ordine:
+
+### Step 1 — Modalità di deployment
+
+```
+Dove vuoi installare OpenEdge?
+
+1. Self-hosted / On-prem  — tutto gira sulla tua macchina (fabbrica, ufficio, PC industriale)
+                            Nessuna dipendenza cloud. Funziona anche air-gap.
+2. VPS / Cloud            — server dedicato con IP pubblico (Hetzner, OVH, DigitalOcean, ecc.)
+                            HTTPS automatico con Let's Encrypt + Traefik.
+3. Coolify                — piattaforma PaaS self-hosted. Gestisce HTTPS e deploy automaticamente.
+                            Raccomandato per chi vuole il cloud senza gestire Traefik a mano.
 ```
 
----
+### Step 2 — Sistema operativo (solo se on-prem)
 
-## 1. Deploy — Prima installazione
+```
+Che sistema operativo ha la macchina?
 
-### Opzione A: Coolify (raccomandato per SaaS)
-
-Coolify gestisce HTTPS, Let's Encrypt, reverse proxy automaticamente.
-
-**Passo 1 — Installa Coolify sul VPS** (Ubuntu 22+, minimo 2vCPU/4GB):
-```bash
-curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
-# Apri https://IP-VPS:8000 → crea account
+1. Linux  (Ubuntu 22+, Debian 12+, RHEL 8+) — raccomandato
+2. Windows (Windows 10/11 o Windows Server 2019+)
 ```
 
-**Passo 2 — Punta DNS**:
+### Step 3 — HTTPS (solo se on-prem Linux)
+
 ```
-app.yourdomain.com → A → IP_DEL_VPS
-```
-Attendi propagazione (~5-30 min) prima di procedere.
+Hai bisogno di HTTPS?
 
-**Passo 3 — Deploy in Coolify**:
-1. New Project → Add Resource → Docker Compose
-2. Incolla il contenuto di `docker-compose.coolify.yml` (o punta al repo)
-3. In "Domains" scrivi `https://app.yourdomain.com`
-4. Aggiungi le variabili d'ambiente (vedi sezione 2)
-5. Deploy
-
-**Passo 4 — MQTT/TLS porta 8883** (per edge device):
-- Coolify → Settings → Traefik → Dynamic Configuration → incolla `deploy/coolify-traefik-mqtt.yml`
-- Coolify → Settings → Traefik → Port Mappings → aggiungi `8883:8883`
-- Sostituisci `YOUR_DOMAIN` con il tuo dominio nel config MQTT
-
----
-
-### Opzione B: VPS self-hosted (script automatico)
-
-```bash
-git clone https://github.com/inferis995/openedge.git
-cd openedge
-bash deploy/cloud-init.sh
-# Chiede: dominio, email Let's Encrypt, password admin iniziale
-# Installa: Docker, ufw (22/80/443/8883), systemd service
-# Genera secrets, verifica DNS, avvia tutto
+1. Sì — rete locale o fabbrica (Caddy genera CA interna, nessun internet richiesto)
+2. No  — sviluppo locale, HTTP su :3000 è sufficiente
 ```
 
-Oppure manualmente con Traefik:
-```bash
-cp .env.cloud.example .env
-nano .env   # imposta PUBLIC_HOST, ACME_EMAIL, JWT_SECRET, DB_PASSWORD, MQTT_ADMIN_PASSWORD
-docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
+### Step 4 — Dominio / hostname
+
+```
+Qual è il nome host o dominio che vuoi usare?
+
+- On-prem LAN:  openedge.local  (o l'IP della macchina, es. 192.168.1.100)
+- VPS/cloud:    app.tuazienda.com
+- Coolify:      openedge.tuazienda.com
+```
+
+### Step 5 — Monitoraggio (opzionale)
+
+```
+Vuoi abilitare il monitoring (Prometheus + Grafana + Loki)?
+- Grafana dashboard per metriche container, DB, MQTT, API response time
+- Richiede ~500 MB RAM aggiuntivi
 ```
 
 ---
 
-### Opzione C: Locale / on-prem (dev o uso interno)
-
-```bash
-git clone https://github.com/inferis995/openedge.git
-cd openedge
-make start     # genera .env, builda immagini, avvia tutto
-# UI: http://localhost:3000  —  API: http://localhost:8081
-```
-
-**Windows**: doppio click su `openedge.bat` → menù interattivo.
+Una volta raccolte le risposte, segui la sezione corrispondente qui sotto.
 
 ---
 
-## On-Prem (factory / self-hosted — raccomandato per clienti industriali)
+## Deploy A — Self-hosted Linux (raccomandato per on-prem)
 
-Tutto gira sulla macchina del cliente. Nessuna dipendenza cloud. Compatibile air-gap.
-
-### Linux (raccomandato)
+**Prerequisiti**: Docker 24+, Docker Compose plugin, `make`, `git`, `openssl`
 
 ```bash
-# 1. Prerequisiti: Docker 24+, Docker Compose plugin
+# 1. Installa Docker (se non presente)
 curl -fsSL https://get.docker.com | bash
+newgrp docker   # oppure rilogga
 
 # 2. Clona il repo
 git clone https://github.com/inferis995/openedge.git /opt/openedge
 cd /opt/openedge
 
-# 3. Configura (auto-genera JWT_SECRET)
+# 3. Setup automatico .env (genera JWT, DB password, MQTT password)
 make setup-env
-# Modifica .env: imposta POSTGRES_PASSWORD, MQTT_ADMIN_PASSWORD, PUBLIC_HOST
+# Opzionale: nano .env per personalizzare PUBLIC_HOST, OPENEDGE_INITIAL_ADMIN_PASSWORD
 
-# 4. Build e avvio
+# 4. Build e avvio (include TUTTI i driver: Modbus/S7/OPC-UA/MQTT/Redis/LoRaWAN)
 make start
-# Web UI: http://localhost:3000
-# API:    http://localhost:8081
-# Login di default: admin / admin123 (CAMBIA SUBITO)
+```
 
-# 5. Abilita HTTPS con CA interna (raccomandato)
+Output atteso:
+```
+OpenEdge is starting up.
+  Web UI:   http://localhost:3000
+  Core API: http://localhost:8081
+  Login:    admin / admin123
+```
+
+**Con HTTPS (raccomandato anche in LAN)**:
+```bash
+# Imposta il nome host in .env prima di avviare
+echo "PUBLIC_HOST=openedge.local" >> .env   # o IP: 192.168.1.100
+
 make onprem-tls
-# Caddy emette un certificato self-signed per PUBLIC_HOST (es. openedge.local)
-# Esporta e installa la CA su ogni PC operatore:
+# Caddy emette un certificato dalla sua CA interna (nessun internet richiesto)
+
+# Esporta la CA e installala una volta su ogni PC operatore
 make export-root-ca
+# Crea: openedge-root-ca.crt
+# Windows: doppio click → Installa in "Autorità di certificazione radice attendibili"
+# macOS:   doppio click → Portachiavi di Sistema → fidati del certificato
+# Linux:   sudo cp openedge-root-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates
+```
 
-# 6. Installa come servizio di sistema (auto-start al boot, sopravvive ai riavvii)
+**Auto-start al boot**:
+```bash
 sudo make install-service
+# Registra come servizio systemd — riavvia automaticamente dopo crash o reboot
 ```
 
-### Windows (PC industriale)
-
-```powershell
-# Da PowerShell elevato nella cartella del repo:
-.\windows\install-service.ps1
-# Registra "OpenEdge" come Windows Service usando WinSW
-# Si avvia automaticamente al boot, prima del login utente
-# Log: .\logs\openedge.out.log
-
-# Verifica:
-Get-Service OpenEdge
-```
-
-### Monitoring On-Prem
-
+**Verifica**:
 ```bash
-# Avvia Prometheus + Grafana + Loki (metriche, dashboard, log)
-docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml --profile monitoring up -d
-# Grafana:    http://localhost:3030 (admin/admin)
-# Prometheus: http://localhost:9090
-# Metriche esposte su: http://localhost:8081/metrics
-```
-
-### Backup & Restore
-
-```bash
-# Backup manuale (aggiunge timestamp, rotazione 30 giorni di default)
-./scripts/backup.sh 30
-
-# Backup schedulato: aggiungi al crontab
-echo "0 3 * * * /opt/openedge/scripts/backup.sh 30" | crontab -
-
-# Restore (5 secondi di warning prima di sovrascrivere)
-./scripts/restore.sh backups/openedge_20260617_030000.sql.gz
-```
-
-### Health Checks
-
-```bash
-# Liveness (sempre 200 se il processo è vivo)
-curl http://localhost:8081/health
-
-# Readiness (controlla DB + Redis)
-curl http://localhost:8081/ready
-
-# Diagnostica completa (richiede token auth)
-curl -H "Authorization: Bearer TOKEN" http://localhost:8081/api/health/detailed
+curl http://localhost:8081/health    # {"status":"ok"}
+curl http://localhost:8081/ready     # {"status":"ready","db":"ok","redis":"ok"}
+docker compose ps                    # tutti i container Up (healthy)
 ```
 
 ---
 
-## 2. Variabili d'ambiente di produzione
+## Deploy B — Self-hosted Windows
+
+**Prerequisiti**: Docker Desktop, PowerShell 5+, Git for Windows
+
+```powershell
+# 1. Clona il repo
+git clone https://github.com/inferis995/openedge.git C:\OpenEdge
+cd C:\OpenEdge
+
+# 2. Avvia (menu interattivo — no make richiesto)
+.\openedge.bat
+# Seleziona "Start" dal menu
+
+# 3. Installa come Windows Service (auto-start al boot, prima del login)
+#    Da PowerShell elevato (Esegui come amministratore):
+Set-ExecutionPolicy -Scope Process Bypass -Force
+.\windows\install-service.ps1
+# Scarica WinSW (hash SHA256 verificato), registra servizio "OpenEdge"
+
+# Verifica:
+Get-Service OpenEdge   # Status: Running
+# UI: http://localhost:3000
+```
+
+**Disinstalla**:
+```powershell
+.\windows\install-service.ps1 -Uninstall
+```
+
+---
+
+## Deploy C — VPS con Traefik + Let's Encrypt
+
+**Prerequisiti**: VPS con IP pubblico, dominio puntato all'IP, porte 80/443/8883 aperte
 
 ```bash
-# Sicurezza — genera con: openssl rand -base64 32
-JWT_SECRET=<stringa random 32+ char>
+# Opzione 1 — Script automatico (raccomandato)
+git clone https://github.com/inferis995/openedge.git
+cd openedge
+bash deploy/cloud-init.sh
+# Chiede: dominio, email Let's Encrypt, password admin
+# Fa tutto: installa Docker, ufw, systemd, genera secrets, avvia stack
+
+# Opzione 2 — Manuale
+cp .env.cloud.example .env
+nano .env  # imposta: PUBLIC_HOST, ACME_EMAIL, POSTGRES_PASSWORD, MQTT_ADMIN_PASSWORD, JWT_SECRET
+make vps-up
+```
+
+**Verifica**:
+```bash
+make vps-status
+# oppure:
+curl https://app.tuazienda.com/health
+```
+
+**MQTT TLS** (per edge device che si connettono al cloud):
+```
+Porta: 8883 (mqtts://app.tuazienda.com:8883)
+Traefik gestisce TLS automaticamente.
+```
+
+---
+
+## Deploy D — Coolify
+
+**Prerequisiti**: istanza Coolify su VPS, dominio puntato, porte 80/443/8883 aperte
+
+```
+Passo 1 — Installa Coolify (se non presente)
+  curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
+  Apri https://IP-VPS:8000 → crea account
+
+Passo 2 — Punta DNS
+  app.tuazienda.com → A → IP_DEL_VPS
+
+Passo 3 — Deploy in Coolify
+  New Project → Add Resource → Docker Compose
+  Incolla il contenuto di docker-compose.coolify.yml
+  In "Domains": https://app.tuazienda.com
+  Aggiungi le variabili d'ambiente (vedi sezione "Variabili")
+  Deploy
+
+Passo 4 — MQTT/TLS porta 8883
+  Coolify → Settings → Traefik → Dynamic Configuration
+  Incolla: deploy/coolify-traefik-mqtt.yml (sostituisci YOUR_DOMAIN)
+  Coolify → Settings → Traefik → Port Mappings → aggiungi 8883:8883
+```
+
+---
+
+## File compose — struttura
+
+| File | Uso |
+|------|-----|
+| `docker-compose.yml` | Self-hosted/on-prem. Include tutti i driver. TLS con `--profile tls` |
+| `docker-compose.vps.yml` | VPS con Traefik + Let's Encrypt |
+| `docker-compose.coolify.yml` | Coolify — standalone, no overlay |
+| `docker-compose.monitoring.yml` | Overlay opzionale: Prometheus + Grafana + Loki |
+
+**Driver inclusi automaticamente** (nessun file extra necessario):
+Modbus TCP · Siemens S7 · OPC-UA · MQTT · Redis · **LoRaWAN** — tutti buildati con `make start`.
+Il driver-manager li spawna via Docker socket quando crei un Gateway nella UI.
+
+---
+
+## Variabili d'ambiente chiave
+
+```bash
+# Sicurezza — auto-generati da 'make setup-env'
+JWT_SECRET=<stringa 32+ char>
+POSTGRES_PASSWORD=<password forte>
+MQTT_ADMIN_PASSWORD=<password forte>
 
 # Database
 POSTGRES_DB=industrial_edge
 POSTGRES_USER=industrial_user
-POSTGRES_PASSWORD=<password forte>
 
-# MQTT
-MQTT_ADMIN_USER=core-api
-MQTT_ADMIN_PASSWORD=<password forte>
+# Host
+PUBLIC_HOST=app.tuazienda.com     # dominio o IP
+ACME_EMAIL=tua@email.com          # solo VPS/Coolify
 
-# Host pubblico
-PUBLIC_HOST=app.yourdomain.com
-ACME_EMAIL=tua@email.com
-
-# Opzionale: password admin iniziale (default: admin123)
+# Admin iniziale (default: admin123 — cambia dopo il primo login)
 OPENEDGE_INITIAL_ADMIN_PASSWORD=<password>
 ```
 
-Genera tutti i secret in un colpo:
+`make setup-env` genera JWT_SECRET, POSTGRES_PASSWORD e MQTT_ADMIN_PASSWORD automaticamente con `openssl rand`.
+
+---
+
+## Monitoring (opzionale)
+
 ```bash
-echo "JWT_SECRET=$(openssl rand -base64 32)"
-echo "POSTGRES_PASSWORD=$(openssl rand -base64 24)"
-echo "MQTT_ADMIN_PASSWORD=$(openssl rand -base64 24)"
+make monitoring-up    # avvia Prometheus + Grafana + Loki
+make monitoring-down  # ferma
+```
+
+| Servizio | URL | Credenziali |
+|---------|-----|-------------|
+| Grafana | http://localhost:3001 | admin / admin |
+| Prometheus | http://localhost:9090 | — |
+| Core API metrics | http://localhost:8081/metrics | — |
+
+Dashboard "OpenEdge Overview" e datasource già provisionati automaticamente.
+
+---
+
+## Backup & Restore
+
+```bash
+# Backup immediato (pg_dump nel container postgres)
+make backup-now
+# oppure: ./scripts/backup.sh 30  (mantieni 30 giorni)
+
+# Backup schedulato — aggiungi al crontab
+echo "0 3 * * * /opt/openedge/scripts/backup.sh 30" | crontab -
+
+# Copia backup su USB
+make backup-to-usb
+# oppure: make backup-to-usb USB=/media/chiavetta
+
+# Restore (ATTENZIONE: sovrascrive tutto — 5 secondi di warning)
+make restore BACKUP=./backups/openedge_20260617_030000.sql.gz
 ```
 
 ---
 
-## 3. Primo avvio — verifica
-
-Dopo il deploy, verifica che tutto funzioni:
+## Upgrade sicuro
 
 ```bash
-# Health check
-curl https://app.yourdomain.com/health
-# Atteso: {"status":"ok"}
-
-# Readiness (DB + Redis)
-curl https://app.yourdomain.com/ready
-# Atteso: {"status":"ready","db":"ok","redis":"ok"}
-
-# Login
-curl -s -X POST https://app.yourdomain.com/api/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}'
-# Atteso: {"token":"eyJ...","user":{...}}
+make update          # snapshot → git pull → build → up → health check
+make update-check    # mostra cosa cambia senza applicare
 ```
+
+Se l'health check fallisce dopo l'upgrade, lo script propone il rollback.
 
 ---
 
-## 4. Gestione organizzazioni (clienti)
+## Gestione organizzazioni (multi-tenant)
 
-### Crea una nuova organizzazione
+### Crea nuova org
 
 ```bash
 TOKEN=<admin token>
 
-curl -s -X POST https://app.yourdomain.com/api/organizations \
+curl -s -X POST https://app.tuazienda.com/api/organizations \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "Acme Corp", "description": "Cliente Acme"}'
 ```
 
-Al momento della creazione il sistema **automaticamente**:
-- Crea un utente MQTT dedicato (`org-{id}`) in Mosquitto DynSec
-- Assegna ACL sul topic `data/acme-corp/#`
-- Salva le credenziali MQTT in `org_mqtt_credentials`
+Al momento della creazione il sistema crea automaticamente:
+- Utente MQTT dedicato (`org-{id}`) in Mosquitto DynSec
+- ACL sul topic `data/{org-slug}/#`
+- Credenziali MQTT salvate in `org_mqtt_credentials`
 
-Non serve fare niente manualmente per MQTT.
-
-### Lista organizzazioni
+### Invita org admin
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  https://app.yourdomain.com/api/organizations
+curl -X POST https://app.tuazienda.com/api/organizations/3/invites \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Organization-ID: 3" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "mario@acme.com", "role": "admin"}'
+# L'utente riceve email con link di registrazione (valido 7 giorni)
 ```
 
-### Aggiorna o elimina
+### Lista / aggiorna / elimina
 
 ```bash
-curl -X PUT https://app.yourdomain.com/api/organizations/3 \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Acme Corp Updated"}'
-
-curl -X DELETE https://app.yourdomain.com/api/organizations/3 \
-  -H "Authorization: Bearer $TOKEN"
+curl -H "Authorization: Bearer $TOKEN" https://app.tuazienda.com/api/organizations
+curl -X PUT  https://app.tuazienda.com/api/organizations/3 -H "Authorization: Bearer $TOKEN" -d '{"name":"Acme Aggiornato"}'
+curl -X DELETE https://app.tuazienda.com/api/organizations/3 -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
 
-## 5. Gestione utenti e inviti
+## Edge Installer (deploy edge remoto)
 
-### Invita un utente (org admin)
+L'org admin scarica un ZIP pre-configurato dalla UI (Infrastructure → Download Edge Installer) o via API:
 
 ```bash
-# L'org admin (o global admin) invita un utente via email
-curl -X POST https://app.yourdomain.com/api/organizations/3/invites \
+curl -o edge-installer.zip \
   -H "Authorization: Bearer $TOKEN" \
   -H "X-Organization-ID: 3" \
-  -H "Content-Type: application/json" \
-  -d '{"email": "mario@acme.com", "role": "user"}'
+  https://app.tuazienda.com/api/organizations/3/edge-installer
 ```
 
-Il sistema:
-1. Genera un token one-time (TTL 7 giorni)
-2. Invia email con link `/accept-invite?token=...`
-3. L'utente clicca, sceglie username e password → account creato
-
-### Lista utenti di un'org
-
+Il cliente esegue solo:
 ```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  -H "X-Organization-ID: 3" \
-  https://app.yourdomain.com/api/users
+unzip edge-installer.zip && cd edge && ./install.sh
 ```
 
-### Crea utente direttamente (admin)
+ZIP contiene: `docker-compose.yml`, `.env` pre-compilato con credenziali MQTT org, `install.sh`, `install.ps1`.
 
-```bash
-curl -X POST https://app.yourdomain.com/api/users \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "X-Organization-ID: 3" \
-  -H "Content-Type: application/json" \
-  -d '{"username": "mario", "password": "...", "role": "user", "org_id": 3}'
+---
+
+## OTA Edge Updates
+
 ```
+Super admin → UI → Releases → "Pubblica Release"
+  Richiede: versione, URL artifact, SHA256 checksum (64 char hex)
+  Crea approvazione "pending" per ogni org automaticamente
 
-### Aggiorna o elimina utente
+Org admin → banner dashboard "Aggiornamento disponibile" → "Rivedi & Approva"
 
-```bash
-curl -X PUT https://app.yourdomain.com/api/users/5 \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{"role": "admin"}'
+Edge agent (driver-manager) → ogni 5 min controlla /api/edge/update-check
+  Se approved=true: scarica → verifica SHA256 → applica → health check
+  Se health check fallisce: rollback automatico → riporta rolled_back
 
-curl -X DELETE https://app.yourdomain.com/api/users/5 \
-  -H "Authorization: Bearer $TOKEN"
+Stato flotta: UI → Releases → Fleet Status
 ```
 
 ---
 
-## 6. Configurazione SMTP (per email invite e reset password)
-
-Imposta dalla UI: **System → Settings → Notifications** oppure via API:
+## Configurazione SMTP
 
 ```bash
-curl -X PUT https://app.yourdomain.com/api/system/settings \
+# Da UI: System → Settings → Notifications → Email
+# oppure via API:
+curl -X PUT https://app.tuazienda.com/api/system/settings \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -340,372 +402,121 @@ curl -X PUT https://app.yourdomain.com/api/system/settings \
     "notif_email_smtp_host": "smtp.gmail.com",
     "notif_email_smtp_port": "587",
     "notif_email_use_tls": "false",
-    "notif_email_username": "noreply@yourdomain.com",
+    "notif_email_username": "noreply@tuazienda.com",
     "notif_email_password": "gmail-app-password",
-    "notif_email_from": "noreply@yourdomain.com",
-    "notif_email_to": "alerts@yourdomain.com"
+    "notif_email_from": "noreply@tuazienda.com",
+    "notif_email_to": "alerts@tuazienda.com"
   }'
 ```
 
-Test invio email:
+---
+
+## Notifiche (Slack / Teams / PagerDuty)
+
 ```bash
-curl -X POST https://app.yourdomain.com/api/system/notifications/test \
+# Slack
+curl -X PUT https://app.tuazienda.com/api/system/settings \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"notif_slack_enabled":"true","notif_slack_webhook_url":"https://hooks.slack.com/..."}'
+
+# Microsoft Teams
+curl -X PUT https://app.tuazienda.com/api/system/settings \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"notif_teams_enabled":"true","notif_teams_webhook_url":"https://outlook.office.com/webhook/..."}'
+
+# PagerDuty
+curl -X PUT https://app.tuazienda.com/api/system/settings \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"notif_pagerduty_enabled":"true","notif_pagerduty_routing_key":"abc123..."}'
+
+# Test canale
+curl -X POST https://app.tuazienda.com/api/system/notifications/test \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
 
-## 7. Edge installer (download ZIP pre-configurato)
+## Troubleshooting
 
-L'org admin può scaricare il pacchetto edge dalla UI (Infrastructure → Download Edge Installer) o via API:
-
-```bash
-curl -o edge-installer.zip \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "X-Organization-ID: 3" \
-  https://app.yourdomain.com/api/organizations/3/edge-installer
-```
-
-Lo ZIP contiene:
-- `docker-compose.yml` — solo i servizi edge (driver-manager + driver)
-- `.env` — pre-compilato con credenziali MQTT dell'org, endpoint cloud
-- `install.sh` — script Linux (chmod +x && ./install.sh)
-- `install.ps1` — script Windows PowerShell
-
-Il cliente esegue solo:
-```bash
-unzip edge-installer.zip && cd edge && ./install.sh
-```
-
----
-
-## 8. Webhooks (notifiche HTTP a sistemi esterni)
-
-### Crea webhook
+### Container non parte
 
 ```bash
-curl -X POST https://app.yourdomain.com/api/organizations/3/webhooks \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "X-Organization-ID: 3" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "url": "https://acme.com/openedge-hook",
-    "events": ["alarm.active", "alarm.cleared", "edge.online", "edge.offline"]
-  }'
-# Risposta: {"id":1, "secret":"wh_sec_abc123..."} ← secret mostrato UNA VOLTA sola
-```
-
-**Eventi disponibili**: `alarm.active`, `alarm.cleared`, `tag.write`, `edge.online`, `edge.offline`
-
-**Payload webhook** (firmato con HMAC-SHA256 nell'header `X-OpenEdge-Signature`):
-```json
-{
-  "event": "alarm.active",
-  "org_id": 3,
-  "data": {
-    "alarm_id": 45,
-    "tag_id": 42,
-    "tag_alias": "Portata_Ingresso",
-    "severity": "critical",
-    "message": "Portata massima superata",
-    "value_at_trigger": 98.7,
-    "occurred_at": "2026-06-13T08:15:00Z"
-  }
-}
-```
-
-### Lista webhook con stato
-
-```bash
-curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
-  https://app.yourdomain.com/api/organizations/3/webhooks
-```
-
-### Elimina webhook
-
-```bash
-curl -X DELETE https://app.yourdomain.com/api/organizations/3/webhooks/1 \
-  -H "Authorization: Bearer $TOKEN"
-```
-
----
-
-## 9. Configurazione gateway e tag
-
-### Crea sito → area → gateway
-
-```bash
-# Sito
-curl -X POST https://app.yourdomain.com/api/sites \
-  -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
-  -d '{"name": "Stabilimento Milano", "org_id": 3}'
-
-# Area
-curl -X POST https://app.yourdomain.com/api/areas \
-  -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
-  -d '{"name": "Linea-A", "site_id": 1}'
-
-# Gateway
-curl -X POST https://app.yourdomain.com/api/gateways \
-  -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
-  -d '{
-    "name": "PLC-Linea-A",
-    "driver_type": "MODBUS_TCP",
-    "ip_address": "192.168.1.10",
-    "port": 502,
-    "area_id": 1,
-    "polling_interval": 1000
-  }'
-```
-
-### Import tag (formato PLC address)
-
-```bash
-curl -X POST https://app.yourdomain.com/api/tags/import \
-  -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "gateway_id": 5,
-    "historize": true,
-    "content": "Portata_Ingresso : REAL AT 40001;\nLivello_Vasca : REAL AT 40003;\nPompa_On : BOOL AT 00001.0;"
-  }'
-```
-
-Formati supportati:
-
-**Modbus TCP**: `Alias : DataType AT Address;`
-```
-Portata_Ingresso : REAL AT 40001;
-Livello_Vasca    : REAL AT 40003;
-Pompa_On         : BOOL AT 00001.0;
-```
-
-**Siemens S7**: `Alias : DataType AT Address;`
-```
-DB1_Temperatura : REAL AT DB1.DBD4;
-DB1_Contatore   : INT  AT DB1.DBW0;
-M_Marcia        : BOOL AT M0.0;
-```
-
-Tipi supportati: `BOOL`, `INT`, `UINT`, `DINT`, `UDINT`, `REAL`, `STRING`, `WORD`
-
----
-
-## 10. Monitoring stack
-
-```bash
-make monitoring-up     # avvia Prometheus + Grafana + Loki + Promtail
-make monitoring-down   # ferma
-make monitoring-logs   # log
-```
-
-| Servizio | URL locale | Credenziali |
-|---------|------------|-------------|
-| Grafana | http://localhost:3001 | admin / admin |
-| Prometheus | http://localhost:9090 | — |
-| Loki | http://localhost:3100 | — |
-
-Dashboard OpenEdge Overview già inclusa in Grafana. Datasource Prometheus e Loki auto-provisionati.
-
----
-
-## 11. Backup e Restore
-
-### Export backup (DB + config)
-
-```bash
-curl -o backup.tar.gz \
-  -H "Authorization: Bearer $TOKEN" \
-  https://app.yourdomain.com/api/system/backup
-```
-
-### Import restore
-
-```bash
-curl -X POST https://app.yourdomain.com/api/system/restore \
-  -H "Authorization: Bearer $TOKEN" \
-  -F "file=@backup.tar.gz"
-```
-
-### Impostazioni backup automatico
-
-```bash
-# Configura backup notturno (default: ore 3:00 UTC)
-curl -X PUT https://app.yourdomain.com/api/system/backup/settings \
-  -H "Authorization: Bearer $TOKEN" \
-  -d '{
-    "backup_enabled": "true",
-    "backup_schedule": "0 3 * * *",
-    "backup_retention_days": "30"
-  }'
-```
-
----
-
-## 12. Troubleshooting
-
-### Verifica stato container
-
-```bash
-docker compose ps
-docker compose logs -f core-api
-docker compose logs -f mosquitto
-docker compose logs -f postgres
-```
-
-### Edge offline — diagnostica
-
-```bash
-# 1. Verifica heartbeat MQTT
-docker compose logs mosquitto | grep "org-3"
-
-# 2. Verifica Redis TTL heartbeat
-docker compose exec redis redis-cli get "edge:ping:3"
-
-# 3. Edge status via API
-curl -H "Authorization: Bearer $TOKEN" \
-  https://app.yourdomain.com/api/organizations/3/edge-status
+docker compose ps                      # stato tutti i container
+docker compose logs -f core-api        # log API
+docker compose logs -f mosquitto       # log MQTT
+docker compose logs -f postgres        # log DB
 ```
 
 ### Driver non parte
 
 ```bash
-# Verifica immagini driver disponibili
-docker images | grep industrial-driver
-
-# Se mancano — rebuild
-make start
-
-# Log driver-manager
-docker compose logs -f driver-manager
-
-# Log del driver specifico per gateway_id=5
-docker logs industrial-driver-5
+docker images | grep industrial-driver  # verifica immagini presenti
+make start                              # rebuild tutto se mancano immagini
+docker compose logs -f driver-manager  # log driver-manager
+docker logs openedge-driver-5          # log driver specifico (container ID dal DB)
 ```
 
-### DB lento / connessioni esaurite
+### Edge offline
 
 ```bash
-# Verifica connessioni attive
+# 1. Verifica heartbeat Redis
+docker compose exec redis redis-cli get "edge:ping:3"
+
+# 2. Edge status via API
+curl -H "Authorization: Bearer $TOKEN" https://app.tuazienda.com/api/organizations/3/edge-status
+
+# 3. Log MQTT
+docker compose logs mosquitto | grep "org-3"
+```
+
+### DB lento
+
+```bash
 docker compose exec postgres psql -U industrial_user -d industrial_edge \
   -c "SELECT count(*), state FROM pg_stat_activity GROUP BY state;"
-
-# Restart core-api (libera pool)
-docker compose restart core-api
+docker compose restart core-api   # libera connection pool
 ```
 
-### Webhook non arriva
-
-```bash
-# 1. Verifica URL raggiungibile dall'esterno
-curl -X POST https://your-receiver.com/hook -d '{"test":true}'
-
-# 2. Controlla ultimo errore via API
-curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
-  https://app.yourdomain.com/api/organizations/3/webhooks
-# Guarda: last_status_code, last_error
-
-# 3. Verifica firma HMAC nel receiver
-# Header: X-OpenEdge-Signature: sha256=<hex>
-```
-
-### Reset completo (cancella tutti i dati)
+### Reset completo (SOLO DEV — cancella tutti i dati)
 
 ```bash
 make clean && make start
-# ATTENZIONE: distrugge tutti i dati. Usare SOLO in dev.
 ```
 
-### Comandi utili
+---
+
+## Comandi rapidi
 
 ```bash
-make start         # build + start (prima volta)
-make up            # start (immagini già presenti)
-make down          # stop
-make restart       # stop + start
-make logs          # tutti i log
-make monitoring-up # avvia stack monitoraggio
+make start           # prima installazione — build + start
+make onprem-tls      # HTTPS con CA interna
+make up              # start (immagini già presenti)
+make down            # stop
+make restart         # stop + start
+make logs            # tutti i log in real-time
+make install-service # systemd auto-start al boot
+make export-root-ca  # esporta CA per browser operatori
+make backup-now      # backup immediato
+make update          # upgrade sicuro
+make monitoring-up   # Prometheus + Grafana + Loki
+make help            # lista completa comandi
 ```
 
 ---
 
-## Security Center
-
-La dashboard Security Center (solo admin, `/security`) fornisce:
-- Punteggio di sicurezza 0-100 con breakdown
-- Checklist di conformità NIS2 Art. 21 (12 controlli)
-- Feed eventi di sicurezza (blocchi account, tentativi di login falliti)
-- Inventario infrastruttura con stato TLS/auth
-
-### Blocco account
-5 tentativi di login falliti → blocco di 30 minuti. Si resetta automaticamente al login corretto.
-L'admin può sbloccare tramite: `PUT /api/users/:id` (impostare `locked_until: null`).
-
-### OTA Edge Updates (super admin)
-
-1. Il super admin pubblica una release: UI → Releases → "Pubblica Release"
-   - Richiede: versione, URL artifact, checksum SHA256 (64 caratteri hex)
-   - Crea automaticamente un'approvazione `pending` per ogni org
-
-2. L'org admin approva: banner dashboard "Aggiornamento vX.X.X disponibile" → "Rivedi & Approva"
-
-3. L'edge agent (driver-manager) controlla `/api/edge/update-check` ogni 5 minuti
-   - Se `approved=true`: scarica l'artifact, verifica SHA256, applica l'aggiornamento
-   - Health check post-aggiornamento → rollback automatico in caso di errore
-   - Riporta lo stato: `updating` → `success` oppure `rolled_back`
-
-Stato della flotta: UI → Releases → tabella Fleet Status
-
----
-
-## Amministrazione Multi-Tenant
-
-### Ciclo di vita tenant
-
-```bash
-# 1. Crea org (super admin)
-POST /api/organizations
-{"name": "Acme Industries"}
-
-# 2. Invita org admin
-POST /api/organizations/:id/invites
-{"email": "admin@acme.com", "role": "admin"}
-# L'utente riceve un'email con il link di registrazione
-
-# 3. Deploy edge: l'org admin scarica l'installer
-GET /api/organizations/:id/edge-installer
-# Restituisce un ZIP con docker-compose pre-configurato per l'org
-
-# 4. Monitora tutte le org (super admin)
-GET /api/fleet/status          # tutti gli edge online/offline
-GET /api/infrastructure        # tutti i gateway con IP/stato TLS
-GET /api/security/overview     # punteggio di sicurezza globale
-```
-
-### Isolamento Org
-- Tutti i dati filtrati per `org_id` — nessuna fuga di dati cross-tenant
-- Credenziali MQTT per-org (DynSec ACL)
-- Header X-Organization-ID validato contro JWT — spoofing bloccato a livello middleware
-- Admin globale: `role=admin` AND `org_id IS NULL` nel JWT
-
-### Retention Storico (per deployment)
-Configurabile da UI → System → Database → Retention Days (default 365).
-Un worker gira ogni giorno: cancella le righe vecchie + VACUUM ANALYZE automatico.
-
----
-
-## Prompt di esempio per l'agente
+## Esempi di prompt per l'agente
 
 ```
-"Installa OpenEdge su questo VPS con Coolify — dominio: app.acme.com"
+"Voglio installare OpenEdge sulla mia macchina Linux in fabbrica"
+"Come installo OpenEdge su Windows per uso interno?"
+"Installa OpenEdge su questo VPS con dominio app.miazienda.com"
+"Voglio usare Coolify — come lo deplopo?"
 "Crea una nuova organizzazione per il cliente Rossi Srl"
 "Invita mario@rossi.com come admin dell'org 5"
-"Configura SMTP con Gmail per l'invio di email"
-"Importa questi tag Modbus nel gateway PLC-Linea-A: ..."
-"Scarica l'edge installer per l'org 3"
-"Configura un webhook su https://slack.hook/xxx per alarm.active nell'org 3"
-"Il driver del gateway 7 non parte — diagnostica e risolvi"
-"Fai un backup del DB e scaricalo"
-"L'edge dell'org 4 è offline da 10 minuti — indaga"
-"Quanti utenti ha l'org 2? Aggiungine uno read-only"
+"Configura Slack per le notifiche di allarme"
+"Il driver del gateway 7 non parte — diagnostica"
+"Fai un backup del DB"
+"L'edge dell'org 4 è offline — cosa faccio?"
+"Abilita il monitoring con Grafana"
+"Aggiorna OpenEdge all'ultima versione"
 ```
