@@ -1,8 +1,8 @@
 ---
 name: openedge
-description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, OEE via REST + i3X. Multi-tenant SaaS: ogni org è isolata. Security Center, infrastruttura, fleet status, health endpoints, OTA update check, edge heartbeat. Usa openedge-ops per deploy/configurazione.
-version: 4.1.0
-tags: [industrial, iot, alarms, historian, timeseries, scada, i3x, cesmii, monitoring, multi-tenant, saas, oee, webhooks, security, nis2, infrastructure, health, ota, fleet]
+description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, OEE via REST + i3X. Multi-tenant SaaS. CLI (openedge) con MCP server mode per AI agent integration. LoRaWAN auto-discovery + tag import + downlink. Tag Shadows (digital twin). Fleet OTA. SSO/OIDC. RBAC granulare. Slack/Teams/PagerDuty. InfluxDB connector. Usa openedge-ops per deploy/configurazione.
+version: 5.0.0
+tags: [industrial, iot, alarms, historian, timeseries, scada, i3x, cesmii, monitoring, multi-tenant, saas, oee, webhooks, security, nis2, infrastructure, health, ota, fleet, lorawan, shadows, sso, oidc, rbac, cli, mcp, influxdb, slack, teams, pagerduty]
 ---
 
 # OpenEdge — Skill di monitoraggio e controllo
@@ -553,6 +553,376 @@ GET  /api/edge/update-check       # l'edge controlla se ci sono aggiornamenti ap
 
 ---
 
+---
+
+## 15. LoRaWAN
+
+### Lista dispositivi auto-scoperti
+
+```
+GET /api/gateways/{gw_id}/lorawan/devices
+```
+
+Risposta:
+```json
+[
+  {
+    "id": 1,
+    "device_id": "eui-0123456789abcdef",
+    "dev_eui": "0123456789ABCDEF",
+    "last_seen": "2026-06-20T10:00:00Z",
+    "last_rssi": -85.0,
+    "last_snr": 7.2,
+    "last_f_port": 1,
+    "uplink_count": 142,
+    "available_fields": {
+      "temperature": "23.4",
+      "humidity": "61.5",
+      "battery": "3.2"
+    },
+    "existing_tags": ["eui-0123456789abcdef/temperature"]
+  }
+]
+```
+
+I dispositivi vengono auto-scoperti dal driver LoRaWAN al primo uplink ricevuto.
+`existing_tags` contiene i codici già importati come tag in OpenEdge.
+
+### Import tag da dispositivi LoRaWAN (admin)
+
+```
+POST /api/gateways/{gw_id}/lorawan/devices/import
+{
+  "devices": [
+    {
+      "device_id": "eui-0123456789abcdef",
+      "fields": [
+        {"name": "temperature", "alias": "Temperatura Stanza", "data_type": "REAL", "historize": true},
+        {"name": "humidity",    "alias": "Umidità Stanza",    "data_type": "REAL", "historize": true}
+      ]
+    }
+  ]
+}
+```
+
+Risposta:
+```json
+{"created": 2, "skipped": 0, "message": "2 tag(s) created, 0 already existed"}
+```
+
+I tag vengono creati con codice `{device_id}/{field_name}`.
+Tipi supportati: `REAL`, `INT`, `BOOL`, `STRING`.
+
+### Downlink LoRaWAN (admin)
+
+```
+POST /api/gateways/{gw_id}/lorawan/downlink
+{
+  "device_id": "eui-0123456789abcdef",
+  "f_port": 2,
+  "payload_hex": "0102FF",
+  "confirmed": false
+}
+```
+
+Il payload viene inoltrato via MQTT al driver LoRaWAN che lo trasmette al LNS (TTN v3 o ChirpStack v4).
+
+---
+
+## 16. Tag Shadows (Digital Twin)
+
+Il shadow è l'ultimo valore noto di un tag — disponibile anche quando l'edge è offline.
+Fonte: `"live"` = edge online; `"historic"` = edge offline, dato da DB.
+
+### Shadow di un singolo tag
+
+```
+GET /api/tags/{tag_id}/shadow
+```
+
+Risposta:
+```json
+{
+  "tag_id": 42,
+  "value": 41.2,
+  "quality": 192,
+  "timestamp": "2026-06-20T09:58:00Z",
+  "source": "live"
+}
+```
+
+### Shadow batch (tutti i tag di un gateway)
+
+```
+GET /api/tags/shadows?gateway_id=2
+```
+
+Risposta:
+```json
+[
+  {
+    "tag_id": 42,
+    "value": 41.2,
+    "quality": 192,
+    "timestamp": "2026-06-20T09:58:00Z",
+    "source": "live"
+  },
+  {
+    "tag_id": 43,
+    "value": 1,
+    "quality": 192,
+    "timestamp": "2026-06-20T08:00:00Z",
+    "source": "historic"
+  }
+]
+```
+
+---
+
+## 17. Fleet Management (OTA)
+
+### Stato fleet (global admin)
+
+```
+GET /api/fleet/status
+```
+
+Risposta:
+```json
+[
+  {
+    "org_id": 1,
+    "org_name": "Acme SpA",
+    "online": true,
+    "last_ping": "2026-06-20T10:00:00Z",
+    "version": "v2.0.0",
+    "gateway_count": 5
+  }
+]
+```
+
+### Restart edge di un'org (admin)
+
+```
+POST /api/organizations/{org_id}/edge-restart
+```
+
+Pubblica `sys/restart/{org_id}` via MQTT → il driver-manager riavvia tutti i driver.
+
+### OTA update edge (admin)
+
+```
+POST /api/organizations/{org_id}/edge-update
+{"version": "v2.1.0", "image": "ghcr.io/inferis995/openedge-driver-manager:v2.1.0"}
+```
+
+Pubblica `sys/update/{org_id}` → il driver-manager fa `docker pull` + `docker restart`.
+
+---
+
+## 18. SSO / OIDC
+
+### Login con Google
+
+```
+GET /api/auth/sso/google/login   → redirect a Google OAuth
+GET /api/auth/sso/google/callback
+```
+
+### Login con Azure AD / Entra ID
+
+```
+GET /api/auth/sso/azure/login    → redirect a Microsoft
+GET /api/auth/sso/azure/callback
+```
+
+Dopo callback: l'utente viene creato automaticamente se non esiste (`role=user`).
+L'org viene assegnata per domain hint (configurabile da Global Admin).
+
+### Configurazione provider SSO (global admin)
+
+```
+GET  /api/sso/providers
+POST /api/sso/providers          # {"org_id":1,"provider":"google","client_id":"...","client_secret":"...","enabled":true}
+PUT  /api/sso/providers/{id}
+DELETE /api/sso/providers/{id}
+```
+
+---
+
+## 19. RBAC Granulare
+
+Permessi aggiuntivi rispetto ai ruoli base (admin/user):
+
+| Flag | Significato |
+|------|-------------|
+| `can_write_tags` | Può scrivere valori sui tag |
+| `can_ack_alarms` | Può acknowledger gli allarmi |
+| `can_export_data` | Può esportare CSV storico |
+| `can_manage_recipes` | Può gestire ricette |
+| `can_manage_shifts` | Può gestire turni |
+| `can_view_audit` | Può vedere l'audit log |
+| `can_download_installer` | Può scaricare l'edge installer |
+
+### Leggi permessi utente
+
+```
+GET /api/users/{user_id}/permissions
+```
+
+### Aggiorna permessi (admin)
+
+```
+PUT /api/users/{user_id}/permissions
+{
+  "can_write_tags": true,
+  "can_ack_alarms": true,
+  "can_export_data": false
+}
+```
+
+---
+
+## 20. OpenEdge CLI
+
+Il CLI `openedge` è il modo più diretto per interagire con la piattaforma da terminale o da script.
+
+### Installazione
+
+```bash
+# Build da sorgente
+make build-cli          # → bin/openedge
+make install-cli        # → /usr/local/bin/openedge (richiede sudo)
+
+# Oppure scarica il binario pre-compilato
+curl -sL https://github.com/inferis995/openedge/releases/latest/download/openedge-linux-amd64 \
+  -o /usr/local/bin/openedge && chmod +x /usr/local/bin/openedge
+```
+
+### Login
+
+```bash
+openedge login --url https://app.yourdomain.com
+# → richiede username e password, salva il token in ~/.openedge/config.json
+```
+
+### Comandi principali
+
+```bash
+# Organizzazioni
+openedge orgs list
+openedge orgs get 1
+openedge orgs invite --email user@example.com --org 1
+
+# Gateway
+openedge gateways list [--org 1]
+openedge gateways get 2
+openedge gateways test 2           # testa la connessione
+openedge gateways lorawan 2        # lista dispositivi LoRaWAN
+
+# Tag
+openedge tags list [--gateway 2]
+openedge tags get 42
+openedge tags write 43 --value 1
+openedge tags history 42 --from 2026-06-19T00:00:00Z --to 2026-06-20T00:00:00Z
+openedge tags shadows [--gateway 2]
+
+# Allarmi
+openedge alarms list [--active] [--severity critical]
+openedge alarms ack 45
+
+# Fleet
+openedge fleet status
+openedge fleet restart --org 1
+openedge fleet update --org 1 --version v2.1.0
+
+# AI-Ops
+openedge aiops summary [--hours 24]
+openedge aiops anomalies --tag 42
+openedge aiops digest
+
+# Health / diagnostics
+openedge health
+openedge diagnostics
+```
+
+### Flag globali
+
+| Flag | Env var | Descrizione |
+|------|---------|-------------|
+| `--url` | `OPENEDGE_URL` | URL della piattaforma |
+| `--token` | `OPENEDGE_TOKEN` | JWT token (override config file) |
+| `--org` | `OPENEDGE_ORG_ID` | Organization ID |
+| `--json` | — | Output JSON grezzo invece di tabella |
+
+**Priority**: env vars → CLI flags → `~/.openedge/config.json`
+
+---
+
+## 21. MCP Server per AI Agent Integration
+
+Il comando `openedge mcp` avvia un server MCP (Model Context Protocol) su stdio.
+Permette a Claude Code, Cursor, e altri AI agent di controllare OpenEdge direttamente
+come se fossero tool nativi.
+
+### Configurazione in Claude Code
+
+```json
+// ~/.claude/settings.json
+{
+  "mcpServers": {
+    "openedge": {
+      "command": "openedge",
+      "args": ["mcp"],
+      "env": {
+        "OPENEDGE_URL": "https://app.yourdomain.com",
+        "OPENEDGE_TOKEN": "eyJ...",
+        "OPENEDGE_ORG_ID": "1"
+      }
+    }
+  }
+}
+```
+
+Dopo la configurazione, Claude Code vede 18 tool nativi OpenEdge:
+
+| Tool MCP | Equivalente REST |
+|----------|-----------------|
+| `list_organizations` | GET /api/organizations |
+| `list_gateways` | GET /api/gateways |
+| `list_tags` | GET /api/tags |
+| `get_tag_value` | GET /api/tags/{id}/current |
+| `write_tag_value` | PUT /api/i3x/v1/properties/tag-{id}/value |
+| `get_tag_history` | GET /api/history/stats |
+| `get_tag_shadows` | GET /api/tags/shadows |
+| `list_active_alarms` | GET /api/alarms/active |
+| `acknowledge_alarm` | POST /api/alarms/{id}/ack |
+| `get_fleet_status` | GET /api/fleet/status |
+| `fleet_restart` | POST /api/organizations/{id}/edge-restart |
+| `list_lorawan_devices` | GET /api/gateways/{id}/lorawan/devices |
+| `import_lorawan_tags` | POST /api/gateways/{id}/lorawan/devices/import |
+| `send_lorawan_downlink` | POST /api/gateways/{id}/lorawan/downlink |
+| `get_aiops_summary` | GET /api/aiops/summary |
+| `detect_anomalies` | GET /api/aiops/anomalies |
+| `get_alarm_digest` | GET /api/aiops/alarms/digest |
+| `check_health` | GET /health + /ready |
+
+### Protocollo
+
+- JSON-RPC 2.0 su stdio con framing `Content-Length`
+- Supporta anche bare newline-delimited JSON (per debug/test)
+- Log su stderr, risposte su stdout
+- Protocol version: `2024-11-05`
+
+### Test manuale del server MCP
+
+```bash
+OPENEDGE_URL=http://localhost:8081 OPENEDGE_TOKEN=eyJ... openedge mcp &
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | openedge mcp
+```
+
+---
+
 ## Prompt di esempio per l'agente
 
 ```
@@ -565,4 +935,10 @@ GET  /api/edge/update-check       # l'edge controlla se ci sono aggiornamenti ap
 "I webhook dell'org 3 stanno consegnando? Qual è l'ultimo status code?"
 "Mostrami gli ultimi 10 eventi di audit per l'utente mario"
 "Scrivi valore 1 sul tag Pompa_On (tag-43) del gateway PLC-Serbatoio1"
+"Lista i dispositivi LoRaWAN del gateway 4 e importa la temperatura come tag"
+"Invia un downlink al dispositivo eui-abc fport=2 payload=0102 sul gateway 4"
+"Leggi il tag shadow del tag 42 — è live o historic?"
+"Qual è lo stato della fleet? Ci sono edge offline?"
+"Fai restart dell'edge dell'org 1"
+"Come aggiungo openedge mcp a Claude Code?"
 ```

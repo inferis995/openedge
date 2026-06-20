@@ -1,4 +1,4 @@
-.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux lint lint-go lint-frontend test test-go test-frontend test-coverage swagger hooks-install vps-up vps-up-edge vps-down vps-logs vps-status coolify-build coolify-up coolify-down monitoring-up monitoring-down monitoring-logs
+.PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux lint lint-go lint-frontend test test-go test-frontend test-coverage swagger hooks-install vps-up vps-up-edge vps-down vps-logs vps-status coolify-build coolify-up coolify-down monitoring-up monitoring-down monitoring-logs build-cli install-cli
 
 COMPOSE         = docker compose
 COMPOSE_TLS     = docker compose --profile tls
@@ -248,6 +248,18 @@ test-coverage:
 	go tool cover -func=coverage.out | tail -1 && \
 	cd services/web-ui && npm run test:coverage
 
+## Build the OpenEdge CLI binary → bin/openedge
+build-cli:
+	@mkdir -p bin
+	go build -ldflags="-s -w" -o bin/openedge ./services/cli/
+	@echo "[cli] Built → bin/openedge"
+
+## Install the OpenEdge CLI to /usr/local/bin (requires sudo)
+install-cli: build-cli
+	sudo cp bin/openedge /usr/local/bin/openedge
+	@echo "[cli] Installed → /usr/local/bin/openedge"
+	@echo "      Run: openedge login --url https://your-openedge.com"
+
 ## Regenerate Swagger/OpenAPI docs
 swagger:
 	swag init -g services/core-api/main.go -o docs/ --parseDependency
@@ -291,6 +303,10 @@ help:
 	@echo "  ── Monitoring ──────────────────────────────────────────────"
 	@echo "  make monitoring-up   Start Prometheus + Grafana + Loki"
 	@echo "  make monitoring-down Stop monitoring stack"
+	@echo ""
+	@echo "  ── CLI ─────────────────────────────────────────────────────"
+	@echo "  make build-cli       Build openedge CLI → bin/openedge"
+	@echo "  make install-cli     Install openedge CLI → /usr/local/bin/openedge"
 	@echo ""
 	@echo "  ── Quality ─────────────────────────────────────────────────"
 	@echo "  make lint            Run all linters"
