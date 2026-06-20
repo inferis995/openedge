@@ -31,6 +31,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/scaling"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
+	otSync "github.com/ralph/industrial-edge-middleware/internal/sync"
 	"github.com/ralph/industrial-edge-middleware/internal/telemetry"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	swaggerFiles "github.com/swaggo/files"
@@ -919,6 +920,31 @@ func main() {
 			compliance.GET("/reports", reportHandler.ListReports)
 			compliance.GET("/reports/:id", reportHandler.GetReport)
 			compliance.DELETE("/reports/:id", middleware.RequireRole(models.RoleAdmin), reportHandler.DeleteReport)
+
+			// Gateway asset sync + auto-assess (NIS2 automation)
+			compliance.POST("/sync-assets", middleware.RequireRole(models.RoleAdmin), complianceHandler.SyncAssets)
+			compliance.GET("/auto-assess", complianceHandler.AutoAssess)
+
+			// CSIRT — Art.23 NIS2 incident reporting with legal deadlines
+			csirtHandler := handlers.NewCSIRTHandler(database)
+			compliance.GET("/csirt", csirtHandler.ListIncidents)
+			compliance.GET("/csirt/summary", csirtHandler.Summary)
+			compliance.POST("/csirt", middleware.RequireRole(models.RoleAdmin), csirtHandler.CreateIncident)
+			compliance.GET("/csirt/:id", csirtHandler.GetIncident)
+			compliance.PUT("/csirt/:id", middleware.RequireRole(models.RoleAdmin), csirtHandler.UpdateIncident)
+			compliance.PUT("/csirt/:id/early-warning", middleware.RequireRole(models.RoleAdmin), csirtHandler.MarkEarlyWarning)
+			compliance.PUT("/csirt/:id/notify", middleware.RequireRole(models.RoleAdmin), csirtHandler.MarkNotification)
+			compliance.PUT("/csirt/:id/close", middleware.RequireRole(models.RoleAdmin), csirtHandler.CloseIncident)
+
+			// Vendor Risk — Art.18 NIS2 supply chain vendor risk management
+			vendorHandler := handlers.NewVendorRiskHandler(database)
+			compliance.GET("/vendors", vendorHandler.ListVendors)
+			compliance.GET("/vendors/summary", vendorHandler.Summary)
+			compliance.POST("/vendors", middleware.RequireRole(models.RoleAdmin), vendorHandler.CreateVendor)
+			compliance.PUT("/vendors/:id", middleware.RequireRole(models.RoleAdmin), vendorHandler.UpdateVendor)
+			compliance.DELETE("/vendors/:id", middleware.RequireRole(models.RoleAdmin), vendorHandler.DeleteVendor)
+			compliance.POST("/vendors/:id/score", middleware.RequireRole(models.RoleAdmin), vendorHandler.RecalculateScore)
+			compliance.POST("/vendors/sync", middleware.RequireRole(models.RoleAdmin), vendorHandler.SyncFromGateways)
 		}
 	}
 
@@ -945,6 +971,9 @@ func main() {
 		}
 	}
 	db.StartHistorianRetentionWorker(database, retentionDays)
+
+	// Start OT asset sync worker (syncs gateways → ot_assets every hour for NIS2 compliance).
+	otSync.StartAssetSyncWorker(database)
 
 	// Start InfluxDB v2 push connector (no-op if influx_enabled=false in settings).
 	influxWriter = connectors.NewInfluxDBConnector(database)

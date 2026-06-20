@@ -1058,6 +1058,149 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: NIS2 Art.21 expanded checklist — 30 items covering (a-j).
+	// Adds auto_assessable + article_ref columns and seeds the full 30-item list.
+	nis2ExpandCols := []string{
+		`ALTER TABLE compliance_requirements ADD COLUMN IF NOT EXISTS auto_assessable BOOLEAN NOT NULL DEFAULT false`,
+		`ALTER TABLE compliance_requirements ADD COLUMN IF NOT EXISTS article_ref VARCHAR(32)`,
+	}
+	for _, stmt := range nis2ExpandCols {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: compliance_requirements alter: %v", err)
+		}
+	}
+
+	// Seed 30-item NIS2 checklist (Art.21 a-j). ON CONFLICT DO NOTHING is idempotent.
+	_, _ = db.ExecContext(context.Background(), `
+		INSERT INTO compliance_requirements (framework_id, req_code, category, title, weight, auto_assessable, article_ref)
+		SELECT f.id, r.code, r.cat, r.title, r.w::int, r.aa::boolean, r.aref
+		FROM compliance_frameworks f,
+		(VALUES
+		  ('NIS2-A1','Governance',     'Politica di sicurezza',                              '2','false','Art.21(a)'),
+		  ('NIS2-A2','Risk Management','Analisi del rischio periodica',                      '3','true', 'Art.21(a)'),
+		  ('NIS2-B1','Incident',       'Rilevamento degli incidenti',                        '3','true', 'Art.21(b)'),
+		  ('NIS2-B2','Incident',       'Procedura di risposta agli incidenti',               '3','false','Art.21(b)'),
+		  ('NIS2-B3','Incident',       'Notifica Art.23 al CSIRT (24h early warning)',       '3','true', 'Art.21(b)/Art.23'),
+		  ('NIS2-B4','Incident',       'Rapporto finale incidente (30 giorni)',              '2','true', 'Art.21(b)/Art.23'),
+		  ('NIS2-C1','Continuity',     'Piano di continuita operativa (BCP)',                '2','false','Art.21(c)'),
+		  ('NIS2-C2','Continuity',     'Piano di disaster recovery (DRP)',                   '2','false','Art.21(c)'),
+		  ('NIS2-C3','Continuity',     'Test periodici del DRP',                             '2','false','Art.21(c)'),
+		  ('NIS2-D1','Supply Chain',   'Inventario fornitori critici',                       '2','true', 'Art.21(d)'),
+		  ('NIS2-D2','Supply Chain',   'Valutazione sicurezza fornitori',                    '3','true', 'Art.21(d)'),
+		  ('NIS2-D3','Supply Chain',   'Clausole di sicurezza nei contratti',                '2','true', 'Art.21(d)'),
+		  ('NIS2-E1','Acquisition',    'Sicurezza nello sviluppo e acquisizione sistemi',    '1','false','Art.21(e)'),
+		  ('NIS2-E2','Acquisition',    'Protocolli sicuri nelle comunicazioni OT',           '3','true', 'Art.21(e)'),
+		  ('NIS2-F1','Audit',          'Audit e valutazione dell efficacia',                 '1','false','Art.21(f)'),
+		  ('NIS2-F2','Audit',          'Indicatori KPI di sicurezza',                        '1','false','Art.21(f)'),
+		  ('NIS2-G1','Awareness',      'Formazione cybersecurity per il personale',          '1','false','Art.21(g)'),
+		  ('NIS2-G2','Awareness',      'Consapevolezza sui rischi cyber (awareness)',        '1','false','Art.21(g)'),
+		  ('NIS2-G3','Vulnerability',  'Gestione delle vulnerabilita (patch)',               '3','true', 'Art.21(g)'),
+		  ('NIS2-H1','Cryptography',   'Uso di crittografia per dati in transito',          '2','true', 'Art.21(h)'),
+		  ('NIS2-H2','Cryptography',   'Uso di crittografia per dati a riposo',             '2','false','Art.21(h)'),
+		  ('NIS2-H3','Cryptography',   'Gestione delle chiavi crittografiche',              '1','false','Art.21(h)'),
+		  ('NIS2-I1','HR Security',    'Procedure di onboarding sicuro del personale',      '1','false','Art.21(i)'),
+		  ('NIS2-I2','HR Security',    'Revoca accessi alla cessazione del rapporto',       '2','false','Art.21(i)'),
+		  ('NIS2-I3','HR Security',    'Gestione degli accessi privilegiati (PAM)',         '2','false','Art.21(i)'),
+		  ('NIS2-J1','Access Control', 'Autenticazione multi-fattore (MFA)',                '3','true', 'Art.21(j)'),
+		  ('NIS2-J2','Access Control', 'Gestione identita e accessi (IAM)',                 '2','false','Art.21(j)'),
+		  ('NIS2-J3','Access Control', 'Segregazione delle reti OT/IT',                    '3','true', 'Art.21(j)'),
+		  ('NIS2-J4','Access Control', 'Monitoraggio degli accessi e audit log',            '2','true', 'Art.21(j)'),
+		  ('NIS2-J5','Access Control', 'Gestione sessioni sicure',                          '1','false','Art.21(j)')
+		) AS r(code, cat, title, w, aa, aref)
+		WHERE f.code = 'NIS2'
+		ON CONFLICT (framework_id, req_code) DO NOTHING
+	`)
+
+	// Update article_ref for the original 10 NIS2 items (idempotent).
+	nis2ArticleRefs := []string{
+		`UPDATE compliance_requirements SET article_ref='Art.21(a)' WHERE req_code='NIS2-A' AND article_ref IS NULL`,
+		`UPDATE compliance_requirements SET article_ref='Art.21(b)' WHERE req_code='NIS2-B' AND article_ref IS NULL`,
+		`UPDATE compliance_requirements SET article_ref='Art.21(c)' WHERE req_code='NIS2-C' AND article_ref IS NULL`,
+		`UPDATE compliance_requirements SET article_ref='Art.21(d)' WHERE req_code='NIS2-D' AND article_ref IS NULL`,
+		`UPDATE compliance_requirements SET article_ref='Art.21(e)' WHERE req_code='NIS2-E' AND article_ref IS NULL`,
+		`UPDATE compliance_requirements SET article_ref='Art.21(f)' WHERE req_code='NIS2-F' AND article_ref IS NULL`,
+		`UPDATE compliance_requirements SET article_ref='Art.21(g)' WHERE req_code='NIS2-G' AND article_ref IS NULL`,
+		`UPDATE compliance_requirements SET article_ref='Art.21(h)' WHERE req_code='NIS2-H' AND article_ref IS NULL`,
+		`UPDATE compliance_requirements SET article_ref='Art.21(i)' WHERE req_code='NIS2-I' AND article_ref IS NULL`,
+		`UPDATE compliance_requirements SET article_ref='Art.21(j)' WHERE req_code='NIS2-L' AND article_ref IS NULL`,
+	}
+	for _, stmt := range nis2ArticleRefs {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: NIS2 article_ref update: %v", err)
+		}
+	}
+
+	// Migration: CSIRT incidents (Art.23 NIS2 — incident reporting with legal deadlines).
+	csirtMigration := []string{
+		`CREATE TABLE IF NOT EXISTS csirt_incidents (
+			id                     SERIAL PRIMARY KEY,
+			org_id                 INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			threat_event_id        INT REFERENCES ot_threat_events(id) ON DELETE SET NULL,
+			title                  VARCHAR(255) NOT NULL,
+			description            TEXT,
+			severity               VARCHAR(10) NOT NULL DEFAULT 'high',
+			status                 VARCHAR(20) NOT NULL DEFAULT 'open',
+			affected_systems       TEXT,
+			impact_description     TEXT,
+			early_warning_due      TIMESTAMPTZ NOT NULL,
+			notification_due       TIMESTAMPTZ NOT NULL,
+			final_report_due       TIMESTAMPTZ NOT NULL,
+			early_warning_sent_at  TIMESTAMPTZ,
+			notification_sent_at   TIMESTAMPTZ,
+			final_report_sent_at   TIMESTAMPTZ,
+			root_cause             TEXT,
+			remediation            TEXT,
+			created_by             INT REFERENCES users(id),
+			closed_by              INT REFERENCES users(id),
+			closed_at              TIMESTAMPTZ,
+			created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_csirt_incidents_org  ON csirt_incidents(org_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_csirt_incidents_open ON csirt_incidents(org_id, status) WHERE status != 'closed'`,
+	}
+	for _, stmt := range csirtMigration {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: csirt_incidents migration: %v", err)
+		}
+	}
+
+	// Migration: OT vendors (Art.18 NIS2 — supply chain vendor risk).
+	vendorMigration := []string{
+		`CREATE TABLE IF NOT EXISTS ot_vendors (
+			id                 SERIAL PRIMARY KEY,
+			org_id             INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			name               VARCHAR(128) NOT NULL,
+			country            VARCHAR(64),
+			website            VARCHAR(255),
+			contact_email      VARCHAR(255),
+			products_used      TEXT,
+			has_iso27001       BOOLEAN NOT NULL DEFAULT false,
+			has_soc2           BOOLEAN NOT NULL DEFAULT false,
+			has_iec62443       BOOLEAN NOT NULL DEFAULT false,
+			last_audit_date    DATE,
+			data_access_level  VARCHAR(20) NOT NULL DEFAULT 'none',
+			network_access     BOOLEAN NOT NULL DEFAULT false,
+			remote_access      BOOLEAN NOT NULL DEFAULT false,
+			contract_start     DATE,
+			contract_end       DATE,
+			security_clauses   BOOLEAN NOT NULL DEFAULT false,
+			risk_score         INT NOT NULL DEFAULT 50,
+			criticality        VARCHAR(10) NOT NULL DEFAULT 'medium',
+			notes              TEXT,
+			auto_imported      BOOLEAN NOT NULL DEFAULT false,
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE (org_id, name)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ot_vendors_org ON ot_vendors(org_id, risk_score)`,
+	}
+	for _, stmt := range vendorMigration {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: ot_vendors migration: %v", err)
+		}
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

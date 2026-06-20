@@ -22,12 +22,14 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
+	otSync "github.com/ralph/industrial-edge-middleware/internal/sync"
 )
 
 // ComplianceHandler handles all OT compliance endpoints.
@@ -916,4 +918,266 @@ func (h *ComplianceHandler) GetScanStatus(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, job)
+}
+
+// ─── Gateway Asset Sync + Auto-Assess ────────────────────────────────────────
+
+// SyncAssets POST /api/compliance/sync-assets (admin only)
+// Triggers SyncGatewayAssets for the current org and returns created/updated counts.
+func (h *ComplianceHandler) SyncAssets(c *gin.Context) {
+	orgID, hasOrg := h.resolveOrgID(c)
+	if !hasOrg {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required"})
+		return
+	}
+
+	created, updated, err := otSync.SyncGatewayAssets(c.Request.Context(), h.db, orgID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"created": created, "updated": updated})
+}
+
+// autoAssessResult is one item in the auto-assessment output.
+type autoAssessResult struct {
+	ReqCode  string `json:"req_code"`
+	Status   string `json:"status"`
+	Evidence string `json:"evidence"`
+}
+
+// AutoAssess GET /api/compliance/auto-assess
+// Runs automated checks against NIS2 requirements and persists the results.
+func (h *ComplianceHandler) AutoAssess(c *gin.Context) {
+	orgID, hasOrg := h.resolveOrgID(c)
+	if !hasOrg {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required"})
+		return
+	}
+
+	ctx := c.Request.Context()
+	now := time.Now()
+
+	var checks []autoAssessResult
+
+	// NIS2-A2: Analisi del rischio periodica — completed OT scan in last 30 days.
+	{
+		var cnt int
+		_ = h.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM ot_scan_jobs WHERE org_id=$1 AND status='completed' AND finished_at > $2`,
+			orgID, now.AddDate(0, 0, -30)).Scan(&cnt)
+		status, evidence := "non_compliant", "No completed OT scan in the last 30 days"
+		if cnt > 0 {
+			status = "compliant"
+			evidence = fmt.Sprintf("%d completed OT scan(s) in last 30 days", cnt)
+		}
+		checks = append(checks, autoAssessResult{"NIS2-A2", status, evidence})
+	}
+
+	// NIS2-B1: Rilevamento degli incidenti — threat events logged recently.
+	{
+		var cnt int
+		_ = h.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM ot_threat_events WHERE org_id=$1 AND created_at > $2`,
+			orgID, now.AddDate(0, 0, -30)).Scan(&cnt)
+		status, evidence := "non_compliant", "No threat events logged in last 30 days — detection may not be active"
+		if cnt > 0 {
+			status = "compliant"
+			evidence = fmt.Sprintf("%d threat event(s) detected in last 30 days", cnt)
+		}
+		checks = append(checks, autoAssessResult{"NIS2-B1", status, evidence})
+	}
+
+	// NIS2-B3: CSIRT 24h early warning — process active (incident exists).
+	{
+		var cnt int
+		_ = h.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM csirt_incidents WHERE org_id=$1`, orgID).Scan(&cnt)
+		status, evidence := "non_compliant", "No CSIRT incidents registered — process may not be active"
+		if cnt > 0 {
+			status = "compliant"
+			evidence = fmt.Sprintf("CSIRT process active: %d incident(s) registered", cnt)
+		}
+		checks = append(checks, autoAssessResult{"NIS2-B3", status, evidence})
+	}
+
+	// NIS2-B4: Final incident report (30 days) — no overdue final reports.
+	{
+		var overdue int
+		_ = h.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM csirt_incidents
+			 WHERE org_id=$1 AND status != 'closed'
+			   AND final_report_due < now() AND final_report_sent_at IS NULL`, orgID).Scan(&overdue)
+		status, evidence := "compliant", "No overdue final incident reports"
+		if overdue > 0 {
+			status = "non_compliant"
+			evidence = fmt.Sprintf("%d incident(s) with overdue final report", overdue)
+		}
+		checks = append(checks, autoAssessResult{"NIS2-B4", status, evidence})
+	}
+
+	// NIS2-D1: Vendor inventory.
+	{
+		var cnt int
+		_ = h.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM ot_vendors WHERE org_id=$1`, orgID).Scan(&cnt)
+		status, evidence := "non_compliant", "Vendor inventory is empty"
+		if cnt > 0 {
+			status = "compliant"
+			evidence = fmt.Sprintf("%d vendor(s) in inventory", cnt)
+		}
+		checks = append(checks, autoAssessResult{"NIS2-D1", status, evidence})
+	}
+
+	// NIS2-D2: Vendor risk assessment.
+	{
+		var cnt int
+		_ = h.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM ot_vendors WHERE org_id=$1 AND risk_score > 0`, orgID).Scan(&cnt)
+		status, evidence := "non_compliant", "No vendor risk assessments completed"
+		if cnt > 0 {
+			status = "compliant"
+			evidence = fmt.Sprintf("%d vendor(s) with risk score calculated", cnt)
+		}
+		checks = append(checks, autoAssessResult{"NIS2-D2", status, evidence})
+	}
+
+	// NIS2-D3: Security clauses in contracts.
+	{
+		var total, withClauses int
+		_ = h.db.QueryRowContext(ctx,
+			`SELECT COUNT(*), COUNT(*) FILTER (WHERE security_clauses) FROM ot_vendors WHERE org_id=$1`,
+			orgID).Scan(&total, &withClauses)
+		status := "non_compliant"
+		evidence := "No vendors with security clauses in contracts"
+		if total > 0 {
+			pct := float64(withClauses) / float64(total) * 100
+			evidence = fmt.Sprintf("%d/%d vendors (%.0f%%) have security clauses", withClauses, total, pct)
+			if pct >= 80 {
+				status = "compliant"
+			} else if withClauses > 0 {
+				status = "partial"
+			}
+		}
+		checks = append(checks, autoAssessResult{"NIS2-D3", status, evidence})
+	}
+
+	// NIS2-E2: Secure OT protocols — encrypted protocol percentage.
+	{
+		var total, encrypted int
+		_ = h.db.QueryRowContext(ctx, `
+			SELECT COUNT(*), COUNT(*) FILTER (WHERE UPPER(g.driver_type) IN ('OPC_UA','MQTT'))
+			FROM gateways g
+			JOIN areas a ON a.id=g.area_id
+			JOIN sites  s ON s.id=a.site_id
+			WHERE s.org_id=$1 AND g.enabled=true`, orgID).Scan(&total, &encrypted)
+		status := "non_compliant"
+		evidence := "No gateways found"
+		if total > 0 {
+			pct := float64(encrypted) / float64(total) * 100
+			evidence = fmt.Sprintf("%d/%d gateways (%.0f%%) use encrypted-capable protocols", encrypted, total, pct)
+			if pct > 50 {
+				status = "compliant"
+			} else if pct > 0 {
+				status = "partial"
+			}
+		}
+		checks = append(checks, autoAssessResult{"NIS2-E2", status, evidence})
+	}
+
+	// NIS2-G3: Patch management — firmware version tracked.
+	{
+		var cnt int
+		_ = h.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM ot_assets WHERE org_id=$1 AND firmware_ver IS NOT NULL AND firmware_ver != ''`,
+			orgID).Scan(&cnt)
+		status := "non_compliant"
+		evidence := "No OT assets with firmware version tracked"
+		if cnt > 0 {
+			status = "partial"
+			evidence = fmt.Sprintf("%d asset(s) with firmware version tracked — verify patch process manually", cnt)
+		}
+		checks = append(checks, autoAssessResult{"NIS2-G3", status, evidence})
+	}
+
+	// NIS2-H1: Encryption in transit — same metric as E2.
+	{
+		var total, encrypted int
+		_ = h.db.QueryRowContext(ctx, `
+			SELECT COUNT(*), COUNT(*) FILTER (WHERE UPPER(g.driver_type) IN ('OPC_UA','MQTT'))
+			FROM gateways g
+			JOIN areas a ON a.id=g.area_id
+			JOIN sites  s ON s.id=a.site_id
+			WHERE s.org_id=$1 AND g.enabled=true`, orgID).Scan(&total, &encrypted)
+		status := "non_compliant"
+		evidence := "No gateways found"
+		if total > 0 {
+			pct := float64(encrypted) / float64(total) * 100
+			evidence = fmt.Sprintf("%.0f%% of gateways use protocols supporting encryption", pct)
+			if pct > 50 {
+				status = "compliant"
+			} else if pct > 0 {
+				status = "partial"
+			}
+		}
+		checks = append(checks, autoAssessResult{"NIS2-H1", status, evidence})
+	}
+
+	// NIS2-J1: MFA — any users with TOTP enabled.
+	{
+		var mfaUsers int
+		_ = h.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM users WHERE org_id=$1 AND totp_enabled=true`, orgID).Scan(&mfaUsers)
+		evidence := "MFA availability requires manual verification"
+		if mfaUsers > 0 {
+			evidence = fmt.Sprintf("%d user(s) have TOTP/MFA enabled — verify policy enforcement manually", mfaUsers)
+		}
+		checks = append(checks, autoAssessResult{"NIS2-J1", "partial", evidence})
+	}
+
+	// NIS2-J3: OT/IT segregation — partial if OT assets inventoried.
+	{
+		var cnt int
+		_ = h.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM ot_assets WHERE org_id=$1`, orgID).Scan(&cnt)
+		status := "non_compliant"
+		evidence := "No OT assets inventoried — network cannot be assessed"
+		if cnt > 0 {
+			status = "partial"
+			evidence = fmt.Sprintf("%d OT asset(s) inventoried — verify network segmentation manually", cnt)
+		}
+		checks = append(checks, autoAssessResult{"NIS2-J3", status, evidence})
+	}
+
+	// NIS2-J4: Audit log — always compliant (platform has built-in audit trail).
+	checks = append(checks, autoAssessResult{
+		"NIS2-J4", "compliant",
+		"Platform audit log is active (audit_logs table)",
+	})
+
+	// Persist into compliance_assessments.
+	userID, _ := middleware.GetUserID(c)
+	for _, chk := range checks {
+		var reqID int
+		err := h.db.QueryRowContext(ctx, `
+			SELECT r.id FROM compliance_requirements r
+			JOIN compliance_frameworks f ON f.id = r.framework_id
+			WHERE r.req_code=$1 AND f.code='NIS2'`, chk.ReqCode).Scan(&reqID)
+		if err != nil {
+			continue
+		}
+		_, _ = h.db.ExecContext(ctx, `
+			INSERT INTO compliance_assessments
+				(org_id, requirement_id, status, evidence, assessed_by, assessed_at, updated_at)
+			VALUES ($1,$2,$3,$4,$5,now(),now())
+			ON CONFLICT (org_id, requirement_id) DO UPDATE SET
+				status      = EXCLUDED.status,
+				evidence    = EXCLUDED.evidence,
+				assessed_by = EXCLUDED.assessed_by,
+				assessed_at = now(),
+				updated_at  = now()`,
+			orgID, reqID, chk.Status, chk.Evidence, userID)
+	}
+
+	c.JSON(http.StatusOK, checks)
 }
