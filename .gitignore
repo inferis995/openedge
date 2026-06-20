@@ -18,12 +18,9 @@ go.work
 vendor/
 
 # Build output — Go binaries
-bin/*.exe
-bin/driver-*
-bin/core-api
-bin/engine-historian
-bin/driver-manager
+bin/
 dist/
+cli
 
 # Node.js
 node_modules/
