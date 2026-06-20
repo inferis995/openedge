@@ -604,6 +604,152 @@ make help            # lista completa comandi
 
 ---
 
+---
+
+## OpenEdge CLI — installazione e configurazione
+
+Il CLI `openedge` è il binario da riga di comando che si usa per gestire la piattaforma
+senza aprire il browser. Si installa **una volta sola** sulla macchina dell'operatore.
+
+### Installazione da sorgente (su macchina con il repo clonato)
+
+```bash
+cd /path/to/openedge
+make build-cli        # compila → bin/openedge
+make install-cli      # copia in /usr/local/bin/openedge (richiede sudo)
+```
+
+### Installazione binario pre-compilato (su qualsiasi macchina)
+
+```bash
+# Linux amd64
+curl -sL https://github.com/inferis995/openedge/releases/latest/download/openedge-linux-amd64 \
+  -o /usr/local/bin/openedge && chmod +x /usr/local/bin/openedge
+
+# macOS arm64 (Apple Silicon)
+curl -sL https://github.com/inferis995/openedge/releases/latest/download/openedge-darwin-arm64 \
+  -o /usr/local/bin/openedge && chmod +x /usr/local/bin/openedge
+```
+
+### Login — on-prem HTTP
+
+```bash
+openedge login --url http://192.168.1.100:3000
+# → chiede username e password interattivamente
+# → salva token in ~/.openedge/config.json
+```
+
+### Login — on-prem HTTPS con Caddy internal CA (self-signed)
+
+```bash
+# Opzione A: importa il CA cert nel sistema (soluzione corretta per uso continuativo)
+make export-root-ca          # dalla macchina server → crea caddy-root-ca.crt
+# poi sul client:
+# macOS:  doppio click → Portachiavi di Sistema → fidati per TLS
+# Linux:  sudo cp caddy-root-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates
+# Windows: doppio click → Installa in "Autorità di Certificazione Radice Attendibili"
+openedge login --url https://myedge.local
+
+# Opzione B: skip TLS una-tantum (solo per reti fidate, es. LAN factory)
+openedge login --url https://myedge.local --insecure
+# il flag insecure=true viene SALVATO nel config — non serve ripassarlo mai più
+```
+
+### Login — SaaS / VPS (HTTPS Let's Encrypt, certificato trusted)
+
+```bash
+openedge login --url https://app.miazienda.com
+```
+
+### Login — CI/CD o script non interattivo
+
+```bash
+openedge login --url https://app.miazienda.com --username admin --password "$OPENEDGE_PASSWORD"
+# oppure con env vars (no config file, ideale per container):
+export OPENEDGE_URL=https://app.miazienda.com
+export OPENEDGE_TOKEN=eyJ...
+export OPENEDGE_ORG_ID=1
+openedge gateways list   # funziona senza login
+```
+
+### Verifica connessione
+
+```bash
+openedge whoami          # mostra utente, ruolo, org, URL, TLS mode
+openedge health          # verifica che API + DB + Redis siano up
+```
+
+### Gestione configurazione
+
+```bash
+openedge config show                     # mostra tutto (token mascherato)
+openedge config set url https://nuovo.com  # cambia URL senza re-login
+openedge config set org 3               # cambia org attiva
+openedge config set insecure true       # abilita skip TLS permanente
+openedge logout                         # cancella credenziali (equivale a config reset)
+```
+
+### Comandi operativi più usati
+
+```bash
+# Struttura
+openedge orgs list
+openedge gateways list [--org 1]
+
+# Lettura tag
+openedge tags list --gateway 2
+openedge tags get 42
+openedge tags shadows --gateway 2       # digital twin — funziona anche edge offline
+
+# Scrittura tag (richiede admin o can_write_tags=true)
+openedge tags write 43 1
+
+# Storico
+openedge tags history 42 --from 2026-06-19T00:00:00Z --to 2026-06-20T00:00:00Z
+
+# Allarmi
+openedge alarms list --active
+openedge alarms list --severity critical
+openedge alarms ack 45
+
+# Fleet
+openedge fleet status                   # tutte le org: online/offline, versione
+openedge fleet restart 1               # riavvia edge org 1
+openedge fleet update 1 --version v2.1.0  # OTA update edge org 1
+
+# AI-Ops
+openedge aiops summary --hours 24
+openedge aiops anomalies --tag 42
+openedge aiops digest
+
+# Output JSON per script/jq
+openedge tags list --gateway 2 --json | jq '.[].alias'
+```
+
+### MCP server per Claude Code / Cursor
+
+```bash
+# Aggiungi a ~/.claude/settings.json
+{
+  "mcpServers": {
+    "openedge": {
+      "command": "openedge",
+      "args": ["mcp"],
+      "env": {
+        "OPENEDGE_URL": "https://app.miazienda.com",
+        "OPENEDGE_TOKEN": "eyJ...",
+        "OPENEDGE_ORG_ID": "1"
+      }
+    }
+  }
+}
+```
+
+Dopo il riavvio di Claude Code, i tool OpenEdge appaiono direttamente nella chat
+(`list_gateways`, `get_tag_value`, `list_active_alarms`, ecc.).
+
+---
+
 ## Esempi di prompt per l'agente
 
 ```
@@ -619,4 +765,7 @@ make help            # lista completa comandi
 "L'edge dell'org 4 è offline — cosa faccio?"
 "Abilita il monitoring con Grafana"
 "Aggiorna OpenEdge all'ultima versione"
+"Installa la CLI sulla mia macchina"
+"Come configuro la CLI per on-prem con certificato self-signed?"
+"Aggiungi openedge come MCP server in Claude Code"
 ```
