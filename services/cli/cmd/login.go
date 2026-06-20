@@ -23,17 +23,24 @@ var loginCmd = &cobra.Command{
 	Use:   "login",
 	Short: "Authenticate with OpenEdge and save credentials",
 	Long: `Log in to OpenEdge with your username and password.
-The JWT token is saved to ~/.openedge/config.json for subsequent commands.
+Credentials are saved to ~/.openedge/config.json for all subsequent commands.
 
-Example:
-  openedge login --url https://app.example.com --username admin`,
+Examples:
+  # Interactive (prompts for username and password)
+  openedge login --url https://app.example.com
+
+  # Non-interactive (CI/scripts)
+  openedge login --url https://app.example.com --username admin --password secret
+
+  # On-prem with self-signed TLS certificate (Caddy internal CA)
+  openedge login --url https://myedge.local --insecure`,
 	Run: runLogin,
 }
 
 func init() {
 	loginCmd.Flags().StringVar(&loginURL, "url", "", "OpenEdge API URL (required)")
-	loginCmd.Flags().StringVar(&loginUsername, "username", "", "Username")
-	loginCmd.Flags().StringVar(&loginPassword, "password", "", "Password (omit to be prompted)")
+	loginCmd.Flags().StringVar(&loginUsername, "username", "", "Username (prompted if omitted)")
+	loginCmd.Flags().StringVar(&loginPassword, "password", "", "Password (prompted if omitted)")
 	_ = loginCmd.MarkFlagRequired("url")
 }
 
@@ -53,7 +60,6 @@ func runLogin(cmd *cobra.Command, args []string) {
 	password := loginPassword
 	if password == "" {
 		fmt.Print("Password: ")
-		// Try to read password silently; fall back to plain read if not a terminal.
 		if term.IsTerminal(int(syscall.Stdin)) {
 			pw, err := term.ReadPassword(int(syscall.Stdin))
 			if err != nil {
@@ -76,8 +82,9 @@ func runLogin(cmd *cobra.Command, args []string) {
 	}
 
 	cfg := config.Config{
-		URL:   loginURL,
-		Token: resp.Token,
+		URL:      loginURL,
+		Token:    resp.Token,
+		Insecure: flagInsecure,
 	}
 	if resp.User.OrgID != nil {
 		cfg.OrgID = *resp.User.OrgID
@@ -93,5 +100,9 @@ func runLogin(cmd *cobra.Command, args []string) {
 	}
 
 	PrintSuccess("Logged in as %s (%s)", resp.User.Username, orgLabel)
-	fmt.Printf("  Config saved to: %s\n", config.Path())
+	fmt.Printf("  Role:    %s\n", resp.User.Role)
+	fmt.Printf("  Config:  %s\n", config.Path())
+	if flagInsecure {
+		PrintWarning("TLS verification disabled — use only on trusted networks")
+	}
 }

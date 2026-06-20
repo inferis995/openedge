@@ -24,7 +24,13 @@ var rootCmd = &cobra.Command{
 	Long: `OpenEdge CLI provides command-line access to the OpenEdge Industrial IoT Platform.
 
 Manage gateways, tags, alarms, fleet operations, and AI-powered analytics.
-Run 'openedge mcp' to start an MCP server for AI agent integration.`,
+Run 'openedge mcp' to start an MCP server for AI agent integration (Claude Code, Cursor).
+
+Quick start:
+  openedge login --url https://app.example.com
+  openedge gateways list
+  openedge tags list --gateway 2
+  openedge alarms list --active`,
 }
 
 // Execute runs the root command.
@@ -43,6 +49,9 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&flagInsecure, "insecure", false, "Skip TLS certificate verification (on-prem self-signed certs)")
 
 	rootCmd.AddCommand(loginCmd)
+	rootCmd.AddCommand(logoutCmd)
+	rootCmd.AddCommand(whoamiCmd)
+	rootCmd.AddCommand(configCmd)
 	rootCmd.AddCommand(orgsCmd)
 	rootCmd.AddCommand(gatewaysCmd)
 	rootCmd.AddCommand(tagsCmd)
@@ -54,11 +63,12 @@ func init() {
 	rootCmd.AddCommand(mcpCmd)
 }
 
-// GetClient returns an API client built from flags + config file + env vars.
+// GetClient returns an API client built from config file → env vars → CLI flags.
+// Priority (highest wins): CLI flags > env vars > ~/.openedge/config.json
 func GetClient() *api.Client {
 	cfg, _ := config.Load()
 
-	// Override with environment variables
+	// Layer 2: environment variable overrides
 	if v := os.Getenv("OPENEDGE_URL"); v != "" {
 		cfg.URL = v
 	}
@@ -70,8 +80,11 @@ func GetClient() *api.Client {
 			cfg.OrgID = n
 		}
 	}
+	if os.Getenv("OPENEDGE_INSECURE") == "true" {
+		cfg.Insecure = true
+	}
 
-	// Override with CLI flags
+	// Layer 3: CLI flag overrides (highest priority)
 	if flagURL != "" {
 		cfg.URL = flagURL
 	}
@@ -81,18 +94,18 @@ func GetClient() *api.Client {
 	if flagOrg != 0 {
 		cfg.OrgID = flagOrg
 	}
-
-	insecure := flagInsecure
-	if os.Getenv("OPENEDGE_INSECURE") == "true" {
-		insecure = true
+	if flagInsecure {
+		cfg.Insecure = true
 	}
 
 	if cfg.URL == "" {
-		fmt.Fprintln(os.Stderr, ColorRed+"Error: no API URL configured. Run 'openedge login --url <url>' or set OPENEDGE_URL."+ColorReset)
+		fmt.Fprintln(os.Stderr, ColorRed+"Error: no API URL configured."+ColorReset)
+		fmt.Fprintln(os.Stderr, "  Run:  openedge login --url <url>")
+		fmt.Fprintln(os.Stderr, "  Or:   export OPENEDGE_URL=<url>")
 		os.Exit(1)
 	}
 
-	return api.NewWithOptions(cfg.URL, cfg.Token, cfg.OrgID, insecure)
+	return api.NewWithOptions(cfg.URL, cfg.Token, cfg.OrgID, cfg.Insecure)
 }
 
 // ANSI color codes.

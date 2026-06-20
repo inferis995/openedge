@@ -6,14 +6,15 @@ import (
 	"path/filepath"
 )
 
-// Config holds the CLI configuration.
+// Config holds the CLI configuration persisted to ~/.openedge/config.json.
 type Config struct {
-	URL   string `json:"url"`
-	Token string `json:"token"`
-	OrgID int    `json:"org_id"`
+	URL      string `json:"url"`
+	Token    string `json:"token"`
+	OrgID    int    `json:"org_id"`
+	Insecure bool   `json:"insecure,omitempty"` // skip TLS verification (on-prem self-signed CA)
 }
 
-// Path returns the path to the config file (~/.openedge/config.json).
+// Path returns the absolute path to the config file.
 func Path() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -22,11 +23,10 @@ func Path() string {
 	return filepath.Join(home, ".openedge", "config.json")
 }
 
-// Load reads the config file and returns the Config.
+// Load reads the config file. Returns zero-value Config if file does not exist.
 func Load() (Config, error) {
 	var cfg Config
-	p := Path()
-	data, err := os.ReadFile(p)
+	data, err := os.ReadFile(Path())
 	if err != nil {
 		if os.IsNotExist(err) {
 			return cfg, nil
@@ -39,7 +39,7 @@ func Load() (Config, error) {
 	return cfg, nil
 }
 
-// Save writes cfg to the config file, creating the directory if needed.
+// Save writes cfg to the config file (mode 0600, directory 0700).
 func Save(cfg Config) error {
 	p := Path()
 	if err := os.MkdirAll(filepath.Dir(p), 0700); err != nil {
@@ -50,4 +50,13 @@ func Save(cfg Config) error {
 		return err
 	}
 	return os.WriteFile(p, data, 0600)
+}
+
+// Delete removes the config file (used by logout).
+func Delete() error {
+	err := os.Remove(Path())
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
