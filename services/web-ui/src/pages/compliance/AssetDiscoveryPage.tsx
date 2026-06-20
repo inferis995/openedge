@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
-    Shield, Plus, Search, Scan, CheckCircle, XCircle, ChevronDown, ChevronRight, Trash2
+    Shield, Plus, Search, Scan, CheckCircle, XCircle, ChevronDown, ChevronRight, Trash2, RefreshCw
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -128,6 +128,15 @@ export default function AssetDiscoveryPage() {
         onError: () => toast.error('Errore avvio scansione'),
     });
 
+    const syncAssets = useMutation({
+        mutationFn: () => complianceApi.syncAssetsFromGateways(),
+        onSuccess: (r) => {
+            qc.invalidateQueries({ queryKey: ['ot-assets'] });
+            toast.success(`Creati ${r.created} asset, aggiornati ${r.updated} da gateway configurati`);
+        },
+        onError: () => toast.error('Errore durante la sincronizzazione dai gateway'),
+    });
+
     // Poll scan status
     useEffect(() => {
         if (scanJobId && scanStatus === 'running') {
@@ -182,12 +191,24 @@ export default function AssetDiscoveryPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">Inventario Asset OT</h2>
                     <p className="text-muted-foreground">Scopri e gestisci tutti i dispositivi industriali</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                        I gateway configurati nella tua org vengono rilevati automaticamente ogni ora.
+                    </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                    <Button
+                        variant="outline"
+                        className="gap-2"
+                        onClick={() => syncAssets.mutate()}
+                        disabled={syncAssets.isPending}
+                    >
+                        <RefreshCw size={16} className={syncAssets.isPending ? 'animate-spin' : ''} />
+                        Sincronizza da Gateway
+                    </Button>
                     <Button variant="outline" className="gap-2" onClick={() => setScanOpen(true)}>
                         <Scan size={16} /> Avvia Scansione
                     </Button>
@@ -278,7 +299,12 @@ export default function AssetDiscoveryPage() {
                                         <TableCell>
                                             <div>
                                                 <p className="font-mono text-sm">{asset.ip_address}</p>
-                                                <p className="text-xs text-muted-foreground">{asset.hostname || '—'}</p>
+                                                <div className="flex items-center gap-1.5">
+                                                    <p className="text-xs text-muted-foreground">{asset.hostname || '—'}</p>
+                                                    {asset.gateway_id != null && (
+                                                        <span className="inline-flex items-center rounded-none clip-chamfer-sm px-1 py-0 text-[9px] font-bold bg-blue-500/20 text-blue-400">GW</span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </TableCell>
                                         <TableCell>

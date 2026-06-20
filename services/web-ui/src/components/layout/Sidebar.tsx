@@ -40,6 +40,7 @@ import {
     TriangleAlert,
     ClipboardList,
     TrendingDown,
+    AlertTriangle,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -91,6 +92,8 @@ const Sidebar = () => {
         { name: 'Postura Rischio', path: '/compliance/risk', icon: TrendingDown },
         { name: 'Monitor Minacce', path: '/compliance/threats', icon: TriangleAlert },
         { name: 'Report', path: '/compliance/reports', icon: ClipboardList },
+        { name: 'CSIRT Art.23', path: '/compliance/csirt', icon: AlertTriangle },
+        { name: 'Vendor Risk', path: '/compliance/vendors', icon: Building2 },
     ];
 
     // Admin section — global admins see System + Diagnostics + Users + MQTT monitor + Audit.

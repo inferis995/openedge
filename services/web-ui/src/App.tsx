@@ -41,6 +41,8 @@ import AssetDiscoveryPage from '@/pages/compliance/AssetDiscoveryPage';
 import RiskPosturePage from '@/pages/compliance/RiskPosturePage';
 import ThreatMonitorPage from '@/pages/compliance/ThreatMonitorPage';
 import ComplianceReportsPage from '@/pages/compliance/ComplianceReportsPage';
+import CSIRTPage from '@/pages/compliance/CSIRTPage';
+import VendorRiskPage from '@/pages/compliance/VendorRiskPage';
 
 import { useEffect, useState, useRef } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -152,6 +154,8 @@ function App() {
                     <Route path="/compliance/risk" element={<RiskPosturePage />} />
                     <Route path="/compliance/threats" element={<ThreatMonitorPage />} />
                     <Route path="/compliance/reports" element={<ComplianceReportsPage />} />
+                    <Route path="/compliance/csirt" element={<CSIRTPage />} />
+                    <Route path="/compliance/vendors" element={<VendorRiskPage />} />
                 </Route>
             </Route>
 

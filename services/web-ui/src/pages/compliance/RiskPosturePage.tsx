@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { AlertTriangle, TrendingUp, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, TrendingUp, ShieldAlert, Zap, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -146,7 +146,12 @@ function RequirementChecklist({
                         className="flex items-center gap-3 p-3 border rounded-none clip-chamfer-sm bg-card hover:bg-muted/30 transition-colors"
                     >
                         <span className="font-mono text-xs bg-muted px-1.5 py-0.5 whitespace-nowrap">{req.req_code}</span>
-                        <span className="text-sm flex-1 truncate" title={req.title}>{req.title}</span>
+                        <span className="text-sm flex-1 truncate flex items-center gap-1.5" title={req.title}>
+                            {req.title}
+                            {req.evidence && req.evidence.includes('[auto]') && (
+                                <Zap size={11} className="text-yellow-400 shrink-0" title="Valutato automaticamente dal sistema" />
+                            )}
+                        </span>
                         <StatusBadge status={req.status} />
                         <Button
                             variant="outline"
@@ -173,6 +178,8 @@ function RequirementChecklist({
 }
 
 export default function RiskPosturePage() {
+    const qc = useQueryClient();
+
     const { data: posture } = useQuery({
         queryKey: ['risk-posture'],
         queryFn: () => complianceApi.getRiskPosture(),
@@ -190,6 +197,17 @@ export default function RiskPosturePage() {
         queryFn: () => complianceApi.getAssessment('IEC62443'),
     });
 
+    const autoAssess = useMutation({
+        mutationFn: () => complianceApi.autoAssess(),
+        onSuccess: (results) => {
+            qc.invalidateQueries({ queryKey: ['nis2-assessment'] });
+            qc.invalidateQueries({ queryKey: ['iec62443-assessment'] });
+            qc.invalidateQueries({ queryKey: ['compliance-score'] });
+            toast.success(`Valutazione automatica completata: ${results.length} requisiti aggiornati`);
+        },
+        onError: () => toast.error('Errore durante la valutazione automatica'),
+    });
+
     const avgScore = posture?.avg_risk_score ?? 0;
     const nis2Score = score?.nis2.score ?? 0;
     const iec62443Score = score?.iec62443.score ?? 0;
@@ -198,9 +216,23 @@ export default function RiskPosturePage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div>
-                <h2 className="text-2xl font-bold tracking-tight">Postura di Rischio</h2>
-                <p className="text-muted-foreground">Valutazione baseline e conformità NIS2 / IEC 62443</p>
+            <div className="flex items-start justify-between gap-4">
+                <div>
+                    <h2 className="text-2xl font-bold tracking-tight">Postura di Rischio</h2>
+                    <p className="text-muted-foreground">Valutazione baseline e conformità NIS2 / IEC 62443</p>
+                </div>
+                <Button
+                    variant="outline"
+                    className="gap-2 shrink-0"
+                    onClick={() => autoAssess.mutate()}
+                    disabled={autoAssess.isPending}
+                >
+                    {autoAssess.isPending
+                        ? <Loader2 size={16} className="animate-spin" />
+                        : <Zap size={16} className="text-yellow-400" />
+                    }
+                    Auto-valuta
+                </Button>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
