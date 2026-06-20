@@ -882,6 +882,44 @@ func main() {
 		// Detailed health diagnostics (authenticated)
 		api.GET("/health/detailed", middleware.RequireAuth, healthH.Detailed)
 		api.GET("/db/stats", middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin), healthH.DBStats)
+
+		// OT Compliance — Steps 1 & 2 (Asset Discovery + Risk Posture)
+		//               + Step 3 (Threat Monitor) + Step 4 (Compliance Reports)
+		complianceHandler := handlers.NewComplianceHandler(database)
+		threatHandler := handlers.NewThreatMonitorHandler(database)
+		reportHandler := handlers.NewComplianceReportHandler(database)
+		compliance := api.Group("/compliance")
+		compliance.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			// Step 1: OT asset inventory
+			compliance.GET("/assets", complianceHandler.ListAssets)
+			compliance.POST("/assets", middleware.RequireRole(models.RoleAdmin), complianceHandler.CreateAsset)
+			compliance.PUT("/assets/:id", middleware.RequireRole(models.RoleAdmin), complianceHandler.UpdateAsset)
+			compliance.DELETE("/assets/:id", middleware.RequireRole(models.RoleAdmin), complianceHandler.DeleteAsset)
+			compliance.POST("/assets/:id/cves", middleware.RequireRole(models.RoleAdmin), complianceHandler.AddCVE)
+			compliance.DELETE("/assets/:id/cves/:cve", middleware.RequireRole(models.RoleAdmin), complianceHandler.RemoveCVE)
+
+			// Step 2: Risk posture + compliance framework assessments
+			compliance.GET("/frameworks", complianceHandler.ListFrameworks)
+			compliance.GET("/frameworks/:code/assessment", complianceHandler.GetAssessment)
+			compliance.PUT("/frameworks/:code/assessment/:req_id", middleware.RequireRole(models.RoleAdmin), complianceHandler.UpdateAssessment)
+			compliance.GET("/risk-posture", complianceHandler.RiskPosture)
+			compliance.GET("/score", complianceHandler.ComplianceScore)
+			compliance.POST("/scan", middleware.RequireRole(models.RoleAdmin), complianceHandler.TriggerScan)
+			compliance.GET("/scan/:id", complianceHandler.GetScanStatus)
+
+			// Step 3: Threat Monitor
+			compliance.GET("/threats", threatHandler.ListThreats)
+			compliance.POST("/threats", middleware.RequireRole(models.RoleAdmin), threatHandler.CreateThreat)
+			compliance.PUT("/threats/:id/resolve", middleware.RequireRole(models.RoleAdmin), threatHandler.ResolveThreat)
+			compliance.GET("/threats/summary", threatHandler.ThreatSummary)
+
+			// Step 4: Compliance Reports
+			compliance.POST("/reports", middleware.RequireRole(models.RoleAdmin), reportHandler.GenerateReport)
+			compliance.GET("/reports", reportHandler.ListReports)
+			compliance.GET("/reports/:id", reportHandler.GetReport)
+			compliance.DELETE("/reports/:id", middleware.RequireRole(models.RoleAdmin), reportHandler.DeleteReport)
+		}
 	}
 
 	// Swagger — enabled only when SWAGGER_ENABLED=true (never in production)

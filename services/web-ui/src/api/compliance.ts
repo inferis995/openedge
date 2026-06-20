@@ -1,0 +1,231 @@
+import apiClient from './client';
+
+export interface OTAsset {
+  id: number;
+  org_id: number;
+  gateway_id: number | null;
+  ip_address: string;
+  mac_address: string;
+  hostname: string;
+  vendor: string;
+  device_type: 'PLC' | 'HMI' | 'Switch' | 'Router' | 'Sensor' | 'Unknown';
+  model: string;
+  firmware_ver: string;
+  protocol: string;
+  is_authorized: boolean;
+  risk_score: number;
+  last_seen: string;
+  discovered_at: string;
+  notes: string;
+  cves: CVEMatch[];
+}
+
+export interface CVEMatch {
+  id: number;
+  cve_id: string;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  cvss_score: number | null;
+  description: string;
+  published: string | null;
+}
+
+export interface ComplianceFramework {
+  id: number;
+  code: string;
+  name: string;
+  version: string;
+}
+
+export interface ComplianceRequirement {
+  id: number;
+  req_code: string;
+  category: string;
+  title: string;
+  description: string;
+  weight: number;
+  status: 'not_assessed' | 'compliant' | 'partial' | 'non_compliant';
+  evidence: string;
+  notes: string;
+  assessed_at: string | null;
+}
+
+export interface RiskPosture {
+  total_assets: number;
+  avg_risk_score: number;
+  critical_cves: number;
+  high_cves: number;
+  unauthorized_devices: number;
+  by_type: { device_type: string; count: number; avg_score: number }[];
+  top_risky: OTAsset[];
+}
+
+export interface ComplianceScore {
+  nis2: FrameworkScore;
+  iec62443: FrameworkScore;
+  overall: number;
+}
+
+export interface FrameworkScore {
+  score: number;
+  compliant: number;
+  partial: number;
+  non_compliant: number;
+  not_assessed: number;
+  total: number;
+}
+
+export interface ScanJob {
+  id: number;
+  subnet: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  started_at: string | null;
+  finished_at: string | null;
+  found_count: number;
+  new_count: number;
+  error: string | null;
+}
+
+// ─── Threat Monitor types (Step 3) ───────────────────────────────────────────
+
+export interface ThreatEvent {
+  id: number;
+  org_id: number;
+  asset_id: number | null;
+  event_type:
+    | 'new_device'
+    | 'protocol_anomaly'
+    | 'config_change'
+    | 'vulnerability_alert'
+    | 'unauthorized_access'
+    | 'cve_published'
+    | 'scan_completed';
+  severity: 'critical' | 'high' | 'medium' | 'low' | 'info';
+  title: string;
+  description: string;
+  source: string;
+  ip_address: string;
+  resolved: boolean;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface ThreatSummary {
+  total: number;
+  unresolved: number;
+  last_24h: number;
+  by_severity: Record<string, number>;
+}
+
+export interface CreateThreatRequest {
+  asset_id?: number | null;
+  event_type: ThreatEvent['event_type'];
+  severity?: ThreatEvent['severity'];
+  title: string;
+  description?: string;
+  source?: string;
+  ip_address?: string;
+}
+
+// ─── Compliance Report types (Step 4) ────────────────────────────────────────
+
+export interface ComplianceReport {
+  id: number;
+  org_id: number;
+  report_type:
+    | 'nis2_assessment'
+    | 'iec62443_assessment'
+    | 'asset_inventory'
+    | 'incident_timeline'
+    | 'full_compliance';
+  title: string;
+  period_from: string | null;
+  period_to: string | null;
+  status: 'generating' | 'ready' | 'failed';
+  format: string;
+  content: Record<string, unknown> | null;
+  generated_by: number | null;
+  generated_at: string;
+  error?: string;
+}
+
+export interface GenerateReportRequest {
+  report_type: ComplianceReport['report_type'];
+  title?: string;
+  period_from?: string | null;
+  period_to?: string | null;
+}
+
+export const complianceApi = {
+  listAssets: (orgId?: number) => {
+    const params = orgId ? `?org_id=${orgId}` : '';
+    return apiClient.get<OTAsset[]>(`/compliance/assets${params}`).then(r => r.data);
+  },
+  createAsset: (data: Partial<OTAsset>) =>
+    apiClient.post<OTAsset>('/compliance/assets', data).then(r => r.data),
+  updateAsset: (id: number, data: Partial<OTAsset>) =>
+    apiClient.put<OTAsset>(`/compliance/assets/${id}`, data).then(r => r.data),
+  deleteAsset: (id: number) =>
+    apiClient.delete(`/compliance/assets/${id}`).then(r => r.data),
+  addCVE: (assetId: number, cve: Partial<CVEMatch>) =>
+    apiClient.post(`/compliance/assets/${assetId}/cves`, cve).then(r => r.data),
+  removeCVE: (assetId: number, cveId: string) =>
+    apiClient.delete(`/compliance/assets/${assetId}/cves/${cveId}`).then(r => r.data),
+
+  listFrameworks: () =>
+    apiClient.get<ComplianceFramework[]>('/compliance/frameworks').then(r => r.data),
+  getAssessment: (code: string) =>
+    apiClient.get<ComplianceRequirement[]>(`/compliance/frameworks/${code}/assessment`).then(r => r.data),
+  updateAssessment: (code: string, reqId: number, data: { status: string; evidence?: string; notes?: string }) =>
+    apiClient.put(`/compliance/frameworks/${code}/assessment/${reqId}`, data).then(r => r.data),
+
+  getRiskPosture: () =>
+    apiClient.get<RiskPosture>('/compliance/risk-posture').then(r => r.data),
+  getScore: () =>
+    apiClient.get<ComplianceScore>('/compliance/score').then(r => r.data),
+
+  triggerScan: (subnet: string) =>
+    apiClient.post<ScanJob>('/compliance/scan', { subnet }).then(r => r.data),
+  getScanStatus: (id: number) =>
+    apiClient.get<ScanJob>(`/compliance/scan/${id}`).then(r => r.data),
+
+  // ── Threat Monitor (Step 3) ──────────────────────────────────────────────
+
+  /** List threat events. Supports resolved, severity, limit, offset filters. */
+  listThreats: (params?: {
+    resolved?: boolean;
+    severity?: ThreatEvent['severity'];
+    limit?: number;
+    offset?: number;
+  }): Promise<ThreatEvent[]> =>
+    apiClient.get('/compliance/threats', { params }).then(r => r.data),
+
+  /** Manually create a threat event (admin only). */
+  createThreat: (data: CreateThreatRequest): Promise<{ id: number; message: string }> =>
+    apiClient.post('/compliance/threats', data).then(r => r.data),
+
+  /** Mark a threat event as resolved (admin only). */
+  resolveThreat: (id: number): Promise<{ message: string }> =>
+    apiClient.put(`/compliance/threats/${id}/resolve`, {}).then(r => r.data),
+
+  /** Get aggregate threat counts for the dashboard. */
+  getThreatSummary: (): Promise<ThreatSummary> =>
+    apiClient.get('/compliance/threats/summary').then(r => r.data),
+
+  // ── Compliance Reports (Step 4) ──────────────────────────────────────────
+
+  /** Generate a new compliance report (async — returns id + status immediately). */
+  generateReport: (data: GenerateReportRequest): Promise<{ id: number; status: 'generating' }> =>
+    apiClient.post('/compliance/reports', data).then(r => r.data),
+
+  /** List reports for the current org (latest 100). */
+  listReports: (): Promise<ComplianceReport[]> =>
+    apiClient.get('/compliance/reports').then(r => r.data),
+
+  /** Get a single report including its content JSONB. */
+  getReport: (id: number): Promise<ComplianceReport> =>
+    apiClient.get(`/compliance/reports/${id}`).then(r => r.data),
+
+  /** Delete a report (admin only). */
+  deleteReport: (id: number): Promise<{ message: string }> =>
+    apiClient.delete(`/compliance/reports/${id}`).then(r => r.data),
+};

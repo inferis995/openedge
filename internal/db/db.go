@@ -865,6 +865,199 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: failed to seed historian_retention_days: %v", err)
 	}
 
+	// Migration: OT Compliance — asset inventory, CVE tracking, compliance frameworks.
+	// Part of "From Visibility to Compliance in Four Steps" (Steps 1 & 2).
+	otComplianceTables := []string{
+		// OT Asset inventory (discovered + manually entered devices)
+		`CREATE TABLE IF NOT EXISTS ot_assets (
+			id              SERIAL PRIMARY KEY,
+			org_id          INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			gateway_id      INT REFERENCES gateways(id) ON DELETE SET NULL,
+			ip_address      VARCHAR(45),
+			mac_address     VARCHAR(17),
+			hostname        VARCHAR(255),
+			vendor          VARCHAR(128),
+			device_type     VARCHAR(64),
+			model           VARCHAR(128),
+			firmware_ver    VARCHAR(64),
+			protocol        VARCHAR(32),
+			os_info         VARCHAR(128),
+			is_authorized   BOOLEAN NOT NULL DEFAULT true,
+			risk_score      REAL NOT NULL DEFAULT 0,
+			last_seen       TIMESTAMPTZ NOT NULL DEFAULT now(),
+			discovered_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+			notes           TEXT,
+			created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+			updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE(org_id, ip_address)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ot_assets_org ON ot_assets(org_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_ot_assets_risk ON ot_assets(org_id, risk_score DESC)`,
+		// CVE matches per asset
+		`CREATE TABLE IF NOT EXISTS ot_asset_cves (
+			id          SERIAL PRIMARY KEY,
+			asset_id    INT NOT NULL REFERENCES ot_assets(id) ON DELETE CASCADE,
+			cve_id      VARCHAR(20) NOT NULL,
+			severity    VARCHAR(10) NOT NULL,
+			cvss_score  REAL,
+			description TEXT,
+			published   TIMESTAMPTZ,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE(asset_id, cve_id)
+		)`,
+		// Compliance framework checklists (NIS2 + IEC 62443)
+		`CREATE TABLE IF NOT EXISTS compliance_frameworks (
+			id          SERIAL PRIMARY KEY,
+			code        VARCHAR(32) NOT NULL UNIQUE,
+			name        VARCHAR(128) NOT NULL,
+			version     VARCHAR(32)
+		)`,
+		`CREATE TABLE IF NOT EXISTS compliance_requirements (
+			id              SERIAL PRIMARY KEY,
+			framework_id    INT NOT NULL REFERENCES compliance_frameworks(id),
+			req_code        VARCHAR(32) NOT NULL,
+			category        VARCHAR(64),
+			title           VARCHAR(255) NOT NULL,
+			description     TEXT,
+			weight          INT NOT NULL DEFAULT 1,
+			UNIQUE(framework_id, req_code)
+		)`,
+		`CREATE TABLE IF NOT EXISTS compliance_assessments (
+			id              SERIAL PRIMARY KEY,
+			org_id          INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			requirement_id  INT NOT NULL REFERENCES compliance_requirements(id),
+			status          VARCHAR(16) NOT NULL DEFAULT 'not_assessed',
+			evidence        TEXT,
+			notes           TEXT,
+			assessed_by     INT REFERENCES users(id),
+			assessed_at     TIMESTAMPTZ,
+			updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+			UNIQUE(org_id, requirement_id)
+		)`,
+		// Scan jobs (network discovery scans)
+		`CREATE TABLE IF NOT EXISTS ot_scan_jobs (
+			id          SERIAL PRIMARY KEY,
+			org_id      INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			subnet      VARCHAR(64) NOT NULL,
+			status      VARCHAR(16) NOT NULL DEFAULT 'pending',
+			started_at  TIMESTAMPTZ,
+			finished_at TIMESTAMPTZ,
+			found_count INT NOT NULL DEFAULT 0,
+			new_count   INT NOT NULL DEFAULT 0,
+			error       TEXT,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+			created_by  INT REFERENCES users(id)
+		)`,
+	}
+	for _, stmt := range otComplianceTables {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			return fmt.Errorf("ot_compliance migration: %w", err)
+		}
+	}
+
+	// Seed NIS2 and IEC 62443 frameworks if not present
+	_, _ = db.ExecContext(context.Background(), `
+		INSERT INTO compliance_frameworks (code, name, version) VALUES
+		('NIS2',    'NIS2 Directive Art. 21', '2022/2555'),
+		('IEC62443','IEC 62443 Industrial Cybersecurity', '2023')
+		ON CONFLICT (code) DO NOTHING
+	`)
+
+	// NIS2 Art.21 requirements (10 key measures)
+	_, _ = db.ExecContext(context.Background(), `
+		INSERT INTO compliance_requirements (framework_id, req_code, category, title, description, weight)
+		SELECT f.id, r.code, r.cat, r.title, r.desc, r.w
+		FROM compliance_frameworks f,
+		(VALUES
+		  ('NIS2-A','Governance','Politiche di sicurezza','Politiche documentate per la sicurezza dei sistemi informativi e di rete',2),
+		  ('NIS2-B','Risk Management','Analisi del rischio','Valutazione e gestione dei rischi di sicurezza informatica',3),
+		  ('NIS2-C','Incident','Gestione degli incidenti','Procedure per rilevamento, notifica e risposta agli incidenti',3),
+		  ('NIS2-D','Continuity','Continuità operativa','Business continuity e disaster recovery',2),
+		  ('NIS2-E','Supply Chain','Sicurezza della catena di fornitura','Valutazione sicurezza dei fornitori e terze parti',2),
+		  ('NIS2-F','Acquisition','Sicurezza nello sviluppo','Sicurezza nell acquisizione e sviluppo di sistemi',1),
+		  ('NIS2-G','Vulnerability','Gestione vulnerabilità','Procedure per gestione e divulgazione delle vulnerabilità',3),
+		  ('NIS2-H','Cryptography','Crittografia','Uso di crittografia e cifratura',2),
+		  ('NIS2-I','Access','Controllo degli accessi','Gestione identità e accessi privilegiati (MFA)',3),
+		  ('NIS2-L','Awareness','Formazione','Formazione in materia di sicurezza informatica',1)
+		) AS r(code, cat, title, desc, w)
+		WHERE f.code = 'NIS2'
+		ON CONFLICT (framework_id, req_code) DO NOTHING
+	`)
+
+	// IEC 62443 SL1 requirements (12 key controls)
+	_, _ = db.ExecContext(context.Background(), `
+		INSERT INTO compliance_requirements (framework_id, req_code, category, title, description, weight)
+		SELECT f.id, r.code, r.cat, r.title, r.desc, r.w
+		FROM compliance_frameworks f,
+		(VALUES
+		  ('SL1-IAC','Access Control','Controllo Accessi OT','Identificazione e autenticazione per tutti gli utenti OT',3),
+		  ('SL1-UC','Use Control','Controllo Utilizzo','Autorizzazione per tutte le operazioni sui sistemi OT',2),
+		  ('SL1-SI','System Integrity','Integrità del Sistema','Protezione da modifiche non autorizzate ai sistemi di controllo',3),
+		  ('SL1-DC','Data Confidentiality','Confidenzialità Dati','Protezione dei dati in transito e a riposo',2),
+		  ('SL1-RDF','Restricted Data Flow','Flusso Dati Controllato','Segmentazione delle reti OT e zone di sicurezza',3),
+		  ('SL1-TRE','Timely Response','Risposta Tempestiva','Capacità di rispondere agli incidenti di sicurezza OT',2),
+		  ('SL1-RA','Resource Availability','Disponibilità Risorse','Continuità operativa dei sistemi di controllo',2),
+		  ('SL1-SWI','Software Integrity','Integrità Software','Autenticità e integrità del software OT',2),
+		  ('SL1-SCI','Supply Chain Integrity','Integrità Supply Chain','Verifica componenti e software di terze parti',1),
+		  ('SL1-PM','Patch Management','Gestione Patch','Politiche di aggiornamento per sistemi OT',2),
+		  ('SL1-CB','Component Backup','Backup Componenti','Backup e ripristino delle configurazioni OT',2),
+		  ('SL1-NM','Network Monitoring','Monitoraggio Rete','Rilevamento anomalie e accessi non autorizzati',3)
+		) AS r(code, cat, title, desc, w)
+		WHERE f.code = 'IEC62443'
+		ON CONFLICT (framework_id, req_code) DO NOTHING
+	`)
+
+	// Migration: OT threat events (Step 3 — continuous monitoring)
+	threatTables := []string{
+		`CREATE TABLE IF NOT EXISTS ot_threat_events (
+			id          SERIAL PRIMARY KEY,
+			org_id      INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			asset_id    INT REFERENCES ot_assets(id) ON DELETE SET NULL,
+			event_type  VARCHAR(32) NOT NULL,
+			severity    VARCHAR(10) NOT NULL DEFAULT 'info',
+			title       VARCHAR(255) NOT NULL,
+			description TEXT,
+			source      VARCHAR(64),
+			ip_address  VARCHAR(45),
+			resolved    BOOLEAN NOT NULL DEFAULT false,
+			resolved_at TIMESTAMPTZ,
+			resolved_by INT REFERENCES users(id),
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_ot_threats_org ON ot_threat_events(org_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_ot_threats_unresolved ON ot_threat_events(org_id, resolved) WHERE resolved = false`,
+	}
+	for _, stmt := range threatTables {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: ot_threat_events migration: %v", err)
+		}
+	}
+
+	// Migration: compliance reports (Step 4 — audit-ready reports)
+	reportTables := []string{
+		`CREATE TABLE IF NOT EXISTS compliance_reports (
+			id              SERIAL PRIMARY KEY,
+			org_id          INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			report_type     VARCHAR(32) NOT NULL,
+			title           VARCHAR(255) NOT NULL,
+			period_from     TIMESTAMPTZ,
+			period_to       TIMESTAMPTZ,
+			status          VARCHAR(16) NOT NULL DEFAULT 'generating',
+			format          VARCHAR(8)  NOT NULL DEFAULT 'json',
+			content         JSONB,
+			file_path       TEXT,
+			generated_by    INT REFERENCES users(id),
+			generated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+			error           TEXT
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_compliance_reports_org ON compliance_reports(org_id, generated_at DESC)`,
+	}
+	for _, stmt := range reportTables {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: compliance_reports migration: %v", err)
+		}
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }
