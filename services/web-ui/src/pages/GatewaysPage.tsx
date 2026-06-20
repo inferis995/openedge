@@ -30,10 +30,11 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Wifi, ChevronRight, RefreshCw, Search } from 'lucide-react';
+import { Plus, Trash2, Wifi, ChevronRight, RefreshCw, Search, Radio } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { CreateGatewayDto, Gateway } from '@/types';
+import { LoRaWANDevicesPanel } from '@/components/lorawan/LoRaWANDevicesPanel';
 
 // Extended DTO to include UI-specific fields or fields not yet in shared types
 interface ExtendedCreateGatewayDto extends Omit<CreateGatewayDto, 'connection_config'> {
@@ -74,6 +75,7 @@ const GatewaysPage = () => {
     const [updatingGatewayId, setUpdatingGatewayId] = useState<number | null>(null);
     const [searchInput, setSearchInput] = useState('');
     const searchQuery = useDeferredValue(searchInput);
+    const [lorawanPanel, setLorawanPanel] = useState<{ id: number; name: string } | null>(null);
 
     const filteredGateways = useMemo(() => {
         if (!searchQuery.trim()) return gateways;
@@ -927,6 +929,20 @@ const GatewaysPage = () => {
                                                     <Wifi size={12} />
                                                     Test
                                                 </Button>
+                                                {gw.driver_type === 'LORAWAN' && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="h-8 text-xs gap-1 text-violet-600 border-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setLorawanPanel({ id: gw.id, name: gw.name });
+                                                        }}
+                                                    >
+                                                        <Radio size={12} />
+                                                        Dispositivi
+                                                    </Button>
+                                                )}
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
@@ -950,7 +966,16 @@ const GatewaysPage = () => {
                     </TableBody>
                 </Table>
             </div>
-        </div >
+
+            {lorawanPanel && (
+                <LoRaWANDevicesPanel
+                    gatewayId={lorawanPanel.id}
+                    gatewayName={lorawanPanel.name}
+                    open={true}
+                    onClose={() => setLorawanPanel(null)}
+                />
+            )}
+        </div>
     );
 };
 

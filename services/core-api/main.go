@@ -440,6 +440,11 @@ func main() {
 			gateways.POST("/:id/test", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.TestConnection)
 			gateways.POST("/:id/browse", middleware.RequireRole(models.RoleAdmin), gatewaysHandler.BrowseNodes)
 			gateways.GET("/:id/alarms/count", alarmsHandler.GetGatewayAlarmCounts)
+			// LoRaWAN device management
+			lorawanHandler := handlers.NewLoRaWANHandler(database, mqttClient)
+			gateways.GET("/:id/lorawan/devices", lorawanHandler.ListDevices)
+			gateways.POST("/:id/lorawan/devices/import", middleware.RequireRole(models.RoleAdmin), lorawanHandler.ImportTags)
+			gateways.POST("/:id/lorawan/downlink", middleware.RequireRole(models.RoleAdmin), lorawanHandler.Downlink)
 		}
 
 		// Tags endpoints

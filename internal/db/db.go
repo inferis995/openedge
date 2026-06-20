@@ -659,6 +659,32 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: failed to update gateways_driver_type_check: %v", err)
 	}
 
+	// Migration: LoRaWAN device auto-discovery table.
+	// Stores every device that has sent at least one uplink through a LoRaWAN
+	// gateway so the UI can show discovered devices and auto-create tags.
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS lorawan_devices (
+			id               SERIAL PRIMARY KEY,
+			gateway_id       INT NOT NULL REFERENCES gateways(id) ON DELETE CASCADE,
+			device_id        VARCHAR(128) NOT NULL,
+			dev_eui          VARCHAR(32)  NOT NULL DEFAULT '',
+			last_seen        TIMESTAMPTZ  NOT NULL DEFAULT now(),
+			last_rssi        REAL,
+			last_snr         REAL,
+			last_f_port      INT,
+			available_fields JSONB        NOT NULL DEFAULT '{}',
+			raw_payload      JSONB,
+			uplink_count     BIGINT       NOT NULL DEFAULT 0,
+			UNIQUE(gateway_id, device_id)
+		)
+	`); err != nil {
+		log.Printf("Warning: lorawan_devices table: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE INDEX IF NOT EXISTS idx_lorawan_devices_gw ON lorawan_devices(gateway_id)`); err != nil {
+		log.Printf("Warning: lorawan_devices index: %v", err)
+	}
+
 	// Migration: backup catalog and audit tables.
 	if _, err := db.ExecContext(context.Background(), `
 		CREATE TABLE IF NOT EXISTS backup_catalog (
