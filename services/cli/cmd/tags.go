@@ -90,10 +90,20 @@ type TagCurrent struct {
 	Code      string      `json:"code"`
 }
 
+// TagHistoryPoint matches GET /api/history response (HistoryDataPoint).
+// timestamp is Unix ms (int64); value is nullable float64; quality 0=Good 1=Bad.
 type TagHistoryPoint struct {
-	Timestamp string      `json:"timestamp"`
-	Value     interface{} `json:"value"`
-	Quality   string      `json:"quality"`
+	Timestamp int64    `json:"timestamp"`
+	Value     *float64 `json:"value"`
+	Quality   int      `json:"quality"`
+	Source    string   `json:"source,omitempty"`
+}
+
+// HistoryResponse wraps the data array returned by GET /api/history.
+type HistoryResponse struct {
+	Data        []TagHistoryPoint `json:"data"`
+	Source      string            `json:"source"`
+	TotalPoints int               `json:"total_points"`
 }
 
 type TagShadow struct {
@@ -201,7 +211,9 @@ func runTagsWrite(cmd *cobra.Command, args []string) {
 func runTagsHistory(cmd *cobra.Command, args []string) {
 	client := GetClient()
 
-	path := "/api/history/stats?tag_id=" + args[0]
+	// Use /api/history (Query) which returns time-series data points.
+	// /api/history/stats returns aggregate stats (min/max/avg), not individual points.
+	path := "/api/history?tag_id=" + args[0]
 	if tagsFromTime != "" {
 		path += "&from=" + tagsFromTime
 	}
@@ -212,27 +224,32 @@ func runTagsHistory(cmd *cobra.Command, args []string) {
 		path += "&limit=" + strconv.Itoa(tagsLimit)
 	}
 
-	var points []TagHistoryPoint
-	if err := client.Get(path, &points); err != nil {
+	var resp HistoryResponse
+	if err := client.Get(path, &resp); err != nil {
 		PrintError("%v", err)
 	}
 
 	if flagJSON {
-		data, _ := json.MarshalIndent(points, "", "  ")
+		data, _ := json.MarshalIndent(resp, "", "  ")
 		fmt.Println(string(data))
 		return
 	}
 
+	fmt.Printf("Source: %s  |  Points: %d\n\n", resp.Source, resp.TotalPoints)
+
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, ColorBold+"TIMESTAMP\tVALUE\tQUALITY"+ColorReset)
-	for _, p := range points {
-		qualityColor := ColorGreen
-		if p.Quality == "bad" || p.Quality == "uncertain" {
-			qualityColor = ColorRed
+	fmt.Fprintln(w, ColorBold+"TIMESTAMP (ms)\tVALUE\tQUALITY\tSOURCE"+ColorReset)
+	for _, p := range resp.Data {
+		qualityLabel := ColorGreen + "good" + ColorReset
+		if p.Quality != 0 {
+			qualityLabel = ColorRed + "bad" + ColorReset
 		}
-		fmt.Fprintf(w, "%s\t%v\t%s%s%s\n",
-			p.Timestamp, p.Value,
-			qualityColor, p.Quality, ColorReset)
+		val := "-"
+		if p.Value != nil {
+			val = fmt.Sprintf("%g", *p.Value)
+		}
+		fmt.Fprintf(w, "%d\t%s\t%s\t%s\n",
+			p.Timestamp, val, qualityLabel, p.Source)
 	}
 	w.Flush()
 }

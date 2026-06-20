@@ -20,7 +20,7 @@ vendor/
 # Build output — Go binaries
 bin/
 dist/
-cli
+/cli
 
 # Node.js
 node_modules/

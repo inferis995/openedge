@@ -70,7 +70,7 @@ func runLogin(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	resp, err := api.Login(loginURL, username, password)
+	resp, err := api.LoginWithOptions(loginURL, username, password, flagInsecure)
 	if err != nil {
 		PrintError("%v", err)
 	}

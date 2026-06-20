@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	flagURL   string
-	flagToken string
-	flagOrg   int
-	flagJSON  bool
+	flagURL      string
+	flagToken    string
+	flagOrg      int
+	flagJSON     bool
+	flagInsecure bool
 )
 
 var rootCmd = &cobra.Command{
@@ -39,6 +40,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagToken, "token", "", "API token (overrides config)")
 	rootCmd.PersistentFlags().IntVar(&flagOrg, "org", 0, "Organization ID (overrides config)")
 	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "Output raw JSON")
+	rootCmd.PersistentFlags().BoolVar(&flagInsecure, "insecure", false, "Skip TLS certificate verification (on-prem self-signed certs)")
 
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(orgsCmd)
@@ -80,12 +82,17 @@ func GetClient() *api.Client {
 		cfg.OrgID = flagOrg
 	}
 
+	insecure := flagInsecure
+	if os.Getenv("OPENEDGE_INSECURE") == "true" {
+		insecure = true
+	}
+
 	if cfg.URL == "" {
 		fmt.Fprintln(os.Stderr, ColorRed+"Error: no API URL configured. Run 'openedge login --url <url>' or set OPENEDGE_URL."+ColorReset)
 		os.Exit(1)
 	}
 
-	return api.New(cfg.URL, cfg.Token, cfg.OrgID)
+	return api.NewWithOptions(cfg.URL, cfg.Token, cfg.OrgID, insecure)
 }
 
 // ANSI color codes.

@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -21,12 +22,25 @@ type Client struct {
 
 // New creates a new API client.
 func New(baseURL, token string, orgID int) *Client {
+	return NewWithOptions(baseURL, token, orgID, false)
+}
+
+// NewWithOptions creates a new API client with extra options.
+// insecure=true skips TLS certificate verification (useful for on-prem self-signed certs).
+func NewWithOptions(baseURL, token string, orgID int, insecure bool) *Client {
+	transport := http.DefaultTransport
+	if insecure {
+		transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		}
+	}
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		token:   token,
 		orgID:   orgID,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout:   30 * time.Second,
+			Transport: transport,
 		},
 	}
 }
@@ -181,12 +195,23 @@ type LoginResponse struct {
 
 // Login authenticates and returns a JWT token.
 func Login(baseURL, username, password string) (LoginResponse, error) {
-	client := &http.Client{Timeout: 15 * time.Second}
+	return LoginWithOptions(baseURL, username, password, false)
+}
+
+// LoginWithOptions authenticates with optional TLS skip (for on-prem self-signed certs).
+func LoginWithOptions(baseURL, username, password string, insecure bool) (LoginResponse, error) {
+	transport := http.DefaultTransport
+	if insecure {
+		transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		}
+	}
+	httpClient := &http.Client{Timeout: 15 * time.Second, Transport: transport}
 
 	payload, _ := json.Marshal(LoginRequest{Username: username, Password: password})
 	url := strings.TrimRight(baseURL, "/") + "/api/auth/login"
 
-	resp, err := client.Post(url, "application/json", bytes.NewReader(payload))
+	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(payload))
 	if err != nil {
 		return LoginResponse{}, fmt.Errorf("login request: %w", err)
 	}
