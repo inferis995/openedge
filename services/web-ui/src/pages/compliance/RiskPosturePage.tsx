@@ -149,7 +149,7 @@ function RequirementChecklist({
                         <span className="text-sm flex-1 truncate flex items-center gap-1.5" title={req.title}>
                             {req.title}
                             {req.evidence && req.evidence.includes('[auto]') && (
-                                <Zap size={11} className="text-yellow-400 shrink-0" title="Valutato automaticamente dal sistema" />
+                                <Zap size={11} className="text-yellow-400 shrink-0" />
                             )}
                         </span>
                         <StatusBadge status={req.status} />

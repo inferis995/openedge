@@ -1,8 +1,8 @@
 ---
 name: openedge-ops
-description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), VPS con Traefik, Coolify, edge profile. Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security. VPS e Coolify ora hanno profilo `edge` per all-in-one.
-version: 5.2.0
-tags: [industrial, iot, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan]
+description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), VPS con Traefik, Coolify, edge profile. Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security, NIS2/IEC62443 compliance automatica (asset sync da gateway, CSIRT Art.23 countdown, vendor risk Art.18, 30-item checklist auto-assessed).
+version: 6.0.0
+tags: [industrial, iot, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan, nis2, compliance, csirt, vendor-risk, iec62443]
 requires: [docker, curl, git]
 ---
 
@@ -750,6 +750,225 @@ Dopo il riavvio di Claude Code, i tool OpenEdge appaiono direttamente nella chat
 
 ---
 
+## NIS2 / IEC 62443 Compliance — Monitoraggio automatico per org
+
+OpenEdge implementa **"From Visibility to Compliance in Four Steps"** con dati automatici
+estratti dai gateway già configurati di ogni org. Nessuna doppia inserzione dati.
+
+### Come funziona l'automatismo
+
+```
+Org configura gateway → sync automatico ogni ora → asset inventory popolato
+                      → risk score calcolato da protocollo + stato online
+                      → auto-assessment NIS2 aggiornato dai dati reali
+```
+
+| Cosa si popola automaticamente | Da dove |
+|-------------------------------|---------|
+| OT Asset inventory | Tabella `gateways` di ogni org (IP, protocollo, nome, stato online) |
+| Risk score per asset | Protocollo non cifrato (+3), offline >48h (+2), TLS attivo (-2) |
+| Vendor inventory (Art.18) | Campo `vendor` in `connection_config` di ogni gateway |
+| 12 requisiti NIS2 auto-assessed | Dati reali: scan jobs, threat events, protocolli, vendor scored |
+
+### Step 1 — Asset Discovery (automatico)
+
+```bash
+# Gli asset si sincronizzano automaticamente ogni ora.
+# Per forzare la sincronizzazione manuale:
+curl -X POST https://app.miazienda.com/api/compliance/sync-assets \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Organization-ID: 3"
+# → {"created": 4, "updated": 2}
+# Risponde con quanti gateway sono stati importati come OT asset
+
+# Lista asset per org:
+curl -H "Authorization: Bearer $TOKEN" \
+  -H "X-Organization-ID: 3" \
+  https://app.miazienda.com/api/compliance/assets
+```
+
+### Step 2 — Risk Posture + NIS2 Auto-Valutazione
+
+```bash
+# Risk posture dell'org:
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
+  https://app.miazienda.com/api/compliance/risk-posture
+# → {total_assets, avg_risk_score, critical_cves, by_type, top_risky}
+
+# Score NIS2/IEC62443 (0-100 pesato):
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
+  https://app.miazienda.com/api/compliance/score
+
+# Auto-valuta i 12 requisiti NIS2 auto-assessable dai dati reali:
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
+  https://app.miazienda.com/api/compliance/auto-assess
+# → lista di {req_code, status, evidence} aggiornati automaticamente
+
+# Checklist completa (30 item NIS2 Art.21 a-j):
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
+  https://app.miazienda.com/api/compliance/frameworks/NIS2/assessment
+
+# Aggiorna singolo requisito (item manuale):
+curl -X PUT https://app.miazienda.com/api/compliance/frameworks/NIS2/assessment/15 \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Organization-ID: 3" \
+  -d '{"status":"compliant","evidence":"Piano BCP approvato CdA 2026-01-15","notes":""}'
+```
+
+**Requisiti NIS2 auto-assessed** (si valorizzano da soli):
+| Codice | Controllo Art.21 | Come viene valutato |
+|--------|-----------------|---------------------|
+| NIS2-A2 | Analisi del rischio | Scan eseguito negli ultimi 30gg? |
+| NIS2-B1 | Rilevamento incidenti | Threat events registrati? |
+| NIS2-B3 | CSIRT 24h | Almeno un CSIRT incident aperto? |
+| NIS2-D1 | Inventario fornitori | `ot_vendors` count > 0? |
+| NIS2-D2 | Valutazione fornitori | Vendor con score calcolato? |
+| NIS2-D3 | Clausole contratti | % vendor con security_clauses |
+| NIS2-E2 | Protocolli sicuri OT | % gateway con OPC-UA/MQTT vs Modbus raw |
+| NIS2-H1 | Crittografia in transito | Stessa metrica E2 |
+| NIS2-J3 | Segregazione OT/IT | Asset inventory presente? |
+| NIS2-J4 | Audit log | Sempre compliant (sistema ha audit trail) |
+
+### Step 3 — CSIRT Art.23 (incidenti con countdown legali)
+
+```bash
+# Lista incidenti CSIRT:
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
+  https://app.miazienda.com/api/compliance/csirt
+
+# Summary (quanti aperti, scaduti):
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
+  https://app.miazienda.com/api/compliance/csirt/summary
+
+# Crea nuovo incidente (deadline impostate automaticamente: +24h, +72h, +30gg):
+curl -X POST https://app.miazienda.com/api/compliance/csirt \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Organization-ID: 3" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Accesso non autorizzato gateway Linea 3",
+    "severity": "high",
+    "description": "Rilevato tentativo di accesso anomalo al gateway Modbus 192.168.1.45",
+    "affected_systems": "Gateway Linea 3, Tag temperatura/pressione"
+  }'
+# → risponde con id, early_warning_due (now+24h), notification_due (now+72h), final_report_due (now+30d)
+
+# Marca Early Warning inviata (Art.23 — entro 24h):
+curl -X PUT https://app.miazienda.com/api/compliance/csirt/7/early-warning \
+  -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3"
+
+# Marca Notifica formale inviata (Art.23 — entro 72h):
+curl -X PUT https://app.miazienda.com/api/compliance/csirt/7/notify \
+  -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3"
+
+# Chiudi incidente con root cause (Art.23 — entro 30gg):
+curl -X PUT https://app.miazienda.com/api/compliance/csirt/7/close \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Organization-ID: 3" \
+  -d '{"root_cause":"Credenziali MQTT compromesse","remediation":"Rotazione credenziali, whitelist IP"}'
+```
+
+**Flusso CSIRT obbligatorio NIS2:**
+```
+Incidente rilevato
+  ├── entro 24h → Early Warning ad ACN/CSIRT-IT  (notif. preliminare)
+  ├── entro 72h → Notifica formale con impatto stimato
+  └── entro 30gg → Rapporto finale con root cause + remediation
+```
+
+### Step 4 — Vendor Risk Art.18 (supply chain)
+
+```bash
+# Sincronizza vendor automaticamente dai gateway configurati:
+curl -X POST https://app.miazienda.com/api/compliance/vendors/sync \
+  -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3"
+# → {"imported": 3, "updated": 1}
+# Legge connection_config->'vendor' di ogni gateway e crea record
+
+# Lista vendor con score:
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
+  https://app.miazienda.com/api/compliance/vendors
+
+# Summary (critical, high, avg_score):
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
+  https://app.miazienda.com/api/compliance/vendors/summary
+
+# Aggiorna vendor (aggiungi certificazioni per migliorare score):
+curl -X PUT https://app.miazienda.com/api/compliance/vendors/2 \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Organization-ID: 3" \
+  -d '{
+    "has_iso27001": true,
+    "last_audit_date": "2025-11-01",
+    "security_clauses": true,
+    "data_access_level": "write"
+  }'
+
+# Ricalcola score dopo aggiornamento:
+curl -X POST https://app.miazienda.com/api/compliance/vendors/2/score \
+  -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3"
+```
+
+**Formula score vendor** (0-100, più alto = meno rischioso):
+```
+Base: 50
++15  ISO 27001 certificato
++10  SOC 2 certificato
++15  IEC 62443 certificato
++10  Ultimo audit < 1 anno (+5 se < 2 anni)
++10  Clausole di sicurezza nel contratto
+-20  Accesso admin ai sistemi
+-10  Accesso write ai sistemi / remote access
+-10  Fornitore non-EU (paese non in lista EU-27)
+→ Criticità: 0-25=critical, 26-50=high, 51-75=medium, 76-100=low
+```
+
+### Report compliance
+
+```bash
+# Genera report NIS2 per org (asincrono — ritorna id subito):
+curl -X POST https://app.miazienda.com/api/compliance/reports \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Organization-ID: 3" \
+  -d '{"report_type":"nis2_assessment","title":"NIS2 Q2 2026","period_from":"2026-01-01T00:00:00Z","period_to":"2026-06-30T23:59:59Z"}'
+
+# Lista report generati:
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
+  https://app.miazienda.com/api/compliance/reports
+
+# Scarica report specifico:
+curl -H "Authorization: Bearer $TOKEN" -H "X-Organization-ID: 3" \
+  https://app.miazienda.com/api/compliance/reports/12 | jq '.content'
+```
+
+Tipi report: `nis2_assessment`, `iec62443_assessment`, `asset_inventory`, `incident_timeline`, `full_compliance`
+
+### Via MCP server (Claude Code / Cursor)
+
+Con `openedge mcp` attivo, Claude può monitorare la compliance direttamente in chat:
+
+```
+"Qual è il risk score medio dell'org 3?"
+"Ci sono incidenti CSIRT scaduti per la notifica?"
+"Sincronizza i vendor dell'org 2 dai gateway e mostrami quelli critici"
+"Genera un report NIS2 per il trimestre Q2 2026"
+"Quanti asset OT hanno risk score > 7?"
+"Auto-valuta la compliance NIS2 dell'org 1 e dimmi cosa manca"
+```
+
+### UI — pagine compliance (per ogni org)
+
+| Rotta | Cosa mostra |
+|-------|------------|
+| `/compliance/assets` | Asset inventory auto-popolato, CVE, scan, bottone "Sincronizza da Gateway" |
+| `/compliance/risk` | Score NIS2/IEC62443, checklist 30 item, bottone "Auto-valuta ⚡" |
+| `/compliance/threats` | Threat events con severità, risoluzione, auto-refresh 30s |
+| `/compliance/csirt` | Incidenti Art.23 con countdown timer 24h/72h/30gg, azioni legali |
+| `/compliance/vendors` | Vendor risk Art.18 con score bar, certificazioni, sync da gateway |
+| `/compliance/reports` | Generazione asincrona + download JSON |
+
+---
+
 ## Esempi di prompt per l'agente
 
 ```
@@ -768,4 +987,15 @@ Dopo il riavvio di Claude Code, i tool OpenEdge appaiono direttamente nella chat
 "Installa la CLI sulla mia macchina"
 "Come configuro la CLI per on-prem con certificato self-signed?"
 "Aggiungi openedge come MCP server in Claude Code"
+
+"Sincronizza gli asset OT dell'org 3 dai gateway configurati"
+"Qual è il risk score NIS2 dell'org 2?"
+"Auto-valuta la compliance NIS2 dell'org 1"
+"Crea un incidente CSIRT per accesso non autorizzato al gateway Linea 3"
+"Quanto tempo manca alla scadenza Early Warning dell'incidente 7?"
+"Sincronizza i vendor dell'org 3 dai gateway e mostrami quelli critici"
+"Genera un report NIS2 Q2 2026 per l'org 4"
+"Quali requisiti NIS2 dell'org 2 sono non conformi?"
+"L'org 5 ha incidenti CSIRT con notifica scaduta?"
+"Come funziona l'auto-sync degli asset OT da gateway?"
 ```
