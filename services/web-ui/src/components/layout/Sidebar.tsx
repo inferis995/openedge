@@ -35,6 +35,11 @@ import {
     Server,
     Lock,
     PackageOpen,
+    ShieldCheck,
+    ScanSearch,
+    TriangleAlert,
+    ClipboardList,
+    TrendingDown,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -78,6 +83,14 @@ const Sidebar = () => {
         { name: t('nav.maintenance'), path: '/maintenance', icon: Wrench },
         { name: t('nav.i3x'), path: '/i3x', icon: Network },
         { name: 'Sinottici', path: '/synoptics', icon: LayoutTemplate },
+    ];
+
+    // OT Compliance section — visible to all authenticated users
+    const complianceNavItems = [
+        { name: 'Inventario Asset', path: '/compliance/assets', icon: ScanSearch },
+        { name: 'Postura Rischio', path: '/compliance/risk', icon: TrendingDown },
+        { name: 'Monitor Minacce', path: '/compliance/threats', icon: TriangleAlert },
+        { name: 'Report', path: '/compliance/reports', icon: ClipboardList },
     ];
 
     // Admin section — global admins see System + Diagnostics + Users + MQTT monitor + Audit.
@@ -135,6 +148,49 @@ const Sidebar = () => {
             <nav className="flex-1 p-3 space-y-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-[hsl(var(--sidebar-accent))]">
                 {navItems.map((item) => {
                     const isActive = location.pathname === item.path;
+
+                    return (
+                        <Link
+                            key={item.path}
+                            to={item.path}
+                            title={collapsed ? item.name : undefined}
+                            className={cn(
+                                "flex items-center clip-chamfer-sm text-sm font-medium transition-all group",
+                                collapsed ? "justify-center w-12 h-12 mx-auto px-0" : "px-4 py-3 gap-3 w-full",
+                                isActive
+                                    ? "bg-primary text-primary-foreground shadow-md"
+                                    : "text-[hsl(var(--sidebar-muted))] hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--sidebar-fg))]"
+                            )}
+                        >
+                            <item.icon
+                                size={collapsed ? 24 : 20}
+                                className={cn(
+                                    "transition-transform duration-200",
+                                    collapsed && !isActive && "group-hover:scale-110"
+                                )}
+                            />
+                            {!collapsed && (
+                                <span className="truncate">{item.name}</span>
+                            )}
+                            {!collapsed && isActive && (
+                                <div className="ml-auto w-2 h-2 clip-hex bg-primary-foreground animate-pulse" />
+                            )}
+                        </Link>
+                    );
+                })}
+
+                {/* OT Compliance Section */}
+                <div className={cn(
+                    "my-3 border-t border-[hsl(var(--sidebar-border))]",
+                    collapsed && "mx-3"
+                )} />
+                {!collapsed && (
+                    <p className="px-4 text-[10px] text-[hsl(var(--sidebar-muted))] uppercase tracking-wider font-semibold mb-2 flex items-center gap-1.5">
+                        <ShieldCheck size={12} /> OT Compliance
+                    </p>
+                )}
+                {complianceNavItems.map((item) => {
+                    const isActive = location.pathname === item.path || location.pathname.startsWith(item.path);
 
                     return (
                         <Link

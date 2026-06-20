@@ -37,6 +37,10 @@ import SecurityPage from '@/pages/SecurityPage';
 import InfrastructurePage from '@/pages/InfrastructurePage';
 import ReleasesPage from '@/pages/ReleasesPage';
 import NotFoundPage from '@/pages/NotFoundPage';
+import AssetDiscoveryPage from '@/pages/compliance/AssetDiscoveryPage';
+import RiskPosturePage from '@/pages/compliance/RiskPosturePage';
+import ThreatMonitorPage from '@/pages/compliance/ThreatMonitorPage';
+import ComplianceReportsPage from '@/pages/compliance/ComplianceReportsPage';
 
 import { useEffect, useState, useRef } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -144,6 +148,10 @@ function App() {
                     <Route path="/synoptics/:id/edit" element={<SynopticEditorPage mode="edit" />} />
                     <Route path="/users" element={<UsersPage />} />
                     <Route path="/profile" element={<ProfilePage />} />
+                    <Route path="/compliance/assets" element={<AssetDiscoveryPage />} />
+                    <Route path="/compliance/risk" element={<RiskPosturePage />} />
+                    <Route path="/compliance/threats" element={<ThreatMonitorPage />} />
+                    <Route path="/compliance/reports" element={<ComplianceReportsPage />} />
                 </Route>
             </Route>
 
