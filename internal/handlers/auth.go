@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	totpLib "github.com/pquerna/otp/totp"
 	"github.com/ralph/industrial-edge-middleware/internal/auth"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
@@ -312,4 +313,139 @@ func publicHost() string {
 		return h
 	}
 	return "localhost:8081"
+}
+
+// MFAVerify handles POST /api/auth/mfa/verify (public).
+// Accepts the 5-min mfa_token from Login + a 6-digit TOTP code.
+func (h *AuthHandler) MFAVerify(c *gin.Context) {
+	var req struct {
+		MFAToken string `json:"mfa_token" binding:"required"`
+		Code     string `json:"code"      binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	resp, err := h.service.CompleteMFALogin(c.Request.Context(), req.MFAToken, req.Code, c.ClientIP(), c.GetHeader("User-Agent"))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// MFASetup handles POST /api/auth/mfa/setup (authenticated).
+// Generates a new TOTP secret, stores it (disabled until confirmed), returns QR URL.
+func (h *AuthHandler) MFASetup(c *gin.Context) {
+	raw, _ := c.Get(middleware.UserKey)
+	claims := raw.(jwt.MapClaims)
+	userID := int(claims["user_id"].(float64))
+	username := claims["username"].(string)
+
+	key, err := totpLib.Generate(totpLib.GenerateOpts{
+		Issuer:      "OpenEdge",
+		AccountName: username,
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate TOTP secret"})
+		return
+	}
+
+	// Store secret (still disabled — user must confirm with a valid code first)
+	if _, err := h.db.ExecContext(c.Request.Context(),
+		`UPDATE users SET totp_secret=$1, totp_enabled=false WHERE id=$2`, key.Secret(), userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save TOTP secret"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"secret":   key.Secret(),
+		"qr_url":   key.URL(),
+		"issuer":   "OpenEdge",
+		"username": username,
+	})
+}
+
+// MFAEnable handles POST /api/auth/mfa/enable (authenticated).
+// Verifies the first TOTP code and activates MFA for the user.
+func (h *AuthHandler) MFAEnable(c *gin.Context) {
+	raw, _ := c.Get(middleware.UserKey)
+	claims := raw.(jwt.MapClaims)
+	userID := int(claims["user_id"].(float64))
+
+	var req struct {
+		Code string `json:"code" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var secret string
+	if err := h.db.QueryRowContext(c.Request.Context(),
+		`SELECT totp_secret FROM users WHERE id=$1 AND totp_secret IS NOT NULL`, userID,
+	).Scan(&secret); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "run /mfa/setup first"})
+		return
+	}
+
+	if !totpLib.Validate(req.Code, secret) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid code — try again"})
+		return
+	}
+
+	if _, err := h.db.ExecContext(c.Request.Context(),
+		`UPDATE users SET totp_enabled=true WHERE id=$1`, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enable MFA"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "MFA attivato con successo"})
+}
+
+// MFADisable handles DELETE /api/auth/mfa/disable (authenticated).
+// Requires current password confirmation before disabling MFA.
+func (h *AuthHandler) MFADisable(c *gin.Context) {
+	raw, _ := c.Get(middleware.UserKey)
+	claims := raw.(jwt.MapClaims)
+	userID := int(claims["user_id"].(float64))
+
+	var req struct {
+		Password string `json:"password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	var hash string
+	if err := h.db.QueryRowContext(c.Request.Context(),
+		`SELECT password_hash FROM users WHERE id=$1`, userID,
+	).Scan(&hash); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "user not found"})
+		return
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)); err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "password errata"})
+		return
+	}
+
+	if _, err := h.db.ExecContext(c.Request.Context(),
+		`UPDATE users SET totp_enabled=false, totp_secret=NULL WHERE id=$1`, userID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to disable MFA"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "MFA disattivato"})
+}
+
+// MFAStatus handles GET /api/auth/mfa/status (authenticated).
+func (h *AuthHandler) MFAStatus(c *gin.Context) {
+	raw, _ := c.Get(middleware.UserKey)
+	claims := raw.(jwt.MapClaims)
+	userID := int(claims["user_id"].(float64))
+
+	var enabled bool
+	_ = h.db.QueryRowContext(c.Request.Context(),
+		`SELECT totp_enabled FROM users WHERE id=$1`, userID,
+	).Scan(&enabled)
+	c.JSON(http.StatusOK, gin.H{"mfa_enabled": enabled})
 }

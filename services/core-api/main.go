@@ -394,6 +394,10 @@ func main() {
 			authMe.GET("/me", authHandler.Me)
 			authMe.PUT("/me/password", authHandler.ChangePassword)
 			authMe.POST("/logout", authHandler.Logout)
+			authMe.GET("/mfa/status", authHandler.MFAStatus)
+			authMe.POST("/mfa/setup", authHandler.MFASetup)
+			authMe.POST("/mfa/enable", authHandler.MFAEnable)
+			authMe.DELETE("/mfa/disable", authHandler.MFADisable)
 		}
 		// Organizations endpoints
 		orgs := api.Group("/organizations")
@@ -767,6 +771,7 @@ func main() {
 		publicAuth.POST("/accept-invite", invitesHandler.AcceptInvite)
 		publicAuth.POST("/forgot-password", authHandler.ForgotPassword)
 		publicAuth.POST("/reset-password", authHandler.ResetPassword)
+		publicAuth.POST("/mfa/verify", authHandler.MFAVerify)
 		// SSO/OIDC — OAuth2 redirect and callback, no auth required.
 		publicAuth.GET("/sso/:provider/login", authHandler.SSOLogin)
 		publicAuth.GET("/sso/:provider/callback", authHandler.SSOCallback)

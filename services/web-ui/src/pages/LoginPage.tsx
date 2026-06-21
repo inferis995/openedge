@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Lock, User as UserIcon, Loader2, Mail, Eye, EyeOff } from 'lucide-react';
+import { Lock, User as UserIcon, Loader2, Mail, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 
 const LoginPage = () => {
     const [username, setUsername] = useState('');
@@ -14,6 +14,10 @@ const LoginPage = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [ssoEmail, setSsoEmail] = useState('');
     const [showSsoInput, setShowSsoInput] = useState<'google' | 'azure' | null>(null);
+    const [mfaStep, setMfaStep] = useState(false);
+    const [mfaToken, setMfaToken] = useState('');
+    const [mfaCode, setMfaCode] = useState('');
+    const mfaInputRef = useRef<HTMLInputElement>(null);
     const navigate = useNavigate();
     const { login } = useAuthStore();
 
@@ -60,18 +64,98 @@ const LoginPage = () => {
             });
 
             if (!response.ok) {
-                throw new Error('Invalid credentials');
+                const body = await response.json().catch(() => ({}));
+                throw new Error(body.error || 'Invalid credentials');
             }
 
             const data = await response.json();
+
+            if (data.mfa_required) {
+                setMfaToken(data.mfa_token);
+                setMfaStep(true);
+                setTimeout(() => mfaInputRef.current?.focus(), 100);
+                return;
+            }
+
             login(data.token, data.user);
             navigate('/');
-        } catch (err) {
-            setError('Invalid username or password');
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Invalid username or password');
         } finally {
             setLoading(false);
         }
     };
+
+    const handleMFASubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        try {
+            const response = await fetch('/api/auth/mfa/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mfa_token: mfaToken, code: mfaCode }),
+            });
+            if (!response.ok) {
+                const body = await response.json().catch(() => ({}));
+                throw new Error(body.error || 'Codice non valido');
+            }
+            const data = await response.json();
+            login(data.token, data.user);
+            navigate('/');
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Codice non valido');
+            setMfaCode('');
+            mfaInputRef.current?.focus();
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    if (mfaStep) {
+        return (
+            <div className="flex min-h-screen items-center justify-center bg-background">
+                <div className="w-full max-w-sm space-y-8 clip-chamfer border bg-card p-8 shadow-2xl">
+                    <div className="text-center">
+                        <div className="flex justify-center mb-4">
+                            <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
+                                <ShieldCheck className="h-8 w-8 text-primary" />
+                            </div>
+                        </div>
+                        <h2 className="text-lg font-semibold">Autenticazione a due fattori</h2>
+                        <p className="mt-1 text-xs text-muted-foreground">Inserisci il codice a 6 cifre dall'app autenticatore</p>
+                    </div>
+                    <form className="space-y-6" onSubmit={handleMFASubmit}>
+                        <div className="grid gap-2">
+                            <Label className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">Codice OTP</Label>
+                            <Input
+                                ref={mfaInputRef}
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]{6}"
+                                maxLength={6}
+                                placeholder="000000"
+                                value={mfaCode}
+                                onChange={e => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                                className="text-center text-2xl tracking-widest font-mono"
+                                autoComplete="one-time-code"
+                            />
+                        </div>
+                        {error && (
+                            <p className="text-[10px] font-bold tracking-widest uppercase text-destructive text-center">{error}</p>
+                        )}
+                        <Button type="submit" className="w-full" disabled={loading || mfaCode.length !== 6}>
+                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Verifica codice'}
+                        </Button>
+                        <button type="button" onClick={() => { setMfaStep(false); setMfaCode(''); setError(''); }}
+                            className="w-full text-xs text-muted-foreground hover:text-foreground text-center transition-colors">
+                            ← Torna al login
+                        </button>
+                    </form>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="flex min-h-screen items-center justify-center bg-background relative overflow-hidden">

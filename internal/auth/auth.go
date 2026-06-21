@@ -10,9 +10,14 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/pquerna/otp/totp"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
+
+func validateTOTP(secret, code string) bool {
+	return totp.Validate(code, secret)
+}
 
 // SecretKey is loaded from JWT_SECRET env var at startup; the process exits if it is not set.
 var SecretKey []byte
@@ -56,12 +61,14 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 	var passwordHash string
 	var failedLoginCount int
 	var lockedUntil sql.NullTime
+	var totpEnabled bool
+	var totpSecret sql.NullString
 
 	query := `SELECT id, username, password_hash, role, full_name, org_id, i3x_write, created_at,
-	          failed_login_count, locked_until FROM users WHERE username = $1`
+	          failed_login_count, locked_until, totp_enabled, totp_secret FROM users WHERE username = $1`
 	err := s.db.QueryRowContext(ctx, query, req.Username).Scan(
 		&user.ID, &user.Username, &passwordHash, &user.Role, &user.FullName, &user.OrgID, &user.I3xWrite, &user.CreatedAt,
-		&failedLoginCount, &lockedUntil,
+		&failedLoginCount, &lockedUntil, &totpEnabled, &totpSecret,
 	)
 
 	if err == sql.ErrNoRows {
@@ -119,26 +126,92 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 		return nil, errors.New("invalid credentials")
 	}
 
-	// Successful login — reset lockout state and update last login info
+	// Successful password auth — reset lockout state
 	_, _ = s.db.ExecContext(ctx,
-		`UPDATE users SET failed_login_count=0, locked_until=NULL, last_login_at=NOW(), last_login_ip=$1 WHERE id=$2`,
-		ipAddress, user.ID)
+		`UPDATE users SET failed_login_count=0, locked_until=NULL WHERE id=$1`, user.ID)
 
-	// Generate JWT
+	// If MFA is enabled, return a short-lived challenge token instead of the full JWT
+	if totpEnabled && totpSecret.Valid && totpSecret.String != "" {
+		mfaToken, err := s.generateMFAToken(user.ID)
+		if err != nil {
+			return nil, err
+		}
+		return &models.LoginResponse{MFARequired: true, MFAToken: mfaToken}, nil
+	}
+
+	// No MFA — complete login
+	_, _ = s.db.ExecContext(ctx,
+		`UPDATE users SET last_login_at=NOW(), last_login_ip=$1 WHERE id=$2`, ipAddress, user.ID)
+
 	token, err := s.generateToken(user)
 	if err != nil {
 		return nil, err
 	}
 
-	// Log successful login
 	s.logAudit(&user.ID, user.Username, "login", ipAddress, userAgent, map[string]interface{}{
 		"role": user.Role,
 	}, true)
 
-	return &models.LoginResponse{
-		Token: token,
-		User:  user,
-	}, nil
+	return &models.LoginResponse{Token: token, User: user}, nil
+}
+
+// generateMFAToken creates a 5-minute JWT used only as a step-up challenge token.
+func (s *Service) generateMFAToken(userID int) (string, error) {
+	claims := jwt.MapClaims{
+		"user_id":  userID,
+		"mfa_step": true,
+		"exp":      time.Now().Add(5 * time.Minute).Unix(),
+	}
+	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(SecretKey)
+}
+
+// CompleteMFALogin verifies a TOTP code from a mfa_step token and returns the full JWT.
+func (s *Service) CompleteMFALogin(ctx context.Context, mfaToken, code, ipAddress, userAgent string) (*models.LoginResponse, error) {
+	token, err := jwt.Parse(mfaToken, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, errors.New("unexpected signing method")
+		}
+		return SecretKey, nil
+	})
+	if err != nil || !token.Valid {
+		return nil, errors.New("invalid or expired MFA token")
+	}
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok || claims["mfa_step"] != true {
+		return nil, errors.New("not an MFA step token")
+	}
+	userID := int(claims["user_id"].(float64))
+
+	var user models.User
+	var totpSecret string
+	err = s.db.QueryRowContext(ctx,
+		`SELECT id, username, role, full_name, org_id, i3x_write, created_at, totp_secret
+		 FROM users WHERE id = $1 AND totp_enabled = true`, userID,
+	).Scan(&user.ID, &user.Username, &user.Role, &user.FullName, &user.OrgID, &user.I3xWrite, &user.CreatedAt, &totpSecret)
+	if err != nil {
+		return nil, errors.New("user not found or MFA not enabled")
+	}
+
+	if !validateTOTP(totpSecret, code) {
+		s.logAudit(&user.ID, user.Username, "mfa_verify", ipAddress, userAgent, map[string]interface{}{
+			"reason": "invalid_code",
+		}, false)
+		return nil, errors.New("invalid MFA code")
+	}
+
+	_, _ = s.db.ExecContext(ctx,
+		`UPDATE users SET last_login_at=NOW(), last_login_ip=$1 WHERE id=$2`, ipAddress, user.ID)
+
+	fullToken, err := s.generateToken(user)
+	if err != nil {
+		return nil, err
+	}
+
+	s.logAudit(&user.ID, user.Username, "login", ipAddress, userAgent, map[string]interface{}{
+		"role": user.Role, "mfa": true,
+	}, true)
+
+	return &models.LoginResponse{Token: fullToken, User: user}, nil
 }
 
 func (s *Service) generateToken(user models.User) (string, error) {
