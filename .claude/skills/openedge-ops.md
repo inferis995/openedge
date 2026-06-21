@@ -1,8 +1,8 @@
 ---
 name: openedge-ops
-description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), VPS con Traefik, Coolify, edge profile. Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security, NIS2/IEC62443 compliance automatica (asset sync da gateway, CSIRT Art.23 countdown, vendor risk Art.18, 30-item checklist auto-assessed).
-version: 6.0.0
-tags: [industrial, iot, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan, nis2, compliance, csirt, vendor-risk, iec62443]
+description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), VPS con Traefik, Coolify, edge profile. Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security, NIS2/IEC62443 compliance automatica (asset sync da gateway, CSIRT Art.23 countdown, vendor risk Art.18, 30-item checklist auto-assessed), MFA TOTP con recovery codes e mfa_required per org.
+version: 6.1.0
+tags: [industrial, iot, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan, nis2, compliance, csirt, vendor-risk, iec62443, mfa, totp, 2fa, recovery-codes]
 requires: [docker, curl, git]
 ---
 
@@ -443,7 +443,59 @@ curl -X POST https://app.tuazienda.com/api/organizations/3/invites \
 curl -H "Authorization: Bearer $TOKEN" https://app.tuazienda.com/api/organizations
 curl -X PUT  https://app.tuazienda.com/api/organizations/3 -H "Authorization: Bearer $TOKEN" -d '{"name":"Acme Aggiornato"}'
 curl -X DELETE https://app.tuazienda.com/api/organizations/3 -H "Authorization: Bearer $TOKEN"
+
+# Forza MFA per tutti gli utenti di un'org (solo global admin)
+curl -X PUT https://app.tuazienda.com/api/organizations/3/mfa-required \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"mfa_required": true}'
+# → utenti senza MFA configurato vengono bloccati al login con messaggio "configura MFA dal browser"
 ```
+
+---
+
+## MFA / Autenticazione a due fattori
+
+### Per org (admin enforcement)
+
+| Scenario | Comportamento |
+|----------|--------------|
+| `mfa_required=false` (default) | MFA opzionale per ogni utente |
+| `mfa_required=true` + utente ha TOTP | Login normale con codice OTP |
+| `mfa_required=true` + utente senza TOTP | Login bloccato, messaggio "configura MFA" |
+| SSO (Google/Azure AD) | MFA delegato al provider — TOTP OpenEdge non richiesto |
+
+### Gestione MFA utente via API
+
+```bash
+BASE=https://app.tuazienda.com
+AUTH="-H 'Authorization: Bearer $TOKEN'"
+
+# Stato MFA dell'utente corrente
+curl $AUTH $BASE/api/auth/me/mfa/status
+
+# Setup — genera secret e QR URL
+curl -X POST $AUTH $BASE/api/auth/me/mfa/setup
+
+# Attiva — verifica primo codice, restituisce 8 codici di recupero
+curl -X POST $AUTH $BASE/api/auth/me/mfa/enable \
+  -H "Content-Type: application/json" -d '{"code":"123456"}'
+# Risposta: {"message":"MFA attivato","recovery_codes":["A1B2-C3D4-E5F6",...]}
+
+# Rigenera codici di recupero (brucia i vecchi)
+curl -X POST $AUTH $BASE/api/auth/me/mfa/recovery-codes
+
+# Disattiva (richiede password)
+curl -X DELETE $AUTH $BASE/api/auth/me/mfa/disable \
+  -H "Content-Type: application/json" -d '{"password":"mia-password"}'
+```
+
+### Codici di recupero
+
+- Generati automaticamente all'attivazione MFA: **8 codici** formato `XXXX-XXXX-XXXX`
+- Mostrati **una sola volta** — salvare in un posto sicuro
+- Ognuno è **usa-e-getta**: una volta usato viene marcato come consumato
+- Rigenera con `POST /api/auth/me/mfa/recovery-codes` (invalida tutti i vecchi)
+- Funzionano sia dal browser che dalla CLI
 
 ---
 
@@ -670,6 +722,31 @@ export OPENEDGE_URL=https://app.miazienda.com
 export OPENEDGE_TOKEN=eyJ...
 export OPENEDGE_ORG_ID=1
 openedge gateways list   # funziona senza login
+```
+
+### Login con MFA attivo (TOTP / Google Authenticator)
+
+Il CLI gestisce automaticamente il flusso MFA a 2 step:
+
+```bash
+openedge login --url https://app.miazienda.com
+# Username: admin
+# Password: ••••••••
+# Codice MFA (6 cifre o codice di recupero): 123456   ← prompt automatico se MFA è attivo
+# ✓ Logged in as admin (global admin)
+```
+
+**Se l'org ha `mfa_required=true` e l'utente non ha ancora configurato MFA:**
+```bash
+# Errore: "Il tuo amministratore richiede MFA. Configuralo da browser: https://app.../profile"
+# → l'utente deve andare sul browser e attivare MFA dal profilo prima di usare la CLI
+```
+
+**Codici di recupero** (se l'utente ha perso il telefono):
+```bash
+openedge login --url https://app.miazienda.com
+# Codice MFA (6 cifre o codice di recupero): A1B2-C3D4-E5F6
+# ✓ Il codice di recupero viene bruciato (usa-e-getta)
 ```
 
 ### Verifica connessione

@@ -81,6 +81,36 @@ func runLogin(cmd *cobra.Command, args []string) {
 		PrintError("%v", err)
 	}
 
+	// Handle MFA setup required (org policy)
+	if resp.MFASetupRequired {
+		PrintError("Il tuo amministratore richiede l'autenticazione a due fattori (MFA).\nConfigura l'MFA accedendo dal browser: %s/profile", loginURL)
+	}
+
+	// Handle MFA challenge
+	if resp.MFARequired {
+		fmt.Print("Codice MFA (6 cifre o codice di recupero): ")
+		var mfaCode string
+		if term.IsTerminal(int(syscall.Stdin)) {
+			code, err := term.ReadPassword(int(syscall.Stdin))
+			if err != nil {
+				PrintError("reading MFA code: %v", err)
+			}
+			fmt.Println()
+			mfaCode = strings.TrimSpace(string(code))
+		} else {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				PrintError("reading MFA code: %v", err)
+			}
+			mfaCode = strings.TrimSpace(line)
+		}
+
+		resp, err = api.VerifyMFA(loginURL, resp.MFAToken, mfaCode, flagInsecure)
+		if err != nil {
+			PrintError("%v", err)
+		}
+	}
+
 	cfg := config.Config{
 		URL:      loginURL,
 		Token:    resp.Token,

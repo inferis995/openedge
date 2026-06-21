@@ -184,8 +184,11 @@ type LoginRequest struct {
 
 // LoginResponse is returned by POST /api/auth/login.
 type LoginResponse struct {
-	Token string `json:"token"`
-	User  struct {
+	Token            string `json:"token"`
+	MFARequired      bool   `json:"mfa_required"`
+	MFAToken         string `json:"mfa_token"`
+	MFASetupRequired bool   `json:"mfa_setup_required"`
+	User             struct {
 		ID       int    `json:"id"`
 		Username string `json:"username"`
 		Role     string `json:"role"`
@@ -238,4 +241,45 @@ func LoginWithOptions(baseURL, username, password string, insecure bool) (LoginR
 	}
 
 	return loginResp, nil
+}
+
+// VerifyMFA exchanges a mfa_token + TOTP/recovery code for a full JWT.
+func VerifyMFA(baseURL, mfaToken, code string, insecure bool) (LoginResponse, error) {
+	transport := http.DefaultTransport
+	if insecure {
+		transport = &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+		}
+	}
+	httpClient := &http.Client{Timeout: 15 * time.Second, Transport: transport}
+
+	payload, _ := json.Marshal(map[string]string{"mfa_token": mfaToken, "code": code})
+	apiURL := strings.TrimRight(baseURL, "/") + "/api/auth/mfa/verify"
+
+	resp, err := httpClient.Post(apiURL, "application/json", bytes.NewReader(payload))
+	if err != nil {
+		return LoginResponse{}, fmt.Errorf("MFA verify request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return LoginResponse{}, fmt.Errorf("read MFA response: %w", err)
+	}
+
+	if resp.StatusCode != 200 {
+		var errBody map[string]interface{}
+		if json.Unmarshal(data, &errBody) == nil {
+			if msg, ok := errBody["error"].(string); ok {
+				return LoginResponse{}, fmt.Errorf("MFA failed: %s", msg)
+			}
+		}
+		return LoginResponse{}, fmt.Errorf("MFA failed (HTTP %d)", resp.StatusCode)
+	}
+
+	var r LoginResponse
+	if err := json.Unmarshal(data, &r); err != nil {
+		return LoginResponse{}, fmt.Errorf("decode MFA response: %w", err)
+	}
+	return r, nil
 }
