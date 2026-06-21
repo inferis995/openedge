@@ -398,6 +398,7 @@ func main() {
 			authMe.POST("/mfa/setup", authHandler.MFASetup)
 			authMe.POST("/mfa/enable", authHandler.MFAEnable)
 			authMe.DELETE("/mfa/disable", authHandler.MFADisable)
+			authMe.POST("/mfa/recovery-codes", authHandler.MFARegenerateCodes)
 		}
 		// Organizations endpoints
 		orgs := api.Group("/organizations")
@@ -407,6 +408,7 @@ func main() {
 			orgs.GET("", orgsHandler.List)
 			orgs.GET("/:id", orgsHandler.Get)
 			orgs.PUT("/:id", middleware.RequireRole(models.RoleAdmin), orgsHandler.Update)
+			orgs.PUT("/:id/mfa-required", middleware.RequireRole(models.RoleAdmin), orgsHandler.SetMFARequired)
 			orgs.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), orgsHandler.Delete)
 		}
 

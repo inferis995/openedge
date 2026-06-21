@@ -1201,6 +1201,23 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// MFA recovery codes
+	if _, err := db.ExecContext(context.Background(), `CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash TEXT NOT NULL,
+    used_at TIMESTAMPTZ
+)`); err != nil {
+		log.Printf("Warning: mfa_recovery_codes migration: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `CREATE INDEX IF NOT EXISTS idx_mfa_recovery_codes_user ON mfa_recovery_codes(user_id)`); err != nil {
+		log.Printf("Warning: mfa_recovery_codes index: %v", err)
+	}
+	// MFA required per org
+	if _, err := db.ExecContext(context.Background(), `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS mfa_required BOOLEAN NOT NULL DEFAULT false`); err != nil {
+		log.Printf("Warning: org mfa_required migration: %v", err)
+	}
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
 }

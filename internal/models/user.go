@@ -28,8 +28,9 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	Token       string `json:"token,omitempty"`
-	User        User   `json:"user,omitempty"`
-	MFARequired bool   `json:"mfa_required,omitempty"`
-	MFAToken    string `json:"mfa_token,omitempty"`
+	Token            string `json:"token,omitempty"`
+	User             User   `json:"user,omitempty"`
+	MFARequired      bool   `json:"mfa_required,omitempty"`
+	MFAToken         string `json:"mfa_token,omitempty"`
+	MFASetupRequired bool   `json:"mfa_setup_required,omitempty"`
 }

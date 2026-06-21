@@ -389,3 +389,21 @@ func (h *OrganizationsHandler) Delete(c *gin.Context) {
 
 	c.Status(http.StatusNoContent)
 }
+
+// SetMFARequired handles PUT /api/organizations/:id/mfa-required.
+func (h *OrganizationsHandler) SetMFARequired(c *gin.Context) {
+	id := c.Param("id")
+	var req struct {
+		MFARequired bool `json:"mfa_required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if _, err := h.db.ExecContext(c.Request.Context(),
+		`UPDATE organizations SET mfa_required=$1 WHERE id=$2`, req.MFARequired, id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "update failed"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"mfa_required": req.MFARequired})
+}

@@ -399,7 +399,8 @@ func (h *AuthHandler) MFAEnable(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enable MFA"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "MFA attivato con successo"})
+	codes, _ := h.service.GenerateRecoveryCodes(c.Request.Context(), userID)
+	c.JSON(http.StatusOK, gin.H{"message": "MFA attivato con successo", "recovery_codes": codes})
 }
 
 // MFADisable handles DELETE /api/auth/mfa/disable (authenticated).
@@ -448,4 +449,25 @@ func (h *AuthHandler) MFAStatus(c *gin.Context) {
 		`SELECT totp_enabled FROM users WHERE id=$1`, userID,
 	).Scan(&enabled)
 	c.JSON(http.StatusOK, gin.H{"mfa_enabled": enabled})
+}
+
+// MFARegenerateCodes handles POST /api/auth/mfa/recovery-codes (authenticated).
+func (h *AuthHandler) MFARegenerateCodes(c *gin.Context) {
+	raw, _ := c.Get(middleware.UserKey)
+	claims := raw.(jwt.MapClaims)
+	userID := int(claims["user_id"].(float64))
+
+	var enabled bool
+	if err := h.db.QueryRowContext(c.Request.Context(),
+		`SELECT totp_enabled FROM users WHERE id=$1`, userID,
+	).Scan(&enabled); err != nil || !enabled {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "MFA non attivo"})
+		return
+	}
+	codes, err := h.service.GenerateRecoveryCodes(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate recovery codes"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"recovery_codes": codes})
 }

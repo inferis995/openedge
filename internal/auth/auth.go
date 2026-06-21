@@ -2,9 +2,11 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"time"
@@ -17,6 +19,32 @@ import (
 
 func validateTOTP(secret, code string) bool {
 	return totp.Validate(code, secret)
+}
+
+// GenerateRecoveryCodes creates 8 one-time recovery codes, stores hashes in DB,
+// and returns the plaintext codes to show to the user once.
+func (s *Service) GenerateRecoveryCodes(ctx context.Context, userID int) ([]string, error) {
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM mfa_recovery_codes WHERE user_id=$1`, userID); err != nil {
+		return nil, err
+	}
+	codes := make([]string, 8)
+	for i := range codes {
+		b := make([]byte, 6)
+		if _, err := rand.Read(b); err != nil {
+			return nil, err
+		}
+		plain := fmt.Sprintf("%X-%X-%X", b[0:2], b[2:4], b[4:6])
+		hash, err := bcrypt.GenerateFromPassword([]byte(plain), bcrypt.MinCost)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := s.db.ExecContext(ctx,
+			`INSERT INTO mfa_recovery_codes (user_id, code_hash) VALUES ($1, $2)`, userID, string(hash)); err != nil {
+			return nil, err
+		}
+		codes[i] = plain
+	}
+	return codes, nil
 }
 
 // SecretKey is loaded from JWT_SECRET env var at startup; the process exits if it is not set.
@@ -130,6 +158,19 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 	_, _ = s.db.ExecContext(ctx,
 		`UPDATE users SET failed_login_count=0, locked_until=NULL WHERE id=$1`, user.ID)
 
+	// Block login if org requires MFA and user hasn't set it up
+	if !totpEnabled {
+		var orgMFARequired bool
+		if user.OrgID != nil {
+			_ = s.db.QueryRowContext(ctx,
+				`SELECT mfa_required FROM organizations WHERE id=$1`, *user.OrgID,
+			).Scan(&orgMFARequired)
+		}
+		if orgMFARequired {
+			return &models.LoginResponse{MFASetupRequired: true}, nil
+		}
+	}
+
 	// If MFA is enabled, return a short-lived challenge token instead of the full JWT
 	if totpEnabled && totpSecret.Valid && totpSecret.String != "" {
 		mfaToken, err := s.generateMFAToken(user.ID)
@@ -193,10 +234,34 @@ func (s *Service) CompleteMFALogin(ctx context.Context, mfaToken, code, ipAddres
 	}
 
 	if !validateTOTP(totpSecret, code) {
-		s.logAudit(&user.ID, user.Username, "mfa_verify", ipAddress, userAgent, map[string]interface{}{
-			"reason": "invalid_code",
-		}, false)
-		return nil, errors.New("invalid MFA code")
+		// Try recovery codes
+		rows, qErr := s.db.QueryContext(ctx,
+			`SELECT id, code_hash FROM mfa_recovery_codes WHERE user_id=$1 AND used_at IS NULL`, userID)
+		usedID := 0
+		if qErr == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var rcID int
+				var rcHash string
+				if err := rows.Scan(&rcID, &rcHash); err != nil {
+					continue
+				}
+				if bcrypt.CompareHashAndPassword([]byte(rcHash), []byte(code)) == nil {
+					usedID = rcID
+					break
+				}
+			}
+		}
+		if usedID == 0 {
+			s.logAudit(&user.ID, user.Username, "mfa_verify", ipAddress, userAgent, map[string]interface{}{
+				"reason": "invalid_code",
+			}, false)
+			return nil, errors.New("codice MFA non valido")
+		}
+		_, _ = s.db.ExecContext(ctx, `UPDATE mfa_recovery_codes SET used_at=NOW() WHERE id=$1`, usedID)
+		s.logAudit(&user.ID, user.Username, "mfa_verify_recovery", ipAddress, userAgent, map[string]interface{}{
+			"recovery_code_id": usedID,
+		}, true)
 	}
 
 	_, _ = s.db.ExecContext(ctx,
