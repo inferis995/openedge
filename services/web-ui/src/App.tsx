@@ -37,6 +37,9 @@ import SecurityPage from '@/pages/SecurityPage';
 import InfrastructurePage from '@/pages/InfrastructurePage';
 import ReleasesPage from '@/pages/ReleasesPage';
 import NotFoundPage from '@/pages/NotFoundPage';
+import PrivacyPage from '@/pages/PrivacyPage';
+import TermsPage from '@/pages/TermsPage';
+import { CookieBanner } from '@/components/CookieBanner';
 import AssetDiscoveryPage from '@/pages/compliance/AssetDiscoveryPage';
 import RiskPosturePage from '@/pages/compliance/RiskPosturePage';
 import ThreatMonitorPage from '@/pages/compliance/ThreatMonitorPage';
@@ -112,12 +115,15 @@ function App() {
     }
 
     return (
+        <>
         <Routes>
             <Route path="/login" element={<LoginPage />} />
             {/* Public routes — no auth required */}
             <Route path="/accept-invite" element={<AcceptInvitePage />} />
             <Route path="/forgot-password" element={<ForgotPasswordPage />} />
             <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
 
             {/* TV/Kiosk mode — full-screen senza sidebar/header. Resta
                 sotto RequireAuth ma fuori dal LayoutWrapper. */}
@@ -172,6 +178,8 @@ function App() {
 
             <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        <CookieBanner />
+        </>
     );
 }
 

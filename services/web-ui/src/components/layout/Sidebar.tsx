@@ -315,6 +315,15 @@ const Sidebar = () => {
                     )}
                 </Link>
 
+                {/* Support link */}
+                {!collapsed && (
+                    <div className="px-1 pb-1 flex gap-3 text-[10px] text-[hsl(var(--sidebar-muted))]">
+                        <a href="mailto:support@openedge.io" className="hover:underline">Supporto</a>
+                        <Link to="/privacy" className="hover:underline">Privacy</Link>
+                        <Link to="/terms" className="hover:underline">Termini</Link>
+                    </div>
+                )}
+
                 {/* Logout Button */}
                 <Button
                     variant="ghost"
