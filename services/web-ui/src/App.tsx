@@ -71,7 +71,6 @@ function App() {
     // Reset trend store when organization changes
     useEffect(() => {
         if (prevOrgIdRef.current !== null && prevOrgIdRef.current !== selectedOrgId) {
-            console.log('Organization changed, resetting trend store');
             resetTrendStore();
         }
         prevOrgIdRef.current = selectedOrgId;

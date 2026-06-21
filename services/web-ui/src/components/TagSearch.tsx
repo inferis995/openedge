@@ -34,7 +34,6 @@ export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear 
     }, [tags, searchQuery]);
 
     const handleSelect = (tag: Tag) => {
-        console.log("Selecting tag:", tag.id);
         onSelect(tag);
         setOpen(false);
         setSearchQuery("");

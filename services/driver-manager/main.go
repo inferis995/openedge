@@ -493,9 +493,8 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 	dbHost := m.resolveHostname(getEnv("DB_HOST", "postgres"))
 	mqttHost := m.resolveHostname(getEnv("MQTT_HOST", "mosquitto"))
 
-	// 4. Create container config with resource limits
-	// TODO: Re-enable resource limits after fixing Docker SDK v25 compatibility
-	// resources := driverResourceLimits[gateway.DriverType]
+	// 4. Resolve resource limits for this driver type
+	resources := driverResourceLimits[gateway.DriverType]
 
 	// 5. Create container config
 	env := []string{
@@ -527,11 +526,10 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 				"max-file": "3",
 			},
 		},
-		// TODO: Resources causing issue with Docker SDK v25, investigate
-		// Resources: container.Resources{
-		// 	NanoCPUs: resources.CPU,
-		// 	Memory:   resources.Memory,
-		// },
+		Resources: container.Resources{
+			NanoCPUs: resources.CPU,
+			Memory:   resources.Memory,
+		},
 		NetworkMode: container.NetworkMode(m.networkID),
 		ExtraHosts:  []string{"host.docker.internal:host-gateway"},
 	}

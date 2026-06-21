@@ -1,6 +1,7 @@
 package sparkplug
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
@@ -270,8 +271,7 @@ func DecodePayloadJSON(data []byte) (*Payload, error) {
 
 // decodeJSON is a helper for JSON decoding
 func decodeJSON(data []byte, v interface{}) error {
-	// Use encoding/json
-	return fmt.Errorf("JSON decoding placeholder - use encoding/json")
+	return json.Unmarshal(data, v)
 }
 
 // LogPayload logs payload information for debugging

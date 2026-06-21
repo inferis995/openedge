@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"log"
 	"net/http"
 	"runtime"
 	"time"
@@ -132,7 +133,10 @@ func (h *HealthHandler) DBStats(c *gin.Context) {
 		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var t tableRow
-			_ = rows.Scan(&t.Table, &t.Rows, &t.SizeMB)
+			if err := rows.Scan(&t.Table, &t.Rows, &t.SizeMB); err != nil {
+				log.Printf("Warning: health stats scan error: %v", err)
+				continue
+			}
 			tables = append(tables, t)
 		}
 	}
