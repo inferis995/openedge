@@ -1360,11 +1360,70 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     </div>
                                 )}
 
-                                {/* ── Clock/Setpoint: font size ── */}
-                                {(selected.type === 'clock' || selected.type === 'setpoint') && (
-                                    <div className="grid gap-1">
-                                        <Label className="text-xs">Dim. testo (px)</Label>
-                                        <Input className="h-8 text-xs" type="number" value={selected.config?.fontSize ?? 22} onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 22 })} />
+                                {/* ── Clock config ── */}
+                                {selected.type === 'clock' && (
+                                    <div className="grid gap-2">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Dim. testo (px)</Label>
+                                            <Input className="h-8 text-xs" type="number" value={selected.config?.fontSize ?? 22} onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 22 })} />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Formato ora</Label>
+                                            <Select value={selected.config?.clockFormat ?? '24h'} onValueChange={v => patchConfig(selected.id, { clockFormat: v })}>
+                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="24h">24 ore</SelectItem>
+                                                    <SelectItem value="12h">12 ore (AM/PM)</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="clock-show-date" checked={selected.config?.showDate !== false} onChange={e => patchConfig(selected.id, { showDate: e.target.checked })} />
+                                            <Label htmlFor="clock-show-date" className="text-xs cursor-pointer">Mostra data</Label>
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Colore testo</Label>
+                                            <div className="flex gap-2 items-center">
+                                                <input type="color" value={selected.config?.color ?? '#e2e8f0'} onChange={e => patchConfig(selected.id, { color: e.target.value })} className="h-8 w-10 rounded border border-input cursor-pointer" />
+                                                <Input className="h-8 text-xs flex-1" value={selected.config?.color ?? '#e2e8f0'} onChange={e => patchConfig(selected.id, { color: e.target.value })} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* ── Setpoint config ── */}
+                                {selected.type === 'setpoint' && (
+                                    <div className="grid gap-2">
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Dim. testo (px)</Label>
+                                            <Input className="h-8 text-xs" type="number" value={selected.config?.fontSize ?? 22} onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 22 })} />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Unità di misura</Label>
+                                            <Input className="h-8 text-xs" placeholder="es. °C, bar, %" value={selected.config?.unit ?? ''} onChange={e => patchConfig(selected.id, { unit: e.target.value })} />
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Decimali</Label>
+                                            <Input className="h-8 text-xs" type="number" min={0} max={6} value={selected.config?.decimals ?? 2} onChange={e => patchConfig(selected.id, { decimals: parseInt(e.target.value) ?? 2 })} />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="grid gap-1">
+                                                <Label className="text-xs">Min</Label>
+                                                <Input className="h-8 text-xs" type="number" placeholder="—" value={selected.config?.spMin ?? ''} onChange={e => patchConfig(selected.id, { spMin: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
+                                            </div>
+                                            <div className="grid gap-1">
+                                                <Label className="text-xs">Max</Label>
+                                                <Input className="h-8 text-xs" type="number" placeholder="—" value={selected.config?.spMax ?? ''} onChange={e => patchConfig(selected.id, { spMax: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
+                                            </div>
+                                        </div>
+                                        <div className="grid gap-1">
+                                            <Label className="text-xs">Step (incremento)</Label>
+                                            <Input className="h-8 text-xs" type="number" min={0} step="any" placeholder="1" value={selected.config?.spStep ?? ''} onChange={e => patchConfig(selected.id, { spStep: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <input type="checkbox" id="sp-confirm-write" checked={!!selected.config?.confirmWrite} onChange={e => patchConfig(selected.id, { confirmWrite: e.target.checked })} />
+                                            <Label htmlFor="sp-confirm-write" className="text-xs cursor-pointer">Conferma prima di scrivere</Label>
+                                        </div>
                                     </div>
                                 )}
 

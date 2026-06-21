@@ -346,12 +346,18 @@ function ClockWidget({ cfg }: { cfg: SynopticWidget['config'] }) {
         const id = setInterval(() => setNow(new Date()), 1000);
         return () => clearInterval(id);
     }, []);
-    const timeStr = now.toLocaleTimeString('it-IT');
-    const dateStr = now.toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit' });
+    const use12h = cfg?.clockFormat === '12h';
+    const timeStr = now.toLocaleTimeString(use12h ? 'en-US' : 'it-IT', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: use12h,
+    });
+    const dateStr = now.toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' });
+    const showDate = cfg?.showDate !== false;
+    const textColor = cfg?.color || '#e2e8f0';
     return (
         <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900/80 border border-slate-700 rounded-md px-2">
-            <span style={{ fontSize: cfg?.fontSize ?? 22, color: '#e2e8f0', fontFamily: 'monospace', fontWeight: 700 }}>{timeStr}</span>
-            <span style={{ fontSize: 11, color: '#94a3b8' }}>{dateStr}</span>
+            <span style={{ fontSize: cfg?.fontSize ?? 22, color: textColor, fontFamily: 'monospace', fontWeight: 700, lineHeight: 1.1 }}>{timeStr}</span>
+            {showDate && <span style={{ fontSize: cfg?.fontSize ? Math.max(9, Math.round((cfg.fontSize as number) * 0.5)) : 11, color: '#94a3b8', marginTop: 2 }}>{dateStr}</span>}
         </div>
     );
 }
@@ -364,12 +370,11 @@ function SetpointWidget({ widget, live, onWrite }: {
     const [input, setInput] = useState('');
     const [sending, setSending] = useState(false);
     const [feedback, setFeedback] = useState<'ok' | 'err' | null>(null);
+    const [confirmPending, setConfirmPending] = useState<number | null>(null);
     const isPreview = live === undefined;
 
-    const handleSend = async () => {
-        if (!onWrite || isPreview) return;
-        const v = parseFloat(input);
-        if (!Number.isFinite(v)) return;
+    const doWrite = async (v: number) => {
+        if (!onWrite) return;
         setSending(true);
         try {
             await onWrite(v);
@@ -379,28 +384,58 @@ function SetpointWidget({ widget, live, onWrite }: {
             setFeedback('err');
         } finally {
             setSending(false);
+            setConfirmPending(null);
             setTimeout(() => setFeedback(null), 1500);
         }
     };
 
+    const handleSend = async () => {
+        if (!onWrite || isPreview) return;
+        const v = parseFloat(input);
+        if (!Number.isFinite(v)) return;
+        if (cfg.spMin !== undefined && v < (cfg.spMin as number)) { setFeedback('err'); setTimeout(() => setFeedback(null), 1500); return; }
+        if (cfg.spMax !== undefined && v > (cfg.spMax as number)) { setFeedback('err'); setTimeout(() => setFeedback(null), 1500); return; }
+        if (cfg.confirmWrite) { setConfirmPending(v); return; }
+        await doWrite(v);
+    };
+
+    const rangeHint = (cfg.spMin !== undefined || cfg.spMax !== undefined)
+        ? `[${cfg.spMin ?? '—'} … ${cfg.spMax ?? '—'}]`
+        : null;
+
     return (
         <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-slate-900/80 border border-slate-700 rounded-md px-2 overflow-hidden">
+            {confirmPending !== null && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-slate-950/95 rounded-md px-2">
+                    <span className="text-[10px] text-amber-400 text-center">Conferma scrittura {confirmPending}{cfg.unit ? ` ${cfg.unit}` : ''}?</span>
+                    <div className="flex gap-1">
+                        <button type="button" onClick={() => void doWrite(confirmPending)} className="h-5 px-2 text-[10px] rounded bg-green-600 text-white">✓ Sì</button>
+                        <button type="button" onClick={() => setConfirmPending(null)} className="h-5 px-2 text-[10px] rounded bg-slate-600 text-white">✗ No</button>
+                    </div>
+                </div>
+            )}
             {widget.label && <span className="text-[10px] text-slate-400 truncate w-full text-center">{widget.label}</span>}
             <span className="text-xs text-slate-400">
-                SP: <span className="text-slate-200 font-mono">
+                PV: <span className="text-slate-200 font-mono">
                     {current !== null ? current.toFixed(cfg.decimals ?? 1) : '—'}{cfg.unit ? ` ${cfg.unit}` : ''}
                 </span>
             </span>
+            {rangeHint && <span className="text-[9px] text-slate-500">{rangeHint}</span>}
             <div className="flex gap-1 w-full">
-                <input type="number" value={input} onChange={e => setInput(e.target.value)}
+                <input type="number"
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
                     disabled={isPreview || sending}
+                    step={cfg.spStep ?? 1 as number}
+                    min={cfg.spMin as number | undefined}
+                    max={cfg.spMax as number | undefined}
                     onKeyDown={e => { if (e.key === 'Enter') void handleSend(); }}
                     className="flex-1 h-6 bg-slate-800 border border-slate-600 rounded text-xs text-center text-white px-1 min-w-0"
-                    placeholder={cfg.unit ?? '—'} />
+                    placeholder={cfg.unit ? String(cfg.unit) : 'SP'} />
                 <button type="button" onClick={() => void handleSend()}
                     disabled={isPreview || sending || input === ''}
                     className="h-6 px-2 text-xs rounded bg-primary text-primary-foreground disabled:opacity-40 shrink-0">
-                    {feedback === 'ok' ? '✓' : feedback === 'err' ? '✗' : sending ? '…' : '✓'}
+                    {feedback === 'ok' ? '✓' : feedback === 'err' ? '✗' : sending ? '…' : '↵'}
                 </button>
             </div>
         </div>

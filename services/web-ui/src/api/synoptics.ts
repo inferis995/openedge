@@ -113,6 +113,16 @@ export interface SynopticWidget {
         strokeWidth?: number;
         flowColor?: string;
 
+        // Clock extras
+        clockFormat?: '24h' | '12h';
+        showDate?: boolean;
+
+        // Setpoint extras
+        spMin?: number;
+        spMax?: number;
+        spStep?: number;
+        confirmWrite?: boolean;
+
         [key: string]: unknown;
     };
     locked?: boolean;           // prevents accidental drag in the designer
