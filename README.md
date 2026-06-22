@@ -125,10 +125,14 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 - **Slack / Teams / PagerDuty** — Native notification channels in addition to email and Telegram
 
 **Security & Compliance**
-- **Security Center** — NIS2 Art. 21 compliance dashboard, 0-100 security score, 12-point checklist
+- **MFA / 2FA** — TOTP (Google Authenticator, Authy), QR code setup, 8 recovery codes, org-level enforcement (`mfa_required`)
+- **NIS2 Compliance Suite** — OT asset inventory (auto-sync), CSIRT Art.23 (24h/72h/30d legal deadlines), Vendor Risk Art.18 (0-100 score), 30-item checklist with auto-assessment, threat monitor, compliance reports
+- **SSO / OIDC** — Google and Azure AD single sign-on with automatic user provisioning
+- **Granular RBAC** — Per-user permission flags: write_tags, ack_alarms, export_data, manage_recipes, manage_shifts, view_audit, download_installer
 - **Account Lockout** — 5-strike 30-min lock, last-login IP tracking, security event feed
-- **Audit Trail** — Full audit log with IP, user agent, action, success/failure
+- **Audit Trail** — Full action log with IP, user-agent, action, success/failure
 - **Infrastructure Dashboard** — Real-time inventory: all gateways with IP, port, TLS status, online state
+- **GDPR Ready** — Cookie consent banner, Privacy Policy, Terms of Service pages included
 
 **Platform Management**
 - **OTA Updates** — Secure over-the-air edge agent updates with SHA256 verification, org-admin approval flow, auto-rollback
@@ -136,6 +140,7 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 - **Data Management** — Named Docker volumes, PostgreSQL tuning, historian retention (configurable), backup/restore scripts
 - **Fleet Management** — Global admin fleet view: all orgs with edge online/offline status, last ping, agent version
 - **InfluxDB v2 Connector** — Continuous export to InfluxDB (configurable batch size + flush interval, watermark-based, zero data loss)
+- **SCADA Editor** — Clock widget: 12h/24h, show date, color; Setpoint: unit, decimals, min/max/step, confirm dialog
 
 ---
 

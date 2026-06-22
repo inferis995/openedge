@@ -5,6 +5,56 @@ All notable changes to OpenEdge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-06-22
+
+### Added
+
+- **MFA / Two-Factor Authentication (TOTP)**
+  - TOTP-based 2FA compatible with Google Authenticator, Authy, and any RFC 6238 app
+  - QR code setup flow in Profile → Security section
+  - 8 single-use recovery codes generated at activation (format `XXXX-XXXX-XXXX`, bcrypt-hashed)
+  - Recovery code fallback at login (when phone is unavailable)
+  - `POST /api/auth/mfa/recovery-codes` — regenerate codes (invalidates old ones)
+  - Org-level MFA enforcement: `PUT /api/organizations/:id/mfa-required` — blocks login for users without MFA configured
+  - SSO users (Google/Azure AD) bypass TOTP — MFA delegated to identity provider
+  - CLI `openedge login` handles MFA step automatically (TOTP or recovery code prompt)
+
+- **NIS2 Compliance Suite (Art. 21/23/18)**
+  - **OT Asset Inventory** — auto-sync from configured gateways (hourly worker), risk score 0–10 based on protocol type, TLS, online status
+  - **Risk Posture** — 30-item NIS2 checklist covering Art.21(a–j) with auto-assessment from real org data
+  - **CSIRT Incident Management (Art.23)** — create/track incidents with legal deadline countdown: 24h early warning, 72h notification, 30d final report
+  - **Vendor Risk (Art.18)** — supplier scoring 0–100 (ISO27001/SOC2/IEC62443/audit/access level/country), auto-import from gateway `connection_config`
+  - **Threat Monitor** — log and track security threats, auto-link to CSIRT incidents
+  - **Compliance Reports** — generate audit-ready PDF/CSV reports for NIS2 and IEC 62443
+  - 6 new UI pages: Asset Discovery, Risk Posture, CSIRT Art.23, Vendor Risk, Threat Monitor, Compliance Reports
+  - `GET /api/compliance/auto-assess` — auto-values 12 requirements from live org data
+  - `POST /api/compliance/sync-assets` — on-demand asset sync from gateways
+
+- **GDPR / Legal Pages**
+  - Cookie consent banner (localStorage, shown once, links to privacy/terms)
+  - Privacy Policy page at `/privacy` (GDPR Art.13 compliant, Italian)
+  - Terms of Service page at `/terms` (Italian, SLA tiers, limitation of liability)
+  - Support/Privacy/Terms links in Sidebar footer
+
+- **UX & Production Hardening**
+  - React `ErrorBoundary` wraps the entire app — friendly crash page instead of blank screen
+  - Favicon updated from Vite default to OpenEdge logo
+  - Full SEO/OG/Twitter meta tags in `index.html` (`lang=it`, description, og:image)
+  - `INFLUX_*` env vars documented in `.env.example`
+
+- **SCADA Widget Editor Improvements**
+  - Clock widget: `clockFormat` (24h/12h AM-PM), `showDate` toggle, text color picker
+  - Setpoint widget: `unit` label, `decimals`, `spMin`/`spMax` range limits (validated on write), `spStep` increment, `confirmWrite` confirmation dialog
+
+### Fixed
+
+- **Sparkplug B JSON decoder** was a stub returning an error — replaced with `encoding/json` (breaks Sparkplug B JSON mode in all previous versions)
+- **Docker resource limits** (NanoCPUs/Memory) were commented out — re-enabled; driver containers now have per-type CPU/RAM caps
+- **Health stats handler** silently discarded `rows.Scan` errors — now logs and continues
+- Debug `console.log` removed from `TagSearch` and `App.tsx`
+
+---
+
 ## [1.0.0] - 2026-03-08
 
 ### Added
@@ -194,6 +244,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 | Version | Date | Status | Key Features |
 |---------|------|--------|--------------|
+| 2.1.0 | 2026-06-22 | Production | MFA TOTP + recovery codes, NIS2 full suite (CSIRT/Vendor/Assets), GDPR pages, SCADA improvements |
 | 2.0.0 | 2026-06-20 | Production | Enterprise: SSO, RBAC, Tag Shadows, InfluxDB, Fleet, Monitoring, Notifications |
 | 1.0.0 | 2026-03-08 | Production | First stable release — drivers, historian, alarms, multi-tenant SaaS |
 | 0.x | 2024-2025 | Development | Development versions (not documented) |
