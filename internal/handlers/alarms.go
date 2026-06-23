@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -295,18 +296,9 @@ func (h *AlarmHandler) SaveTagAlarmConfig(c *gin.Context) {
 		return
 	}
 
-	validTypes := map[string]bool{"bool_true": true, "bool_false": true, "high": true, "low": true, "high_high": true, "low_low": true}
-	validSeverities := map[string]bool{"info": true, "warning": true, "critical": true}
-
-	for _, a := range alarms {
-		if !validTypes[a.AlarmType] {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid alarm_type: " + a.AlarmType})
-			return
-		}
-		if !validSeverities[a.Severity] {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid severity: " + a.Severity})
-			return
-		}
+	if errMsg := validateAlarmDefinitions(alarms); errMsg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": errMsg})
+		return
 	}
 
 	tx, err := h.db.Begin()
@@ -699,4 +691,30 @@ func (h *AlarmHandler) DeleteAllAlarmHistory(c *gin.Context) {
 		"message":       "Alarm history cleared successfully",
 		"rows_affected": rowsAffected,
 	})
+}
+
+// validateAlarmDefinitions checks alarm_type, severity, and numeric fields.
+// Returns a non-empty error message string if invalid, empty string if OK.
+func validateAlarmDefinitions(alarms []models.AlarmDefinition) string {
+	validTypes := map[string]bool{
+		"bool_true": true, "bool_false": true,
+		"high": true, "low": true, "high_high": true, "low_low": true,
+	}
+	validSeverities := map[string]bool{"info": true, "warning": true, "critical": true}
+
+	for _, a := range alarms {
+		if !validTypes[a.AlarmType] {
+			return "Invalid alarm_type: " + a.AlarmType
+		}
+		if !validSeverities[a.Severity] {
+			return "Invalid severity: " + a.Severity
+		}
+		if a.Threshold != nil && (math.IsNaN(*a.Threshold) || math.IsInf(*a.Threshold, 0)) {
+			return "threshold must be a finite number"
+		}
+		if math.IsNaN(a.Deadband) || math.IsInf(a.Deadband, 0) || a.Deadband < 0 {
+			return "deadband must be a non-negative finite number"
+		}
+	}
+	return ""
 }

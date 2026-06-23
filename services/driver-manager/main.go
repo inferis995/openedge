@@ -989,8 +989,14 @@ func checkAndApplyUpdate(orgID int, currentVersion, apiURL, apiToken string) {
 
 	log.Printf("[UPDATE-POLL] Approved update found: version=%s release_id=%d", checkResp.Version, *checkResp.ReleaseID)
 
-	// 2. Download artifact.
-	artifactPath := fmt.Sprintf("/tmp/edge-update-%s.tar.gz", checkResp.Version)
+	// 2. Download artifact. Sanitize version to prevent path traversal.
+	safeVersion := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '-' {
+			return r
+		}
+		return '_'
+	}, checkResp.Version)
+	artifactPath := fmt.Sprintf("/tmp/edge-update-%s.tar.gz", safeVersion)
 	if err := downloadFile(httpClient, checkResp.ArtifactURL, artifactPath); err != nil {
 		log.Printf("[UPDATE-POLL] Download failed: %v", err)
 		return
@@ -1086,14 +1092,13 @@ func applyUpdate(artifactPath, version string) error {
 		return cmd.Run()
 	}
 
-	// Default: docker pull the artifact_url (assumed to be an image tag) then restart.
-	log.Printf("[UPDATE-POLL] No update script found — running docker pull for version %s", version)
-	pullCmd := exec.CommandContext(applyCtx, "docker", "pull", artifactPath)
-	pullCmd.Stdout = os.Stdout
-	pullCmd.Stderr = os.Stderr
-	if err := pullCmd.Run(); err != nil {
-		// Don't fail — artifact may be a tarball, not an image.
-		log.Printf("[UPDATE-POLL] docker pull returned error (non-fatal): %v", err)
+	// Default: load the downloaded tar.gz image archive then restart.
+	log.Printf("[UPDATE-POLL] No update script found — loading image from %s", artifactPath)
+	loadCmd := exec.CommandContext(applyCtx, "docker", "load", "-i", artifactPath)
+	loadCmd.Stdout = os.Stdout
+	loadCmd.Stderr = os.Stderr
+	if err := loadCmd.Run(); err != nil {
+		return fmt.Errorf("docker load failed: %w", err)
 	}
 
 	// Restart the driver-manager service container.

@@ -120,6 +120,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer database.Close()
+	database.SetMaxOpenConns(25)
+	database.SetMaxIdleConns(10)
+	database.SetConnMaxLifetime(5 * time.Minute)
 
 	// Load EU scaling config once at startup, then refresh every 30 s.
 	go func() {
@@ -189,7 +192,7 @@ func main() {
 		if err := mqttClient.Subscribe("sys/health/#", func(topic string, payload []byte) {
 			handleGatewayHealthUpdate(topic, payload, redisClient)
 		}); err != nil {
-			log.Printf("Warning: Failed to subscribe to gateway health topic: %v", err)
+			slog.Error("CRITICAL: failed to subscribe to gateway health topic — edge status tracking disabled", "error", err)
 		} else {
 			log.Println("Subscribed to gateway health status updates")
 		}
@@ -198,7 +201,7 @@ func main() {
 		if err := mqttClient.Subscribe("data/#", func(topic string, payload []byte) {
 			handleDataUpdate(topic, payload, redisClient)
 		}); err != nil {
-			log.Printf("Warning: Failed to subscribe to data topic: %v", err)
+			slog.Error("CRITICAL: failed to subscribe to data topic — all tag writes will be lost", "error", err)
 		} else {
 			log.Println("Subscribed to data updates")
 		}
@@ -207,7 +210,7 @@ func main() {
 		if err := mqttClient.Subscribe("sys/alarms/#", func(topic string, payload []byte) {
 			handleAlarmEvent(topic, payload, database)
 		}); err != nil {
-			log.Printf("Warning: Failed to subscribe to alarms topic: %v", err)
+			slog.Error("CRITICAL: failed to subscribe to alarms topic — alarm events will not be persisted", "error", err)
 		} else {
 			log.Println("Subscribed to alarm events")
 		}
@@ -216,7 +219,7 @@ func main() {
 		if err := mqttClient.Subscribe("spBv1.0/#", func(topic string, payload []byte) {
 			handleSparkplugUpdate(topic, payload, redisClient, database)
 		}); err != nil {
-			log.Printf("Warning: Failed to subscribe to Sparkplug topic: %v", err)
+			slog.Error("CRITICAL: failed to subscribe to Sparkplug topic — Sparkplug B data ignored", "error", err)
 		} else {
 			log.Println("Subscribed to Sparkplug B updates")
 		}

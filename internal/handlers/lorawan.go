@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -83,6 +84,7 @@ func (h *LoRaWANHandler) ListDevices(c *gin.Context) {
 		if err := rows.Scan(&d.ID, &d.DeviceID, &d.DevEUI, &d.LastSeen,
 			&d.LastRSSI, &d.LastSNR, &d.LastFPort,
 			&afJSON, &rawNull, &d.UplinkCount); err != nil {
+			log.Printf("[LORAWAN] device scan error: %v", err)
 			continue
 		}
 		if err := json.Unmarshal(afJSON, &d.AvailableFields); err != nil {

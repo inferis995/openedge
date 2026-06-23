@@ -487,19 +487,26 @@ func (h *TagsHandler) Delete(c *gin.Context) {
 	}
 
 	idStr := c.Param("id")
-	id, _ := strconv.Atoi(idStr)
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tag id"})
+		return
+	}
 
 	// Check if tag exists AND get gateway_id for reload
 	var gatewayID int
 	var tagOrgID int
-	err := h.db.QueryRow(`
-		SELECT t.gateway_id, s.org_id 
+	scanErr := h.db.QueryRow(`
+		SELECT t.gateway_id, s.org_id
 		FROM tags t
 		JOIN gateways g ON t.gateway_id = g.id
 		JOIN areas a ON g.area_id = a.id
-		JOIN sites s ON a.site_id = s.id 
+		JOIN sites s ON a.site_id = s.id
 		WHERE t.id = $1`, id).Scan(&gatewayID, &tagOrgID)
 
+	if scanErr != nil {
+		err = scanErr
+	}
 	if err != nil {
 		if err == sql.ErrNoRows {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Tag not found"})
