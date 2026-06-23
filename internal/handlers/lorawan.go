@@ -233,9 +233,12 @@ func (h *LoRaWANHandler) Downlink(c *gin.Context) {
 
 	// If dev_eui not provided, look it up from lorawan_devices
 	if req.DevEUI == "" {
-		_ = h.db.QueryRowContext(c.Request.Context(),
+		if err := h.db.QueryRowContext(c.Request.Context(),
 			`SELECT dev_eui FROM lorawan_devices WHERE gateway_id=$1 AND device_id=$2`,
-			gwID, req.DeviceID).Scan(&req.DevEUI)
+			gwID, req.DeviceID).Scan(&req.DevEUI); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "device not found or dev_eui unknown"})
+			return
+		}
 	}
 
 	payload := map[string]interface{}{

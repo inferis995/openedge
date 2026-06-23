@@ -16,15 +16,22 @@ const pagerDutyEventsURL = "https://events.pagerduty.com/v2/enqueue"
 type pagerDutyChannel struct {
 	enabled    bool
 	routingKey string
+	eventsURL  string
 	client     *http.Client
 }
 
 func newPagerDutyChannel(cfg map[string]string) Channel {
+	return newPagerDutyChannelWithURL(cfg, pagerDutyEventsURL)
+}
+
+// newPagerDutyChannelWithURL allows overriding the endpoint URL (for tests).
+func newPagerDutyChannelWithURL(cfg map[string]string, url string) Channel {
 	key := strings.TrimSpace(cfg["notif_pagerduty_routing_key"])
 	enabled := strings.EqualFold(cfg["notif_pagerduty_enabled"], "true") && key != ""
 	return &pagerDutyChannel{
 		enabled:    enabled,
 		routingKey: key,
+		eventsURL:  url,
 		client:     &http.Client{Timeout: 10 * time.Second},
 	}
 }
@@ -69,8 +76,11 @@ func (p *pagerDutyChannel) Send(ctx context.Context, e *Event) error {
 		},
 	}
 
-	body, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, pagerDutyEventsURL, bytes.NewReader(body))
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("pagerduty marshal: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.eventsURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("pagerduty request: %w", err)
 	}

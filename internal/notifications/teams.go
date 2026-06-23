@@ -59,7 +59,10 @@ func (t *teamsChannel) Send(ctx context.Context, e *Event) error {
 		},
 	}
 
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("teams marshal: %w", err)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("teams request: %w", err)

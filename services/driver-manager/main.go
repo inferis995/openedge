@@ -447,30 +447,45 @@ func (m *Manager) publishGatewayStatus(gatewayID int, status string, errorMsg st
 	_ = m.mqttClient.PublishWithQoS(topic, statusObj, 1, true) // retained
 }
 
-// startGatewayContainer starts a driver container for a gateway
+// imageNameForDriver returns the Docker image name for a driver type, or "" if unknown.
+func (m *Manager) imageNameForDriver(driverType string) string {
+	switch driverType {
+	case "S7":
+		return "industrial-driver-s7:latest"
+	case "MODBUS_TCP":
+		return "industrial-driver-modbus:latest"
+	case "REDIS":
+		return "industrial-driver-redis:latest"
+	case "MQTT":
+		return "industrial-driver-mqtt:latest"
+	case "OPC_UA":
+		return "industrial-driver-opcua:latest"
+	case "LORAWAN":
+		return "industrial-driver-lorawan:latest"
+	}
+	return ""
+}
+
+// startGatewayContainer starts a driver container for a gateway.
+// The caller must hold m.mu. Image must already be cached (call pullImageWithRetry first).
 func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 	log.Printf("[DRIVER-MANAGER] Starting container for gateway %d (%s, type: %s)", gateway.ID, gateway.Name, gateway.DriverType)
 
 	// Determine driver image and service name based on driver type
-	var imageName, containerNamePrefix string
+	imageName := m.imageNameForDriver(gateway.DriverType)
+	var containerNamePrefix string
 	switch gateway.DriverType {
 	case "S7":
-		imageName = "industrial-driver-s7:latest"
 		containerNamePrefix = "driver-s7"
 	case "MODBUS_TCP":
-		imageName = "industrial-driver-modbus:latest"
 		containerNamePrefix = "driver-modbus"
 	case "REDIS":
-		imageName = "industrial-driver-redis:latest"
 		containerNamePrefix = "driver-redis"
 	case "MQTT":
-		imageName = "industrial-driver-mqtt:latest"
 		containerNamePrefix = "driver-mqtt"
 	case "OPC_UA":
-		imageName = "industrial-driver-opcua:latest"
 		containerNamePrefix = "driver-opcua"
 	case "LORAWAN":
-		imageName = "industrial-driver-lorawan:latest"
 		containerNamePrefix = "driver-lorawan"
 	default:
 		return fmt.Errorf("unsupported driver type: %s", gateway.DriverType)
@@ -483,13 +498,7 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 		return fmt.Errorf("network verification failed: %w", err)
 	}
 
-	// 2. Pull image with retry
-	if err := m.pullImageWithRetry(imageName); err != nil {
-		m.publishGatewayStatus(gateway.ID, "error", fmt.Sprintf("Image pull failed: %v", err))
-		return fmt.Errorf("image pull failed: %w", err)
-	}
-
-	// 3. Resolve hostnames to IPs
+	// 2. Resolve hostnames to IPs (image already cached by syncGateways pre-pull)
 	dbHost := m.resolveHostname(getEnv("DB_HOST", "postgres"))
 	mqttHost := m.resolveHostname(getEnv("MQTT_HOST", "mosquitto"))
 
@@ -614,6 +623,20 @@ func (m *Manager) syncGateways() error {
 		gateways = append(gateways, g)
 	}
 
+	// Pre-pull images for enabled gateways BEFORE acquiring the lock.
+	// Docker image pulls can take minutes; holding the mutex during that time
+	// would block OTA commands and other concurrent operations.
+	// docker pull is idempotent — returns instantly when image is already cached.
+	for _, gw := range gateways {
+		if gw.Enabled {
+			if img := m.imageNameForDriver(gw.DriverType); img != "" {
+				if err := m.pullImageWithRetry(img); err != nil {
+					log.Printf("[DRIVER-MANAGER] Pre-pull failed for gateway %d (%s): %v", gw.ID, gw.DriverType, err)
+				}
+			}
+		}
+	}
+
 	// Sync each gateway
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -639,7 +662,7 @@ func (m *Manager) syncGateways() error {
 		if gateway.Enabled {
 			// Gateway should be running
 			if !exists || !state.Running {
-				// Start container
+				// Start container (image already cached by pre-pull above)
 				if err := m.startGatewayContainer(gateway); err != nil {
 					log.Printf("[DRIVER-MANAGER] ERROR: Failed to start container for gateway %d (%s): %v",
 						gateway.ID, gateway.Name, err)

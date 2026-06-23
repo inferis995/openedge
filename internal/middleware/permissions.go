@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // Permission flag names — match role_permissions columns.
@@ -24,17 +25,27 @@ const (
 // Regular users need the specific flag set to true in role_permissions.
 func RequirePermission(db *sql.DB, perm string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		role, _ := c.Get("role")
-		if role == "admin" {
+		claimsRaw, exists := c.Get(UserKey)
+		if !exists {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+			return
+		}
+		claims, ok := claimsRaw.(jwt.MapClaims)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+			return
+		}
+
+		// Admins always pass (global admin: org_id=nil, org admin: org_id set)
+		if role, _ := claims["role"].(string); role == "admin" {
 			c.Next()
 			return
 		}
 
-		userIDRaw, _ := c.Get("user_id")
-		userID, ok := userIDRaw.(int)
-		if !ok || userID == 0 {
-			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
-			c.Abort()
+		userIDFloat, _ := claims["user_id"].(float64)
+		userID := int(userIDFloat)
+		if userID == 0 {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "permission denied"})
 			return
 		}
 
