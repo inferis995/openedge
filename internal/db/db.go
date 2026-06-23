@@ -506,6 +506,11 @@ func runAutoMigrations(db *sql.DB) error {
 	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email) WHERE email IS NOT NULL`); err != nil {
 		log.Printf("Warning: failed to create idx_users_email: %v", err)
 	}
+	// Per-org uniqueness: same email may exist in different orgs (SSO multi-tenant).
+	// Global admins (org_id IS NULL) are excluded — covered by idx_users_email above.
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_org_email ON users (org_id, email) WHERE org_id IS NOT NULL AND email IS NOT NULL`); err != nil {
+		log.Printf("Warning: failed to create idx_users_org_email: %v", err)
+	}
 
 	// Migration: password_reset_tokens — one-time tokens, expire 1 hour.
 	pwdResetTokens := []string{

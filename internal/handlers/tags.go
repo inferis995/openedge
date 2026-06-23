@@ -313,11 +313,23 @@ func (h *TagsHandler) List(c *gin.Context) {
 			gatewayID,
 		)
 	} else if areaIDStr != "" {
-		// Case 2: Filter by Area — tags from all gateways in the area
+		// Case 2: Filter by Area — tags from all gateways in the area.
+		// Verify the area belongs to the authenticated org to prevent cross-org data access.
 		areaID, err2 := strconv.Atoi(areaIDStr)
 		if err2 != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid area_id parameter"})
 			return
+		}
+		orgFilter := middleware.GetOrgFilterForQuery(c)
+		if orgFilter != nil {
+			// Org-scoped user: verify area belongs to their org via sites→organizations chain.
+			var areaOrgID int
+			if err3 := h.db.QueryRow(
+				`SELECT s.org_id FROM areas a JOIN sites s ON s.id = a.site_id WHERE a.id = $1`, areaID,
+			).Scan(&areaOrgID); err3 != nil || areaOrgID != *orgFilter {
+				c.JSON(http.StatusForbidden, gin.H{"error": "area not found or access denied"})
+				return
+			}
 		}
 		rows, err = h.db.Query(
 			`SELECT t.id, t.gateway_id, t.code, t.alias, t.data_type, t.historize, t.historize_deadband, t.sort_order, t.json_path,
@@ -1353,6 +1365,22 @@ func (h *TagsHandler) GetShadow(c *gin.Context) {
 		return
 	}
 
+	// Verify tag belongs to the authenticated org (prevent cross-org data access).
+	orgFilter := middleware.GetOrgFilterForQuery(c)
+	if orgFilter != nil {
+		var tagOrgID int
+		if err := h.db.QueryRowContext(c.Request.Context(),
+			`SELECT s.org_id FROM tags t
+			 JOIN gateways g ON g.id = t.gateway_id
+			 JOIN areas a ON a.id = g.area_id
+			 JOIN sites s ON s.id = a.site_id
+			 WHERE t.id = $1`, id,
+		).Scan(&tagOrgID); err != nil || tagOrgID != *orgFilter {
+			c.JSON(http.StatusNotFound, gin.H{"error": "tag not found"})
+			return
+		}
+	}
+
 	// Try Redis shadow first (written on every live MQTT update)
 	if h.redisClient != nil {
 		raw, redisErr := h.redisClient.Get(fmt.Sprintf("tag_shadow:%d", id))
@@ -1404,6 +1432,21 @@ func (h *TagsHandler) GetShadowBatch(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid gateway_id"})
 		return
+	}
+
+	// Verify gateway belongs to the authenticated org.
+	orgFilter := middleware.GetOrgFilterForQuery(c)
+	if orgFilter != nil {
+		var gwOrgID int
+		if err := h.db.QueryRowContext(c.Request.Context(),
+			`SELECT s.org_id FROM gateways g
+			 JOIN areas a ON a.id = g.area_id
+			 JOIN sites s ON s.id = a.site_id
+			 WHERE g.id = $1`, gwID,
+		).Scan(&gwOrgID); err != nil || gwOrgID != *orgFilter {
+			c.JSON(http.StatusNotFound, gin.H{"error": "gateway not found"})
+			return
+		}
 	}
 
 	rows, err := h.db.QueryContext(c.Request.Context(), `SELECT id FROM tags WHERE gateway_id = $1`, gwID)

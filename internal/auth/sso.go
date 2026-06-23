@@ -163,10 +163,14 @@ func UpsertSSOUser(db *sql.DB, info *OIDCUserInfo, orgID int) (int, string, erro
 	// They cannot log in with password — only via SSO.
 	const ssoPasswordHash = "$2a$10$SSONOLOGINXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 
+	// ON CONFLICT uses idx_users_org_email (org_id, email) WHERE org_id IS NOT NULL.
+	// This lets the same email exist in different orgs (multi-tenant SSO) while still
+	// safely handling re-login: just update full_name and return the existing row.
 	err = db.QueryRowContext(context.Background(), `
 		INSERT INTO users (username, password_hash, role, full_name, org_id, email)
 		VALUES ($1, $2, 'user', $3, $4, $5)
-		ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
+		ON CONFLICT (org_id, email) WHERE org_id IS NOT NULL DO UPDATE SET
+			full_name = EXCLUDED.full_name
 		RETURNING id, role, username
 	`, baseUsername, ssoPasswordHash, fullName, orgID, info.Email).Scan(&userID, &role, &username)
 	if err != nil {

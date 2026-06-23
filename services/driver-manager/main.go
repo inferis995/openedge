@@ -1059,6 +1059,8 @@ func checkAndApplyUpdate(orgID int, currentVersion, apiURL, apiToken string) {
 	postUpdateStatus(httpClient, apiURL, apiToken, orgID, *checkResp.ReleaseID, "success", "")
 }
 
+const maxArtifactBytes = 500 * 1024 * 1024 // 500 MB hard cap — prevents disk exhaustion via OTA
+
 // downloadFile downloads a URL to a local path.
 func downloadFile(httpClient *http.Client, url, destPath string) error {
 	resp, err := httpClient.Get(url)
@@ -1074,7 +1076,7 @@ func downloadFile(httpClient *http.Client, url, destPath string) error {
 		return fmt.Errorf("create file: %w", err)
 	}
 	defer f.Close()
-	if _, err := io.Copy(f, resp.Body); err != nil {
+	if _, err := io.Copy(f, io.LimitReader(resp.Body, maxArtifactBytes)); err != nil {
 		return fmt.Errorf("write file: %w", err)
 	}
 	return nil

@@ -152,12 +152,18 @@ func (c *InfluxDBConnector) flush() {
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		log.Printf("[INFLUX] write error: %v", err)
+		log.Printf("[INFLUX] write error: %v — re-queuing %d points", err, len(lines))
+		c.mu.Lock()
+		c.buf = append(lines, c.buf...) // prepend lost points so they retry next flush
+		c.mu.Unlock()
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 300 {
-		log.Printf("[INFLUX] write returned HTTP %d", resp.StatusCode)
+		log.Printf("[INFLUX] write returned HTTP %d — re-queuing %d points", resp.StatusCode, len(lines))
+		c.mu.Lock()
+		c.buf = append(lines, c.buf...)
+		c.mu.Unlock()
 	}
 }
 
