@@ -127,12 +127,14 @@ func FetchUserInfo(ctx context.Context, provider string, token *oauth2.Token, cf
 // If a user with the same email exists, we return their id.
 // Otherwise a new user is created with role=user in the given org.
 func UpsertSSOUser(db *sql.DB, info *OIDCUserInfo, orgID int) (int, string, error) {
-	// Try to find existing user by email
+	// Try to find existing user by email AND org (prevents cross-org user takeover).
+	// Global admins (org_id IS NULL) can SSO-login into any org.
 	var userID int
 	var role, username string
 	err := db.QueryRowContext(context.Background(), `
-		SELECT id, role, username FROM users WHERE email = $1
-	`, info.Email).Scan(&userID, &role, &username)
+		SELECT id, role, username FROM users
+		WHERE email = $1 AND (org_id = $2 OR org_id IS NULL)
+	`, info.Email, orgID).Scan(&userID, &role, &username)
 	if err == nil {
 		return userID, role, nil
 	}

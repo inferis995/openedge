@@ -253,13 +253,15 @@ func (h *FleetHandler) GetUserPermissions(c *gin.Context) {
 	}
 	p.UserID = userID
 
-	// No row → return defaults (all false).
-	_ = h.db.QueryRowContext(c.Request.Context(), `
+	// No row → return defaults (all false). Log real DB errors for diagnosis.
+	if err := h.db.QueryRowContext(c.Request.Context(), `
 		SELECT can_write_tags, can_ack_alarms, can_export_data, can_manage_recipes,
 		       can_manage_shifts, can_view_audit, can_download_installer
 		FROM role_permissions WHERE user_id = $1
 	`, userID).Scan(&p.CanWriteTags, &p.CanAckAlarms, &p.CanExportData, &p.CanManageRecipes,
-		&p.CanManageShifts, &p.CanViewAudit, &p.CanDownloadInstaller)
+		&p.CanManageShifts, &p.CanViewAudit, &p.CanDownloadInstaller); err != nil && err != sql.ErrNoRows {
+		log.Printf("[fleet] GetUserPermissions DB error for user %d: %v", userID, err)
+	}
 
 	c.JSON(http.StatusOK, p)
 }

@@ -174,9 +174,11 @@ func (c *InfluxDBConnector) reload() {
 	cfg := map[string]string{}
 	for rows.Next() {
 		var k, v string
-		if rows.Scan(&k, &v) == nil {
-			cfg[k] = v
+		if err := rows.Scan(&k, &v); err != nil {
+			log.Printf("[influxdb] config scan error: %v", err)
+			continue
 		}
+		cfg[k] = v
 	}
 
 	batchSize := 500

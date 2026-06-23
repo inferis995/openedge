@@ -162,9 +162,12 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 	if !totpEnabled {
 		var orgMFARequired bool
 		if user.OrgID != nil {
-			_ = s.db.QueryRowContext(ctx,
+			if err := s.db.QueryRowContext(ctx,
 				`SELECT mfa_required FROM organizations WHERE id=$1`, *user.OrgID,
-			).Scan(&orgMFARequired)
+			).Scan(&orgMFARequired); err != nil && err != sql.ErrNoRows {
+				// DB error: fail closed — deny login rather than silently bypass MFA policy
+				return nil, fmt.Errorf("failed to verify org MFA policy: %w", err)
+			}
 		}
 		if orgMFARequired {
 			return &models.LoginResponse{MFASetupRequired: true}, nil
@@ -221,7 +224,11 @@ func (s *Service) CompleteMFALogin(ctx context.Context, mfaToken, code, ipAddres
 	if !ok || claims["mfa_step"] != true {
 		return nil, errors.New("not an MFA step token")
 	}
-	userID := int(claims["user_id"].(float64))
+	userIDFloat, ok := claims["user_id"].(float64)
+	if !ok || userIDFloat == 0 {
+		return nil, errors.New("invalid MFA token: missing user_id")
+	}
+	userID := int(userIDFloat)
 
 	var user models.User
 	var totpSecret string
