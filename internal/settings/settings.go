@@ -3,6 +3,7 @@ package settings
 import (
 	"database/sql"
 	"log"
+	"math"
 	"strconv"
 	"sync"
 	"time"
@@ -210,12 +211,8 @@ func valuesEqual(a, b interface{}, deadbandPercent float64) bool {
 			return false
 		}
 		if deadbandPercent > 0 && av != 0 {
-			tolerance := av * deadbandPercent / 100
-			diff := av - bv
-			if diff < 0 {
-				diff = -diff
-			}
-			return diff <= tolerance
+			tolerance := math.Abs(av) * deadbandPercent / 100
+			return math.Abs(av-bv) <= tolerance
 		}
 		return av == bv
 	case float32:
@@ -224,12 +221,8 @@ func valuesEqual(a, b interface{}, deadbandPercent float64) bool {
 			return false
 		}
 		if deadbandPercent > 0 && av != 0 {
-			tolerance := float64(av) * deadbandPercent / 100
-			diff := float64(av - bv)
-			if diff < 0 {
-				diff = -diff
-			}
-			return diff <= tolerance
+			tolerance := math.Abs(float64(av)) * deadbandPercent / 100
+			return math.Abs(float64(av-bv)) <= tolerance
 		}
 		return av == bv
 	case int:
