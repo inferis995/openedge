@@ -6,6 +6,8 @@ import NotificationsSettings from '@/components/system/NotificationsSettings';
 import BackupConfig from '@/components/system/BackupConfig';
 import KPITargets from '@/components/system/KPITargets';
 import { DBStatsResponse } from '@/api/health';
+import { useNavigationStore } from '@/stores/useNavigationStore';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,7 +22,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
     Download, AlertTriangle, CheckCircle, RefreshCw, Zap, ScrollText,
     ChevronDown, Settings2, Trash2, FileArchive,
-    HardDrive, Server, Network, Eye, EyeOff, User, Key
+    HardDrive, Server, Network, Eye, EyeOff, User, Key, Shield, Plus, Copy
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -111,13 +113,78 @@ const SystemPage = () => {
     const [historianRetentionDays, setHistorianRetentionDays] = useState<number>(365);
     const [historianRetentionSaving, setHistorianRetentionSaving] = useState(false);
 
+    // SSO providers state
+    interface SSOProvider {
+        id?: number;
+        provider: string;
+        client_id: string;
+        client_secret?: string;
+        tenant_id?: string;
+        domain_hint?: string;
+        enabled: boolean;
+        created_at?: string;
+    }
+    const { selectedOrgId } = useNavigationStore();
+    const { isGlobalAdmin } = useAuthStore();
+    const [ssoProviders, setSsoProviders] = useState<SSOProvider[]>([]);
+    const [ssoLoading, setSsoLoading] = useState(false);
+    const [ssoEdit, setSsoEdit] = useState<SSOProvider | null>(null);
+    const [ssoSaving, setSsoSaving] = useState(false);
+    const [ssoMsg, setSsoMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+    const loadSSOProviders = async () => {
+        const orgId = selectedOrgId;
+        if (!orgId) return;
+        setSsoLoading(true);
+        try {
+            const token = useAuthStore.getState().token;
+            const r = await fetch(`/api/organizations/${orgId}/sso-providers`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (r.ok) setSsoProviders(await r.json());
+        } catch { /* ignore */ }
+        finally { setSsoLoading(false); }
+    };
+
+    const saveSSOProvider = async () => {
+        if (!ssoEdit || !selectedOrgId) return;
+        setSsoSaving(true);
+        setSsoMsg(null);
+        try {
+            const token = useAuthStore.getState().token;
+            const r = await fetch(`/api/organizations/${selectedOrgId}/sso-providers`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify(ssoEdit),
+            });
+            if (!r.ok) throw new Error('save failed');
+            setSsoMsg({ type: 'success', text: 'SSO provider saved' });
+            setSsoEdit(null);
+            loadSSOProviders();
+        } catch {
+            setSsoMsg({ type: 'error', text: 'Failed to save SSO provider' });
+        } finally { setSsoSaving(false); }
+    };
+
+    const deleteSSOProvider = async (provider: string) => {
+        if (!selectedOrgId) return;
+        const token = useAuthStore.getState().token;
+        await fetch(`/api/organizations/${selectedOrgId}/sso-providers/${provider}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        loadSSOProviders();
+    };
+
     useEffect(() => {
         loadSettings();
         loadBackupList();
         loadDBStats();
+        loadSSOProviders();
         const dbStatsInterval = setInterval(loadDBStats, 60000);
         return () => clearInterval(dbStatsInterval);
-    }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedOrgId]);
 
     const loadSettings = async () => {
         try {
@@ -372,6 +439,9 @@ const SystemPage = () => {
                         <TabsTrigger value="kpi">{t('system.tab_kpi')}</TabsTrigger>
                         <TabsTrigger value="integrations">Integrations</TabsTrigger>
                         <TabsTrigger value="database">Database</TabsTrigger>
+                        {isGlobalAdmin() && (
+                            <TabsTrigger value="sso">SSO / OIDC</TabsTrigger>
+                        )}
                     </TabsList>
 
                     <TabsContent value="mqtt" className="space-y-6 mt-4">
@@ -1179,6 +1249,168 @@ const SystemPage = () => {
                                         <code className="text-foreground">./backups/</code>
                                     </div>
                                 </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+
+                    {/* SSO / OIDC Tab */}
+                    <TabsContent value="sso" className="space-y-6 mt-4">
+                        <Card className="border-border shadow-sm bg-card">
+                            <CardHeader className="pb-4 border-b border-border">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                                        <Shield className="h-4 w-4 text-primary" />
+                                    </div>
+                                    <div className="flex-1">
+                                        <CardTitle className="text-base text-foreground">SSO / OIDC Providers</CardTitle>
+                                        <CardDescription className="text-xs mt-0.5">
+                                            Configure Google and Azure AD single sign-on for organization users.
+                                        </CardDescription>
+                                    </div>
+                                    <Button size="sm" variant="outline" onClick={() => setSsoEdit({
+                                        provider: 'google',
+                                        client_id: '',
+                                        client_secret: '',
+                                        tenant_id: '',
+                                        domain_hint: '',
+                                        enabled: true,
+                                    })}>
+                                        <Plus className="h-4 w-4 mr-1" /> Add Provider
+                                    </Button>
+                                </div>
+                            </CardHeader>
+                            <CardContent className="pt-4 space-y-4">
+                                {ssoMsg && (
+                                    <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-md border ${ssoMsg.type === 'success' ? 'bg-green-500/10 border-green-500/30 text-green-600' : 'bg-destructive/10 border-destructive/30 text-destructive'}`}>
+                                        {ssoMsg.type === 'success' ? <CheckCircle className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+                                        {ssoMsg.text}
+                                    </div>
+                                )}
+
+                                {/* Callback URLs info */}
+                                <div className="rounded-md bg-muted/40 border border-border p-3 space-y-2">
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Callback URLs (configure in your provider)</p>
+                                    {(['google', 'azure'] as const).map(p => {
+                                        const url = `${window.location.origin}/api/auth/sso/${p}/callback`;
+                                        return (
+                                            <div key={p} className="flex items-center gap-2">
+                                                <span className="text-xs text-muted-foreground w-14 capitalize">{p}:</span>
+                                                <code className="text-xs flex-1 truncate text-foreground">{url}</code>
+                                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => navigator.clipboard.writeText(url)}>
+                                                    <Copy className="h-3 w-3" />
+                                                </Button>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Configured providers list */}
+                                {ssoLoading ? (
+                                    <div className="text-center py-6 text-sm text-muted-foreground">Loading…</div>
+                                ) : ssoProviders.length === 0 ? (
+                                    <div className="text-center py-6 text-sm text-muted-foreground">No SSO providers configured.</div>
+                                ) : ssoProviders.map(p => (
+                                    <div key={p.provider} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+                                        <div className="flex items-center gap-3">
+                                            <Shield className="h-4 w-4 text-primary" />
+                                            <div>
+                                                <div className="font-medium capitalize text-sm">{p.provider === 'azure' ? 'Microsoft Azure AD' : 'Google'}</div>
+                                                <div className="text-xs text-muted-foreground">Client ID: {p.client_id}</div>
+                                                {p.domain_hint && <div className="text-xs text-muted-foreground">Domain: {p.domain_hint}</div>}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${p.enabled ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'}`}>
+                                                {p.enabled ? 'Enabled' : 'Disabled'}
+                                            </span>
+                                            <Button size="sm" variant="outline" onClick={() => setSsoEdit({ ...p, client_secret: '' })}>Edit</Button>
+                                            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => deleteSSOProvider(p.provider)}>
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {/* Edit form */}
+                                {ssoEdit && (
+                                    <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
+                                        <p className="text-sm font-semibold">
+                                            {ssoEdit.id ? 'Edit' : 'Add'} SSO Provider
+                                        </p>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="space-y-1">
+                                                <Label className="text-xs">Provider</Label>
+                                                <select
+                                                    className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                                                    value={ssoEdit.provider}
+                                                    onChange={e => setSsoEdit(s => s ? { ...s, provider: e.target.value } : s)}
+                                                    disabled={!!ssoEdit.id}
+                                                >
+                                                    <option value="google">Google</option>
+                                                    <option value="azure">Microsoft Azure AD</option>
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-xs">Enabled</Label>
+                                                <div className="flex items-center h-8">
+                                                    <Switch
+                                                        checked={ssoEdit.enabled}
+                                                        onCheckedChange={v => setSsoEdit(s => s ? { ...s, enabled: v } : s)}
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-xs">Client ID <span className="text-destructive">*</span></Label>
+                                                <Input
+                                                    value={ssoEdit.client_id}
+                                                    onChange={e => setSsoEdit(s => s ? { ...s, client_id: e.target.value } : s)}
+                                                    placeholder="OAuth2 client ID"
+                                                    className="h-8 text-sm"
+                                                />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-xs">Client Secret <span className="text-destructive">*</span></Label>
+                                                <Input
+                                                    type="password"
+                                                    value={ssoEdit.client_secret ?? ''}
+                                                    onChange={e => setSsoEdit(s => s ? { ...s, client_secret: e.target.value } : s)}
+                                                    placeholder={ssoEdit.id ? '(unchanged)' : 'OAuth2 client secret'}
+                                                    className="h-8 text-sm"
+                                                />
+                                            </div>
+                                            {ssoEdit.provider === 'azure' && (
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs">Tenant ID</Label>
+                                                    <Input
+                                                        value={ssoEdit.tenant_id ?? ''}
+                                                        onChange={e => setSsoEdit(s => s ? { ...s, tenant_id: e.target.value } : s)}
+                                                        placeholder="common (or specific tenant UUID)"
+                                                        className="h-8 text-sm"
+                                                    />
+                                                </div>
+                                            )}
+                                            <div className="space-y-1">
+                                                <Label className="text-xs">Email Domain Hint</Label>
+                                                <Input
+                                                    value={ssoEdit.domain_hint ?? ''}
+                                                    onChange={e => setSsoEdit(s => s ? { ...s, domain_hint: e.target.value } : s)}
+                                                    placeholder="company.com (auto-assign org)"
+                                                    className="h-8 text-sm"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="flex gap-2 justify-end pt-1">
+                                            <Button variant="outline" size="sm" onClick={() => setSsoEdit(null)}>Cancel</Button>
+                                            <Button
+                                                size="sm"
+                                                onClick={saveSSOProvider}
+                                                disabled={ssoSaving || !ssoEdit.client_id}
+                                            >
+                                                {ssoSaving ? 'Saving…' : 'Save Provider'}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
