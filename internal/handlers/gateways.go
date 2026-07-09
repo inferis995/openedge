@@ -197,10 +197,16 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Set default scan_rate_ms if not provided
+	// Set default scan_rate_ms if not provided.
+	// Floor at 100ms: drivers feed this straight into time.NewTicker, which
+	// panics on non-positive intervals — a persisted 0 causes a crash loop.
 	scanRateMs := req.ScanRateMs
 	if scanRateMs == 0 {
 		scanRateMs = 1000
+	}
+	if scanRateMs < 100 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scan_rate_ms must be >= 100"})
+		return
 	}
 
 	// Set default zero_based to false (Standard Modbus is 1-based addressing)
@@ -659,6 +665,12 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 		argPos++
 	}
 	if req.ScanRateMs != nil {
+		// Same floor as Create: a persisted non-positive value makes every
+		// driver's time.NewTicker panic in a crash loop.
+		if *req.ScanRateMs < 100 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "scan_rate_ms must be >= 100"})
+			return
+		}
 		updates = append(updates, "scan_rate_ms = $"+strconv.Itoa(argPos))
 		args = append(args, *req.ScanRateMs)
 		argPos++

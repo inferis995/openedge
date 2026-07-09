@@ -11,6 +11,11 @@ import (
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 )
 
+// opTimeout bounds every broker round-trip (connect, subscribe, publish).
+// Without it a stalled broker (TCP alive but no ACKs) blocks the caller's
+// poll loop forever; drivers must degrade to an error instead of hanging.
+const opTimeout = 10 * time.Second
+
 // Config holds the MQTT client configuration
 type Config struct {
 	Host          string
@@ -178,7 +183,10 @@ func (c *Client) topicMatch(subscribedTopic, receivedTopic string) bool {
 // Connect establishes a connection to the MQTT broker
 func (c *Client) Connect() error {
 	token := c.client.Connect()
-	if token.Wait() && token.Error() != nil {
+	if !token.WaitTimeout(opTimeout) {
+		return fmt.Errorf("connect timeout after %s", opTimeout)
+	}
+	if token.Error() != nil {
 		return token.Error()
 	}
 	log.Printf("[MQTT] Connected to broker at %s:%d as %s", c.config.Host, c.config.Port, c.config.ClientID)
@@ -207,10 +215,13 @@ func (c *Client) Subscribe(topic string, handler MessageHandler) error {
 
 	// Create a wrapper that calls our default handler
 	// This ensures the default handler is properly registered with paho
-	token := c.client.Subscribe(topic, 0, func(client mqtt.Client, msg mqtt.Message) {
+	token := c.client.Subscribe(topic, 1, func(client mqtt.Client, msg mqtt.Message) {
 		c.handleIncomingMessage(client, msg)
 	})
-	if token.Wait() && token.Error() != nil {
+	if !token.WaitTimeout(opTimeout) {
+		return fmt.Errorf("subscribe timeout on topic %s", topic)
+	}
+	if token.Error() != nil {
 		return token.Error()
 	}
 
@@ -229,7 +240,10 @@ func (c *Client) Unsubscribe(topic string) error {
 	c.handlersMu.Unlock()
 
 	token := c.client.Unsubscribe(topic)
-	if token.Wait() && token.Error() != nil {
+	if !token.WaitTimeout(opTimeout) {
+		return fmt.Errorf("unsubscribe timeout on topic %s", topic)
+	}
+	if token.Error() != nil {
 		return token.Error()
 	}
 
@@ -244,7 +258,10 @@ func (c *Client) Unsubscribe(topic string) error {
 // Publish publishes a message to a topic
 func (c *Client) Publish(topic string, payload interface{}) error {
 	token := c.client.Publish(topic, 0, false, payload)
-	if token.Wait() && token.Error() != nil {
+	if !token.WaitTimeout(opTimeout) {
+		return fmt.Errorf("publish timeout on topic %s", topic)
+	}
+	if token.Error() != nil {
 		return token.Error()
 	}
 
@@ -255,7 +272,10 @@ func (c *Client) Publish(topic string, payload interface{}) error {
 // PublishWithQoS publishes a message to a topic with specified QoS and retain flag
 func (c *Client) PublishWithQoS(topic string, payload interface{}, qos byte, retained bool) error {
 	token := c.client.Publish(topic, qos, retained, payload)
-	if token.Wait() && token.Error() != nil {
+	if !token.WaitTimeout(opTimeout) {
+		return fmt.Errorf("publish timeout on topic %s", topic)
+	}
+	if token.Error() != nil {
 		return token.Error()
 	}
 
@@ -273,10 +293,12 @@ func (c *Client) onConnect(client mqtt.Client) {
 
 	for topic := range c.subscribedTopics {
 		// Use explicit handler instead of nil
-		token := client.Subscribe(topic, 0, func(cl mqtt.Client, msg mqtt.Message) {
+		token := client.Subscribe(topic, 1, func(cl mqtt.Client, msg mqtt.Message) {
 			c.handleIncomingMessage(cl, msg)
 		})
-		if token.Wait() && token.Error() != nil {
+		if !token.WaitTimeout(opTimeout) {
+			log.Printf("[MQTT] Re-subscribe timeout on %s", topic)
+		} else if token.Error() != nil {
 			log.Printf("[MQTT] Failed to re-subscribe to %s: %v", topic, token.Error())
 		} else {
 			log.Printf("[MQTT] Re-subscribed to topic: %s", topic)
