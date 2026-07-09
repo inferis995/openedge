@@ -26,6 +26,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
+	iemqtt "github.com/ralph/industrial-edge-middleware/internal/mqtt"
 )
 
 const (
@@ -40,6 +41,12 @@ const (
 	maxStartRetries   = 5
 	retryBaseDelay    = 1 * time.Second
 	retryMaxDelay     = 30 * time.Second
+
+	// Failure cooldown: after maxStartRetries consecutive pull/start failures a
+	// gateway is skipped for failureCooldownInitial, doubling on continued
+	// failures up to failureCooldownMax, so one bad gateway cannot starve the fleet.
+	failureCooldownInitial = 5 * time.Minute
+	failureCooldownMax     = 1 * time.Hour
 
 	// Docker
 	dockerNetworkName = "industrial-network"
@@ -74,6 +81,8 @@ type GatewayState struct {
 	ConsecutiveErrors  int
 	LastError          string
 	LastErrorTime      time.Time
+	CooldownUntil      time.Time     // skip start attempts until this instant
+	CooldownBackoff    time.Duration // current cooldown length (doubles up to failureCooldownMax)
 }
 
 // GatewayStatus represents the status published to MQTT
@@ -104,6 +113,29 @@ type Manager struct {
 	networkID     string
 	consecutiveErrors int
 	mqttClient    MQTTClient
+
+	// Per-image pull cooldown: a registry that keeps failing must not cost
+	// every sync cycle 15 minutes of serial retries, starving the other
+	// gateways. Guarded by pullMu (pre-pull runs outside m.mu).
+	pullMu       sync.Mutex
+	pullFailures map[string]pullFailState
+}
+
+type pullFailState struct {
+	failures int
+	nextTry  time.Time
+}
+
+// failureCooldown returns an exponential cooldown: 5 min doubling up to 1 h.
+func failureCooldown(failures int) time.Duration {
+	d := 5 * time.Minute
+	for i := 1; i < failures && d < time.Hour; i++ {
+		d *= 2
+	}
+	if d > time.Hour {
+		d = time.Hour
+	}
+	return d
 }
 
 func main() {
@@ -136,10 +168,13 @@ func main() {
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Create MQTT client for status publishing
+	// Create MQTT client for status publishing.
+	// Mosquitto has allow_anonymous false — credentials are required.
 	mqttClient := newMQTTStatusClient(
 		getEnv("MQTT_HOST", "mosquitto"),
 		getEnvInt("MQTT_PORT", 1883),
+		getEnv("MQTT_USERNAME", ""),
+		getEnv("MQTT_PASSWORD", ""),
 	)
 
 	// Create manager instance
@@ -148,6 +183,7 @@ func main() {
 		dbCfg:           dbCfg,
 		dockerClient:    dockerClient,
 		gatewayStates:   make(map[int]*GatewayState),
+		pullFailures:    make(map[string]pullFailState),
 		ctx:             ctx,
 		cancel:          cancel,
 		mqttClient:      mqttClient,
@@ -204,6 +240,8 @@ func main() {
 	watchdogOpts := mqtt.NewClientOptions().
 		AddBroker(brokerURL).
 		SetClientID("driver-manager-watchdog").
+		SetUsername(getEnv("MQTT_USERNAME", "")).
+		SetPassword(getEnv("MQTT_PASSWORD", "")).
 		SetAutoReconnect(true)
 	watchdogClient := mqtt.NewClient(watchdogOpts)
 	if tok := watchdogClient.Connect(); tok.Wait() && tok.Error() == nil {
@@ -222,21 +260,30 @@ func main() {
 	manager.stopAllContainers()
 }
 
-// mqttStatusClient publishes gateway status via MQTT bridge
+// mqttStatusClient publishes gateway status over a real MQTT connection.
+// The previous implementation POSTed HTTP to the broker's raw MQTT port,
+// which no broker understands — health updates were silently lost.
 type mqttStatusClient struct {
-	mqttHost string
-	mqttPort int
-	httpClient *http.Client
+	client *iemqtt.Client
 }
 
-func newMQTTStatusClient(host string, port int) *mqttStatusClient {
-	return &mqttStatusClient{
-		mqttHost: host,
-		mqttPort: port,
-		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
-		},
+func newMQTTStatusClient(host string, port int, username, password string) *mqttStatusClient {
+	c := iemqtt.NewClient(iemqtt.Config{
+		Host:          host,
+		Port:          port,
+		ClientID:      fmt.Sprintf("driver-manager-status-%d", time.Now().Unix()),
+		Username:      username,
+		Password:      password,
+		CleanSession:  true,
+		AutoReconnect: true,
+		KeepAlive:     30 * time.Second,
+	})
+	if err := c.Connect(); err != nil {
+		// AutoReconnect keeps retrying in the background; publishes fail
+		// with an error (logged by callers) until the connection is up.
+		log.Printf("[MQTT-STATUS] Initial connect failed (will retry in background): %v", err)
 	}
+	return &mqttStatusClient{client: c}
 }
 
 func (m *mqttStatusClient) Publish(topic string, payload interface{}) error {
@@ -244,40 +291,11 @@ func (m *mqttStatusClient) Publish(topic string, payload interface{}) error {
 }
 
 func (m *mqttStatusClient) PublishWithQoS(topic string, payload interface{}, qos byte, retained bool) error {
-	// Convert payload to JSON
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-
-	// Build URL with query parameters
-	url := fmt.Sprintf("http://%s:%d/mqtt/publish", m.mqttHost, m.mqttPort)
-	req, err := http.NewRequest("POST", url, nil)
-	if err != nil {
-		return err
-	}
-
-	q := req.URL.Query()
-	q.Set("topic", topic)
-	q.Set("qos", fmt.Sprintf("%d", qos))
-	q.Set("retained", fmt.Sprintf("%t", retained))
-	q.Set("message", string(payloadBytes))
-	req.URL.RawQuery = q.Encode()
-
-	// Send request
-	resp, err := m.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("MQTT publish failed with status %d", resp.StatusCode)
-	}
-
-	log.Printf("[MQTT-STATUS] Published to topic %s: status=%s, qos=%d, retained=%t",
-		topic, payload, qos, retained)
-	return nil
+	return m.client.PublishWithQoS(topic, payloadBytes, qos, retained)
 }
 
 // ensureNetwork gets or creates the Docker network for container communication
@@ -376,14 +394,17 @@ func (m *Manager) pullImageWithRetry(imageName string) error {
 
 		decoder := json.NewDecoder(reader)
 		pullProgress := 0
+		var streamErr error
 		for {
 			var progress map[string]interface{}
 			if err := decoder.Decode(&progress); err != nil {
-				if err == io.EOF {
-					break
+				if err != io.EOF {
+					// A persistent decode error (dropped registry connection,
+					// expired pullCtx) repeats forever — retrying the Decode
+					// here busy-loops at 100% CPU and wedges syncGateways.
+					streamErr = err
 				}
-				// Log non-fatal decode errors
-				continue
+				break
 			}
 
 			// Log progress if available
@@ -407,6 +428,11 @@ func (m *Manager) pullImageWithRetry(imageName string) error {
 					}
 				}
 			}
+		}
+
+		if streamErr != nil {
+			log.Printf("[DRIVER-MANAGER] Pull stream error for %s (attempt %d/%d): %v", imageName, attempt+1, maxPullRetries, streamErr)
+			continue
 		}
 
 		log.Printf("[DRIVER-MANAGER] Successfully pulled image %s", imageName)
@@ -543,8 +569,24 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 		ExtraHosts:  []string{"host.docker.internal:host-gateway"},
 	}
 
-	// 6. Remove existing container with same name if it exists
-	_ = m.dockerClient.ContainerRemove(m.ctx, containerName, types.ContainerRemoveOptions{Force: true})
+	// 6. Adopt an already-running container instead of force-recreating it.
+	// After a driver-manager restart the state map is empty; without this
+	// check every healthy driver gets killed and recreated, causing a
+	// fleet-wide data gap on every manager restart.
+	if inspect, err := m.dockerClient.ContainerInspect(m.ctx, containerName); err == nil {
+		if inspect.State != nil && inspect.State.Running && inspect.Config != nil && inspect.Config.Image == imageName {
+			m.gatewayStates[gateway.ID] = &GatewayState{
+				Gateway:     gateway,
+				ContainerID: inspect.ID,
+				Running:     true,
+			}
+			m.publishGatewayStatus(gateway.ID, "online", "")
+			log.Printf("[DRIVER-MANAGER] ✓ Adopted running container for gateway %d (%s)", gateway.ID, containerName)
+			return nil
+		}
+		// Exists but stopped/wrong image: remove and recreate below.
+		_ = m.dockerClient.ContainerRemove(m.ctx, containerName, types.ContainerRemoveOptions{Force: true})
+	}
 
 	// 7. Create container
 	createCtx, createCancel := context.WithTimeout(m.ctx, 30*time.Second)
@@ -630,8 +672,23 @@ func (m *Manager) syncGateways() error {
 	for _, gw := range gateways {
 		if gw.Enabled {
 			if img := m.imageNameForDriver(gw.DriverType); img != "" {
+				m.pullMu.Lock()
+				fail, cooling := m.pullFailures[img]
+				m.pullMu.Unlock()
+				if cooling && time.Now().Before(fail.nextTry) {
+					continue // image in cooldown after repeated pull failures
+				}
 				if err := m.pullImageWithRetry(img); err != nil {
 					log.Printf("[DRIVER-MANAGER] Pre-pull failed for gateway %d (%s): %v", gw.ID, gw.DriverType, err)
+					m.pullMu.Lock()
+					fail.failures++
+					fail.nextTry = time.Now().Add(failureCooldown(fail.failures))
+					m.pullFailures[img] = fail
+					m.pullMu.Unlock()
+				} else {
+					m.pullMu.Lock()
+					delete(m.pullFailures, img)
+					m.pullMu.Unlock()
 				}
 			}
 		}
@@ -662,24 +719,33 @@ func (m *Manager) syncGateways() error {
 		if gateway.Enabled {
 			// Gateway should be running
 			if !exists || !state.Running {
+				// After maxStartRetries consecutive failures, back off with an
+				// exponential cooldown instead of retrying every poll cycle.
+				if state != nil && state.ConsecutiveErrors >= maxStartRetries &&
+					time.Since(state.LastErrorTime) < failureCooldown(state.ConsecutiveErrors-maxStartRetries+1) {
+					continue
+				}
+
 				// Start container (image already cached by pre-pull above)
 				if err := m.startGatewayContainer(gateway); err != nil {
 					log.Printf("[DRIVER-MANAGER] ERROR: Failed to start container for gateway %d (%s): %v",
 						gateway.ID, gateway.Name, err)
 
-					// Update error state
-					if state != nil {
-						state.ConsecutiveErrors++
-						state.LastError = err.Error()
-						state.LastErrorTime = time.Now()
+					// Track error state (creating the entry if this gateway
+					// never started, so the cooldown above can apply)
+					if state == nil {
+						state = &GatewayState{Gateway: gateway}
+						m.gatewayStates[gateway.ID] = state
+					}
+					state.ConsecutiveErrors++
+					state.LastError = err.Error()
+					state.LastErrorTime = time.Now()
 
-						// Mark as permanently failed after max retries
-						if state.ConsecutiveErrors >= maxStartRetries {
-							log.Printf("[DRIVER-MANAGER] Gateway %d exceeded max retries (%d), marking as failed",
-								gateway.ID, maxStartRetries)
-							m.publishGatewayStatus(gateway.ID, "error",
-								fmt.Sprintf("Exceeded max retries. Last error: %s", err.Error()))
-						}
+					if state.ConsecutiveErrors >= maxStartRetries {
+						log.Printf("[DRIVER-MANAGER] Gateway %d exceeded max retries (%d), entering cooldown",
+							gateway.ID, maxStartRetries)
+						m.publishGatewayStatus(gateway.ID, "error",
+							fmt.Sprintf("Exceeded max retries. Last error: %s", err.Error()))
 					}
 					continue
 				}
@@ -698,14 +764,22 @@ func (m *Manager) syncGateways() error {
 		}
 	}
 
-	// Handle deleted gateways (not in current query results)
+	// Handle deleted gateways (not in current query results).
+	// The state entry must be removed once the container is stopped —
+	// stale entries get resurrected by the OTA restart/update handlers,
+	// which iterate gatewayStates and restart whatever they find.
 	for id, state := range m.gatewayStates {
-		if !processedIDs[id] && state.Running {
+		if processedIDs[id] {
+			continue
+		}
+		if state.Running {
 			log.Printf("[DRIVER-MANAGER] Gateway %d no longer exists in database, stopping container", id)
 			if err := m.stopGatewayContainer(id); err != nil {
 				log.Printf("[DRIVER-MANAGER] ERROR: Failed to stop container for deleted gateway %d: %v", id, err)
+				continue // keep the entry so the stop is retried next cycle
 			}
 		}
+		delete(m.gatewayStates, id)
 	}
 
 	return nil
@@ -731,9 +805,20 @@ func (m *Manager) stopGatewayContainer(gatewayID int) error {
 		return nil // Already stopped
 	}
 
-	// Stop container (with timeout)
-	timeout := int(containerStopTimeout)
-	if err := m.dockerClient.ContainerStop(m.ctx, state.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
+	// Stop container. StopOptions.Timeout is in SECONDS (int(duration) would
+	// be a nanosecond count ≈ 317 years of SIGKILL grace); the context bound
+	// keeps a hung dockerd from blocking the manager under m.mu forever.
+	timeout := int(containerStopTimeout.Seconds())
+	stopCtx, stopCancel := context.WithTimeout(m.ctx, 30*time.Second)
+	defer stopCancel()
+	if err := m.dockerClient.ContainerStop(stopCtx, state.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
+		if client.IsErrNotFound(err) {
+			// Container already gone (removed out-of-band): treat as stopped
+			// so the state machine doesn't retry forever.
+			log.Printf("[DRIVER-MANAGER] Container for gateway %d already gone, marking stopped", gatewayID)
+			state.Running = false
+			return nil
+		}
 		return fmt.Errorf("failed to stop container: %w", err)
 	}
 
@@ -759,10 +844,12 @@ func (m *Manager) stopAllContainers() {
 	for gatewayID, state := range m.gatewayStates {
 		if state.Running {
 			log.Printf("[DRIVER-MANAGER] Stopping container for gateway %d...", gatewayID)
-			timeout := int(containerStopTimeout)
-			if err := m.dockerClient.ContainerStop(m.ctx, state.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
+			timeout := int(containerStopTimeout.Seconds())
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := m.dockerClient.ContainerStop(stopCtx, state.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
 				log.Printf("[DRIVER-MANAGER] ERROR: Failed to stop container %s: %v", state.ContainerID, err)
 			}
+			stopCancel()
 		}
 	}
 
@@ -825,6 +912,8 @@ func (m *Manager) startOTASubscriber(mqttHost string, mqttPort int) {
 	opts := mqtt.NewClientOptions().
 		AddBroker(broker).
 		SetClientID("driver-manager-ota").
+		SetUsername(getEnv("MQTT_USERNAME", "")).
+		SetPassword(getEnv("MQTT_PASSWORD", "")).
 		SetAutoReconnect(true).
 		SetConnectRetry(true).
 		SetConnectRetryInterval(5 * time.Second).
@@ -861,6 +950,16 @@ func (m *Manager) handleOTAUpdate(_ mqtt.Client, msg mqtt.Message) {
 	}
 	log.Printf("[OTA] Received OTA update command: image=%s version=%s", payload.Image, payload.Version)
 
+	// The MQTT OTA path has no checksum/signature (unlike the HTTP update
+	// poller, which verifies SHA256 — prefer that mechanism). Any client
+	// with broker credentials can publish here, so restrict pulls to the
+	// deployment's own registry namespace.
+	allowedPrefix := getEnv("OTA_IMAGE_PREFIX", "ghcr.io/inferis995/")
+	if !strings.HasPrefix(payload.Image, allowedPrefix) {
+		log.Printf("[OTA] REJECTED update: image %q outside allowed prefix %q (set OTA_IMAGE_PREFIX to change)", payload.Image, allowedPrefix)
+		return
+	}
+
 	// Pull the new image
 	pullCtx, cancel := context.WithTimeout(m.ctx, imagePullTimeout)
 	defer cancel()
@@ -874,11 +973,14 @@ func (m *Manager) handleOTAUpdate(_ mqtt.Client, msg mqtt.Message) {
 	reader.Close()
 	log.Printf("[OTA] Pulled image %s", payload.Image)
 
-	// Restart all managed containers with the new image
+	// Restart only gateways that are actually running and still enabled —
+	// stale/disabled entries must not be resurrected by an OTA command.
 	m.mu.Lock()
 	gateways := make([]models.Gateway, 0, len(m.gatewayStates))
 	for _, state := range m.gatewayStates {
-		gateways = append(gateways, state.Gateway)
+		if state.Running && state.Gateway.Enabled {
+			gateways = append(gateways, state.Gateway)
+		}
 	}
 	m.mu.Unlock()
 
@@ -903,7 +1005,9 @@ func (m *Manager) handleOTARestart(_ mqtt.Client, msg mqtt.Message) {
 	m.mu.Lock()
 	gateways := make([]models.Gateway, 0, len(m.gatewayStates))
 	for _, state := range m.gatewayStates {
-		gateways = append(gateways, state.Gateway)
+		if state.Running && state.Gateway.Enabled {
+			gateways = append(gateways, state.Gateway)
+		}
 	}
 	m.mu.Unlock()
 
@@ -1041,17 +1145,20 @@ func checkAndApplyUpdate(orgID int, currentVersion, apiURL, apiToken string) {
 	// 5. Apply update — execute /edge-update.sh if it exists, otherwise docker pull + restart.
 	applyErr := applyUpdate(artifactPath, checkResp.Version)
 	if applyErr != nil {
-		log.Printf("[UPDATE-POLL] Apply failed: %v — attempting rollback", applyErr)
-		postUpdateStatus(httpClient, apiURL, apiToken, orgID, *checkResp.ReleaseID, "rolled_back",
+		// No automatic rollback exists yet: report the honest status so
+		// operators know the edge is still on the previous (or a broken)
+		// version, instead of a fictitious "rolled_back".
+		log.Printf("[UPDATE-POLL] Apply failed: %v", applyErr)
+		postUpdateStatus(httpClient, apiURL, apiToken, orgID, *checkResp.ReleaseID, "apply_failed",
 			"apply failed: "+applyErr.Error())
 		return
 	}
 
 	// 6. Health check.
 	if err := healthCheck(apiURL); err != nil {
-		log.Printf("[UPDATE-POLL] Post-update health check failed: %v — rolling back", err)
-		postUpdateStatus(httpClient, apiURL, apiToken, orgID, *checkResp.ReleaseID, "rolled_back",
-			"health check failed: "+err.Error())
+		log.Printf("[UPDATE-POLL] Post-update health check failed: %v", err)
+		postUpdateStatus(httpClient, apiURL, apiToken, orgID, *checkResp.ReleaseID, "apply_failed",
+			"health check failed after apply: "+err.Error())
 		return
 	}
 

@@ -2,6 +2,7 @@ package s7
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -359,7 +360,7 @@ func (c *Client) ReadTag(address string, dataType DataType) TagValue {
 	defer c.conn.SetDeadline(time.Time{})
 
 	// Read from PLC
-	buffer, err := c.readArea(area, dbNumber, start, size, dataType)
+	buffer, err := c.readArea(area, dbNumber, start, bitOffset, size, dataType)
 	if err != nil {
 		c.handleConnectionError(err)
 		return TagValue{Value: nil, Quality: 1, Error: fmt.Errorf("read error: %w", err)}
@@ -375,7 +376,7 @@ func (c *Client) ReadTag(address string, dataType DataType) TagValue {
 }
 
 // readArea reads data from a specific memory area
-func (c *Client) readArea(area int, dbNumber int, start int, size int, dataType DataType) ([]byte, error) {
+func (c *Client) readArea(area int, dbNumber int, start int, bitOffset int, size int, dataType DataType) ([]byte, error) {
 	c.sequenceNum++
 
 	// Determine transport size for request
@@ -395,8 +396,9 @@ func (c *Client) readArea(area int, dbNumber int, start int, size int, dataType 
 	// For non-bit access, multiply byte offset by 8
 	bitAddress := start * 8
 	if dataType == DataTypeBOOL {
-		// For BOOL, start is already byte offset, need to parse bit offset separately
-		// This is handled in the caller
+		// For BOOL, address the exact bit within the byte (transport size BIT),
+		// mirroring writeArea
+		bitAddress += bitOffset
 	}
 
 	// Build S7 Read Request
@@ -449,21 +451,21 @@ func (c *Client) readArea(area int, dbNumber int, start int, size int, dataType 
 		return nil, fmt.Errorf("failed to send read request: %w", err)
 	}
 
-	// Read response
-	response := make([]byte, 512)
-	n, err := c.conn.Read(response)
+	// Read response (complete TPKT frame)
+	response, err := c.readTPKTFrame()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
+	n := len(response)
 
 	if n < 21 {
-		return nil, fmt.Errorf("response too short: %d bytes", n)
+		return nil, fmt.Errorf("%w: response too short: %d bytes", errProtocol, n)
 	}
 
 	// Check S7 response
 	pduType := response[8]
 	if pduType != s7PDUAckData {
-		return nil, fmt.Errorf("unexpected PDU type: 0x%02X", pduType)
+		return nil, fmt.Errorf("%w: unexpected PDU type: 0x%02X", errProtocol, pduType)
 	}
 
 	// Check error class/code
@@ -479,7 +481,7 @@ func (c *Client) readArea(area int, dbNumber int, start int, size int, dataType 
 	dataStart := 19 + int(paramLen)
 
 	if dataStart+4 > n {
-		return nil, fmt.Errorf("data response too short")
+		return nil, fmt.Errorf("%w: data response too short", errProtocol)
 	}
 
 	// Check return code in data
@@ -498,10 +500,39 @@ func (c *Client) readArea(area int, dbNumber int, start int, size int, dataType 
 	// Extract data
 	dataOffset := dataStart + 4
 	if dataOffset+int(dataLen) > n {
-		return nil, fmt.Errorf("insufficient data in response")
+		return nil, fmt.Errorf("%w: insufficient data in response", errProtocol)
 	}
 
 	return response[dataOffset : dataOffset+int(dataLen)], nil
+}
+
+// errProtocol marks a malformed or unparseable response. After such an error
+// the TCP stream can no longer be trusted (framing may be desynced), so the
+// connection must be dropped and re-established.
+var errProtocol = errors.New("s7 protocol error")
+
+// readTPKTFrame reads one complete TPKT-framed response from the connection:
+// a 4-byte TPKT header (version, reserved, 16-bit big-endian total length)
+// followed by the remainder of the frame. Using io.ReadFull avoids parse
+// errors when a response arrives split across multiple TCP segments.
+func (c *Client) readTPKTFrame() ([]byte, error) {
+	header := make([]byte, 4)
+	if _, err := io.ReadFull(c.conn, header); err != nil {
+		return nil, fmt.Errorf("failed to read TPKT header: %w", err)
+	}
+	if header[0] != tpktVersion {
+		return nil, fmt.Errorf("%w: invalid TPKT version: 0x%02X", errProtocol, header[0])
+	}
+	length := int(binary.BigEndian.Uint16(header[2:]))
+	if length < 7 || length > 8192 {
+		return nil, fmt.Errorf("%w: invalid TPKT length: %d", errProtocol, length)
+	}
+	frame := make([]byte, length)
+	copy(frame, header)
+	if _, err := io.ReadFull(c.conn, frame[4:]); err != nil {
+		return nil, fmt.Errorf("failed to read TPKT payload: %w", err)
+	}
+	return frame, nil
 }
 
 // ReadMultipleTags reads multiple tags (one at a time for simplicity)
@@ -521,9 +552,12 @@ func (c *Client) ReadMultipleTags(addresses []string, dataTypes []DataType) []Ta
 	return results
 }
 
-// handleConnectionError handles connection errors and marks client as disconnected
+// handleConnectionError handles connection errors and marks client as disconnected.
+// Malformed/unparseable responses (errProtocol) are treated as connection-level
+// failures too: the stream can't be trusted after one, so it must be dropped.
 func (c *Client) handleConnectionError(err error) {
-	if err == io.EOF || isConnectionError(err) {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) ||
+		errors.Is(err, errProtocol) || isConnectionError(err) {
 		log.Printf("S7 connection error: %v, marking as disconnected", err)
 		c.connected = false
 		if c.conn != nil {
@@ -537,10 +571,8 @@ func isConnectionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if _, ok := err.(*net.OpError); ok {
-		return true
-	}
-	return false
+	var opErr *net.OpError
+	return errors.As(err, &opErr)
 }
 
 // parseAddress parses an S7 address string and returns area, db number, start offset, bit offset, and size
@@ -694,8 +726,9 @@ func convertBufferToValue(buffer []byte, dataType DataType, bitOffset int) (inte
 		if len(buffer) < 1 {
 			return nil, fmt.Errorf("buffer too small for BOOL")
 		}
-		// Extract bit at specified offset
-		return (buffer[0] & (1 << bitOffset)) != 0, nil
+		// The read request addresses the exact bit (transport size BIT), so
+		// the PLC returns the single requested bit in the LSB of the reply.
+		return (buffer[0] & 0x01) != 0, nil
 
 	case DataTypeINT:
 		if len(buffer) < 2 {
@@ -846,8 +879,12 @@ func (c *Client) writeArea(area int, dbNumber int, start int, bitOffset int, dat
 		request[dataOffset+1] = 0x04
 	}
 
-	// Length in bits for data section
+	// Length for data section: bit count for BIT transport (must match the
+	// 1-bit item header), otherwise payload length in bits
 	bitsLen := len(data) * 8
+	if dataType == DataTypeBOOL {
+		bitsLen = 1
+	}
 	binary.BigEndian.PutUint16(request[dataOffset+2:], uint16(bitsLen))
 
 	// Payload
@@ -858,20 +895,20 @@ func (c *Client) writeArea(area int, dbNumber int, start int, bitOffset int, dat
 		return fmt.Errorf("failed to send write request: %w", err)
 	}
 
-	// Read response
-	response := make([]byte, 512)
-	n, err := c.conn.Read(response)
+	// Read response (complete TPKT frame)
+	response, err := c.readTPKTFrame()
 	if err != nil {
 		return fmt.Errorf("failed to read response: %w", err)
 	}
+	n := len(response)
 
-	if n < 10 { // Minimal response check
-		return fmt.Errorf("response too short")
+	if n < 19 { // Minimal response check
+		return fmt.Errorf("%w: response too short", errProtocol)
 	}
 
 	// Check S7 response
 	if response[8] != s7PDUAckData {
-		return fmt.Errorf("unexpected PDU type: 0x%02X", response[8])
+		return fmt.Errorf("%w: unexpected PDU type: 0x%02X", errProtocol, response[8])
 	}
 
 	// Check error class
@@ -885,7 +922,7 @@ func (c *Client) writeArea(area int, dbNumber int, start int, bitOffset int, dat
 	// Data starts after S7 header (19 bytes) + params
 	itemReturnCodeOffset := 19 + int(paramLen)
 	if itemReturnCodeOffset >= n {
-		return fmt.Errorf("invalid response format")
+		return fmt.Errorf("%w: invalid response format", errProtocol)
 	}
 
 	if response[itemReturnCodeOffset] != 0xFF {

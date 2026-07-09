@@ -64,6 +64,7 @@ type Driver struct {
 	database          *sql.DB
 	mqttClient        *mqtt.Client
 	modbusClient      *modbus.Client
+	modbusMu          sync.RWMutex // protects modbusClient pointer
 	config            *GatewayConfig
 	configMu          sync.RWMutex
 	stopChan          chan struct{}
@@ -71,7 +72,11 @@ type Driver struct {
 	previousValues    map[int]interface{}
 	previousQualities map[int]int
 	prevValuesMu      sync.RWMutex
-	isConnected       *bool // pointer to detect uninitialized state
+	isConnected       *bool // pointer to detect uninitialized state (protected by configMu)
+
+	// Log-once tracking for parse errors (unsupported types, out of bounds)
+	parseErrLogged   map[int]bool
+	parseErrLoggedMu sync.Mutex
 
 	// Write Cooldown
 	writeCooldowns map[int]time.Time
@@ -188,6 +193,7 @@ func main() {
 		reloadChan:        make(chan struct{}, 1),
 		previousValues:    make(map[int]interface{}),
 		previousQualities: make(map[int]int),
+		parseErrLogged:    make(map[int]bool),
 		writeCooldowns:    make(map[int]time.Time),
 		settingsManager:   settings.NewManager(database),
 		alarmManager:      alarms.NewManager(database, mqttClient, gatewayID),
@@ -262,9 +268,17 @@ func main() {
 
 	log.Println("[DRIVER] Shutting down...")
 	close(driver.stopChan)
-	if driver.modbusClient != nil {
-		driver.modbusClient.Disconnect()
+	if client := driver.getModbusClient(); client != nil {
+		client.Disconnect()
 	}
+}
+
+// getModbusClient returns the current Modbus client under lock.
+// Callers must handle a nil return (not connected yet / config changed).
+func (d *Driver) getModbusClient() *modbus.Client {
+	d.modbusMu.RLock()
+	defer d.modbusMu.RUnlock()
+	return d.modbusClient
 }
 
 func (d *Driver) handleReloadCommand(topic string, payload []byte) {
@@ -304,7 +318,10 @@ func (d *Driver) handleHealthMessage(topic string, payload []byte) {
 	status := strings.ToLower(strings.TrimSpace(string(payload)))
 	if status == "online" {
 		// Skip if this is our own health message (we just published it)
-		if d.isConnected != nil && *d.isConnected {
+		d.configMu.RLock()
+		connected := d.isConnected != nil && *d.isConnected
+		d.configMu.RUnlock()
+		if connected {
 			log.Printf("[DRIVER] Skipping own health message for gateway %d (status: %s)", d.gatewayID, status)
 			return
 		}
@@ -364,7 +381,8 @@ func (d *Driver) executeWrite(cmd WriteCommand) {
 		return
 	}
 
-	if d.modbusClient == nil || !d.modbusClient.IsConnected() {
+	client := d.getModbusClient()
+	if client == nil || !client.IsConnected() {
 		log.Printf("[DRIVER] Cannot write: Modbus client not connected")
 		d.publishWriteResult(cmd.TagID, false, "Modbus not connected", nil)
 		return
@@ -375,12 +393,12 @@ func (d *Driver) executeWrite(cmd WriteCommand) {
 
 	switch cmd.DataType {
 	case "BOOL":
-		writeErr = d.writeBool(addr, cmd.Value)
+		writeErr = d.writeBool(client, addr, cmd.Value)
 	case "INT":
 		if v, ok := toFloat(cmd.Value); ok {
 			val := uint16(int16(v))
 			if addr.Type == "holding" {
-				writeErr = d.modbusClient.WriteSingleRegister(addr.Offset, val)
+				writeErr = client.WriteSingleRegister(addr.Offset, val)
 			} else {
 				writeErr = fmt.Errorf("cannot write INT to %s (read-only)", addr.Type)
 			}
@@ -391,7 +409,7 @@ func (d *Driver) executeWrite(cmd WriteCommand) {
 		if v, ok := toFloat(cmd.Value); ok {
 			val := uint16(v)
 			if addr.Type == "holding" {
-				writeErr = d.modbusClient.WriteSingleRegister(addr.Offset, val)
+				writeErr = client.WriteSingleRegister(addr.Offset, val)
 			} else {
 				writeErr = fmt.Errorf("cannot write UINT to %s (read-only)", addr.Type)
 			}
@@ -404,7 +422,7 @@ func (d *Driver) executeWrite(cmd WriteCommand) {
 			if addr.Type == "holding" {
 				b := make([]byte, 4)
 				binary.BigEndian.PutUint32(b, val32)
-				writeErr = d.modbusClient.WriteMultipleRegisters(addr.Offset, 2, b)
+				writeErr = client.WriteMultipleRegisters(addr.Offset, 2, b)
 			} else {
 				writeErr = fmt.Errorf("cannot write DINT to %s (read-only)", addr.Type)
 			}
@@ -417,7 +435,7 @@ func (d *Driver) executeWrite(cmd WriteCommand) {
 			if addr.Type == "holding" {
 				b := make([]byte, 4)
 				binary.BigEndian.PutUint32(b, val32)
-				writeErr = d.modbusClient.WriteMultipleRegisters(addr.Offset, 2, b)
+				writeErr = client.WriteMultipleRegisters(addr.Offset, 2, b)
 			} else {
 				writeErr = fmt.Errorf("cannot write REAL to %s (read-only)", addr.Type)
 			}
@@ -501,7 +519,7 @@ func toFloat(value interface{}) (float64, bool) {
 	}
 }
 
-func (d *Driver) writeBool(addr modbus.Address, value interface{}) error {
+func (d *Driver) writeBool(client *modbus.Client, addr modbus.Address, value interface{}) error {
 	boolVal := toBool(value)
 
 	if addr.Type == "coil" {
@@ -510,7 +528,7 @@ func (d *Driver) writeBool(addr modbus.Address, value interface{}) error {
 		if boolVal {
 			coilVal = 0xFF00
 		}
-		return d.modbusClient.WriteSingleCoil(addr.Offset, coilVal)
+		return client.WriteSingleCoil(addr.Offset, coilVal)
 	}
 
 	if addr.Type == "holding" {
@@ -518,7 +536,7 @@ func (d *Driver) writeBool(addr modbus.Address, value interface{}) error {
 			return fmt.Errorf("BOOL write to holding register requires bit offset (e.g., 40001.0)")
 		}
 		// Read-Modify-Write: read current register, modify the specific bit, write back
-		currentVal, err := d.modbusClient.ReadHoldingRegister(addr.Offset)
+		currentVal, err := client.ReadHoldingRegister(addr.Offset)
 		if err != nil {
 			return fmt.Errorf("read-modify-write: failed to read register %d: %w", addr.Offset, err)
 		}
@@ -534,7 +552,7 @@ func (d *Driver) writeBool(addr modbus.Address, value interface{}) error {
 		log.Printf("[DRIVER] BOOL write to HR%d.%d: register %d -> %d (bit %d = %v)",
 			addr.Offset, *addr.BitOffset, currentVal, newVal, *addr.BitOffset, boolVal)
 
-		return d.modbusClient.WriteSingleRegister(addr.Offset, newVal)
+		return client.WriteSingleRegister(addr.Offset, newVal)
 	}
 
 	return fmt.Errorf("cannot write BOOL to %s (read-only)", addr.Type)
@@ -542,13 +560,18 @@ func (d *Driver) writeBool(addr modbus.Address, value interface{}) error {
 
 // readBackValue reads a value back from the PLC after a write for verification
 func (d *Driver) readBackValue(addr modbus.Address, dataType string) (interface{}, error) {
+	client := d.getModbusClient()
+	if client == nil {
+		return nil, fmt.Errorf("Modbus not connected")
+	}
+
 	// Small delay to allow PLC to process the write
 	time.Sleep(50 * time.Millisecond)
 
 	switch dataType {
 	case "BOOL":
 		if addr.Type == "coil" {
-			data, err := d.modbusClient.ReadCoils(addr.Offset, 1)
+			data, err := client.ReadCoils(addr.Offset, 1)
 			if err != nil {
 				return nil, err
 			}
@@ -558,7 +581,7 @@ func (d *Driver) readBackValue(addr modbus.Address, dataType string) (interface{
 			return (data[0] & 0x01) == 1, nil
 		}
 		if addr.Type == "holding" && addr.BitOffset != nil {
-			val, err := d.modbusClient.ReadHoldingRegister(addr.Offset)
+			val, err := client.ReadHoldingRegister(addr.Offset)
 			if err != nil {
 				return nil, err
 			}
@@ -567,21 +590,21 @@ func (d *Driver) readBackValue(addr modbus.Address, dataType string) (interface{
 		return nil, fmt.Errorf("unsupported BOOL address type for read-back")
 
 	case "INT":
-		val, err := d.modbusClient.ReadHoldingRegister(addr.Offset)
+		val, err := client.ReadHoldingRegister(addr.Offset)
 		if err != nil {
 			return nil, err
 		}
 		return float64(int16(val)), nil
 
 	case "UINT":
-		val, err := d.modbusClient.ReadHoldingRegister(addr.Offset)
+		val, err := client.ReadHoldingRegister(addr.Offset)
 		if err != nil {
 			return nil, err
 		}
 		return float64(val), nil
 
 	case "DINT":
-		data, err := d.modbusClient.ReadHoldingRegisters(addr.Offset, 2)
+		data, err := client.ReadHoldingRegisters(addr.Offset, 2)
 		if err != nil {
 			return nil, err
 		}
@@ -592,7 +615,7 @@ func (d *Driver) readBackValue(addr modbus.Address, dataType string) (interface{
 		return float64(val), nil
 
 	case "REAL":
-		data, err := d.modbusClient.ReadHoldingRegisters(addr.Offset, 2)
+		data, err := client.ReadHoldingRegisters(addr.Offset, 2)
 		if err != nil {
 			return nil, err
 		}
@@ -892,7 +915,9 @@ func (d *Driver) loadConfig() error {
 		return err
 	}
 
-	json.Unmarshal(connConfigBytes, &gateway.ConnectionConfig)
+	if err := json.Unmarshal(connConfigBytes, &gateway.ConnectionConfig); err != nil {
+		log.Printf("[DRIVER] Warning: failed to unmarshal connection_config: %v", err)
+	}
 
 	tagsQuery := `SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband FROM tags WHERE gateway_id = $1`
 	rows, err := d.database.Query(tagsQuery, d.gatewayID)
@@ -904,8 +929,16 @@ func (d *Driver) loadConfig() error {
 	var tags []models.Tag
 	for rows.Next() {
 		var t models.Tag
-		rows.Scan(&t.ID, &t.GatewayID, &t.Code, &t.Alias, &t.DataType, &t.Historize, &t.HistorizeDeadband)
+		if err := rows.Scan(&t.ID, &t.GatewayID, &t.Code, &t.Alias, &t.DataType, &t.Historize, &t.HistorizeDeadband); err != nil {
+			log.Printf("[DRIVER] Warning: failed to scan tag row, skipping: %v", err)
+			continue
+		}
 		tags = append(tags, t)
+	}
+	if err := rows.Err(); err != nil {
+		// Abort the config swap - keep the old config rather than running with a partial tag list
+		log.Printf("[DRIVER] Error iterating tag rows, keeping previous config: %v", err)
+		return err
 	}
 
 	blocks := d.createBlocks(tags, gateway.ZeroBased)
@@ -923,11 +956,14 @@ func (d *Driver) loadConfig() error {
 	// Check if connection config changed - disconnect old client to force reconnection
 	if connectionConfigChanged(oldConnConfig, gateway.ConnectionConfig) {
 		log.Printf("[DRIVER] Connection config changed, disconnecting old client...")
+		d.modbusMu.Lock()
 		if d.modbusClient != nil {
 			d.modbusClient.Disconnect()
 			d.modbusClient = nil
 		}
-		d.setConnectionState(false)
+		d.modbusMu.Unlock()
+		// configMu is already held here - use the locked variant to avoid self-deadlock
+		d.setConnectionStateLocked(false)
 	}
 
 	// Initialize or update Sparkplug B client
@@ -1218,9 +1254,21 @@ func (d *Driver) createBlocks(tags []models.Tag, zeroBased bool) []Block {
 	return blocks
 }
 
+// sanitizeScanRate converts scan_rate_ms to a duration with a defensive floor:
+// values below 100ms (including 0/negative) would panic time.NewTicker or
+// hammer the PLC, so fall back to a 1000ms default.
+func sanitizeScanRate(ms int) time.Duration {
+	rate := time.Duration(ms) * time.Millisecond
+	if rate < 100*time.Millisecond {
+		log.Printf("[DRIVER] Warning: invalid scan_rate_ms %d (minimum 100ms), using default 1000ms", ms)
+		return 1000 * time.Millisecond
+	}
+	return rate
+}
+
 func (d *Driver) run() {
 	d.configMu.RLock()
-	rate := time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond
+	rate := sanitizeScanRate(d.config.Gateway.ScanRateMs)
 	d.configMu.RUnlock()
 
 	pollTicker := time.NewTicker(rate)
@@ -1236,7 +1284,7 @@ func (d *Driver) run() {
 			log.Println("[DRIVER] Reloading config...")
 			if err := d.loadConfig(); err == nil {
 				d.configMu.RLock()
-				newRate := time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond
+				newRate := sanitizeScanRate(d.config.Gateway.ScanRateMs)
 				d.configMu.RUnlock()
 				pollTicker.Reset(newRate)
 			}
@@ -1261,27 +1309,31 @@ func (d *Driver) poll() {
 	prefix := fmt.Sprintf("data/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name))
 	ts := time.Now().UnixMilli()
 
-	if d.modbusClient == nil || !d.modbusClient.IsConnected() {
+	client := d.getModbusClient()
+	if client == nil || !client.IsConnected() {
 		log.Println("[DRIVER] Connecting to Modbus...")
-		client, err := modbus.NewClientFromConfig(cfg.Gateway.ConnectionConfig)
+		newClient, err := modbus.NewClientFromConfig(cfg.Gateway.ConnectionConfig)
 		if err != nil {
 			log.Printf("[DRIVER] Configuration error: %v", err)
 			return
 		}
-		if err := client.ConnectWithRetry(3, 1*time.Second); err != nil {
+		if err := newClient.ConnectWithRetry(3, 1*time.Second); err != nil {
 			log.Printf("[DRIVER] Connection failed: %v", err)
 			d.setConnectionState(false)
 			// Connection failed, so all tags are BAD
 			d.publishBadQualityForBlocks(cfg.Blocks, prefix, ts)
 			return
 		}
-		d.modbusClient = client
+		d.modbusMu.Lock()
+		d.modbusClient = newClient
+		d.modbusMu.Unlock()
+		client = newClient
 		log.Println("[DRIVER] Connected.")
 		d.setConnectionState(true)
 	}
 
 	for _, b := range cfg.Blocks {
-		d.readBlock(b, prefix, ts)
+		d.readBlock(client, b, prefix, ts)
 	}
 }
 
@@ -1296,8 +1348,11 @@ func (d *Driver) publishBadQualityForBlocks(blocks []Block, prefix string, ts in
 			}
 			d.prevValuesMu.RUnlock()
 
-			// Quality 2 = BAD - publish using dual publisher
-			d.publishDual(tib.Tag.ID, tib.Tag.Alias, val, tib.Tag.DataType, 2, ts)
+			// Quality 2 = BAD - route through RBE so BAD is published once
+			// per tag instead of flooding every failed cycle
+			if d.shouldPublish(tib.Tag.ID, val, 2) {
+				d.publishDual(tib.Tag.ID, tib.Tag.Alias, val, tib.Tag.DataType, 2, ts)
+			}
 
 			// Update quality state to BAD so we detect recovery later
 			d.updateState(tib.Tag.ID, val, 2)
@@ -1305,47 +1360,39 @@ func (d *Driver) publishBadQualityForBlocks(blocks []Block, prefix string, ts in
 	}
 }
 
-func (d *Driver) readBlock(b Block, prefix string, ts int64) {
+func (d *Driver) readBlock(client *modbus.Client, b Block, prefix string, ts int64) {
 	var data []byte
 	var err error
 
 	switch b.DataType {
 	case "holding":
-		data, err = d.modbusClient.ReadHoldingRegisters(b.StartAddress, b.Count)
+		data, err = client.ReadHoldingRegisters(b.StartAddress, b.Count)
 	case "input":
-		data, err = d.modbusClient.ReadInputRegisters(b.StartAddress, b.Count)
+		data, err = client.ReadInputRegisters(b.StartAddress, b.Count)
 	case "coil":
-		data, err = d.modbusClient.ReadCoils(b.StartAddress, b.Count)
+		data, err = client.ReadCoils(b.StartAddress, b.Count)
 	case "discrete":
-		data, err = d.modbusClient.ReadDiscreteInputs(b.StartAddress, b.Count)
+		data, err = client.ReadDiscreteInputs(b.StartAddress, b.Count)
 	}
 
 	if err != nil {
+		if modbus.IsExceptionError(err) {
+			// Deterministic Modbus exception response (e.g. ILLEGAL DATA ADDRESS
+			// from gap-fill reading unmapped registers): the TCP session is still
+			// healthy, so keep the connection and only mark this block's tags BAD.
+			log.Printf("[DRIVER] Modbus exception (type=%s, addr=%d): %v - keeping connection", b.DataType, b.StartAddress, err)
+			d.publishBadQualityForBlocks([]Block{b}, prefix, ts)
+			return
+		}
+
 		log.Printf("[DRIVER] Read error (type=%s, addr=%d): %v", b.DataType, b.StartAddress, err)
 
-		// Force disconnect to trigger reconnection on next poll (Fixes broken pipe loop)
-		if d.modbusClient != nil {
-			d.modbusClient.Disconnect()
-		}
+		// Transport error: force disconnect to trigger reconnection on next poll (Fixes broken pipe loop)
+		client.Disconnect()
 		d.setConnectionState(false)
 
-		// Publish BAD quality for all tags in this block using dual publisher
-		for _, tib := range b.Tags {
-			// Get last known value or default
-			var val interface{} = 0
-			d.prevValuesMu.RLock()
-			if v, ok := d.previousValues[tib.Tag.ID]; ok {
-				val = v
-			}
-			d.prevValuesMu.RUnlock()
-
-			// Quality 2 = BAD - publish using dual publisher
-			d.publishDual(tib.Tag.ID, tib.Tag.Alias, val, tib.Tag.DataType, 2, ts)
-
-			// Update quality state to BAD so we detect recovery later
-			log.Printf("[DEBUG] ID %d: Setting Quality BAD (2). Previous: %v", tib.Tag.ID, val)
-			d.updateState(tib.Tag.ID, val, 2)
-		}
+		// Publish BAD quality for all tags in this block (RBE-routed)
+		d.publishBadQualityForBlocks([]Block{b}, prefix, ts)
 		return
 	}
 
@@ -1499,7 +1546,12 @@ func getEnvInt(k string, d int) int {
 func (d *Driver) setConnectionState(connected bool) {
 	d.configMu.Lock()
 	defer d.configMu.Unlock()
+	d.setConnectionStateLocked(connected)
+}
 
+// setConnectionStateLocked applies a connection state change.
+// The caller MUST already hold d.configMu (write lock).
+func (d *Driver) setConnectionStateLocked(connected bool) {
 	// Always publish if this is the first state (isConnected is nil/unset)
 	// or if the state has actually changed
 	if d.isConnected != nil && *d.isConnected == connected {
@@ -1547,6 +1599,7 @@ func (d *Driver) setConnectionState(connected bool) {
 		// Coming online - send DBIRTH with all current tag values
 		log.Printf("[DRIVER] Sending DBIRTH for all tags (device coming online)")
 		var tagsData []sparkplug.TagData
+		d.prevValuesMu.RLock()
 		for _, t := range cfg.Tags {
 			tagsData = append(tagsData, sparkplug.TagData{
 				TagID:     t.ID,
@@ -1558,6 +1611,7 @@ func (d *Driver) setConnectionState(connected bool) {
 				OrgID:     cfg.OrgID,
 			})
 		}
+		d.prevValuesMu.RUnlock()
 		if err := spClient.PublishDBIRTH(slugify(cfg.Gateway.Name), tagsData); err != nil {
 			log.Printf("[DRIVER] Failed to publish DBIRTH: %v", err)
 		}

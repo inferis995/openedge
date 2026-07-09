@@ -69,6 +69,16 @@ func (c *Client) Connect() error {
 		return nil
 	}
 
+	// Close any leftover client from a previous connection so its monitor
+	// goroutines (gopcua AutoReconnect) stop redialing and the old session
+	// is released before we create a new client.
+	if c.client != nil {
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		c.client.Close(closeCtx)
+		closeCancel()
+		c.client = nil
+	}
+
 	log.Printf("[OPC-UA] Connecting to %s (AuthMode: %s)...", c.config.Endpoint, c.config.AuthMode)
 
 	// Start with basic options
@@ -171,7 +181,8 @@ func (c *Client) Disconnect() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if !c.connected || c.client == nil {
+	if c.client == nil {
+		c.connected = false
 		return
 	}
 
@@ -179,6 +190,7 @@ func (c *Client) Disconnect() {
 	defer cancel()
 
 	c.client.Close(ctx)
+	c.client = nil
 	c.connected = false
 	log.Printf("[OPC-UA] Disconnected from %s", c.config.Endpoint)
 }
@@ -299,14 +311,21 @@ func (c *Client) ReadValue(nodeID string) (interface{}, int, error) {
 	}
 
 	result := resp.Results[0]
-	if result.Status != ua.StatusOK {
+
+	// StatusBad* codes indicate a failed read. StatusUncertain* codes still
+	// carry a usable value and are propagated with quality=1 (UNCERTAIN).
+	if result.Status&ua.StatusBad == ua.StatusBad {
 		return nil, 1, fmt.Errorf("read returned status: %v", result.Status)
 	}
 
-	// Quality: 0 = good, 1 = bad
+	// Quality: 0 = good, 1 = uncertain
 	quality := 0
-	if result.Status != ua.StatusOK {
+	if result.Status&ua.StatusUncertain == ua.StatusUncertain {
 		quality = 1
+	}
+
+	if result.Value == nil {
+		return nil, 1, fmt.Errorf("read returned nil value (status: %v)", result.Status)
 	}
 
 	return result.Value.Value(), quality, nil
@@ -648,11 +667,20 @@ func (c *Client) countChildren(ctx context.Context, nodeID *ua.NodeID) int {
 	return len(browseResp.Results[0].References)
 }
 
-// handleConnectionError marks the client as disconnected on connection errors
+// handleConnectionError marks the client as disconnected on connection errors.
+// It also closes the underlying gopcua client so its monitor goroutines stop
+// redialing and the session is released (a new client is created on Connect).
+// Callers must hold c.mu.
 func (c *Client) handleConnectionError(err error) {
 	if err != nil {
 		log.Printf("[OPC-UA] Connection error: %v, marking as disconnected", err)
 		c.connected = false
+		if c.client != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			c.client.Close(ctx)
+			cancel()
+			c.client = nil
+		}
 	}
 }
 

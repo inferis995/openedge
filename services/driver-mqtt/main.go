@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -40,6 +41,15 @@ type GatewayConfig struct {
 	Area        string
 }
 
+// sourceMessage is an inbound PLC message queued for asynchronous processing.
+// subTopic is the subscription key used to resolve the CURRENT TagMapping at
+// processing time (so reloads take effect for in-flight subscriptions).
+type sourceMessage struct {
+	subTopic string
+	topic    string
+	payload  []byte
+}
+
 // TagPayload is the standard system message format
 type TagPayload struct {
 	TagID     int         `json:"tag_id"`
@@ -61,15 +71,23 @@ type Driver struct {
 	// Used to suppress wrong subscriptions on the internal broker while the
 	// external one is still (re)connecting.
 	sourceWanted   bool
-	sourceRetrying bool // a retry goroutine is already running
+	sourceRetrying bool   // a retry goroutine is already running
+	sourceParams   string // connection params the current source client was built with
 	sourceMu       sync.Mutex
 	config         *GatewayConfig
 	configMu       sync.RWMutex
 	stopChan       chan struct{}
 	reloadChan     chan struct{}
-	isConnected    bool
+	isConnected    atomic.Bool
 	subscribedTags map[string]bool // Track subscribed source topics
 	subMu          sync.Mutex
+
+	// Decoupled inbound processing: subscription callbacks only enqueue into
+	// msgChan (never block paho dispatch); a worker goroutine consumes it and
+	// resolves the CURRENT mapping from topicMappings at message time.
+	msgChan       chan sourceMessage
+	topicMappings map[string]TagMapping // source topic → current mapping
+	mappingMu     sync.RWMutex
 
 	// Source connectivity tracking
 	lastMessageTime map[int]time.Time
@@ -160,6 +178,8 @@ func main() {
 		stopChan:        make(chan struct{}),
 		reloadChan:      make(chan struct{}, 1),
 		subscribedTags:  make(map[string]bool),
+		msgChan:         make(chan sourceMessage, 1024),
+		topicMappings:   make(map[string]TagMapping),
 		lastMessageTime: make(map[int]time.Time),
 		connectionLost:  make(map[int]bool),
 	}
@@ -248,7 +268,9 @@ func (d *Driver) loadConfig() error {
 		return fmt.Errorf("failed to load gateway: %w", err)
 	}
 
-	json.Unmarshal(connConfigBytes, &gateway.ConnectionConfig)
+	if err := json.Unmarshal(connConfigBytes, &gateway.ConnectionConfig); err != nil {
+		log.Printf("[DRIVER-MQTT] ERROR: failed to parse connection_config: %v — external broker settings unavailable, using internal broker", err)
+	}
 
 	// If the gateway's connection_config points to an EXTERNAL MQTT broker
 	// (e.g. the customer's factory broker where PLCs publish), open a second
@@ -268,8 +290,16 @@ func (d *Driver) loadConfig() error {
 	var tags []models.Tag
 	for rows.Next() {
 		var t models.Tag
-		rows.Scan(&t.ID, &t.GatewayID, &t.Code, &t.Alias, &t.DataType, &t.Historize, &t.HistorizeDeadband, &t.JsonPath)
+		if err := rows.Scan(&t.ID, &t.GatewayID, &t.Code, &t.Alias, &t.DataType, &t.Historize, &t.HistorizeDeadband, &t.JsonPath); err != nil {
+			log.Printf("[DRIVER-MQTT] ERROR: failed to scan tag row: %v — skipping row", err)
+			continue
+		}
 		tags = append(tags, t)
+	}
+	// Abort the config swap on iteration error — keep the previous config
+	// rather than silently applying a truncated tag list.
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("failed to iterate tags: %w", err)
 	}
 
 	// Build topic prefix: data/{org}/{site}/{area}/{gateway}
@@ -294,6 +324,19 @@ func (d *Driver) loadConfig() error {
 			OrgID:        orgID,
 		})
 	}
+
+	// Atomically replace the per-topic mapping table so the message worker
+	// resolves the CURRENT mapping (json_path, alias, publish topic) even for
+	// subscriptions created before this reload.
+	newTopicMappings := make(map[string]TagMapping, len(mappings))
+	for _, m := range mappings {
+		if _, exists := newTopicMappings[m.SourceTopic]; !exists {
+			newTopicMappings[m.SourceTopic] = m
+		}
+	}
+	d.mappingMu.Lock()
+	d.topicMappings = newTopicMappings
+	d.mappingMu.Unlock()
 
 	d.config = &GatewayConfig{
 		Gateway:     gateway,
@@ -385,15 +428,34 @@ func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataTyp
 		if cfg != nil {
 			topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name), slugify(alias))
 			payload, _ := json.Marshal(TagPayload{tagID, cfg.OrgID, value, timestamp, quality})
-			d.mqttClient.PublishWithQoS(topic, string(payload), 1, false)
+			if err := d.mqttClient.PublishWithQoS(topic, string(payload), 1, false); err != nil {
+				log.Printf("[DRIVER-MQTT] Publish error for %s on %s: %v", alias, topic, err)
+			}
 		}
 	}
 }
 
-// ensureSourceClient lazily opens a dedicated MQTT client to the EXTERNAL
-// broker described by the gateway connection_config. Idempotent — called from
-// every loadConfig, but only creates the client on the first call. Recognised
-// keys (all optional, only broker_host is required to enable the feature):
+// clearSubscribedTags forgets all tracked source-topic subscriptions,
+// optionally unsubscribing them from the given client first (pass nil when
+// the old client is already disconnected — its subscriptions died with it).
+// Callers must not hold subMu. Lock order: sourceMu (optional) → subMu.
+func (d *Driver) clearSubscribedTags(unsubClient *mqtt.Client) {
+	d.subMu.Lock()
+	defer d.subMu.Unlock()
+	for topic := range d.subscribedTags {
+		if unsubClient != nil {
+			unsubClient.Unsubscribe(topic)
+		}
+		delete(d.subscribedTags, topic)
+	}
+}
+
+// ensureSourceClient opens or refreshes the dedicated MQTT client to the
+// EXTERNAL broker described by the gateway connection_config. Called from
+// every loadConfig: creates the client when broker_host appears, reconnects
+// when the broker parameters change and tears the client down when
+// broker_host is removed. Recognised keys (all optional, only broker_host is
+// required to enable the feature):
 //   broker_host, broker_port (default 1883), broker_tls (bool, default false),
 //   broker_username, broker_password, broker_client_id (default auto).
 // When broker_host is empty the driver keeps subscribing on the internal
@@ -402,16 +464,23 @@ func (d *Driver) ensureSourceClient(cc map[string]interface{}) {
 	d.sourceMu.Lock()
 	defer d.sourceMu.Unlock()
 
-	if d.sourceClient != nil {
-		return
-	}
 	host, _ := cc["broker_host"].(string)
 	host = strings.TrimSpace(host)
 	if host == "" {
-		d.sourceWanted = false
+		// No external broker (anymore). Tear down a previous source client and
+		// forget its subscriptions so topics get re-subscribed internally.
+		if d.sourceWanted {
+			if d.sourceClient != nil {
+				log.Printf("[DRIVER-MQTT] broker_host removed — disconnecting external source broker, falling back to internal broker")
+				d.sourceClient.Disconnect(1000)
+				d.sourceClient = nil
+			}
+			d.sourceWanted = false
+			d.sourceParams = ""
+			d.clearSubscribedTags(nil)
+		}
 		return
 	}
-	d.sourceWanted = true
 
 	port := 1883
 	if v, ok := cc["broker_port"]; ok {
@@ -444,6 +513,29 @@ func (d *Driver) ensureSourceClient(cc map[string]interface{}) {
 		AutoReconnect: true,
 		KeepAlive:     30 * time.Second,
 	}
+	params := fmt.Sprintf("%s://%s:%d|%s|%s|%s", scheme, host, port, username, password, clientID)
+
+	if d.sourceWanted && d.sourceParams == params {
+		// Same broker as last time — nothing to do if the client exists or a
+		// retry goroutine is already working on it.
+		if d.sourceClient != nil || d.sourceRetrying {
+			return
+		}
+	} else if d.sourceClient != nil {
+		// Broker parameters changed at runtime: drop the old client and its
+		// (now dead) subscriptions, then connect with the new parameters.
+		log.Printf("[DRIVER-MQTT] source broker parameters changed — reconnecting to %s://%s:%d", scheme, host, port)
+		d.sourceClient.Disconnect(1000)
+		d.sourceClient = nil
+		d.clearSubscribedTags(nil)
+	} else if !d.sourceWanted {
+		// broker_host was ADDED: existing subscriptions live on the INTERNAL
+		// broker. Remove them there so the topics get subscribed on the new
+		// external client instead.
+		d.clearSubscribedTags(d.mqttClient)
+	}
+	d.sourceWanted = true
+	d.sourceParams = params
 
 	log.Printf("[DRIVER-MQTT] Opening EXTERNAL source broker connection: %s://%s:%d (user=%q)", scheme, host, port, username)
 	src := mqtt.NewClient(cfg)
@@ -454,25 +546,30 @@ func (d *Driver) ensureSourceClient(cc map[string]interface{}) {
 		log.Printf("[DRIVER-MQTT] external source broker connect failed (%v) — retrying in background; NOT falling back to internal broker (would subscribe to the wrong place)", err)
 	}
 
-	// Connect failed. Spawn a single background goroutine that keeps trying
-	// with capped backoff. Once it succeeds, set sourceClient and re-run
-	// subscribeToSourceTopics so the bridged data starts flowing.
-	if d.sourceRetrying {
-		return
-	}
+	// Connect failed. Spawn a background goroutine that keeps trying with
+	// capped backoff. Once it succeeds, set sourceClient and re-run
+	// subscribeToSourceTopics so the bridged data starts flowing. A goroutine
+	// left over from OLD parameters exits on its staleness check.
 	d.sourceRetrying = true
-	go d.retrySourceConnect(cfg)
+	go d.retrySourceConnect(cfg, params)
 }
 
 // retrySourceConnect keeps trying to reach the external broker. Stops when the
-// driver is stopping. Backoff: 5s, then doubles up to 60s.
-func (d *Driver) retrySourceConnect(cfg mqtt.Config) {
+// driver is stopping or when the broker parameters it was started for are no
+// longer current. Backoff: 5s, then doubles up to 60s.
+func (d *Driver) retrySourceConnect(cfg mqtt.Config, params string) {
 	backoff := 5 * time.Second
 	for {
 		select {
 		case <-d.stopChan:
 			return
 		case <-time.After(backoff):
+		}
+		d.sourceMu.Lock()
+		stale := !d.sourceWanted || d.sourceParams != params || d.sourceClient != nil
+		d.sourceMu.Unlock()
+		if stale {
+			return
 		}
 		src := mqtt.NewClient(cfg)
 		if err := src.Connect(); err != nil {
@@ -486,6 +583,12 @@ func (d *Driver) retrySourceConnect(cfg mqtt.Config) {
 			continue
 		}
 		d.sourceMu.Lock()
+		if !d.sourceWanted || d.sourceParams != params || d.sourceClient != nil {
+			// Config changed while we were connecting — discard this client.
+			d.sourceMu.Unlock()
+			src.Disconnect(1000)
+			return
+		}
 		d.sourceClient = src
 		d.sourceRetrying = false
 		d.sourceMu.Unlock()
@@ -520,6 +623,14 @@ func (d *Driver) subscribeToSourceTopics() {
 		return
 	}
 
+	// Resolve the client before taking subMu (lock order: sourceMu → subMu,
+	// never subMu → sourceMu — clearSubscribedTags is called under sourceMu).
+	subClient := d.subscribeClient()
+	if subClient == nil {
+		log.Printf("[DRIVER-MQTT] external source broker not yet connected — skipping subscribe (will retry automatically)")
+		return
+	}
+
 	d.subMu.Lock()
 	defer d.subMu.Unlock()
 
@@ -529,11 +640,6 @@ func (d *Driver) subscribeToSourceTopics() {
 		newTopics[m.SourceTopic] = true
 	}
 
-	subClient := d.subscribeClient()
-	if subClient == nil {
-		log.Printf("[DRIVER-MQTT] external source broker not yet connected — skipping subscribe (will retry automatically)")
-		return
-	}
 	for topic := range d.subscribedTags {
 		if !newTopics[topic] {
 			subClient.Unsubscribe(topic)
@@ -542,29 +648,57 @@ func (d *Driver) subscribeToSourceTopics() {
 		}
 	}
 
-	// Subscribe to new topics
+	// Subscribe to new topics. The closure captures ONLY the topic string —
+	// the worker resolves the current TagMapping at message time, so reloaded
+	// mappings (json_path, alias, publish topic) apply to old subscriptions.
+	// The handler must never block: it enqueues and returns immediately so
+	// paho dispatch (and config reload) can't stall behind processing.
 	for _, mapping := range cfg.TagMappings {
 		if d.subscribedTags[mapping.SourceTopic] {
 			continue // Already subscribed
 		}
 
-		// Capture mapping in closure
-		m := mapping
-		err := subClient.Subscribe(m.SourceTopic, func(topic string, payload []byte) {
-			d.handleSourceMessage(m, topic, payload)
+		subTopic := mapping.SourceTopic
+		err := subClient.Subscribe(subTopic, func(topic string, payload []byte) {
+			select {
+			case d.msgChan <- sourceMessage{subTopic: subTopic, topic: topic, payload: payload}:
+			default:
+				log.Printf("[DRIVER-MQTT] WARNING: message queue full — dropping message on %s", topic)
+			}
 		})
 		if err != nil {
-			log.Printf("[DRIVER-MQTT] ERROR: Failed to subscribe to %s: %v", m.SourceTopic, err)
+			log.Printf("[DRIVER-MQTT] ERROR: Failed to subscribe to %s: %v", subTopic, err)
 			continue
 		}
 
-		d.subscribedTags[m.SourceTopic] = true
-		log.Printf("[DRIVER-MQTT] Subscribed to PLC topic: %s → %s", m.SourceTopic, m.PublishTopic)
+		d.subscribedTags[subTopic] = true
+		log.Printf("[DRIVER-MQTT] Subscribed to PLC topic: %s → %s", subTopic, mapping.PublishTopic)
 	}
 
 	// Mark connection as online since we're listening
-	if !d.isConnected && len(d.subscribedTags) > 0 {
+	if len(d.subscribedTags) > 0 && subClient.IsConnected() {
 		d.setConnectionState(true)
+	}
+}
+
+// processSourceMessages is the worker that consumes queued PLC messages and
+// does the (potentially slow) alarm evaluation and QoS-1 publishing, keeping
+// the MQTT subscription callbacks non-blocking.
+func (d *Driver) processSourceMessages() {
+	for {
+		select {
+		case <-d.stopChan:
+			return
+		case msg := <-d.msgChan:
+			d.mappingMu.RLock()
+			mapping, ok := d.topicMappings[msg.subTopic]
+			d.mappingMu.RUnlock()
+			if !ok {
+				// Topic was removed from config after the message was queued
+				continue
+			}
+			d.handleSourceMessage(mapping, msg.topic, msg.payload)
+		}
 	}
 }
 
@@ -823,8 +957,22 @@ func (d *Driver) executeWrite(cmd WriteCommand) {
 	// Format the write value
 	writePayload := formatWriteValue(cmd.Value, cmd.DataType)
 
-	// Publish the write command to the PLC's write topic
-	if err := d.mqttClient.PublishWithQoS(writeTopic, writePayload, 1, false); err != nil {
+	// Publish the write command on the broker the PLC actually listens to:
+	// the external source broker when one is configured, otherwise the
+	// internal broker (legacy setup where PLCs talk to OpenEdge directly).
+	d.sourceMu.Lock()
+	writeClient := d.sourceClient
+	sourceWanted := d.sourceWanted
+	d.sourceMu.Unlock()
+	if writeClient == nil {
+		if sourceWanted {
+			d.publishWriteResult(cmd.TagID, false, "External source broker not connected", nil)
+			return
+		}
+		writeClient = d.mqttClient
+	}
+
+	if err := writeClient.PublishWithQoS(writeTopic, writePayload, 1, false); err != nil {
 		log.Printf("[DRIVER-MQTT] Write failed to %s: %v", writeTopic, err)
 		d.publishWriteResult(cmd.TagID, false, fmt.Sprintf("Publish failed: %v", err), nil)
 		return
@@ -1024,6 +1172,9 @@ func (d *Driver) handleSparkplugDCMD(topic string, payload []byte) {
 
 // run is the main loop that handles config reloads and periodic health checks
 func (d *Driver) run() {
+	// Worker that processes queued PLC messages (keeps paho dispatch free)
+	go d.processSourceMessages()
+
 	healthTicker := time.NewTicker(30 * time.Second)
 	refreshTicker := time.NewTicker(5 * time.Minute)
 
@@ -1053,10 +1204,13 @@ func (d *Driver) run() {
 			}
 
 		case <-healthTicker.C:
-			// Periodic health ping
-			d.configMu.RLock()
-			connected := d.isConnected
-			d.configMu.RUnlock()
+			// Periodic health ping. Derive health from the ACTUAL client the
+			// driver ingests from (source client when an external broker is
+			// configured, internal otherwise) so a dropped external broker
+			// flips the gateway offline instead of staying latched online.
+			ingestClient := d.subscribeClient()
+			connected := ingestClient != nil && ingestClient.IsConnected()
+			d.setConnectionState(connected)
 
 			if connected {
 				healthTopic := fmt.Sprintf("sys/health/%d", d.gatewayID)
@@ -1070,15 +1224,13 @@ func (d *Driver) run() {
 }
 
 // setConnectionState updates the connection state and publishes health status
+// when it changes. isConnected is an atomic.Bool so callbacks and the health
+// ticker can update it without sharing a lock.
 func (d *Driver) setConnectionState(connected bool) {
-	d.configMu.Lock()
-	defer d.configMu.Unlock()
-
-	if d.isConnected == connected {
+	if d.isConnected.Swap(connected) == connected {
 		return
 	}
 
-	d.isConnected = connected
 	status := "offline"
 	if connected {
 		status = "online"

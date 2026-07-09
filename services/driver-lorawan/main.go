@@ -41,6 +41,7 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -139,6 +140,7 @@ type Driver struct {
 	gateway   GatewayRow
 	cfg       ConnectionConfig
 	tags      []TagRow
+	tagsMu    sync.RWMutex // guards tags (reload goroutine vs paho handlers)
 	db        *sql.DB
 	lnsClient paho.Client // subscribes to LNS MQTT
 	sysClient paho.Client // publishes to OpenEdge internal MQTT
@@ -179,7 +181,9 @@ func run() error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	// Internal OpenEdge MQTT (for publishing data/# and listening for downlink commands)
+	// Internal OpenEdge MQTT (for publishing data/# and listening for downlink commands).
+	// Subscriptions are (re)established by the OnConnect handler so they survive
+	// auto-reconnects (broker drops them on a clean-session reconnect).
 	d.sysClient, err = connectMQTT(
 		getEnv("MQTT_HOST", "mosquitto"),
 		getEnvInt("MQTT_PORT", 1883),
@@ -187,6 +191,7 @@ func run() error {
 		"", "", false,
 		fmt.Sprintf("sys/health/%d", gatewayID),
 		buildOfflineStatus(gatewayID),
+		d.subscribeDownlink, // subscribe to downlink commands from core-api
 	)
 	if err != nil {
 		return fmt.Errorf("internal MQTT connect: %w", err)
@@ -195,10 +200,9 @@ func run() error {
 
 	d.publishHealth("starting")
 
-	// Subscribe to downlink commands from core-api
-	d.subscribeDownlink()
-
-	// LNS MQTT (TTN / ChirpStack)
+	// LNS MQTT (TTN / ChirpStack) — uplink subscription runs in the OnConnect
+	// handler so it is re-established after every reconnect; it also publishes
+	// health "online"/"error" depending on whether the subscription succeeded.
 	lnsClientID := fmt.Sprintf("openedge-lorawan-%d-%d", gatewayID, rand.Int31n(10000))
 	d.lnsClient, err = connectMQTT(
 		d.cfg.ServerHost,
@@ -208,6 +212,7 @@ func run() error {
 		d.cfg.Password,
 		d.cfg.TLSEnabled,
 		"", "",
+		d.subscribeUplinks,
 	)
 	if err != nil {
 		d.publishHealth("error")
@@ -215,8 +220,6 @@ func run() error {
 	}
 	defer d.lnsClient.Disconnect(500)
 
-	d.subscribeUplinks()
-	d.publishHealth("online")
 	log.Printf("Gateway %d (%s) running — type=%s host=%s app=%s tags=%d",
 		gatewayID, d.gateway.Name, d.cfg.ServerType, d.cfg.ServerHost, d.cfg.ApplicationID, len(d.tags))
 
@@ -296,17 +299,30 @@ func (d *Driver) loadTags(db *sql.DB) error {
 	var tags []TagRow
 	for rows.Next() {
 		var t TagRow
-		if err := rows.Scan(&t.ID, &t.Code, &t.Alias, &t.DataType); err == nil {
-			tags = append(tags, t)
+		if err := rows.Scan(&t.ID, &t.Code, &t.Alias, &t.DataType); err != nil {
+			log.Printf("loadTags: scan failed, skipping row: %v", err)
+			continue
 		}
+		tags = append(tags, t)
 	}
+	if err := rows.Err(); err != nil {
+		// Abort the swap — keep the previous (complete) tag list.
+		return fmt.Errorf("tags iteration: %w", err)
+	}
+	d.tagsMu.Lock()
 	d.tags = tags
+	d.tagsMu.Unlock()
 	return nil
 }
 
 // ─── MQTT subscriptions ───────────────────────────────────────────────────────
 
-func (d *Driver) subscribeUplinks() {
+// subscribeUplinks subscribes to the LNS uplink topic. It runs as the LNS
+// client's OnConnect handler, so the subscription is re-established after
+// every reconnect. Health reflects the subscription state: without an active
+// subscription the driver receives no uplinks, so report "error" until a
+// (re)connect succeeds in subscribing.
+func (d *Driver) subscribeUplinks(c paho.Client) {
 	var topic string
 	switch d.cfg.ServerType {
 	case "chirpstack":
@@ -315,16 +331,27 @@ func (d *Driver) subscribeUplinks() {
 		topic = fmt.Sprintf("v3/%s/devices/+/up", d.cfg.ApplicationID)
 	}
 	log.Printf("Subscribing to LNS uplink topic: %s", topic)
-	if tok := d.lnsClient.Subscribe(topic, 1, d.handleMessage); tok.Wait() && tok.Error() != nil {
-		log.Printf("Subscribe failed: %v", tok.Error())
+	tok := c.Subscribe(topic, 1, d.handleMessage)
+	if !tok.WaitTimeout(10 * time.Second) {
+		log.Printf("Subscribe timed out: %s", topic)
+		d.publishHealth("error")
+		return
 	}
+	if tok.Error() != nil {
+		log.Printf("Subscribe failed: %v", tok.Error())
+		d.publishHealth("error")
+		return
+	}
+	d.publishHealth("online")
 }
 
 // subscribeDownlink listens on the internal MQTT bus for downlink commands
-// published by core-api and forwards them to the LNS.
-func (d *Driver) subscribeDownlink() {
+// published by core-api and forwards them to the LNS. It runs as the internal
+// client's OnConnect handler, so the subscription is re-established after
+// every reconnect.
+func (d *Driver) subscribeDownlink(c paho.Client) {
 	topic := fmt.Sprintf("sys/lorawan/down/%d", d.gatewayID)
-	d.sysClient.Subscribe(topic, 1, func(_ paho.Client, msg paho.Message) {
+	tok := c.Subscribe(topic, 1, func(_ paho.Client, msg paho.Message) {
 		var cmd downlinkCmd
 		if err := json.Unmarshal(msg.Payload(), &cmd); err != nil {
 			log.Printf("Downlink parse error: %v", err)
@@ -332,6 +359,10 @@ func (d *Driver) subscribeDownlink() {
 		}
 		d.forwardDownlink(cmd)
 	})
+	if !tok.WaitTimeout(10*time.Second) || tok.Error() != nil {
+		log.Printf("Downlink subscribe failed on %s: %v", topic, tok.Error())
+		return
+	}
 	log.Printf("Subscribed to downlink commands on %s", topic)
 }
 
@@ -358,9 +389,9 @@ func (d *Driver) handleTTNMessage(raw []byte) {
 	if devID == "" {
 		devID = devEUI
 	}
-	ts := up.ReceivedAt.UnixMilli()
-	if ts == 0 {
-		ts = time.Now().UnixMilli()
+	ts := time.Now().UnixMilli()
+	if !up.ReceivedAt.IsZero() {
+		ts = up.ReceivedAt.UnixMilli()
 	}
 
 	fields := make(map[string]interface{})
@@ -400,9 +431,9 @@ func (d *Driver) handleCSMessage(raw []byte) {
 	if devID == "" {
 		devID = devEUI
 	}
-	ts := up.Time.UnixMilli()
-	if ts == 0 {
-		ts = time.Now().UnixMilli()
+	ts := time.Now().UnixMilli()
+	if !up.Time.IsZero() {
+		ts = up.Time.UnixMilli()
 	}
 
 	fields := make(map[string]interface{})
@@ -450,7 +481,11 @@ func (d *Driver) upsertDevice(deviceID, devEUI string, rssi, snr float64, fPort 
 		rawJSON, _ = json.Marshal(compact)
 	}
 
-	_, err := d.db.ExecContext(context.Background(), `
+	// Bounded timeout: this runs inside a paho message handler, so a hung DB
+	// call would stall the client's ordered message dispatch.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := d.db.ExecContext(ctx, `
 		INSERT INTO lorawan_devices
 		    (gateway_id, device_id, dev_eui, last_seen, last_rssi, last_snr,
 		     last_f_port, available_fields, raw_payload, uplink_count)
@@ -475,7 +510,10 @@ func (d *Driver) upsertDevice(deviceID, devEUI string, rssi, snr float64, fPort 
 // publishFields matches the received device fields against the tag list and
 // publishes each matched value to OpenEdge data/# MQTT.
 func (d *Driver) publishFields(deviceID string, fields map[string]interface{}, tsMs int64) {
-	for _, tag := range d.tags {
+	d.tagsMu.RLock()
+	tags := d.tags
+	d.tagsMu.RUnlock()
+	for _, tag := range tags {
 		// Tag code format: "device_id/field" — e.g. "sensor-01/temperature"
 		parts := strings.SplitN(tag.Code, "/", 2)
 		if len(parts) != 2 {
@@ -496,7 +534,10 @@ func (d *Driver) publishFields(deviceID string, fields map[string]interface{}, t
 			TagID: tag.ID, OrgID: d.gateway.OrgID,
 			Value: value, Timestamp: tsMs, Quality: 0,
 		})
-		if tok := d.sysClient.Publish(topic, 1, false, payload); tok.Wait() && tok.Error() != nil {
+		tok := d.sysClient.Publish(topic, 1, false, payload)
+		if !tok.WaitTimeout(10 * time.Second) {
+			log.Printf("Publish timeout (tag %d)", tag.ID)
+		} else if tok.Error() != nil {
 			log.Printf("Publish error (tag %d): %v", tag.ID, tok.Error())
 		} else {
 			log.Printf("tag %d [%s] = %v", tag.ID, tag.Alias, value)
@@ -582,7 +623,10 @@ func (d *Driver) forwardDownlink(cmd downlinkCmd) {
 		payload, _ = json.Marshal(dl)
 	}
 
-	if tok := d.lnsClient.Publish(topic, 1, false, payload); tok.Wait() && tok.Error() != nil {
+	tok := d.lnsClient.Publish(topic, 1, false, payload)
+	if !tok.WaitTimeout(10 * time.Second) {
+		log.Printf("Downlink publish timeout for %s", cmd.DeviceID)
+	} else if tok.Error() != nil {
 		log.Printf("Downlink publish error: %v", tok.Error())
 	} else {
 		log.Printf("Downlink sent to %s (fport=%d len=%d bytes confirmed=%v)", cmd.DeviceID, cmd.FPort, len(rawBytes), cmd.Confirmed)
@@ -625,7 +669,7 @@ func buildOfflineStatus(gatewayID int) string {
 
 // ─── MQTT helpers ─────────────────────────────────────────────────────────────
 
-func connectMQTT(host string, port int, clientID, user, pass string, useTLS bool, lwtTopic, lwtPayload string) (paho.Client, error) {
+func connectMQTT(host string, port int, clientID, user, pass string, useTLS bool, lwtTopic, lwtPayload string, onConnect paho.OnConnectHandler) (paho.Client, error) {
 	scheme := "tcp"
 	if useTLS {
 		scheme = "tls"
@@ -653,6 +697,11 @@ func connectMQTT(host string, port int, clientID, user, pass string, useTLS bool
 	}
 	if lwtTopic != "" && lwtPayload != "" {
 		opts.SetWill(lwtTopic, lwtPayload, 1, true)
+	}
+	if onConnect != nil {
+		// Runs on the initial connect and after every auto-reconnect, so
+		// subscriptions are re-established when the broker drops them.
+		opts.SetOnConnectHandler(onConnect)
 	}
 
 	client := paho.NewClient(opts)

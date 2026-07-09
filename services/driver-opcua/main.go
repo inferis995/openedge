@@ -92,7 +92,8 @@ type Driver struct {
 	config         *GatewayConfig
 	configMu       sync.RWMutex
 	stopChan       chan struct{}
-	reloadChan     chan struct{} // Signal for safe config reload
+	reloadChan     chan struct{}     // Signal for safe config reload
+	writeChan      chan WriteCommand // Queue for write commands (single worker)
 	wg             sync.WaitGroup
 	previousValues map[int]interface{}
 	previousMu     sync.RWMutex
@@ -190,7 +191,8 @@ func main() {
 		database:          database,
 		mqttClient:        mqttClient,
 		stopChan:          make(chan struct{}),
-		reloadChan:        make(chan struct{}, 1), // Buffered to avoid blocking
+		reloadChan:        make(chan struct{}, 1),        // Buffered to avoid blocking
+		writeChan:         make(chan WriteCommand, 64),   // Bounded write queue
 		previousValues:    make(map[int]interface{}),
 		previousQualities: make(map[int]int),
 		settingsManager:   settingsManager,
@@ -256,6 +258,10 @@ func main() {
 
 	go driver.alarmManager.StartTicker(context.Background())
 
+	// Start write worker (processes queued write commands sequentially)
+	driver.wg.Add(1)
+	go driver.writeWorker()
+
 	// Start polling loop
 	driver.wg.Add(1)
 	go driver.pollLoop()
@@ -281,8 +287,11 @@ func main() {
 	close(driver.stopChan)
 	driver.wg.Wait()
 
-	if driver.opcuaClient != nil {
-		driver.opcuaClient.Disconnect()
+	driver.configMu.RLock()
+	opcClient := driver.opcuaClient
+	driver.configMu.RUnlock()
+	if opcClient != nil {
+		opcClient.Disconnect()
 	}
 	log.Println("[OPC-UA Driver] Shutdown complete")
 }
@@ -369,11 +378,33 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 		return
 	}
 
-	go d.executeWrite(cmd)
+	// Enqueue for the single write worker; drop if the queue is full
+	select {
+	case d.writeChan <- cmd:
+	default:
+		log.Printf("[OPC-UA Driver] Write queue full, dropping write command for tag %d", cmd.TagID)
+		d.publishWriteResult(cmd.TagID, false, "write queue full", nil)
+	}
+}
+
+// writeWorker processes queued write commands one at a time
+func (d *Driver) writeWorker() {
+	defer d.wg.Done()
+
+	for {
+		select {
+		case <-d.stopChan:
+			return
+		case cmd := <-d.writeChan:
+			d.executeWrite(cmd)
+		}
+	}
 }
 
 func (d *Driver) executeWrite(cmd WriteCommand) {
+	d.configMu.RLock()
 	cfg := d.config
+	client := d.opcuaClient
 	d.configMu.RUnlock()
 
 	if cfg == nil {
@@ -395,12 +426,12 @@ func (d *Driver) executeWrite(cmd WriteCommand) {
 		return
 	}
 
-	if d.opcuaClient == nil || !d.opcuaClient.IsConnected() {
+	if client == nil || !client.IsConnected() {
 		log.Printf("[OPC-UA Driver] Cannot write: OPC UA client not connected")
 		return
 	}
 
-	if err := d.opcuaClient.WriteValue(targetTag.Code, cmd.Value, targetTag.DataType); err != nil {
+	if err := client.WriteValue(targetTag.Code, cmd.Value, targetTag.DataType); err != nil {
 		log.Printf("[OPC-UA Driver] Write error for tag %d (%s): %v", targetTag.ID, targetTag.Code, err)
 		d.publishWriteResult(cmd.TagID, false, err.Error(), nil)
 		return
@@ -482,22 +513,31 @@ func (d *Driver) loadConfig() error {
 		authMode = "Anonymous"
 	}
 
-	// Create/update OPC UA client
-	wasConnected := d.opcuaClient != nil && d.opcuaClient.IsConnected()
+	// Create/update OPC UA client only when the connection settings actually
+	// changed (mirrors driver-modbus). Tag list changes alone must NOT force
+	// a disconnect/reconnect cycle.
+	if d.opcuaClient == nil || connectionConfigChanged(d.config, endpoint, authMode, username, password, certFile, keyFile) {
+		wasConnected := d.opcuaClient != nil && d.opcuaClient.IsConnected()
 
-	if d.opcuaClient != nil {
-		d.opcuaClient.Disconnect()
+		if d.opcuaClient != nil {
+			log.Printf("[OPC-UA Driver] Connection config changed, disconnecting old client...")
+			d.opcuaClient.Disconnect()
+		}
+
+		d.opcuaClient = opcuaclient.NewClient(opcuaclient.Config{
+			Endpoint: endpoint,
+			Timeout:  10 * time.Second,
+			AuthMode: authMode,
+			Username: username,
+			Password: password,
+			CertFile: certFile,
+			KeyFile:  keyFile,
+		})
+
+		// Reset connection state — poll loop will reconnect and re-send DBIRTH
+		d.wasConnected = wasConnected
+		d.isConnected = false
 	}
-
-	d.opcuaClient = opcuaclient.NewClient(opcuaclient.Config{
-		Endpoint: endpoint,
-		Timeout:  10 * time.Second,
-		AuthMode: authMode,
-		Username: username,
-		Password: password,
-		CertFile: certFile,
-		KeyFile:  keyFile,
-	})
 
 	d.config = &GatewayConfig{
 		Gateway:  gateway,
@@ -536,11 +576,23 @@ func (d *Driver) loadConfig() error {
 	log.Printf("[OPC-UA Driver] Config loaded: gateway=%s, endpoint=%s, auth=%s, tags=%d",
 		gateway.Name, endpoint, authMode, len(tags))
 
-	// Reset connection state on config reload
-	d.wasConnected = wasConnected
-	d.isConnected = false
-
 	return nil
+}
+
+// connectionConfigChanged compares the current connection settings against the
+// newly loaded ones to detect changes (mirrors driver-modbus). Returns false on
+// first load (no previous config) — client creation is handled separately.
+func connectionConfigChanged(old *GatewayConfig, endpoint, authMode, username, password, certFile, keyFile string) bool {
+	if old == nil {
+		return false
+	}
+	oldEndpoint, _ := old.Gateway.ConnectionConfig["endpoint"].(string)
+	return oldEndpoint != endpoint ||
+		old.AuthMode != authMode ||
+		old.Username != username ||
+		old.Password != password ||
+		old.CertFile != certFile ||
+		old.KeyFile != keyFile
 }
 
 // initSparkplugClientLocked initializes Sparkplug client while holding configMu lock
@@ -780,9 +832,10 @@ func (d *Driver) pollLoop() {
 	for {
 		d.configMu.RLock()
 		config := d.config
+		client := d.opcuaClient
 		d.configMu.RUnlock()
 
-		if config == nil || !config.Gateway.Enabled {
+		if config == nil || client == nil || !config.Gateway.Enabled {
 			select {
 			case <-d.stopChan:
 				return
@@ -808,9 +861,9 @@ func (d *Driver) pollLoop() {
 		d.configMu.RUnlock()
 
 		// Ensure connected
-		if !d.opcuaClient.IsConnected() {
+		if !client.IsConnected() {
 			log.Printf("[OPC-UA Driver] Not connected, attempting to connect to OPC UA server...")
-			if err := d.opcuaClient.ConnectWithRetry(3, 5*time.Second); err != nil {
+			if err := client.ConnectWithRetry(3, 5*time.Second); err != nil {
 				log.Printf("[OPC-UA Driver] Connection failed after 3 retries: %v", err)
 				d.setConnectionState(false)
 
@@ -840,7 +893,7 @@ func (d *Driver) pollLoop() {
 		}
 
 		for _, tag := range tags {
-			value, quality, err := d.opcuaClient.ReadValue(tag.Code)
+			value, quality, err := client.ReadValue(tag.Code)
 			if err != nil {
 				log.Printf("[OPC-UA Driver] Read error for tag %d (NodeID: %s): %v", tag.ID, tag.Code, err)
 				// Publish bad quality if changed
@@ -859,24 +912,25 @@ func (d *Driver) pollLoop() {
 			}
 
 			// Log successful read with quality info
+			// ReadValue returns 0=GOOD, 1=UNCERTAIN (bad reads return an error)
 			qualityStr := "GOOD"
 			if quality != 0 {
-				qualityStr = "BAD"
+				qualityStr = "UNCERTAIN"
 			}
 
 			// Evaluate alarms via AlarmManager
-			// Convert OPC-UA quality (0=GOOD, 1=BAD) to industrial-edge standard (192=GOOD, 0=BAD)
+			// Convert OPC-UA quality (0=GOOD, 1=UNCERTAIN) to industrial-edge standard (192=GOOD, 0=not good)
 			// Note: Alarm manager expects 192 for GOOD (OPC UA standard)
 			alarmQuality := 192
 			if quality != 0 {
-				alarmQuality = 0 // BAD - will be skipped by alarm manager
+				alarmQuality = 0 // UNCERTAIN - will be skipped by alarm manager
 			}
 
-			// For MQTT publish, convert to internal standard (0=GOOD, >0=BAD)
+			// For MQTT publish, convert to internal standard (0=GOOD,1=UNCERTAIN,2=BAD)
 			// This matches what the UI and historian expect
 			publishQuality := 0
 			if quality != 0 {
-				publishQuality = 2 // BAD (0=GOOD,1=UNCERTAIN,2=BAD)
+				publishQuality = 1 // UNCERTAIN
 			}
 			if d.alarmManager != nil {
 				log.Printf("[OPC-UA ALARM-EVAL] tagID=%d (%s), value=%v (type=%T), alarmQuality=%d",
@@ -1103,8 +1157,12 @@ func (d *Driver) healthLoop() {
 		case <-d.stopChan:
 			return
 		case <-ticker.C:
+			d.configMu.RLock()
+			client := d.opcuaClient
+			d.configMu.RUnlock()
+
 			status := "offline"
-			if d.opcuaClient != nil && d.opcuaClient.IsConnected() {
+			if client != nil && client.IsConnected() {
 				status = "online"
 			}
 

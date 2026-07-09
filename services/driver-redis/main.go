@@ -23,6 +23,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
+// maxPollFailures is the number of consecutive poll failures after which the
+// driver reports health "error" and publishes BAD quality for all tags.
+const maxPollFailures = 3
+
 // TagPayload represents the MQTT message payload for tag values (legacy format)
 type TagPayload struct {
 	Value     interface{} `json:"v"`
@@ -59,6 +63,11 @@ type Driver struct {
 	isConnected  bool
 	wasConnected bool
 	connectionMu sync.RWMutex
+
+	// Consecutive poll failure tracking (Redis outage detection)
+	pollFailMu   sync.Mutex
+	pollFailures int
+	badPublished bool // BAD quality already published for this outage
 
 	// Sparkplug B support
 	sparkplugClient *sparkplug.SparkplugClient
@@ -443,7 +452,7 @@ func (d *Driver) publishDDEATH() {
 
 func (d *Driver) run() {
 	d.configMu.RLock()
-	scanRate := time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond
+	scanRate := scanRateDuration(d.config.Gateway.ScanRateMs)
 	d.configMu.RUnlock()
 
 	ticker := time.NewTicker(scanRate)
@@ -467,10 +476,16 @@ func (d *Driver) run() {
 				d.initSparkplugClient()
 			}
 			d.configMu.RLock()
-			ticker.Reset(time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond)
+			ticker.Reset(scanRateDuration(d.config.Gateway.ScanRateMs))
 			d.configMu.RUnlock()
 		case <-healthTicker.C:
-			d.mqttClient.PublishWithQoS(fmt.Sprintf("sys/health/%d", d.gatewayID), "online", 1, true)
+			status := "online"
+			d.pollFailMu.Lock()
+			if d.pollFailures >= maxPollFailures {
+				status = "error"
+			}
+			d.pollFailMu.Unlock()
+			d.mqttClient.PublishWithQoS(fmt.Sprintf("sys/health/%d", d.gatewayID), status, 1, true)
 			d.checkConnection()
 		case <-ticker.C:
 			d.poll()
@@ -519,11 +534,13 @@ func (d *Driver) poll() {
 	if err != nil {
 		log.Printf("[DRIVER-REDIS] Error executing MGET: %v", err)
 		d.setConnectionState(false)
+		d.recordPollFailure(config)
 		return
 	}
 
 	// Mark as connected if we got values
 	d.setConnectionState(true)
+	d.recordPollSuccess()
 
 	timestamp := time.Now().UnixMilli()
 
@@ -579,6 +596,46 @@ func (d *Driver) poll() {
 			d.updatePreviousValue(tag.ID, parsedVal)
 		}
 	}
+}
+
+// recordPollFailure counts consecutive poll failures. Once the threshold is
+// reached, BAD quality (q=2) is published once per tag on the legacy path so
+// downstream consumers don't keep trusting stale GOOD values during a Redis
+// outage. Health "error" is reported by the health ticker while in this state.
+func (d *Driver) recordPollFailure(config *GatewayConfig) {
+	d.pollFailMu.Lock()
+	d.pollFailures++
+	publishBad := d.pollFailures >= maxPollFailures && !d.badPublished
+	if publishBad {
+		d.badPublished = true
+	}
+	failures := d.pollFailures
+	d.pollFailMu.Unlock()
+
+	if !publishBad {
+		return
+	}
+
+	log.Printf("[DRIVER-REDIS] %d consecutive poll failures — publishing BAD quality for %d tags", failures, len(config.Tags))
+	timestamp := time.Now().UnixMilli()
+	for _, tag := range config.Tags {
+		d.prevValuesMu.Lock()
+		lastValue := d.previousValues[tag.ID]
+		// Clear the cached value so the first successful poll republishes
+		// GOOD quality even if the value is unchanged.
+		delete(d.previousValues, tag.ID)
+		d.prevValuesMu.Unlock()
+
+		d.publishLegacy(tag.ID, tag.Alias, lastValue, timestamp, 2, config)
+	}
+}
+
+// recordPollSuccess resets the consecutive failure counter.
+func (d *Driver) recordPollSuccess() {
+	d.pollFailMu.Lock()
+	d.pollFailures = 0
+	d.badPublished = false
+	d.pollFailMu.Unlock()
 }
 
 func (d *Driver) shouldPublish(tagID int, newValue interface{}, quality int) bool {
@@ -686,6 +743,17 @@ func (d *Driver) updatePreviousValue(tagID int, value interface{}) {
 	d.prevValuesMu.Lock()
 	d.previousValues[tagID] = value
 	d.prevValuesMu.Unlock()
+}
+
+// scanRateDuration converts scan_rate_ms to a ticker duration with a
+// defensive floor: values below 100ms (including 0/negative from the DB)
+// would panic time.NewTicker/Reset or hammer Redis, so fall back to 1s.
+func scanRateDuration(ms int) time.Duration {
+	if ms < 100 {
+		log.Printf("[DRIVER-REDIS] Warning: invalid scan_rate_ms %d (< 100), using 1000ms", ms)
+		return 1000 * time.Millisecond
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 func slugify(s string) string {

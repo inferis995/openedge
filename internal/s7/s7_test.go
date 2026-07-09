@@ -148,25 +148,39 @@ func TestConvertBufferToValue_REAL(t *testing.T) {
 	}
 }
 
-func TestConvertBufferToValue_BOOL_BitZero(t *testing.T) {
-	// byte 0x01, bit 0 → true
+func TestConvertBufferToValue_BOOL_LSBSet(t *testing.T) {
+	// The read request addresses the exact bit (transport size BIT), so the
+	// PLC returns the requested bit in the LSB regardless of bitOffset.
 	got, err := convertBufferToValue([]byte{0x01}, DataTypeBOOL, 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if got != true {
-		t.Errorf("BOOL bit0 of 0x01 = %v, want true", got)
+		t.Errorf("BOOL LSB of 0x01 = %v, want true", got)
 	}
 }
 
-func TestConvertBufferToValue_BOOL_BitOne_Off(t *testing.T) {
-	// byte 0x01, bit 1 → false (bit 1 is 0)
+func TestConvertBufferToValue_BOOL_LSBSet_NonZeroOffset(t *testing.T) {
+	// bitOffset only shapes the request address; the reply still carries the
+	// requested bit in the LSB. 0x01 with bitOffset=1 must read true.
 	got, err := convertBufferToValue([]byte{0x01}, DataTypeBOOL, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if got != true {
+		t.Errorf("BOOL LSB of 0x01 (bitOffset=1) = %v, want true", got)
+	}
+}
+
+func TestConvertBufferToValue_BOOL_LSBClear(t *testing.T) {
+	// 0x02 has the LSB clear: the requested bit is 0 → false, even though
+	// other bits of the reply byte are set.
+	got, err := convertBufferToValue([]byte{0x02}, DataTypeBOOL, 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if got != false {
-		t.Errorf("BOOL bit1 of 0x01 = %v, want false", got)
+		t.Errorf("BOOL LSB of 0x02 = %v, want false", got)
 	}
 }
 

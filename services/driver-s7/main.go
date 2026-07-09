@@ -87,6 +87,7 @@ type Driver struct {
 	configMu   sync.RWMutex
 	stopChan   chan struct{}
 	reloadChan chan struct{}
+	writeQueue chan WriteCommand
 
 	// Alarm Manager
 	alarmManager *alarms.Manager
@@ -177,6 +178,7 @@ func main() {
 		mqttClient:     mqttClient,
 		stopChan:       make(chan struct{}),
 		reloadChan:     make(chan struct{}, 1),
+		writeQueue:     make(chan WriteCommand, 64),
 		previousValues: make(map[int]interface{}),
 		writeCooldowns: make(map[int]time.Time),
 	}
@@ -250,6 +252,9 @@ func main() {
 	} else {
 		log.Printf("Subscribed to health topic: %s (auto-reload enabled)", healthTopic)
 	}
+
+	// Start the write worker (bounded queue, single goroutine)
+	go driver.writeWorker()
 
 	// Start the driver loop
 	go driver.run()
@@ -568,7 +573,25 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 		return
 	}
 
-	go d.executeWrite(cmd)
+	// Enqueue for the single write worker; drop when the queue is full so a
+	// burst of MQTT messages cannot spawn unbounded goroutines
+	select {
+	case d.writeQueue <- cmd:
+	default:
+		log.Printf("Write queue full, dropping write command for tag %d (%s)", cmd.TagID, cmd.Code)
+	}
+}
+
+// writeWorker processes queued write commands sequentially until the driver stops
+func (d *Driver) writeWorker() {
+	for {
+		select {
+		case <-d.stopChan:
+			return
+		case cmd := <-d.writeQueue:
+			d.executeWrite(cmd)
+		}
+	}
 }
 
 func (d *Driver) executeWrite(cmd WriteCommand) {
@@ -772,10 +795,20 @@ func (d *Driver) handleSparkplugDCMD(topic string, payload []byte) {
 	}
 }
 
+// sanitizeScanRate applies a defensive floor to the configured scan rate so
+// time.NewTicker/Reset never panic on a non-positive duration persisted in DB.
+func sanitizeScanRate(ms int) time.Duration {
+	if ms < 100 {
+		log.Printf("Warning: invalid scan_rate_ms %d (minimum 100), falling back to 1000ms", ms)
+		return 1000 * time.Millisecond
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
 // run is the main driver loop
 func (d *Driver) run() {
 	d.configMu.RLock()
-	scanRate := time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond
+	scanRate := sanitizeScanRate(d.config.Gateway.ScanRateMs)
 	d.configMu.RUnlock()
 
 	// Connect to S7 PLC
@@ -795,8 +828,11 @@ func (d *Driver) run() {
 		select {
 		case <-d.stopChan:
 			log.Println("Stopping S7 polling loop")
-			if d.s7Client != nil {
-				d.s7Client.Disconnect()
+			d.configMu.RLock()
+			client := d.s7Client
+			d.configMu.RUnlock()
+			if client != nil {
+				client.Disconnect()
 			}
 			return
 
@@ -806,15 +842,18 @@ func (d *Driver) run() {
 				log.Printf("Failed to reload configuration: %v", err)
 			} else {
 				// Reconnect S7 client with potentially new config
-				if d.s7Client != nil {
-					d.s7Client.Disconnect()
+				d.configMu.RLock()
+				client := d.s7Client
+				d.configMu.RUnlock()
+				if client != nil {
+					client.Disconnect()
 				}
 				if err := d.connectS7(); err != nil {
 					log.Printf("Failed to reconnect S7 after reload: %v", err)
 				}
 				// Update ticker with new scan rate
 				d.configMu.RLock()
-				newScanRate := time.Duration(d.config.Gateway.ScanRateMs) * time.Millisecond
+				newScanRate := sanitizeScanRate(d.config.Gateway.ScanRateMs)
 				d.configMu.RUnlock()
 				ticker.Reset(newScanRate)
 				log.Printf("Configuration reloaded, scan rate: %v", newScanRate)
@@ -826,7 +865,11 @@ func (d *Driver) run() {
 	}
 }
 
-// connectS7 establishes connection to the S7 PLC
+// connectS7 establishes connection to the S7 PLC.
+// It makes a single connection attempt (no internal retry/sleep loop) so the
+// run() select loop is never blocked for long when the PLC is down — the next
+// poll tick retries naturally. d.s7Client is only ever written while holding
+// configMu.Lock; readers must copy the pointer under configMu.RLock.
 func (d *Driver) connectS7() error {
 	d.configMu.RLock()
 	connConfig := d.config.Gateway.ConnectionConfig
@@ -837,11 +880,13 @@ func (d *Driver) connectS7() error {
 		return fmt.Errorf("failed to create S7 client: %w", err)
 	}
 
-	if err := client.ConnectWithRetry(); err != nil {
+	if err := client.Connect(); err != nil {
 		return fmt.Errorf("failed to connect to S7 PLC: %w", err)
 	}
 
+	d.configMu.Lock()
 	d.s7Client = client
+	d.configMu.Unlock()
 	log.Println("Connected to S7 PLC")
 	return nil
 }
@@ -857,6 +902,7 @@ func (d *Driver) publishHealthStatus(status string) {
 func (d *Driver) poll() {
 	d.configMu.RLock()
 	config := d.config
+	client := d.s7Client
 	d.configMu.RUnlock()
 
 	if config == nil || !config.Gateway.Enabled {
@@ -873,8 +919,9 @@ func (d *Driver) poll() {
 
 	timestamp := time.Now().UnixMilli()
 
-	// Ensure S7 connection is established
-	if d.s7Client == nil || !d.s7Client.IsConnected() {
+	// Ensure S7 connection is established (single attempt per tick, so the
+	// run() loop stays responsive to stop/reload while the PLC is down)
+	if client == nil || !client.IsConnected() {
 		log.Printf("S7 not connected, attempting reconnection...")
 		if err := d.connectS7(); err != nil {
 			log.Printf("S7 reconnection failed: %v", err)
@@ -897,6 +944,9 @@ func (d *Driver) poll() {
 			}
 			return
 		}
+		d.configMu.RLock()
+		client = d.s7Client
+		d.configMu.RUnlock()
 		d.publishHealthStatus("online")
 	}
 
@@ -904,7 +954,7 @@ func (d *Driver) poll() {
 	for _, tag := range config.Tags {
 		// Read value from PLC
 		dataType := s7.DataType(tag.DataType)
-		result := d.s7Client.ReadTag(tag.Code, dataType)
+		result := client.ReadTag(tag.Code, dataType)
 
 		// Check for read error
 		if result.Error != nil {

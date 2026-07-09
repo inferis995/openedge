@@ -23,6 +23,49 @@ var (
 	ErrReadTimeout          = errors.New("read timeout")
 )
 
+// ExceptionError wraps a Modbus exception response (e.g. ILLEGAL DATA ADDRESS).
+// These are deterministic protocol-level replies from the device: the TCP
+// session is still healthy, so callers should NOT disconnect on them.
+type ExceptionError struct {
+	Err error
+}
+
+func (e *ExceptionError) Error() string {
+	return fmt.Sprintf("%v: %v", ErrModbusException, e.Err)
+}
+
+func (e *ExceptionError) Unwrap() error { return e.Err }
+
+// IsExceptionError reports whether err (or any error it wraps) is a Modbus
+// exception response rather than a transport-level failure (timeout, broken
+// pipe, protocol corruption).
+func IsExceptionError(err error) bool {
+	var ee *ExceptionError
+	return errors.As(err, &ee)
+}
+
+// wrapModbusError wraps Modbus exception responses in ExceptionError so
+// callers can distinguish them from transport errors. Transport errors
+// (timeouts, net errors, protocol errors) are returned unchanged.
+func wrapModbusError(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, modbus.ErrIllegalFunction),
+		errors.Is(err, modbus.ErrIllegalDataAddress),
+		errors.Is(err, modbus.ErrIllegalDataValue),
+		errors.Is(err, modbus.ErrServerDeviceFailure),
+		errors.Is(err, modbus.ErrAcknowledge),
+		errors.Is(err, modbus.ErrMemoryParityError),
+		errors.Is(err, modbus.ErrServerDeviceBusy),
+		errors.Is(err, modbus.ErrGWPathUnavailable),
+		errors.Is(err, modbus.ErrGWTargetFailedToRespond):
+		return &ExceptionError{Err: err}
+	}
+	return err
+}
+
 // Config holds the Modbus TCP connection configuration
 type Config struct {
 	Host    string
@@ -177,7 +220,7 @@ func (c *Client) ReadCoils(address uint16, quantity uint16) ([]byte, error) {
 
 	bits, err := c.client.ReadCoils(address, quantity)
 	if err != nil {
-		return nil, err
+		return nil, wrapModbusError(err)
 	}
 
 	return boolsToBytes(bits), nil
@@ -194,7 +237,7 @@ func (c *Client) ReadDiscreteInputs(address uint16, quantity uint16) ([]byte, er
 
 	bits, err := c.client.ReadDiscreteInputs(address, quantity)
 	if err != nil {
-		return nil, err
+		return nil, wrapModbusError(err)
 	}
 
 	return boolsToBytes(bits), nil
@@ -224,7 +267,7 @@ func (c *Client) ReadHoldingRegisters(address uint16, quantity uint16) ([]byte, 
 	// Returns []uint16
 	regs, err := c.client.ReadRegisters(address, quantity, modbus.HOLDING_REGISTER)
 	if err != nil {
-		return nil, err
+		return nil, wrapModbusError(err)
 	}
 
 	// Convert []uint16 to []byte (Big Endian)
@@ -258,7 +301,7 @@ func (c *Client) ReadInputRegisters(address uint16, quantity uint16) ([]byte, er
 
 	regs, err := c.client.ReadRegisters(address, quantity, modbus.INPUT_REGISTER)
 	if err != nil {
-		return nil, err
+		return nil, wrapModbusError(err)
 	}
 
 	bytes := make([]byte, len(regs)*2)
