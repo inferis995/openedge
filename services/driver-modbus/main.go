@@ -971,19 +971,33 @@ func (d *Driver) loadConfig() error {
 		d.initSparkplugClientLocked(slugify(orgName), slugify(siteName), slugify(areaName), slugify(gateway.Name), orgID)
 	}
 
-	// Subscribe to legacy format write commands: cmd/{org}/{site}/{area}/{gateway}/+
+	// Subscribe OUTSIDE the configMu critical section (async): Subscribe
+	// takes the MQTT client's handlersMu write lock, while paho callbacks
+	// (which hold handlersMu.RLock) take configMu.RLock — subscribing while
+	// holding configMu is an ABBA deadlock the moment a health message
+	// arrives during a reload.
 	legacyWriteTopic := fmt.Sprintf("cmd/%s/%s/%s/%s/+",
 		slugify(orgName), slugify(siteName), slugify(areaName), slugify(gateway.Name))
-	d.mqttClient.Subscribe(legacyWriteTopic, d.handleLegacyWriteCommand)
-	log.Printf("[DRIVER] Subscribed to legacy write topic: %s", legacyWriteTopic)
+	go func() {
+		if err := d.mqttClient.Subscribe(legacyWriteTopic, d.handleLegacyWriteCommand); err != nil {
+			log.Printf("[DRIVER] Failed to subscribe to legacy write topic %s: %v", legacyWriteTopic, err)
+			return
+		}
+		log.Printf("[DRIVER] Subscribed to legacy write topic: %s", legacyWriteTopic)
+	}()
 
 	// Subscribe to Sparkplug B DCMD (Device Command) if enabled
 	if getEnv("SPARKPLUG_ENABLED", "false") == "true" {
 		groupID := sparkplug.BuildGroupID(slugify(orgName), slugify(siteName))
 		edgeNodeID := sparkplug.BuildEdgeNodeID(slugify(areaName), slugify(gateway.Name))
 		dcmdTopic := fmt.Sprintf("spBv1.0/%s/DCMD/%s/+", groupID, edgeNodeID)
-		d.mqttClient.Subscribe(dcmdTopic, d.handleSparkplugDCMD)
-		log.Printf("[DRIVER] Subscribed to Sparkplug B DCMD topic: %s", dcmdTopic)
+		go func() {
+			if err := d.mqttClient.Subscribe(dcmdTopic, d.handleSparkplugDCMD); err != nil {
+				log.Printf("[DRIVER] Failed to subscribe to DCMD topic %s: %v", dcmdTopic, err)
+				return
+			}
+			log.Printf("[DRIVER] Subscribed to Sparkplug B DCMD topic: %s", dcmdTopic)
+		}()
 	}
 
 	log.Printf("[DRIVER] Config loaded: %d tags, %d blocks (Scan Rate: %dms)", len(tags), len(blocks), gateway.ScanRateMs)

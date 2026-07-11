@@ -573,7 +573,11 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 	// After a driver-manager restart the state map is empty; without this
 	// check every healthy driver gets killed and recreated, causing a
 	// fleet-wide data gap on every manager restart.
-	if inspect, err := m.dockerClient.ContainerInspect(m.ctx, containerName); err == nil {
+	// Context-bounded like every other docker call made under m.mu — a hung
+	// dockerd must not wedge the manager holding the global lock.
+	adoptCtx, adoptCancel := context.WithTimeout(m.ctx, 15*time.Second)
+	defer adoptCancel()
+	if inspect, err := m.dockerClient.ContainerInspect(adoptCtx, containerName); err == nil {
 		if inspect.State != nil && inspect.State.Running && inspect.Config != nil && inspect.Config.Image == imageName {
 			m.gatewayStates[gateway.ID] = &GatewayState{
 				Gateway:     gateway,
@@ -585,7 +589,7 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 			return nil
 		}
 		// Exists but stopped/wrong image: remove and recreate below.
-		_ = m.dockerClient.ContainerRemove(m.ctx, containerName, types.ContainerRemoveOptions{Force: true})
+		_ = m.dockerClient.ContainerRemove(adoptCtx, containerName, types.ContainerRemoveOptions{Force: true})
 	}
 
 	// 7. Create container

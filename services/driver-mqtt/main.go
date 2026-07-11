@@ -79,6 +79,7 @@ type Driver struct {
 	stopChan       chan struct{}
 	reloadChan     chan struct{}
 	isConnected    atomic.Bool
+	connStateMu    sync.Mutex // serializes isConnected swap + health publish
 	subscribedTags map[string]bool // Track subscribed source topics
 	subMu          sync.Mutex
 
@@ -1224,9 +1225,14 @@ func (d *Driver) run() {
 }
 
 // setConnectionState updates the connection state and publishes health status
-// when it changes. isConnected is an atomic.Bool so callbacks and the health
-// ticker can update it without sharing a lock.
+// when it changes. connStateMu serializes the swap WITH its retained publish:
+// without it, two concurrent callers with opposite values (health ticker vs
+// source-reconnect goroutine) can publish out of order, leaving a stale
+// retained "offline" on a healthy gateway.
 func (d *Driver) setConnectionState(connected bool) {
+	d.connStateMu.Lock()
+	defer d.connStateMu.Unlock()
+
 	if d.isConnected.Swap(connected) == connected {
 		return
 	}
