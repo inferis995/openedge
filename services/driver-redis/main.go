@@ -626,7 +626,10 @@ func (d *Driver) recordPollFailure(config *GatewayConfig) {
 		delete(d.previousValues, tag.ID)
 		d.prevValuesMu.Unlock()
 
-		d.publishLegacy(tag.ID, tag.Alias, lastValue, timestamp, 2, config)
+		// Route through publishDual so publish_mode is honored: in
+		// sparkplug_only deployments the legacy path reaches nobody and
+		// Sparkplug consumers would keep trusting the stale GOOD value.
+		d.publishDual(tag.ID, tag.Alias, lastValue, tag.DataType, 2, timestamp)
 	}
 }
 

@@ -68,6 +68,11 @@ func NewClient(config Config) *Client {
 	}
 	opts.SetAutoReconnect(autoReconnect)
 	opts.SetMaxReconnectInterval(10 * time.Second)
+	// AutoReconnect only re-establishes a PREVIOUSLY successful connection.
+	// ConnectRetry covers the cold-boot race (broker not up yet): the client
+	// keeps dialing in the background even when the first Connect() fails.
+	opts.SetConnectRetry(true)
+	opts.SetConnectRetryInterval(5 * time.Second)
 
 	// Set KeepAlive if specified
 	if config.KeepAlive > 0 {
@@ -215,19 +220,28 @@ func (c *Client) Subscribe(topic string, handler MessageHandler) error {
 
 	// Create a wrapper that calls our default handler
 	// This ensures the default handler is properly registered with paho
+	// Record the topic BEFORE waiting for the SUBACK: if the ack arrives
+	// after the timeout the subscription is live on the broker, and it must
+	// be in subscribedTopics so onConnect re-subscribes it after reconnects.
+	c.subscribeMu.Lock()
+	c.subscribedTopics[topic] = true
+	c.subscribeMu.Unlock()
+
 	token := c.client.Subscribe(topic, 1, func(client mqtt.Client, msg mqtt.Message) {
 		c.handleIncomingMessage(client, msg)
 	})
 	if !token.WaitTimeout(opTimeout) {
+		// Keep the registration: a late SUBACK means the subscription exists;
+		// re-subscribing on the next reconnect is idempotent either way.
 		return fmt.Errorf("subscribe timeout on topic %s", topic)
 	}
 	if token.Error() != nil {
+		// Definitive rejection: undo the registration.
+		c.subscribeMu.Lock()
+		delete(c.subscribedTopics, topic)
+		c.subscribeMu.Unlock()
 		return token.Error()
 	}
-
-	c.subscribeMu.Lock()
-	c.subscribedTopics[topic] = true
-	c.subscribeMu.Unlock()
 
 	log.Printf("[MQTT] Subscribed to topic: %s", topic)
 	return nil
