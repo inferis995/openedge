@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 )
 
 // RealtimeHandler handles WebSocket connections for real-time updates
@@ -34,6 +34,10 @@ func (h *RealtimeHandler) newUpgrader() websocket.Upgrader {
 	return websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
+		// Browsers authenticate by sending ["bearer", <jwt>] as subprotocols
+		// (see middleware.WebSocketAuth). Echoing "bearer" back is required
+		// for the browser to accept the handshake.
+		Subprotocols: []string{"bearer"},
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
 			if origin == "" {
@@ -45,17 +49,18 @@ func (h *RealtimeHandler) newUpgrader() websocket.Upgrader {
 	}
 }
 
-// HandleRealtime handles GET /api/ws/realtime
+// HandleRealtime handles GET /api/ws/realtime.
+//
+// The organization is taken from the caller's JWT (via OrganizationContext),
+// never from a client-supplied parameter: this socket streams every live tag
+// value of an organization, so trusting a query string would let any caller
+// read any tenant's process data by incrementing a number.
 func (h *RealtimeHandler) HandleRealtime(c *gin.Context) {
-	orgIDStr := c.Query("org_id")
-	if orgIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "org_id is required"})
-		return
-	}
-
-	orgID, err := strconv.Atoi(orgIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org_id"})
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		// Global admins have no implicit org: they must name one explicitly
+		// (OrganizationContext validates it and sets the context key).
+		c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required (set X-Organization-ID or organization_id)"})
 		return
 	}
 

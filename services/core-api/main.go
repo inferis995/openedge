@@ -520,19 +520,19 @@ func main() {
 
 			// Backup & Restore
 			backupHandler := handlers.NewBackupHandler(database, mqttClient)
-			system.GET("/backup", middleware.RequireRole(models.RoleAdmin), backupHandler.ExportBackup)
-			system.POST("/restore", middleware.RequireRole(models.RoleAdmin), backupHandler.ImportRestore)
-			system.POST("/restore/restart", middleware.RequireRole(models.RoleAdmin), backupHandler.PostRestore)
+			system.GET("/backup", middleware.RequireGlobalAdmin(), backupHandler.ExportBackup)
+			system.POST("/restore", middleware.RequireGlobalAdmin(), backupHandler.ImportRestore)
+			system.POST("/restore/restart", middleware.RequireGlobalAdmin(), backupHandler.PostRestore)
 
 			// Automatic backup settings
 			backupHandler.EnsureTimescaleDBStructures()
-			system.GET("/backup/settings", backupHandler.GetBackupSettings)
-			system.PUT("/backup/settings", middleware.RequireRole(models.RoleAdmin), backupHandler.UpdateBackupSettings)
-			system.GET("/backup/list", backupHandler.ListBackups)
-			system.GET("/backup/files/:filename", middleware.RequireRole(models.RoleAdmin), backupHandler.DownloadBackup)
-			system.DELETE("/backup/files/:filename", middleware.RequireRole(models.RoleAdmin), backupHandler.DeleteBackup)
-			system.GET("/backup/catalog", middleware.RequireRole(models.RoleAdmin), backupHandler.GetCatalog)
-			system.GET("/backup/audit", middleware.RequireRole(models.RoleAdmin), backupHandler.GetAudit)
+			system.GET("/backup/settings", middleware.RequireGlobalAdmin(), backupHandler.GetBackupSettings)
+			system.PUT("/backup/settings", middleware.RequireGlobalAdmin(), backupHandler.UpdateBackupSettings)
+			system.GET("/backup/list", middleware.RequireGlobalAdmin(), backupHandler.ListBackups)
+			system.GET("/backup/files/:filename", middleware.RequireGlobalAdmin(), backupHandler.DownloadBackup)
+			system.DELETE("/backup/files/:filename", middleware.RequireGlobalAdmin(), backupHandler.DeleteBackup)
+			system.GET("/backup/catalog", middleware.RequireGlobalAdmin(), backupHandler.GetCatalog)
+			system.GET("/backup/audit", middleware.RequireGlobalAdmin(), backupHandler.GetAudit)
 
 			// Start backup scheduler
 			go startBackupScheduler(backupHandler)
@@ -566,7 +566,7 @@ func main() {
 			// Audit log spans every user across the platform, so it is
 			// gated behind global admin only — org admins read their own
 			// scoped events through other UI surfaces.
-			reports.GET("/audit.csv", middleware.RequireRole(models.RoleAdmin), reportsHandler.AuditCSV)
+			reports.GET("/audit.csv", middleware.RequireGlobalAdmin(), reportsHandler.AuditCSV)
 		}
 
 		// Recipe management — operator loads a named set of (tag, value) pairs
@@ -749,7 +749,7 @@ func main() {
 		// API keys for edge-to-cloud authentication (org admin only)
 		apiKeysHandler := handlers.NewAPIKeysHandler(database)
 		orgAPIKeys := api.Group("/organizations/:id/api-keys")
-		orgAPIKeys.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		orgAPIKeys.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin), middleware.RequireOrgParam("id"))
 		{
 			orgAPIKeys.POST("", apiKeysHandler.Create)
 			orgAPIKeys.GET("", apiKeysHandler.List)
@@ -759,7 +759,7 @@ func main() {
 		// Edge installer — generates a ready-to-run ZIP for edge deployment (org admin only)
 		installerHandler := handlers.NewEdgeInstallerHandler(database)
 		orgEdge := api.Group("/organizations/:id")
-		orgEdge.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		orgEdge.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin), middleware.RequireOrgParam("id"))
 		{
 			orgEdge.GET("/edge-installer", installerHandler.Download)
 		}
@@ -767,7 +767,7 @@ func main() {
 		// User invites — org admins create one-time invite links for new members.
 		invitesHandler := handlers.NewInvitesHandler(database, redisClient)
 		orgInvites := api.Group("/organizations/:id/invites")
-		orgInvites.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		orgInvites.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin), middleware.RequireOrgParam("id"))
 		{
 			orgInvites.POST("", invitesHandler.Create)
 		}
@@ -787,7 +787,7 @@ func main() {
 		// Edge heartbeat status + webhook management — org admin or global admin.
 		webhooksHandler := handlers.NewWebhooksHandler(database)
 		orgMgmt := api.Group("/organizations/:id")
-		orgMgmt.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		orgMgmt.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin), middleware.RequireOrgParam("id"))
 		{
 			orgMgmt.GET("/edge-status", invitesHandler.EdgeStatus)
 			orgMgmt.GET("/webhooks", webhooksHandler.List)
@@ -825,7 +825,7 @@ func main() {
 		}
 
 		// WebSocket endpoints
-		api.GET("/ws/realtime", realtimeHandler.HandleRealtime)
+		api.GET("/ws/realtime", middleware.WebSocketAuth, middleware.RequireAuth, middleware.OrganizationContext(), realtimeHandler.HandleRealtime)
 
 		// i3X Access API (CESMII standard) – read/write industrial data via
 		// a vendor-neutral REST interface compatible with CESMII i3X v1 spec.

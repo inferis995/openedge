@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { useAuthStore } from '../stores/useAuthStore';
 
 interface RealtimeUpdate {
     tag_id: number;
@@ -26,11 +27,19 @@ export const useRealtime = (orgId: number | undefined, tagIds?: ReadonlySet<numb
     useEffect(() => {
         if (!orgId) return;
 
+        const token = useAuthStore.getState().token;
+        if (!token) return;
+
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/api/ws/realtime?org_id=${orgId}`;
+        // The org is derived server-side from the JWT; organization_id only
+        // tells a global admin's socket which tenant to follow.
+        const wsUrl = `${protocol}//${window.location.host}/api/ws/realtime?organization_id=${orgId}`;
 
         console.warn(`[WS] Connecting to ${wsUrl}`);
-        const socket = new WebSocket(wsUrl);
+        // A browser cannot set an Authorization header on a WebSocket, so the
+        // JWT travels as a subprotocol value — keeping it out of access logs
+        // and browser history, unlike a query parameter.
+        const socket = new WebSocket(wsUrl, ['bearer', token]);
         ws.current = socket;
 
         socket.onmessage = (event) => {

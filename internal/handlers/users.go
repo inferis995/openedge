@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -55,8 +56,34 @@ type userWithScope struct {
 	CreatedAt string          `json:"created_at"`
 }
 
+// resolveTargetOrg decides which org a user-management call may act on.
+//
+// RequireRole(admin) is satisfied by org-scoped admins too, so without this the
+// /api/users routes let an admin of one tenant enumerate every user on the
+// platform, mint a new global admin (role=admin + org_id NULL), or reset the
+// built-in global admin's password — a full platform takeover.
+//
+// Returns (nil, true) for a global admin (unrestricted), (&orgID, true) for an
+// org-scoped admin, and (nil, false) after writing an error response.
+func resolveTargetOrg(c *gin.Context) (*int, bool) {
+	if middleware.IsGlobalAdmin(c) {
+		return nil, true
+	}
+	orgID, ok := middleware.OrgIDFromJWT(c)
+	if !ok {
+		c.JSON(http.StatusForbidden, gin.H{"error": "user is not assigned to an organization"})
+		return nil, false
+	}
+	return &orgID, true
+}
+
 // List returns all users with their site/area scope.
 func (h *UsersHandler) List(c *gin.Context) {
+	scope, ok := resolveTargetOrg(c)
+	if !ok {
+		return
+	}
+
 	query := `
 		SELECT u.id, u.username, u.role, u.full_name, u.org_id, u.created_at, u.i3x_write,
 		       o.name as org_name,
@@ -66,10 +93,11 @@ func (h *UsersHandler) List(c *gin.Context) {
 		LEFT JOIN organizations o ON u.org_id = o.id
 		LEFT JOIN user_sites us ON u.id = us.user_id
 		LEFT JOIN user_areas ua ON u.id = ua.user_id
+		WHERE ($1::int IS NULL OR u.org_id = $1)
 		GROUP BY u.id, o.name
 		ORDER BY u.id
 	`
-	rows, err := h.db.QueryContext(c.Request.Context(), query)
+	rows, err := h.db.QueryContext(c.Request.Context(), query, scope)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch users"})
 		return
@@ -106,6 +134,20 @@ func (h *UsersHandler) Create(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	scope, ok := resolveTargetOrg(c)
+	if !ok {
+		return
+	}
+	// An org-scoped admin creates users only inside their own org; org_id is
+	// forced rather than trusted from the body (mass-assignment guard).
+	if scope != nil {
+		if req.OrgID != nil && *req.OrgID != *scope {
+			c.JSON(http.StatusForbidden, gin.H{"error": "cannot create a user outside your organization"})
+			return
+		}
+		req.OrgID = scope
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -192,6 +234,27 @@ func (h *UsersHandler) Update(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch user"})
 		return
+	}
+
+	scope, ok := resolveTargetOrg(c)
+	if !ok {
+		return
+	}
+	if scope != nil {
+		// The target must already belong to the caller's org (a NULL org_id is
+		// the global admin — never modifiable by an org-scoped admin) …
+		if existingUser.OrgID == nil || *existingUser.OrgID != *scope {
+			c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+			return
+		}
+		// … and must stay there. An explicit org_id pointing elsewhere is
+		// rejected; otherwise it is forced, so the account can never be moved
+		// to NULL (which would promote it to global admin).
+		if req.OrgID != nil && *req.OrgID != *scope {
+			c.JSON(http.StatusForbidden, gin.H{"error": "cannot move a user outside your organization"})
+			return
+		}
+		req.OrgID = scope
 	}
 
 	tx, err := h.db.BeginTx(c.Request.Context(), nil)
@@ -305,7 +368,15 @@ func (h *UsersHandler) Delete(c *gin.Context) {
 		}
 	}
 
-	result, err := h.db.ExecContext(c.Request.Context(), `DELETE FROM users WHERE id = $1`, id)
+	scope, ok := resolveTargetOrg(c)
+	if !ok {
+		return
+	}
+
+	// Scoped in SQL so an org admin cannot delete users of another tenant —
+	// nor the global admin, whose org_id is NULL and matches no scope.
+	result, err := h.db.ExecContext(c.Request.Context(),
+		`DELETE FROM users WHERE id = $1 AND ($2::int IS NULL OR org_id = $2)`, id, scope)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
 		return
