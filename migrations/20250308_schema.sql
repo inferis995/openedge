@@ -382,9 +382,16 @@ VALUES ('Default')
 ON CONFLICT (name) DO NOTHING;
 
 -- Admin user (password: admin123)
-INSERT INTO users (username, password_hash, role, full_name, org_id)
-VALUES ('admin', '$2a$10$Ot0N4fXJ903diSev0X27KOCcTqI01lTp4gREcAJP/UOOxaRmChBfm', 'admin', 'System Administrator', NULL)
-ON CONFLICT (username) DO NOTHING;
+-- The initial admin is NOT seeded here on purpose.
+--
+-- This file runs from docker-entrypoint-initdb.d on a fresh volume, so a
+-- hardcoded hash here would win the race against the application and every
+-- installation would ship the same well-known password — including those where
+-- the operator set OPENEDGE_INITIAL_ADMIN_PASSWORD.
+--
+-- The admin user is created at startup by bootstrapAdminIfMissing()
+-- (internal/db/db.go), which honours OPENEDGE_INITIAL_ADMIN_PASSWORD and warns
+-- loudly when it falls back to the default.
 
 -- Global settings (pure KEY-VALUE store)
 INSERT INTO global_settings (key, value, description) VALUES

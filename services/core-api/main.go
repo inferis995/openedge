@@ -773,10 +773,10 @@ func main() {
 		}
 		// Public auth endpoints — no JWT required.
 		publicAuth := api.Group("/auth")
-		publicAuth.POST("/accept-invite", invitesHandler.AcceptInvite)
-		publicAuth.POST("/forgot-password", authHandler.ForgotPassword)
-		publicAuth.POST("/reset-password", authHandler.ResetPassword)
-		publicAuth.POST("/mfa/verify", authHandler.MFAVerify)
+		publicAuth.POST("/accept-invite", middleware.LoginRateLimit(), invitesHandler.AcceptInvite)
+		publicAuth.POST("/forgot-password", middleware.LoginRateLimit(), authHandler.ForgotPassword)
+		publicAuth.POST("/reset-password", middleware.LoginRateLimit(), authHandler.ResetPassword)
+		publicAuth.POST("/mfa/verify", middleware.LoginRateLimit(), authHandler.MFAVerify)
 		// SSO/OIDC — OAuth2 redirect and callback, no auth required.
 		publicAuth.GET("/sso/:provider/login", authHandler.SSOLogin)
 		publicAuth.GET("/sso/:provider/callback", authHandler.SSOCallback)
@@ -965,8 +965,13 @@ func main() {
 	}
 
 	// Prometheus metrics endpoint — scraped by Prometheus every 15s.
-	// Protected by network policy (not exposed via Caddy/Traefik by default).
-	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	//
+	// The container port is published on the host, so "protected by network
+	// policy" was not true in the default compose: anyone reachable on :8081
+	// could read runtime internals and per-route traffic volumes. When
+	// METRICS_TOKEN is set the endpoint requires it as a bearer token; it is
+	// left open otherwise so existing Prometheus setups keep scraping.
+	router.GET("/metrics", middleware.MetricsAuth(), gin.WrapH(promhttp.Handler()))
 
 	// Start background DB metrics collector (updates gauges every minute).
 	telemetry.StartDBMetricsCollector(database)
@@ -1408,6 +1413,23 @@ func handleWriteCommand(topic string, payload []byte, db *sql.DB, mqttClient *mq
 	tagAlias := parts[len(parts)-1]
 	log.Printf("[WRITE CMD] Tag alias: %s", tagAlias)
 
+	// Resolve the organization from the topic: sys/write/{orgID}/...
+	//
+	// The org segment used to be parsed and thrown away while the tag was
+	// looked up by alias across every tenant, so a publisher on one org's
+	// topic could drive another org's PLC if the two happened to share a tag
+	// alias. This writes to industrial equipment, so an unresolvable org
+	// fails closed rather than falling back to a global lookup.
+	if len(parts) < 3 || parts[0] != "sys" || parts[1] != "write" {
+		log.Printf("[WRITE CMD] REJECTED: unexpected topic layout %q (want sys/write/{org_id}/...)", topic)
+		return
+	}
+	orgID, err := strconv.Atoi(parts[2])
+	if err != nil || orgID <= 0 {
+		log.Printf("[WRITE CMD] REJECTED: topic %q carries no valid organization id", topic)
+		return
+	}
+
 	// Parse the payload - support multiple formats
 	// Format 1: {"value": x, "timestamp": y}
 	// Format 2 (legacy): {"v": x, "ts": y}
@@ -1445,14 +1467,22 @@ func handleWriteCommand(topic string, payload []byte, db *sql.DB, mqttClient *mq
 		DataType  string
 	}
 
-	// First try to find by exact alias match (case-insensitive)
+	// First try to find by exact alias match (case-insensitive), restricted to
+	// the organization named in the topic. ORDER BY keeps the target stable
+	// when an org has the same alias on more than one gateway (QueryRow would
+	// otherwise pick whatever the planner returned first).
 	query := `
 		SELECT t.id, t.gateway_id, t.code, t.data_type
 		FROM tags t
-		WHERE LOWER(t.alias) = LOWER($1)
+		JOIN gateways g ON g.id = t.gateway_id
+		JOIN areas a ON a.id = g.area_id
+		JOIN sites s ON s.id = a.site_id
+		WHERE LOWER(t.alias) = LOWER($1) AND s.org_id = $2
+		ORDER BY t.id
+		LIMIT 1
 	`
 
-	err := db.QueryRow(query, tagAlias).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.DataType)
+	err = db.QueryRow(query, tagAlias, orgID).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.DataType)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			log.Printf("[WRITE CMD] Tag not found with alias: %s", tagAlias)
@@ -1462,10 +1492,10 @@ func handleWriteCommand(topic string, payload []byte, db *sql.DB, mqttClient *mq
 			slugified := strings.ReplaceAll(strings.ToLower(tagAlias), " ", "-")
 
 			// Try slugified version
-			err = db.QueryRow(query, slugified).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.DataType)
+			err = db.QueryRow(query, slugified, orgID).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.DataType)
 			if err != nil {
 				// Try unslugified version
-				err = db.QueryRow(query, unslugified).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.DataType)
+				err = db.QueryRow(query, unslugified, orgID).Scan(&tag.ID, &tag.GatewayID, &tag.Code, &tag.DataType)
 				if err != nil {
 					log.Printf("[WRITE CMD] Tag not found with slugified/unslugified alias either")
 					return

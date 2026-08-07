@@ -5,10 +5,16 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 )
+
+// defaultInitialAdminPassword is used only when OPENEDGE_INITIAL_ADMIN_PASSWORD
+// is unset, and its use is logged as a prominent warning at startup.
+const defaultInitialAdminPassword = "admin123"
 
 // Connect establishes a connection to PostgreSQL using the provided configuration
 func Connect(cfg Config) (*sql.DB, error) {
@@ -513,6 +519,11 @@ func runAutoMigrations(db *sql.DB) error {
 	}
 
 	// Migration: password_reset_tokens — one-time tokens, expire 1 hour.
+	// NOTE: `token` holds the hex SHA-256 DIGEST of the emailed token, never the token
+	// itself (see auth.hashResetToken) — a stolen dump or read replica must not yield
+	// usable account-takeover links. No column change is needed: the digest is the same
+	// 64-char hex shape the plaintext token had. Rows written before that change are
+	// plaintext and will simply never match; they expire within the hour.
 	pwdResetTokens := []string{
 		`CREATE TABLE IF NOT EXISTS password_reset_tokens (
 			id         SERIAL PRIMARY KEY,
@@ -652,6 +663,7 @@ func runAutoMigrations(db *sql.DB) error {
 	if err := bootstrapAdminIfMissing(db); err != nil {
 		log.Printf("Warning: bootstrap admin check failed: %v", err)
 	}
+	warnAboutDefaultAdminPassword(db)
 
 	// Migration: add LORAWAN as a valid driver_type.
 	// The CHECK constraint must be dropped and re-created because PostgreSQL
@@ -789,6 +801,15 @@ func runAutoMigrations(db *sql.DB) error {
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_ip INET`,
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMPTZ DEFAULT NOW()`,
+		// last_totp_counter — the TOTP time step most recently accepted for this user.
+		// A TOTP code is valid for the whole skew window, so without recording the step
+		// an observed code can be replayed. auth.CompleteMFALogin requires each accepted
+		// counter to be strictly greater than this value.
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_totp_counter BIGINT`,
+		// token_version — JWT invalidation epoch, bumped by auth.ResetPassword and
+		// embedded as a claim by auth.generateToken. TODO(security): middleware.RequireAuth
+		// must still compare the claim against this column to actually revoke old sessions.
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range securityUserCols {
 		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
@@ -1261,8 +1282,15 @@ func runHistorianCleanup(db *sql.DB, retentionDays int) {
 // bootstrapAdminIfMissing assicura che esista almeno un utente admin
 // quando lo schema base è già stato creato ma il seed iniziale non è
 // stato applicato (es. volume Postgres riusato da un'installazione
-// precedente). Inserisce admin/admin123 con hash bcrypt pre-calcolato
-// matching quello in migrations/20250308_schema.sql.
+// precedente).
+//
+// La password iniziale viene da OPENEDGE_INITIAL_ADMIN_PASSWORD: la
+// variabile è documentata in .env.example, README e nei compose file ma
+// non veniva letta da nessuna parte, quindi ogni installazione restava
+// raggiungibile con admin/admin123 — incluse quelle di operatori
+// convinti di aver impostato una password forte. Senza la variabile
+// l'admin di default viene comunque creato (altrimenti il primo accesso
+// sarebbe impossibile) ma con un avviso esplicito a log.
 //
 // Skip silente se:
 //   - la tabella users non esiste (schema base non ancora creato)
@@ -1288,16 +1316,67 @@ func bootstrapAdminIfMissing(db *sql.DB) error {
 		return nil // c'è già almeno un utente
 	}
 
-	// bcrypt hash di "admin123" (stesso del seed SQL) — costo 10
-	const adminHash = "$2a$10$Ot0N4fXJ903diSev0X27KOCcTqI01lTp4gREcAJP/UOOxaRmChBfm"
-	_, err := db.Exec(`
+	initialPassword := os.Getenv("OPENEDGE_INITIAL_ADMIN_PASSWORD")
+	usingDefault := initialPassword == ""
+	if usingDefault {
+		initialPassword = defaultInitialAdminPassword
+	}
+	if len(initialPassword) < 8 {
+		return fmt.Errorf("OPENEDGE_INITIAL_ADMIN_PASSWORD must be at least 8 characters")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(initialPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash initial admin password: %w", err)
+	}
+
+	if _, err := db.Exec(`
 		INSERT INTO users (username, password_hash, role, full_name, org_id)
 		VALUES ('admin', $1, 'admin', 'System Administrator', NULL)
-		ON CONFLICT (username) DO NOTHING`, adminHash)
-	if err != nil {
+		ON CONFLICT (username) DO NOTHING`, string(hash)); err != nil {
 		return err
 	}
-	log.Println("[DB] Bootstrap: created default admin/admin123 (users table was empty)")
+
+	if usingDefault {
+		warnDefaultAdminPassword("created the admin account with the DEFAULT password")
+	} else {
+		log.Println("[DB] Bootstrap: created admin user with the password from OPENEDGE_INITIAL_ADMIN_PASSWORD")
+	}
 	return nil
+}
+
+// warnAboutDefaultAdminPassword checks, at every startup, whether any account
+// still authenticates with the built-in default password and says so loudly.
+//
+// Existing installations were all seeded with it, and rotating a live
+// credential automatically would be worse than reporting it — so this only
+// reports. It runs after bootstrap and is best-effort: any error is ignored,
+// since this must never block startup.
+func warnAboutDefaultAdminPassword(db *sql.DB) {
+	rows, err := db.Query(`SELECT username, password_hash FROM users WHERE role = 'admin' AND org_id IS NULL`)
+	if err != nil {
+		return
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var username, hash string
+		if err := rows.Scan(&username, &hash); err != nil {
+			continue
+		}
+		if bcrypt.CompareHashAndPassword([]byte(hash), []byte(defaultInitialAdminPassword)) == nil {
+			warnDefaultAdminPassword(fmt.Sprintf("global admin %q still uses the DEFAULT password", username))
+			return
+		}
+	}
+}
+
+func warnDefaultAdminPassword(what string) {
+	log.Printf("[DB] ############################################################")
+	log.Printf("[DB] SECURITY WARNING: %s (%q).", what, defaultInitialAdminPassword)
+	log.Printf("[DB] This account is a GLOBAL ADMIN: it can read every tenant's data")
+	log.Printf("[DB] and write setpoints to every PLC. Change it now from the UI, or")
+	log.Printf("[DB] set OPENEDGE_INITIAL_ADMIN_PASSWORD before the first start.")
+	log.Printf("[DB] ############################################################")
 }
 

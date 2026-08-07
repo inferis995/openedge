@@ -1,8 +1,10 @@
 package middleware
 
 import (
+	"crypto/subtle"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -104,6 +106,29 @@ func RequireRole(role models.UserRole) gin.HandlerFunc {
 			return
 		}
 
+		c.Next()
+	}
+}
+
+// MetricsAuth optionally protects the Prometheus endpoint with a bearer token.
+//
+// The metrics port is published on the host in the shipped compose files, so
+// leaving /metrics fully open exposes runtime internals and per-route traffic
+// volumes to anyone who can reach it. When METRICS_TOKEN is set the scraper
+// must present it; when unset the endpoint stays open so existing Prometheus
+// deployments keep working after an upgrade.
+func MetricsAuth() gin.HandlerFunc {
+	token := os.Getenv("METRICS_TOKEN")
+	return func(c *gin.Context) {
+		if token == "" {
+			c.Next()
+			return
+		}
+		presented := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
+		if subtle.ConstantTimeCompare([]byte(presented), []byte(token)) != 1 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 		c.Next()
 	}
 }
