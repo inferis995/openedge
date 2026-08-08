@@ -485,6 +485,18 @@ export default function I3XPage() {
     const cancelEdit = () => { setEditingPropId(null); setEditValue(''); };
 
     const confirmWrite = async (prop: I3XProperty) => {
+        // This writes to live industrial equipment. The field is pre-filled with
+        // the current value for inspection, so a stray keystroke followed by
+        // Enter — muscle memory — used to move a real actuator with no dialog,
+        // no undo and no bounds, unlike the synoptic setpoint widget and the
+        // recipe loader, which both confirm first.
+        if (!window.confirm(
+            `Scrivere ${editValue} su "${prop.name}"?\n\n` +
+            'Il valore verrà inviato al PLC e agirà sull\'impianto.'
+        )) {
+            return;
+        }
+
         setWriting(true);
         try {
             let coerced: unknown = editValue;

@@ -282,7 +282,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         const v = liveValues.get(tagId);
         // Tag is bound but no live data yet (edge offline / WS not connected) →
         // return BAD-quality null so widgets show "—" / grey / off state.
-        return v ? { value: v.value, quality: v.quality } : { value: null, quality: 2 };
+        return v ? { value: v.value, quality: v.quality, timestamp: v.timestamp } : { value: null, quality: 2 };
     }, [liveValues, mode]);
 
     // onWrite: called by button widgets in view mode to write a value to a tag

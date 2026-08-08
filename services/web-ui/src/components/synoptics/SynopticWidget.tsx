@@ -5,6 +5,9 @@ import { cn } from '@/lib/utils';
 export interface LiveValue {
     value: unknown;
     quality: number;
+    /** Epoch ms of the sample itself — NOT the render time. Undefined when the
+     *  tag has never reported. Used to show how old the reading really is. */
+    timestamp?: number;
 }
 
 const num = (v: unknown): number | null => {
@@ -472,6 +475,11 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
     const cfg = widget.config || {};
     const n = num(live?.value);
     const badQuality = live !== undefined && live.quality >= 2;
+    // Quality 1 is UNCERTAIN (stale OPC-UA sample, partially-failed Modbus read).
+    // It used to render as an ordinary trustworthy number here, even though the
+    // tag list shows it with a yellow dot — so the same reading looked suspect
+    // on one screen and perfectly normal on the SCADA mimic the operator watches.
+    const uncertainQuality = live !== undefined && live.quality === 1;
     const alarm = inAlarm ?? false;
     const blinkClass = alarm && cfg.blinkOnAlarm ? 'animate-pulse' : '';
 
@@ -495,8 +503,16 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
                     </span>
                     {n2 !== null && <span className="text-[9px] text-slate-500 font-mono">SP: {n2.toFixed(decimals)}</span>}
                     {badQuality && <span className="text-[8px] text-red-500 uppercase tracking-wider">bad</span>}
+                    {uncertainQuality && <span className="text-[8px] text-amber-500 uppercase tracking-wider">uncert</span>}
                     {cfg.showTimestamp && live !== undefined && (
-                        <span className="text-[8px] text-slate-600">{new Date().toLocaleTimeString('it-IT')}</span>
+                        // The SAMPLE's timestamp, not the wall clock. This used
+                        // to render new Date(), so it ticked forward even while
+                        // the value was frozen — actively convincing the
+                        // operator that a dead feed was live, which is the exact
+                        // opposite of what this option is for.
+                        <span className="text-[8px] text-slate-600">
+                            {live.timestamp ? new Date(live.timestamp).toLocaleTimeString('it-IT') : '--:--:--'}
+                        </span>
                     )}
                 </div>
             );

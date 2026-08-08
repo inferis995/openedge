@@ -350,7 +350,7 @@ const TagsPage = () => {
 
     // Real-time value integration
     const [currentValues, setCurrentValues] = useState<Map<number, CurrentValue>>(new Map());
-    const { values: realtimeValues } = useRealtime(selectedOrgId || undefined);
+    const { values: realtimeValues, connected: realtimeConnected } = useRealtime(selectedOrgId || undefined);
 
     // Data status detection hook (uses Sparkplug B BIRTH/DEATH)
     const { isDeviceOnline } = useStaleData();
@@ -1342,6 +1342,16 @@ const TagsPage = () => {
                         return v && v.quality === 0;
                     }).length}</strong> Good quality
                 </span>
+                {!realtimeConnected && (
+                    // Without this the table kept rendering the last values with
+                    // green "good" badges after the socket dropped, so an
+                    // operator glancing at the page saw a healthy plant while
+                    // every number was minutes or hours stale.
+                    <span className="flex items-center gap-1 font-semibold text-destructive">
+                        <span className="inline-block h-2 w-2 rounded-full bg-destructive animate-pulse" />
+                        Live feed disconnected — values below may be stale
+                    </span>
+                )}
                 <span>
                     <strong className="text-amber-500">{tagsList.filter(t => alarmDefsCount[t.id] > 0).length}</strong> with alarms
                 </span>
