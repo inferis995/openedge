@@ -42,6 +42,25 @@ type HistorianService struct {
 	// Used to mark tags offline on DDEATH/NDEATH without a DB query.
 	deviceTagMap   map[string]map[int]bool
 	deviceTagMapMu sync.RWMutex
+
+	// cloudMu guards cloudClient. Reconfiguration now runs off the MQTT
+	// dispatch goroutine (see handleSystemSettingsReload), so the pointer is
+	// written concurrently with the forwarding path reading it.
+	cloudMu sync.RWMutex
+}
+
+// getCloudClient returns the current cloud forwarder, or nil when disabled.
+func (s *HistorianService) getCloudClient() *mqtt.Client {
+	s.cloudMu.RLock()
+	defer s.cloudMu.RUnlock()
+	return s.cloudClient
+}
+
+// setCloudClient replaces the cloud forwarder under lock.
+func (s *HistorianService) setCloudClient(c *mqtt.Client) {
+	s.cloudMu.Lock()
+	defer s.cloudMu.Unlock()
+	s.cloudClient = c
 }
 
 // DataPoint represents a single data point received from MQTT
@@ -178,11 +197,20 @@ func main() {
 	defer database.Close()
 	log.Println("Connected to PostgreSQL")
 
-	// Create MQTT client
+	// Create MQTT client.
+	//
+	// CleanSession is deliberately false: this is the component that persists
+	// process history, and drivers publish at QoS 1. With a clean session the
+	// broker keeps no subscription state for us, so everything published while
+	// the historian is restarting (deploy, OTA, crash) is delivered to nobody
+	// and vanishes from tag_history with no gap marker — a silent hole in the
+	// compliance record on every restart. A persistent session lets the broker
+	// queue those messages and redeliver them on reconnect.
 	mqttClient := mqtt.NewClient(mqtt.Config{
-		Host:     mqttHost,
-		Port:     mqttPort,
-		ClientID: mqttClientID,
+		Host:         mqttHost,
+		Port:         mqttPort,
+		ClientID:     mqttClientID,
+		CleanSession: false,
 	})
 
 	// Connect to MQTT broker with retry logic
@@ -400,8 +428,8 @@ func (s *HistorianService) handleAlarmMessage(topic string, payload []byte) {
 	// Format: {baseTopic}alarms/{site}/{area}/{gateway}/{tag}
 	cloudTopic := fmt.Sprintf("%salarms/%s/%s/%s/%s", baseTopic, site, area, gateway, tag)
 
-	if s.cloudClient != nil {
-		if err := s.cloudClient.Publish(cloudTopic, string(payload)); err != nil {
+	if cloud := s.getCloudClient(); cloud != nil {
+		if err := cloud.Publish(cloudTopic, string(payload)); err != nil {
 			log.Printf("[CLOUD SYNC] Failed to forward alarm to cloud: %v", err)
 		} else {
 			log.Printf("[CLOUD SYNC] Forwarded alarm to cloud: %s", cloudTopic)
@@ -461,7 +489,7 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	// Cloud Sync for Legacy Mode
 	// We forward the exact JSON payload if the cloud client is connected,
 	// REGARDLESS of Historize or Deadband settings (just like Sparkplug).
-	if s.cloudClient != nil && s.cloudClient.IsConnected() {
+	if cloud := s.getCloudClient(); cloud != nil && cloud.IsConnected() {
 		var baseTopic string
 		s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_topic'").Scan(&baseTopic)
 
@@ -472,7 +500,7 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 
 		// Map `data/org/site/area/gateway/tag` to `baseTopic + legacy/org/site/area/gateway/tag`
 		cloudTopic := fmt.Sprintf("%slegacy/%s/%s/%s/%s/%s", baseTopic, org, site, area, gateway, alias)
-		s.cloudClient.Publish(cloudTopic, string(payload))
+		_ = cloud.Publish(cloudTopic, string(payload))
 	}
 
 	// Skip if historize is disabled
@@ -485,9 +513,6 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 		// Value within deadband, skip storing
 		return
 	}
-
-	// Store previous value in Redis for next deadband comparison
-	s.storePreviousValue(tagInfo.ID, mqttPayload.V, mqttPayload.Q)
 
 	// Convert value to float64
 	var floatValue float64
@@ -503,21 +528,46 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	case int:
 		floatValue = float64(v)
 	default:
-		// Attempt numeric conversion for other types
-		if val, err := strconv.ParseFloat(fmt.Sprintf("%v", v), 64); err == nil {
-			floatValue = val
+		// Attempt numeric conversion for other types. A failure used to fall
+		// through with floatValue still 0, writing a GOOD-quality 0.0 that an
+		// operator cannot distinguish from a real zero reading (0 bar, 0 °C).
+		// A non-numeric payload (STRING tag, null) is not history — drop it.
+		val, convErr := strconv.ParseFloat(fmt.Sprintf("%v", v), 64)
+		if convErr != nil {
+			log.Printf("[HISTORIAN] tag %d: non-numeric value %v (%T) — not historised", tagInfo.ID, v, v)
+			return
 		}
+		floatValue = val
 	}
 
-	// Save directly to PostgreSQL
-	s.saveToPostgreSQL(tagInfo.ID, floatValue, mqttPayload.Ts, mqttPayload.Q, "mqtt")
+	// A missing or nonsensical timestamp would land the row in 1970, where it is
+	// invisible on any trend and gets swept by the retention worker on its next
+	// pass. Fall back to now, matching the Sparkplug path.
+	ts := mqttPayload.Ts
+	if ts <= 0 {
+		ts = time.Now().UnixMilli()
+	}
+
+	// Persist FIRST: the deadband baseline may only advance for a sample that
+	// actually reached the database, otherwise a transient DB outage silently
+	// suppresses the values that follow it.
+	if err := s.saveToPostgreSQL(tagInfo.ID, floatValue, ts, mqttPayload.Q, "mqtt"); err != nil {
+		return
+	}
+	s.storePreviousValue(tagInfo.ID, mqttPayload.V, mqttPayload.Q)
 }
 
 // handleSystemSettingsReload triggered when the web-ui publishes to sys/command/settings-reload
 // Used to reconnect/disconnect the cloud sync broker dynamically.
 func (s *HistorianService) handleSystemSettingsReload(topic string, payload []byte) {
 	log.Println("[HISTORIAN] Received settings reload command. Re-evaluating Cloud Sync connection...")
-	s.setupCloudClient()
+	// Run off the MQTT dispatch goroutine. setupCloudClient retries a broker
+	// connection with backoff for up to ~15 minutes; paho dispatches messages in
+	// order on a single goroutine, so doing this inline froze ALL ingestion
+	// (data/#, spBv1.0/#, sys/health/+) for that whole period — long enough for
+	// the broker to drop the client on a missed keepalive and lose every value
+	// published meanwhile.
+	go s.setupCloudClient()
 }
 
 // setupCloudClient reads global settings and configures the external MQTT forwarder
@@ -529,11 +579,11 @@ func (s *HistorianService) setupCloudClient() {
 
 	// If disabled or empty, ensure disconnected
 	if !syncEnabled {
-		if s.cloudClient != nil && s.cloudClient.IsConnected() {
+		if cloud := s.getCloudClient(); cloud != nil && cloud.IsConnected() {
 			log.Println("[CLOUD SYNC] Disconnecting from Cloud Broker (Feature Disabled)")
-			s.cloudClient.Disconnect(250)
+			cloud.Disconnect(250)
 		}
-		s.cloudClient = nil
+		s.setCloudClient(nil)
 		return
 	}
 
@@ -554,14 +604,16 @@ func (s *HistorianService) setupCloudClient() {
 	}
 
 	// If already connected to the SAME host, do nothing. For simplicity, we just rebuild it.
-	if s.cloudClient != nil && s.cloudClient.IsConnected() {
-		s.cloudClient.Disconnect(250)
+	if cloud := s.getCloudClient(); cloud != nil && cloud.IsConnected() {
+		cloud.Disconnect(250)
 	}
 
 	log.Printf("[CLOUD SYNC] Initializing connection to %s:%d...", host, port)
 
 	cloudClientID := fmt.Sprintf("edge-sync-%d", time.Now().Unix())
-	s.cloudClient = mqtt.NewClient(mqtt.Config{
+	// Build into a local first and publish it only once connected, so the
+	// forwarding path never observes a half-initialised client.
+	cloud := mqtt.NewClient(mqtt.Config{
 		Host:     host,
 		Port:     port,
 		Username: username,
@@ -571,17 +623,18 @@ func (s *HistorianService) setupCloudClient() {
 
 	// Try to connect with retry logic (use a shorter timeout for cloud connection)
 	err = retryWithBackoff("[CLOUD SYNC] Cloud MQTT connection", func() error {
-		return s.cloudClient.Connect()
+		return cloud.Connect()
 	})
 	if err != nil {
 		log.Printf("[CLOUD SYNC] WARNING - Failed to connect to External Cloud Broker after retries: %v", err)
 		log.Printf("[CLOUD SYNC] Will retry connection in background...")
-		s.cloudClient = nil
+		s.setCloudClient(nil)
 		// Start background retry goroutine
 		s.wg.Add(1)
 		go s.maintainCloudConnection(host, port, username, password)
 		return
 	}
+	s.setCloudClient(cloud)
 
 	log.Println("[CLOUD SYNC] Successfully connected to External Cloud Broker")
 
@@ -596,7 +649,7 @@ func (s *HistorianService) setupCloudClient() {
 	cmdTopic := fmt.Sprintf("%scmd/#", baseTopic)
 	log.Printf("[CLOUD SYNC] Subscribing to Cloud Command Topic: %s", cmdTopic)
 
-	s.cloudClient.Subscribe(cmdTopic, func(topic string, payload []byte) {
+	_ = cloud.Subscribe(cmdTopic, func(topic string, payload []byte) {
 		// Topic received: {baseTopic}/cmd/{org}/{site}/{area}/{gateway}/{alias}
 		// We need to strip the baseTopic to get the local standard format "cmd/..."
 		localTopic := topic
@@ -636,14 +689,14 @@ func (s *HistorianService) maintainCloudConnection(host string, port int, userna
 			}
 
 			// Already connected?
-			if s.cloudClient != nil && s.cloudClient.IsConnected() {
+			if existing := s.getCloudClient(); existing != nil && existing.IsConnected() {
 				return
 			}
 
 			log.Printf("[CLOUD SYNC] Attempting reconnection to %s:%d...", host, port)
 
 			cloudClientID := fmt.Sprintf("edge-sync-%d", time.Now().Unix())
-			s.cloudClient = mqtt.NewClient(mqtt.Config{
+			cloud := mqtt.NewClient(mqtt.Config{
 				Host:     host,
 				Port:     port,
 				Username: username,
@@ -651,11 +704,12 @@ func (s *HistorianService) maintainCloudConnection(host string, port int, userna
 				ClientID: cloudClientID,
 			})
 
-			if err := s.cloudClient.Connect(); err != nil {
+			if err := cloud.Connect(); err != nil {
 				log.Printf("[CLOUD SYNC] Reconnection failed: %v", err)
-				s.cloudClient = nil
+				s.setCloudClient(nil)
 				continue
 			}
+			s.setCloudClient(cloud)
 
 			log.Println("[CLOUD SYNC] Successfully reconnected to Cloud Broker")
 
@@ -667,7 +721,7 @@ func (s *HistorianService) maintainCloudConnection(host string, port int, userna
 			}
 
 			cmdTopic := fmt.Sprintf("%scmd/#", baseTopic)
-			s.cloudClient.Subscribe(cmdTopic, func(topic string, payload []byte) {
+			_ = cloud.Subscribe(cmdTopic, func(topic string, payload []byte) {
 				localTopic := topic
 				if baseTopic != "" {
 					localTopic = strings.TrimPrefix(topic, baseTopic)
@@ -736,7 +790,7 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 		legacyQuality := sparkplug.ConvertSparkplugToLegacyQuality(metric.Quality)
 
 		// Look up tag by alias directly (same approach as core-api)
-		tagInfo, err := s.getTagInfoByAlias(metric.Name)
+		tagInfo, err := s.getTagInfoByAlias(metric.Name, topicInfo.GroupID, topicInfo.EdgeNodeID)
 		if err != nil {
 			// Tag not found - skip silently (reduces log noise)
 			continue
@@ -777,9 +831,6 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 			continue
 		}
 
-		// Store previous value in Redis for next deadband comparison
-		s.storePreviousValue(tagInfo.ID, metric.Value, legacyQuality)
-
 		// Convert value to float64
 		var floatValue float64
 		switch v := metric.Value.(type) {
@@ -800,18 +851,27 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 		case int64:
 			floatValue = float64(v)
 		default:
-			if val, err := strconv.ParseFloat(fmt.Sprintf("%v", v), 64); err == nil {
-				floatValue = val
+			// See the legacy path: falling through with floatValue == 0 wrote a
+			// GOOD-quality 0.0 indistinguishable from a real zero.
+			val, convErr := strconv.ParseFloat(fmt.Sprintf("%v", v), 64)
+			if convErr != nil {
+				log.Printf("[HISTORIAN] tag %d: non-numeric Sparkplug metric %v (%T) — not historised", tagInfo.ID, v, v)
+				continue
 			}
+			floatValue = val
 		}
 
-		// Save directly to PostgreSQL
-		s.saveToPostgreSQL(tagInfo.ID, floatValue, timestamp, legacyQuality, "sparkplug_b")
+		// Persist FIRST, then advance the deadband baseline — only for a sample
+		// that actually reached the database (see the legacy path).
+		if err := s.saveToPostgreSQL(tagInfo.ID, floatValue, timestamp, legacyQuality, "sparkplug_b"); err != nil {
+			continue
+		}
+		s.storePreviousValue(tagInfo.ID, metric.Value, legacyQuality)
 	}
 
 	// Cloud Sync: Forward the entire RAW Sparkplug B payload ONCE per message (not per metric)
 	// This must be OUTSIDE the metrics loop to avoid duplicate publishes
-	if s.cloudClient != nil && s.cloudClient.IsConnected() {
+	if cloud := s.getCloudClient(); cloud != nil && cloud.IsConnected() {
 		var baseTopic string
 		s.db.QueryRow("SELECT value FROM global_settings WHERE key = 'cloud_mqtt_topic'").Scan(&baseTopic)
 
@@ -823,13 +883,16 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 		// Always append the standard Sparkplug B structure to whatever custom prefix the user provided
 		// Topic example: <UserPrefix/>spBv1.0/DDATA/Area1/Inverter1
 		cloudTopic := fmt.Sprintf("%sspBv1.0/%s/%s/%s/%s", baseTopic, topicInfo.MessageType, topicInfo.GroupID, topicInfo.EdgeNodeID, topicInfo.DeviceID)
-		s.cloudClient.Publish(cloudTopic, string(payload))
+		_ = cloud.Publish(cloudTopic, string(payload))
 	}
 }
 
 // saveToPostgreSQL saves a data point directly to PostgreSQL tag_history table
 // If quality > 0 (BAD), we insert a NULL value to guarantee a chart gap.
-func (s *HistorianService) saveToPostgreSQL(tagID int, value float64, timestampMs int64, quality int, source string) {
+// It returns an error so the caller can avoid advancing the deadband baseline
+// for a sample that was never persisted: doing so suppressed the following
+// samples as "unchanged" and made the hole in tag_history outlast the outage.
+func (s *HistorianService) saveToPostgreSQL(tagID int, value float64, timestampMs int64, quality int, source string) error {
 	ts := time.UnixMilli(timestampMs)
 
 	// If quality is BAD (>0), we store an explicit NULL to create a gap in the chart
@@ -841,8 +904,9 @@ func (s *HistorianService) saveToPostgreSQL(tagID int, value float64, timestampM
 
 		if err != nil {
 			log.Printf("[HISTORIAN] ERROR inserting gap marker to PostgreSQL: %v", err)
+			return err
 		}
-		return
+		return nil
 	}
 
 	// Insert standard good value into PostgreSQL
@@ -853,7 +917,9 @@ func (s *HistorianService) saveToPostgreSQL(tagID int, value float64, timestampM
 
 	if err != nil {
 		log.Printf("[HISTORIAN] ERROR inserting to PostgreSQL: %v", err)
+		return err
 	}
+	return nil
 }
 
 // getTagInfo retrieves tag information from PostgreSQL, with Redis caching
@@ -956,12 +1022,25 @@ func (s *HistorianService) getGatewayInfo(gatewayID int) (*GatewayInfo, error) {
 	return &gwInfo, nil
 }
 
-// getTagInfoByAlias retrieves tag info by alias directly (for Sparkplug B messages)
-func (s *HistorianService) getTagInfoByAlias(alias string) (*TagInfo, error) {
+// getTagInfoByAlias resolves a Sparkplug metric name to a tag, scoped to the
+// edge node that published it.
+//
+// tags.alias has no unique constraint, so a bare `WHERE LOWER(alias) = ...`
+// matched across the whole platform: if two tenants both had a tag named
+// "Temperature", every DDATA metric resolved to whichever row Postgres happened
+// to return first. One tenant's readings were then written into tag_history
+// under the other tenant's tag_id and broadcast on their realtime channel —
+// permanent, silent cross-tenant corruption of the process record.
+//
+// groupID ({org}-{site}) and edgeNodeID ({area}-{gateway}) come from the topic,
+// so the lookup is pinned to the exact gateway. The SQL expressions mirror
+// sparkplug.slugify (trim, lowercase, ' ' and '_' -> '-') — keep them in sync.
+func (s *HistorianService) getTagInfoByAlias(alias, groupID, edgeNodeID string) (*TagInfo, error) {
 	alias = strings.TrimSpace(alias)
 
-	// Try cache first
-	cacheKey := fmt.Sprintf("tag_by_alias:%s", alias)
+	// The cache key must carry the node identity too, otherwise it reintroduces
+	// the very collision the scoped query exists to prevent.
+	cacheKey := fmt.Sprintf("tag_by_alias:%s:%s:%s", groupID, edgeNodeID, alias)
 	cached, err := s.redisClient.Get(cacheKey)
 	if err == nil && cached != "" {
 		var tagInfo TagInfo
@@ -970,25 +1049,30 @@ func (s *HistorianService) getTagInfoByAlias(alias string) (*TagInfo, error) {
 		}
 	}
 
-	// Query database by alias
-	query := `
+	const slug = `LOWER(REPLACE(REPLACE(BTRIM(%s), ' ', '-'), '_', '-'))`
+	query := fmt.Sprintf(`
 		SELECT t.id, s.org_id, t.historize, t.historize_deadband
 		FROM tags t
 		JOIN gateways g ON t.gateway_id = g.id
 		JOIN areas a ON g.area_id = a.id
 		JOIN sites s ON a.site_id = s.id
+		JOIN organizations o ON s.org_id = o.id
 		WHERE LOWER(t.alias) = LOWER($1)
-	`
+		  AND `+slug+` || '-' || `+slug+` = $2
+		  AND `+slug+` || '-' || `+slug+` = $3
+		ORDER BY t.id
+		LIMIT 1
+	`, "o.name", "s.name", "a.name", "g.name")
 
 	var tagInfo TagInfo
-	err = s.db.QueryRow(query, alias).Scan(
+	err = s.db.QueryRow(query, alias, groupID, edgeNodeID).Scan(
 		&tagInfo.ID,
 		&tagInfo.OrganizationID,
 		&tagInfo.Historize,
 		&tagInfo.HistorizeDeadband,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("tag not found: %s", alias)
+		return nil, fmt.Errorf("tag not found: %s (group=%s node=%s)", alias, groupID, edgeNodeID)
 	}
 
 	// Cache for 1 minute

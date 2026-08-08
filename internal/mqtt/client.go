@@ -79,10 +79,12 @@ func NewClient(config Config) *Client {
 		opts.SetKeepAlive(config.KeepAlive)
 	}
 
-	// Set CleanSession if specified
-	if config.CleanSession {
-		opts.SetCleanSession(true)
-	}
+	// Always set CleanSession explicitly. Previously it was only set when true,
+	// so a caller asking for a PERSISTENT session (false) silently got paho's
+	// default of true — the broker then kept no subscription state and queued
+	// nothing across a reconnect. That is invisible for stateless publishers but
+	// loses data for a QoS-1 subscriber such as the historian.
+	opts.SetCleanSession(config.CleanSession)
 
 	// Set authentication if provided
 	if config.Username != "" {
