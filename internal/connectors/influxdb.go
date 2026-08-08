@@ -7,12 +7,19 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"log"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 )
+
+// maxBufferedLines caps the in-memory backlog kept across failed flushes.
+// ~200k lines is a few tens of MB — enough to ride out a long InfluxDB outage
+// without letting a permanent failure grow the buffer until core-api is OOM-killed.
+const maxBufferedLines = 200_000
 
 // InfluxDBConnector pushes OpenEdge tag history to an InfluxDB v2 bucket.
 // It runs a background goroutine that polls global_settings every minute
@@ -65,6 +72,13 @@ func (c *InfluxDBConnector) Write(tagID, orgID int, tagAlias string, value inter
 	var valuePart string
 	switch v := value.(type) {
 	case float64:
+		// NaN/±Inf render as "NaN"/"+Inf" in line protocol, which InfluxDB
+		// rejects with a 400 — poisoning the whole batch it travels in. A
+		// broken sensor or a divide-by-zero in a scaling formula is enough to
+		// produce one, so drop the point here instead.
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return
+		}
 		valuePart = fmt.Sprintf("value=%g,quality=%di", v, quality)
 	case int64:
 		valuePart = fmt.Sprintf("value=%di,quality=%di", v, quality)
@@ -152,18 +166,43 @@ func (c *InfluxDBConnector) flush() {
 
 	resp, err := c.client.Do(req)
 	if err != nil {
+		// Transport failure: the server may simply be down, so keep the points.
 		log.Printf("[INFLUX] write error: %v — re-queuing %d points", err, len(lines))
-		c.mu.Lock()
-		c.buf = append(lines, c.buf...) // prepend lost points so they retry next flush
-		c.mu.Unlock()
+		c.requeue(lines)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode >= 300 {
+
+	switch {
+	case resp.StatusCode < 300:
+		// success
+	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
+		// Retryable: rate limited, or the server is unhealthy.
 		log.Printf("[INFLUX] write returned HTTP %d — re-queuing %d points", resp.StatusCode, len(lines))
-		c.mu.Lock()
-		c.buf = append(lines, c.buf...)
-		c.mu.Unlock()
+		c.requeue(lines)
+	default:
+		// 4xx other than 429 is permanent: a malformed line (NaN/Inf), a
+		// rejected token, a missing bucket. Re-queuing it would replay the
+		// same rejection on every flush forever, growing the buffer without
+		// bound and blocking every later point behind it — so drop it, loudly.
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		log.Printf("[INFLUX] DROPPING %d points — HTTP %d (permanent): %s",
+			len(lines), resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+}
+
+// requeue puts a failed batch back at the head of the buffer, bounded so a long
+// outage cannot exhaust memory. When the cap is reached the OLDEST points are
+// discarded: during an outage the freshest process data is the useful one.
+func (c *InfluxDBConnector) requeue(lines []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.buf = append(lines, c.buf...)
+	if len(c.buf) > maxBufferedLines {
+		dropped := len(c.buf) - maxBufferedLines
+		c.buf = c.buf[dropped:]
+		log.Printf("[INFLUX] buffer full — dropped %d oldest points (cap %d)", dropped, maxBufferedLines)
 	}
 }
 

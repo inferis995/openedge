@@ -342,6 +342,20 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 			// Not violating. Check if we need to clear an active alarm.
 			// Important: Use Deadband for clearing to prevent chattering!
 			if isTracking {
+				// Still inside the delay window and the condition has already
+				// stopped being violated: cancel the pending alarm.
+				//
+				// A delay exists precisely to require the condition to PERSIST,
+				// but the clearing test uses the deadband, so a value between
+				// (threshold - deadband) and threshold was neither "violating"
+				// nor "cleared" and left the track in place — tickDelays then
+				// raised a full alarm on a process that had been back in spec
+				// for almost the whole delay. Hysteresis is only meaningful
+				// once an alarm has actually been announced.
+				if !track.Triggered {
+					delete(tracks, def.ID)
+					continue
+				}
 				if isCleared(def, floatVal) {
 					if track.Triggered {
 						// It was fired, so we must update the database and publish a CLEAR

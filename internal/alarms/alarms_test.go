@@ -479,3 +479,80 @@ func TestNewManager_OnAlarmEventNilByDefault(t *testing.T) {
 	// when OnAlarmEvent is nil (nil callback check).
 	m.EvaluateTag(1, "t", float64(0.0), 192)
 }
+
+// A delay exists to require the alarm condition to PERSIST. A transient spike
+// that falls back before the delay elapses must not raise an alarm.
+//
+// The regression this guards: the clearing test uses the deadband, so a value
+// between (threshold - deadband) and threshold was neither "violating" nor
+// "cleared". The pending track survived and tickDelays raised a full alarm on a
+// process that had been back in spec for almost the entire delay.
+func TestPendingAlarmCancelledWhenConditionStops(t *testing.T) {
+	threshold := 100.0
+	def := models.AlarmDefinition{
+		ID:           1,
+		AlarmType:    "high",
+		Threshold:    &threshold,
+		Deadband:     5,
+		DelaySeconds: 30,
+		Enabled:      true,
+	}
+
+	m := alarms.NewTestManager()
+	m.SetDefinitions(42, []models.AlarmDefinition{def})
+
+	// Spike above the threshold: starts the delay window, fires nothing yet.
+	m.EvaluateTag(42, "temp", 101.0, 192)
+	if got := m.PendingCount(42); got != 1 {
+		t.Fatalf("after spike: pending tracks = %d, want 1", got)
+	}
+
+	// Settles at 97: below the threshold but inside the deadband band, so it is
+	// NOT "cleared" either. The pending alarm must still be cancelled.
+	m.EvaluateTag(42, "temp", 97.0, 192)
+	if got := m.PendingCount(42); got != 0 {
+		t.Fatalf("after settling back in spec: pending tracks = %d, want 0", got)
+	}
+
+	// The delay elapsing must not resurrect it.
+	var fired int
+	m.OnAlarmEvent = func(int, int, string, models.AlarmDefinition, float64, string) { fired++ }
+	m.TickDelays()
+	if fired != 0 {
+		t.Errorf("alarm fired %d time(s) for a condition that stopped before the delay", fired)
+	}
+}
+
+// A condition that genuinely persists must still fire once the delay elapses.
+func TestPersistingConditionStillFiresAfterDelay(t *testing.T) {
+	threshold := 100.0
+	def := models.AlarmDefinition{
+		ID:           1,
+		AlarmType:    "high",
+		Threshold:    &threshold,
+		Deadband:     5,
+		DelaySeconds: 0, // fire immediately, no ticker needed
+		Enabled:      true,
+	}
+
+	m := alarms.NewTestManager()
+	m.SetDefinitions(42, []models.AlarmDefinition{def})
+
+	var fired int
+	var lastStatus string
+	m.OnAlarmEvent = func(_ int, _ int, _ string, _ models.AlarmDefinition, _ float64, status string) {
+		fired++
+		lastStatus = status
+	}
+
+	m.EvaluateTag(42, "temp", 101.0, 192)
+	if fired != 1 || lastStatus != "ACTIVE" {
+		t.Fatalf("violating value: fired=%d status=%q, want 1 ACTIVE", fired, lastStatus)
+	}
+
+	// Back well below the deadband band: the fired alarm clears.
+	m.EvaluateTag(42, "temp", 90.0, 192)
+	if fired != 2 || lastStatus != "CLEARED" {
+		t.Errorf("recovered value: fired=%d status=%q, want 2 CLEARED", fired, lastStatus)
+	}
+}
