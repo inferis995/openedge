@@ -813,6 +813,24 @@ func (h *TagsHandler) GetCurrentValue(c *gin.Context) {
 		return
 	}
 
+	// Verify the tag belongs to the authenticated org before exposing its live
+	// value. A plain "does the id exist" check would let any authenticated user
+	// read every tenant's realtime data by iterating tag ids.
+	orgFilter := middleware.GetOrgFilterForQuery(c)
+	if orgFilter != nil {
+		var tagOrgID int
+		if err := h.db.QueryRow(
+			`SELECT s.org_id FROM tags t
+			 JOIN gateways g ON g.id = t.gateway_id
+			 JOIN areas a ON a.id = g.area_id
+			 JOIN sites s ON s.id = a.site_id
+			 WHERE t.id = $1`, id,
+		).Scan(&tagOrgID); err != nil || tagOrgID != *orgFilter {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Tag not found"})
+			return
+		}
+	}
+
 	// Verify tag exists in database
 	var tagExists bool
 	err = h.db.QueryRow("SELECT EXISTS(SELECT 1 FROM tags WHERE id = $1)", id).Scan(&tagExists)

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
 )
 
 type AuthHandler struct {
@@ -183,6 +185,43 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Logged out successfully"})
 }
 
+// Short-lived cookies that bind an SSO flow to the browser that started it.
+// Both are HttpOnly + SameSite=Lax: Lax is required (and sufficient) because the
+// provider sends the user back via a top-level GET navigation, which Lax allows.
+const (
+	ssoStateCookie    = "oe_sso_state"
+	ssoVerifierCookie = "oe_sso_verifier"
+	ssoCookiePath     = "/api/auth/sso"
+	ssoCookieMaxAge   = 600 // 10 min — long enough for an interactive login, short enough to limit replay
+)
+
+// isTLSRequest reports whether the browser reached us over HTTPS, either directly
+// or through the reverse proxy (Caddy/Traefik terminate TLS in the TLS deploy modes).
+// Marking the cookie Secure on a plain-HTTP on-prem install would make the browser
+// drop it and break SSO entirely, so the flag follows the actual scheme.
+func isTLSRequest(c *gin.Context) bool {
+	if c.Request.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
+}
+
+// setSSOFlowCookies stores the CSRF nonce and the PKCE verifier for the pending flow.
+func setSSOFlowCookies(c *gin.Context, nonce, verifier string) {
+	secure := isTLSRequest(c)
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(ssoStateCookie, nonce, ssoCookieMaxAge, ssoCookiePath, "", secure, true)
+	c.SetCookie(ssoVerifierCookie, verifier, ssoCookieMaxAge, ssoCookiePath, "", secure, true)
+}
+
+// clearSSOFlowCookies expires both cookies so a flow can only ever be completed once.
+func clearSSOFlowCookies(c *gin.Context) {
+	secure := isTLSRequest(c)
+	c.SetSameSite(http.SameSiteLaxMode)
+	c.SetCookie(ssoStateCookie, "", -1, ssoCookiePath, "", secure, true)
+	c.SetCookie(ssoVerifierCookie, "", -1, ssoCookiePath, "", secure, true)
+}
+
 // SSOLogin handles GET /api/auth/sso/:provider/login?org_id=N (or ?email=user@company.com)
 // Redirects the browser to the OAuth2 provider's authorization page.
 func (h *AuthHandler) SSOLogin(c *gin.Context) {
@@ -225,12 +264,26 @@ func (h *AuthHandler) SSOLogin(c *gin.Context) {
 		return
 	}
 
-	// PKCE-like state: base64(orgID:randomBytes) — verified in callback
-	stateRaw := make([]byte, 16)
-	_, _ = rand.Read(stateRaw)
-	state := fmt.Sprintf("%d:%s", orgID, base64.RawURLEncoding.EncodeToString(stateRaw))
+	// CSRF: the state is "<orgID>:<nonce>", and the nonce is ALSO kept server-side in
+	// an HttpOnly cookie the attacker cannot write. The callback requires the two to
+	// match, which stops login-CSRF / session fixation: without it, an attacker can
+	// start their own flow, capture their authorization code, and lure a victim to the
+	// callback URL — the victim's browser would then hold a JWT for the ATTACKER.
+	stateRaw := make([]byte, 32)
+	if _, err := rand.Read(stateRaw); err != nil { // crypto/rand — must never be math/rand here
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate SSO state"})
+		return
+	}
+	nonce := base64.RawURLEncoding.EncodeToString(stateRaw)
+	state := fmt.Sprintf("%d:%s", orgID, nonce)
 
-	url := oauthCfg.AuthCodeURL(state)
+	// PKCE (RFC 7636): binds the authorization code to this browser. The verifier only
+	// ever travels inside the HttpOnly cookie, so a code intercepted at the redirect
+	// (referrer leak, shared device, malicious proxy) cannot be redeemed by anyone else.
+	verifier := oauth2.GenerateVerifier()
+	setSSOFlowCookies(c, nonce, verifier)
+
+	url := oauthCfg.AuthCodeURL(state, oauth2.S256ChallengeOption(verifier))
 	c.Redirect(http.StatusFound, url)
 }
 
@@ -246,12 +299,35 @@ func (h *AuthHandler) SSOCallback(c *gin.Context) {
 		return
 	}
 
+	// Recover the flow secrets we planted in SSOLogin. A callback that arrives without
+	// them was not started by this browser — reject it rather than guess.
+	cookieNonce, nonceErr := c.Cookie(ssoStateCookie)
+	verifier, verifierErr := c.Cookie(ssoVerifierCookie)
+	if nonceErr != nil || verifierErr != nil || cookieNonce == "" || verifier == "" {
+		clearSSOFlowCookies(c)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "missing or expired SSO state"})
+		return
+	}
+
 	// Extract orgID from state
 	parts := strings.SplitN(state, ":", 2)
 	if len(parts) != 2 {
+		clearSSOFlowCookies(c)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
 		return
 	}
+
+	// Constant-time compare so the nonce cannot be recovered byte-by-byte via timing.
+	if subtle.ConstantTimeCompare([]byte(parts[1]), []byte(cookieNonce)) != 1 {
+		clearSSOFlowCookies(c)
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state"})
+		return
+	}
+	// State is proven; burn the cookies so this flow can never be replayed, and so a
+	// failure below cannot leave a reusable nonce behind.
+	clearSSOFlowCookies(c)
+
+	// Only now is the org id trustworthy: it rode inside the state we just verified.
 	orgID, err := strconv.Atoi(parts[0])
 	if err != nil || orgID <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid state org_id"})
@@ -271,7 +347,9 @@ func (h *AuthHandler) SSOCallback(c *gin.Context) {
 		return
 	}
 
-	token, err := oauthCfg.Exchange(c.Request.Context(), code)
+	// VerifierOption completes PKCE — the provider rejects the code unless its S256
+	// challenge was derived from this verifier.
+	token, err := oauthCfg.Exchange(c.Request.Context(), code, oauth2.VerifierOption(verifier))
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "token exchange failed"})
 		return
@@ -283,13 +361,20 @@ func (h *AuthHandler) SSOCallback(c *gin.Context) {
 		return
 	}
 
-	// If email domain matches another org's SSO config, use that org instead
+	// Org binding policy: the org is whatever the CSRF-verified state said, NEVER
+	// something re-derived from the email claim here. Previously an unmatched domain
+	// silently left orgID at the unverified state value and provisioned a role='user'
+	// account there, so any personal Gmail account could join a target org.
+	// When the org's config pins a domain_hint, the authenticated email MUST live in
+	// that domain; when it does not, membership is governed solely by the fact that
+	// the flow was started against this org's own SSO provider.
 	emailDomain := ""
 	if idx := strings.LastIndex(userInfo.Email, "@"); idx >= 0 {
 		emailDomain = userInfo.Email[idx+1:]
 	}
-	if domainProvider, domainErr := auth.GetSSOProviderByDomain(h.db, provider, emailDomain); domainErr == nil {
-		orgID = domainProvider.OrgID
+	if ssoProvider.DomainHint != "" && !strings.EqualFold(emailDomain, ssoProvider.DomainHint) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "email domain is not allowed for this organization"})
+		return
 	}
 
 	userID, role, err := auth.UpsertSSOUser(h.db, userInfo, orgID)

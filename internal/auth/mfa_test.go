@@ -91,6 +91,72 @@ func TestValidateTOTP_WrongSecret(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// validateTOTPWithCounter — replay prevention support
+// ---------------------------------------------------------------------------
+
+func TestValidateTOTPWithCounter_ReturnsCurrentStep(t *testing.T) {
+	key, err := totp.Generate(totp.GenerateOpts{Issuer: "test", AccountName: "t@example.com"})
+	if err != nil {
+		t.Fatalf("generate TOTP key: %v", err)
+	}
+	now := time.Now()
+	code, err := totp.GenerateCode(key.Secret(), now)
+	if err != nil {
+		t.Fatalf("generate TOTP code: %v", err)
+	}
+
+	ok, counter := validateTOTPWithCounter(key.Secret(), code)
+	if !ok {
+		t.Fatal("valid code rejected")
+	}
+	// CompleteMFALogin persists this counter and requires the next accepted one to be
+	// strictly greater, so it must identify the step the code came from.
+	if want := now.Unix() / totpPeriod; counter != want {
+		t.Errorf("counter = %d, want %d", counter, want)
+	}
+}
+
+func TestValidateTOTPWithCounter_InvalidCodeReturnsZero(t *testing.T) {
+	key, err := totp.Generate(totp.GenerateOpts{Issuer: "test", AccountName: "t@example.com"})
+	if err != nil {
+		t.Fatalf("generate TOTP key: %v", err)
+	}
+	if ok, counter := validateTOTPWithCounter(key.Secret(), "000000"); ok || counter != 0 {
+		t.Errorf("got ok=%v counter=%d, want false/0", ok, counter)
+	}
+}
+
+func TestValidateTOTPWithCounter_SkewWindowIsBounded(t *testing.T) {
+	// Codes one step either side must be accepted (clock drift), codes two steps out
+	// must not — a wider window multiplies an attacker's guessing surface.
+	key, err := totp.Generate(totp.GenerateOpts{Issuer: "test", AccountName: "t@example.com"})
+	if err != nil {
+		t.Fatalf("generate TOTP key: %v", err)
+	}
+	now := time.Now()
+
+	for _, delta := range []int64{-1, 0, 1} {
+		code, err := totp.GenerateCode(key.Secret(), now.Add(time.Duration(delta*totpPeriod)*time.Second))
+		if err != nil {
+			t.Fatalf("generate code: %v", err)
+		}
+		if ok, _ := validateTOTPWithCounter(key.Secret(), code); !ok {
+			t.Errorf("code at step %+d should be accepted within the ±%d skew", delta, totpSkew)
+		}
+	}
+
+	for _, delta := range []int64{-3, 3} {
+		code, err := totp.GenerateCode(key.Secret(), now.Add(time.Duration(delta*totpPeriod)*time.Second))
+		if err != nil {
+			t.Fatalf("generate code: %v", err)
+		}
+		if ok, _ := validateTOTPWithCounter(key.Secret(), code); ok {
+			t.Errorf("code at step %+d should be outside the ±%d skew", delta, totpSkew)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // generateMFAToken
 // ---------------------------------------------------------------------------
 

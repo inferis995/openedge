@@ -21,6 +21,7 @@ import (
 	_ "github.com/ralph/industrial-edge-middleware/docs"
 	"github.com/ralph/industrial-edge-middleware/internal/auth"
 	"github.com/ralph/industrial-edge-middleware/internal/connectors"
+	"github.com/ralph/industrial-edge-middleware/internal/crypto"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/handlers"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
@@ -97,6 +98,15 @@ func main() {
 		})))
 		log.SetFlags(0) // disable timestamp prefix — slog adds it
 		log.SetOutput(os.Stdout)
+	}
+
+	// Secrets stored in global_settings (MQTT broker and cloud-connector
+	// passwords) are AES-GCM encrypted only when ENCRYPTION_KEY is a valid
+	// 32-byte key. Without it the settings handler falls back to storing them
+	// in cleartext, so say it once, loudly, at boot — otherwise an operator
+	// only finds out by reading the database.
+	if err := crypto.ValidateKey(); err != nil {
+		slog.Warn("ENCRYPTION_KEY is not usable — credentials in global_settings will be stored UNENCRYPTED", "error", err)
 	}
 
 	// Load configuration from environment variables with defaults

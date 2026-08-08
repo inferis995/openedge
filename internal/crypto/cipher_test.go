@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -33,40 +34,60 @@ func TestEncrypt_EmptyString(t *testing.T) {
 	}
 }
 
-func TestEncrypt_NoKey_ReturnsPlaintext(t *testing.T) {
-	// No ENCRYPTION_KEY set → passthrough
+// Encrypt used to return the plaintext unchanged with a nil error whenever the key
+// was unusable, so a caller could not tell an encrypted secret from one stored raw.
+// It now fails closed with ErrNoEncryptionKey; the three tests below assert that.
+
+func TestEncrypt_NoKey_ReturnsError(t *testing.T) {
+	// No ENCRYPTION_KEY set → explicit failure, never a plaintext passthrough
 	setKey(t, "")
 	plain := "hello world"
 	got, err := Encrypt(plain)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if !errors.Is(err, ErrNoEncryptionKey) {
+		t.Fatalf("expected ErrNoEncryptionKey, got err=%v", err)
 	}
-	if got != plain {
-		t.Errorf("expected plaintext passthrough, got %q", got)
+	if got == plain {
+		t.Error("Encrypt must not return the plaintext when it cannot encrypt")
 	}
 }
 
-func TestEncrypt_ShortKey_ReturnsPlaintext(t *testing.T) {
+func TestEncrypt_ShortKey_ReturnsError(t *testing.T) {
 	setKey(t, "tooshort") // not 32 chars
-	plain := "some secret"
-	got, err := Encrypt(plain)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	got, err := Encrypt("some secret")
+	if !errors.Is(err, ErrNoEncryptionKey) {
+		t.Fatalf("expected ErrNoEncryptionKey, got err=%v", err)
 	}
-	if got != plain {
-		t.Errorf("expected plaintext passthrough with short key, got %q", got)
+	if got != "" {
+		t.Errorf("expected empty result on failure, got %q", got)
 	}
 }
 
-func TestEncrypt_LongKey_ReturnsPlaintext(t *testing.T) {
+func TestEncrypt_LongKey_ReturnsError(t *testing.T) {
 	setKey(t, strings.Repeat("a", 64)) // too long
-	plain := "some secret"
-	got, err := Encrypt(plain)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	got, err := Encrypt("some secret")
+	if !errors.Is(err, ErrNoEncryptionKey) {
+		t.Fatalf("expected ErrNoEncryptionKey, got err=%v", err)
 	}
-	if got != plain {
-		t.Errorf("expected plaintext passthrough with long key, got %q", got)
+	if got != "" {
+		t.Errorf("expected empty result on failure, got %q", got)
+	}
+}
+
+func TestKeyConfiguredAndValidateKey(t *testing.T) {
+	setKey(t, "")
+	if KeyConfigured() {
+		t.Error("KeyConfigured() = true with no key")
+	}
+	if !errors.Is(ValidateKey(), ErrNoEncryptionKey) {
+		t.Error("ValidateKey() should report ErrNoEncryptionKey with no key")
+	}
+
+	setKey(t, testKey32)
+	if !KeyConfigured() {
+		t.Error("KeyConfigured() = false with a valid 32-byte key")
+	}
+	if err := ValidateKey(); err != nil {
+		t.Errorf("ValidateKey() = %v, want nil with a valid key", err)
 	}
 }
 
@@ -233,14 +254,18 @@ func TestEncryptDecrypt_EmptyRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEncryptDecrypt_PlaintextPassthroughRoundTrip(t *testing.T) {
-	// When no key is set, both Encrypt and Decrypt are identity → round-trip works
+func TestDecrypt_NoKey_ReadsLegacyPlaintext(t *testing.T) {
+	// Encrypt no longer passes plaintext through, but Decrypt must still be able to
+	// read values that older deployments wrote unencrypted, otherwise upgrading with
+	// no ENCRYPTION_KEY would break every stored setting.
 	setKey(t, "")
-	plain := "passthrough value"
-	ct, _ := Encrypt(plain)   // returns plain unchanged
-	got, _ := Decrypt(ct)     // receives plain, not valid base64 → returns it unchanged
-	if got != plain {
-		t.Errorf("passthrough round-trip: got %q, want %q", got, plain)
+	legacy := "passthrough value"
+	got, err := Decrypt(legacy)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != legacy {
+		t.Errorf("legacy plaintext read: got %q, want %q", got, legacy)
 	}
 }
 
@@ -250,25 +275,15 @@ func TestEncryptDecrypt_PlaintextPassthroughRoundTrip(t *testing.T) {
 
 func TestEncrypt_ExactlyOneByteTooShort(t *testing.T) {
 	setKey(t, strings.Repeat("x", 31))
-	plain := "test"
-	got, err := Encrypt(plain)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != plain {
-		t.Errorf("31-char key should passthrough, got %q", got)
+	if _, err := Encrypt("test"); !errors.Is(err, ErrNoEncryptionKey) {
+		t.Errorf("31-char key should fail closed, got err=%v", err)
 	}
 }
 
 func TestEncrypt_ExactlyOneByteTooLong(t *testing.T) {
 	setKey(t, strings.Repeat("x", 33))
-	plain := "test"
-	got, err := Encrypt(plain)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got != plain {
-		t.Errorf("33-char key should passthrough, got %q", got)
+	if _, err := Encrypt("test"); !errors.Is(err, ErrNoEncryptionKey) {
+		t.Errorf("33-char key should fail closed, got err=%v", err)
 	}
 }
 

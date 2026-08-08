@@ -222,11 +222,21 @@ func (h *ReportsHandler) AuditCSV(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	// Defense in depth: the route already carries RequireGlobalAdmin, but
+	// audit_logs itself has no org_id column — the only org linkage is the
+	// actor (audit_logs.user_id → users.org_id). For a non-global caller
+	// (orgFilter != nil) scope the export through it, so relaxing the route
+	// middleware can never leak another tenant's trail. Rows with no user
+	// (e.g. failed logins for unknown accounts) are not attributable to an
+	// organization and are therefore excluded for org-scoped callers.
+	orgFilter := middleware.GetOrgFilterForQuery(c)
 	rows, err := h.db.Query(`
-		SELECT id, COALESCE(user_id,0), COALESCE(username,''), action,
-		       COALESCE(ip_address,''), COALESCE(user_agent,''), COALESCE(details::text,''), success, created_at
-		FROM audit_logs WHERE created_at BETWEEN $1 AND $2
-		ORDER BY created_at DESC`, start, end)
+		SELECT al.id, COALESCE(al.user_id,0), COALESCE(al.username,''), al.action,
+		       COALESCE(al.ip_address,''), COALESCE(al.user_agent,''), COALESCE(al.details::text,''), al.success, al.created_at
+		FROM audit_logs al
+		WHERE al.created_at BETWEEN $1 AND $2
+		  AND ($3::int IS NULL OR al.user_id IN (SELECT u.id FROM users u WHERE u.org_id = $3))
+		ORDER BY al.created_at DESC`, start, end, orgFilter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query audit"})
 		return

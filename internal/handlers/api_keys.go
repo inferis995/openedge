@@ -10,7 +10,25 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 )
+
+// requireOwnOrg checks that the caller may act on the organization named in
+// the URL. Global admins may target any org; everyone else must match their
+// own org_id claim. Handler-level belt and braces for the RequireOrgParam
+// route middleware — without it an org admin could mint, list or revoke
+// another tenant's edge API keys.
+func requireOwnOrg(c *gin.Context, orgID int) bool {
+	if middleware.IsGlobalAdmin(c) {
+		return true
+	}
+	callerOrgID, ok := middleware.OrgIDFromJWT(c)
+	if !ok || callerOrgID != orgID {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden: organization access denied"})
+		return false
+	}
+	return true
+}
 
 // APIKeysHandler manages org API keys used by edge managers.
 type APIKeysHandler struct {
@@ -37,6 +55,9 @@ func (h *APIKeysHandler) Create(c *gin.Context) {
 	orgID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org id"})
+		return
+	}
+	if !requireOwnOrg(c, orgID) {
 		return
 	}
 
@@ -96,6 +117,9 @@ func (h *APIKeysHandler) List(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org id"})
 		return
 	}
+	if !requireOwnOrg(c, orgID) {
+		return
+	}
 
 	rows, err := h.db.QueryContext(c.Request.Context(),
 		`SELECT id, name, key_prefix, created_at, last_used_at
@@ -130,6 +154,9 @@ func (h *APIKeysHandler) Revoke(c *gin.Context) {
 	orgID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org id"})
+		return
+	}
+	if !requireOwnOrg(c, orgID) {
 		return
 	}
 	keyID, err := strconv.Atoi(c.Param("key_id"))

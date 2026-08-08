@@ -47,6 +47,11 @@ func (h *EdgeInstallerHandler) Download(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org id"})
 		return
 	}
+	// The ZIP embeds a freshly minted API key and the org's cloud MQTT
+	// credentials — only the owning org (or a global admin) may download it.
+	if !requireOwnOrg(c, orgID) {
+		return
+	}
 
 	var orgName string
 	err = h.db.QueryRowContext(c.Request.Context(),

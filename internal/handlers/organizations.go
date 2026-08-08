@@ -213,6 +213,17 @@ type UpdateOrganizationRequest struct {
 func (h *OrganizationsHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 
+	// Non-admin users can only modify their own organization. Without this an
+	// org-scoped admin passes RequireRole(admin) and can rename any tenant.
+	if !middleware.IsGlobalAdmin(c) {
+		orgID, _ := middleware.GetOrganizationID(c)
+		requestedID, err := strconv.Atoi(id)
+		if err != nil || requestedID != orgID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			return
+		}
+	}
+
 	var req UpdateOrganizationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -299,6 +310,17 @@ func (h *OrganizationsHandler) Delete(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid organization ID"})
 		return
+	}
+
+	// Non-admin users can only delete their own organization. This handler runs
+	// a manual cascade (tags, gateways, areas, sites) — without the check an
+	// org-scoped admin could wipe another tenant entirely.
+	if !middleware.IsGlobalAdmin(c) {
+		orgID, _ := middleware.GetOrganizationID(c)
+		if idInt != orgID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			return
+		}
 	}
 
 	var exists bool
@@ -393,6 +415,19 @@ func (h *OrganizationsHandler) Delete(c *gin.Context) {
 // SetMFARequired handles PUT /api/organizations/:id/mfa-required.
 func (h *OrganizationsHandler) SetMFARequired(c *gin.Context) {
 	id := c.Param("id")
+
+	// Non-admin users can only change their own organization's MFA policy —
+	// otherwise an org-scoped admin could disable MFA enforcement for another
+	// tenant and weaken its login security.
+	if !middleware.IsGlobalAdmin(c) {
+		orgID, _ := middleware.GetOrganizationID(c)
+		requestedID, err := strconv.Atoi(id)
+		if err != nil || requestedID != orgID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+			return
+		}
+	}
+
 	var req struct {
 		MFARequired bool `json:"mfa_required"`
 	}

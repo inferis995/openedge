@@ -76,6 +76,11 @@ func (h *FleetHandler) RestartEdge(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org id"})
 		return
 	}
+	// Restarting another tenant's edge drivers halts their plant data
+	// collection — only the owning org (or a global admin) may do it.
+	if !requireOwnOrg(c, orgID) {
+		return
+	}
 	if h.mqttClient == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MQTT not connected"})
 		return
@@ -100,6 +105,11 @@ func (h *FleetHandler) UpdateEdge(c *gin.Context) {
 	orgID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org id"})
+		return
+	}
+	// An OTA push tells another tenant's edge to pull an arbitrary image —
+	// restrict it to the owning org (or a global admin).
+	if !requireOwnOrg(c, orgID) {
 		return
 	}
 
@@ -146,6 +156,11 @@ func (h *FleetHandler) GetSSOProviders(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org id"})
 		return
 	}
+	// SSO config identifies another tenant's identity provider (client_id,
+	// tenant, domain hint) — readable only by the owning org.
+	if !requireOwnOrg(c, orgID) {
+		return
+	}
 
 	rows, err := h.db.QueryContext(c.Request.Context(), `
 		SELECT id, provider, client_id, COALESCE(tenant_id,''), COALESCE(domain_hint,''), enabled, created_at
@@ -186,6 +201,11 @@ func (h *FleetHandler) UpsertSSOProvider(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org id"})
 		return
 	}
+	// Writing another tenant's SSO provider would let an attacker point their
+	// login flow at an IdP under their control — owning org only.
+	if !requireOwnOrg(c, orgID) {
+		return
+	}
 
 	var req struct {
 		Provider     string `json:"provider" binding:"required"`
@@ -222,6 +242,11 @@ func (h *FleetHandler) DeleteSSOProvider(c *gin.Context) {
 	orgID, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid org id"})
+		return
+	}
+	// Deleting another tenant's SSO provider would lock their users out —
+	// owning org (or global admin) only.
+	if !requireOwnOrg(c, orgID) {
 		return
 	}
 	provider := c.Param("provider")

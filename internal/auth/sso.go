@@ -69,6 +69,11 @@ func (p *SSOProvider) OAuth2Config(redirectURL string) (*oauth2.Config, error) {
 	case "azure":
 		tenantID := p.TenantID
 		if tenantID == "" {
+			// SECURITY: "common" is Microsoft's multi-tenant endpoint — it accepts logins
+			// from ANY Azure AD tenant, including one an attacker registered themselves.
+			// Set tenant_id in sso_providers to pin an org to a single tenant. This matters
+			// because Graph's userinfo omits email_verified (see FetchUserInfo), so a
+			// self-owned tenant is the one place an arbitrary `mail` value can be minted.
 			tenantID = "common"
 		}
 		return &oauth2.Config{
@@ -87,10 +92,13 @@ func (p *SSOProvider) OAuth2Config(redirectURL string) (*oauth2.Config, error) {
 
 // OIDCUserInfo contains the fields we extract from the provider's userinfo endpoint.
 type OIDCUserInfo struct {
-	Sub      string `json:"sub"`
-	Email    string `json:"email"`
-	Name     string `json:"name"`
+	Sub       string `json:"sub"`
+	Email     string `json:"email"`
+	Name      string `json:"name"`
 	GivenName string `json:"given_name"`
+	// Pointer so we can distinguish "provider said false" from "provider omitted
+	// the claim" — the two get different treatment in FetchUserInfo.
+	EmailVerified *bool `json:"email_verified"`
 }
 
 // FetchUserInfo exchanges the token for user identity from the provider.
@@ -120,20 +128,39 @@ func FetchUserInfo(ctx context.Context, provider string, token *oauth2.Token, cf
 	if info.Email == "" {
 		return nil, fmt.Errorf("provider did not return an email address")
 	}
+
+	// The email IS our identity key — UpsertSSOUser matches existing accounts on it —
+	// so an unverified address lets anyone who can set a `mail`/`email` attribute in a
+	// tenant they control impersonate a victim. Refuse to trust one.
+	//   - Google always emits email_verified, so we require an explicit true.
+	//   - Azure/Graph's /oidc/userinfo omits the claim entirely, so there we can only
+	//     reject an explicit false; pin tenant_id in sso_providers for real assurance
+	//     (see the "common" note in OAuth2Config).
+	if provider == "google" {
+		if info.EmailVerified == nil || !*info.EmailVerified {
+			return nil, fmt.Errorf("provider did not verify the email address")
+		}
+	} else if info.EmailVerified != nil && !*info.EmailVerified {
+		return nil, fmt.Errorf("provider did not verify the email address")
+	}
+
 	return &info, nil
 }
 
 // UpsertSSOUser finds or creates a user for the SSO login, returning the user_id.
-// If a user with the same email exists, we return their id.
+// If a user with the same email exists *in the same org*, we return their id.
 // Otherwise a new user is created with role=user in the given org.
 func UpsertSSOUser(db *sql.DB, info *OIDCUserInfo, orgID int) (int, string, error) {
-	// Try to find existing user by email AND org (prevents cross-org user takeover).
-	// Global admins (org_id IS NULL) can SSO-login into any org.
+	// Match ONLY within the target org (prevents cross-org user takeover).
+	// A global admin row (org_id IS NULL) must NOT be reachable here: matching it
+	// would return role='admin' with no org, i.e. a full global-admin JWT, to anyone
+	// who can get the provider to assert the admin's email address. Global admins
+	// therefore log in with password/MFA, never through org-scoped SSO.
 	var userID int
 	var role, username string
 	err := db.QueryRowContext(context.Background(), `
 		SELECT id, role, username FROM users
-		WHERE email = $1 AND (org_id = $2 OR org_id IS NULL)
+		WHERE email = $1 AND org_id = $2
 	`, info.Email, orgID).Scan(&userID, &role, &username)
 	if err == nil {
 		return userID, role, nil

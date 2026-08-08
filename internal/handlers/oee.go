@@ -33,6 +33,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 )
 
 // OEEHandler espone gli endpoint /api/oee*.
@@ -201,10 +202,21 @@ func (h *OEEHandler) TestTag(c *gin.Context) {
 
 	out := TagTestResult{TagID: id, Warnings: []string{}}
 
+	// Il tag deve appartenere all'org del chiamante (nil = global admin,
+	// nessun vincolo): senza il join tags→gateways→areas→sites qualunque
+	// utente autenticato leggerebbe alias, indirizzo PLC e valori di
+	// produzione dei tag di un altro tenant iterando gli id.
+	orgFilter := middleware.GetOrgFilterForQuery(c)
+
 	var alias sql.NullString
 	if err := h.db.QueryRow(`
-		SELECT COALESCE(alias,''), code, data_type FROM tags WHERE id = $1`,
-		id,
+		SELECT COALESCE(t.alias,''), t.code, t.data_type
+		FROM tags t
+		JOIN gateways g ON g.id = t.gateway_id
+		JOIN areas a ON a.id = g.area_id
+		JOIN sites s ON s.id = a.site_id
+		WHERE t.id = $1 AND ($2::int IS NULL OR s.org_id = $2)`,
+		id, orgFilter,
 	).Scan(&alias, &out.Code, &out.DataType); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "tag not found"})
 		return
@@ -337,7 +349,9 @@ func (h *OEEHandler) ProfileHistory(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	p, err := h.loadProfile(id)
+	// Scoping org: un profilo di un altro tenant non deve essere leggibile
+	// (il trend espone la produzione della sua linea).
+	p, err := h.loadProfile(id, middleware.GetOrgFilterForQuery(c))
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "profile not found"})
 		return
@@ -604,7 +618,11 @@ func (h *OEEHandler) loadEnabledProfiles() []OEEProfile {
 	return out
 }
 
-func (h *OEEHandler) loadProfile(id int) (OEEProfile, error) {
+// loadProfile carica un profilo per id. orgFilter (nil = global admin)
+// vincola la lettura all'organizzazione del chiamante: oee_profiles ha una
+// colonna org_id, senza il predicato un admin di un tenant leggerebbe la
+// configurazione OEE di un altro.
+func (h *OEEHandler) loadProfile(id int, orgFilter *int) (OEEProfile, error) {
 	var p OEEProfile
 	err := h.db.QueryRow(`
 		SELECT p.id, p.org_id, p.name, COALESCE(p.description,''),
@@ -615,7 +633,7 @@ func (h *OEEHandler) loadProfile(id int) (OEEProfile, error) {
 			COALESCE(p.respect_shifts, true), COALESCE(p.respect_maintenance, true)
 		FROM oee_profiles p
 		LEFT JOIN areas a ON a.id = p.area_id
-		WHERE p.id = $1`, id,
+		WHERE p.id = $1 AND ($2::int IS NULL OR p.org_id = $2)`, id, orgFilter,
 	).Scan(
 		&p.ID, &p.OrgID, &p.Name, &p.Description,
 		&p.AreaID, &p.AreaName,
@@ -627,8 +645,11 @@ func (h *OEEHandler) loadProfile(id int) (OEEProfile, error) {
 	return p, err
 }
 
-// ListProfiles GET /api/oee/profiles — admin sees them all (full list).
+// ListProfiles GET /api/oee/profiles — il global admin li vede tutti,
+// gli altri solo quelli della propria organizzazione (senza il predicato
+// org_id la lista esponeva i profili di ogni tenant).
 func (h *OEEHandler) ListProfiles(c *gin.Context) {
+	orgFilter := middleware.GetOrgFilterForQuery(c)
 	rows, err := h.db.Query(`
 		SELECT p.id, p.org_id, p.name, COALESCE(p.description,''),
 			p.area_id, COALESCE(a.name,''),
@@ -638,7 +659,8 @@ func (h *OEEHandler) ListProfiles(c *gin.Context) {
 			COALESCE(p.respect_shifts, true), COALESCE(p.respect_maintenance, true)
 		FROM oee_profiles p
 		LEFT JOIN areas a ON a.id = p.area_id
-		ORDER BY p.display_order, p.name`)
+		WHERE ($1::int IS NULL OR p.org_id = $1)
+		ORDER BY p.display_order, p.name`, orgFilter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -728,7 +750,7 @@ func (h *OEEHandler) CreateProfile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	p, err := h.loadProfile(id)
+	p, err := h.loadProfile(id, middleware.GetOrgFilterForQuery(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "loaded but read failed"})
 		return
@@ -766,7 +788,10 @@ func (h *OEEHandler) UpdateProfile(c *gin.Context) {
 	if req.RespectMaintenance != nil {
 		respectMaint = *req.RespectMaintenance
 	}
-	_, err = h.db.Exec(`
+	// Il predicato org_id fa sì che un profilo di un altro tenant non venga
+	// toccato: 0 righe aggiornate → 404, nessuna modifica cross-org.
+	orgFilter := middleware.GetOrgFilterForQuery(c)
+	res, err := h.db.Exec(`
 		UPDATE oee_profiles SET
 			name=$2, description=$3, area_id=$4, gateway_id=$5,
 			run_time_tag_id=$6, produced_tag_id=$7, good_tag_id=$8,
@@ -774,17 +799,21 @@ func (h *OEEHandler) UpdateProfile(c *gin.Context) {
 			display_order=$12, enabled=$13,
 			respect_shifts=$14, respect_maintenance=$15,
 			updated_at=NOW()
-		WHERE id=$1`,
+		WHERE id=$1 AND ($16::int IS NULL OR org_id=$16)`,
 		id, req.Name, req.Description, req.AreaID, req.GatewayID,
 		req.RunTimeTagID, req.ProducedTagID, req.GoodTagID,
 		req.TargetPiecesPerHour, req.WindowMinutes, req.TargetOEE,
-		req.DisplayOrder, enabled, respectShifts, respectMaint,
+		req.DisplayOrder, enabled, respectShifts, respectMaint, orgFilter,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	p, err := h.loadProfile(id)
+	if n, _ := res.RowsAffected(); n == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	p, err := h.loadProfile(id, orgFilter)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
@@ -799,8 +828,16 @@ func (h *OEEHandler) DeleteProfile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	if _, err := h.db.Exec(`DELETE FROM oee_profiles WHERE id=$1`, id); err != nil {
+	// Come per UpdateProfile: il predicato org_id impedisce a un admin di
+	// cancellare il profilo OEE di un altro tenant (0 righe → 404).
+	res, err := h.db.Exec(`DELETE FROM oee_profiles WHERE id=$1 AND ($2::int IS NULL OR org_id=$2)`,
+		id, middleware.GetOrgFilterForQuery(c))
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
 	c.Status(http.StatusNoContent)
