@@ -411,7 +411,7 @@ func TestEvaluateTag_BadQuality_NoCallback(t *testing.T) {
 	// Manager with nil DB, nil mqtt — EvaluateTag with quality != 192 must not panic.
 	m := alarms.NewManager(nil, nil, 0)
 	fired := false
-	m.OnAlarmEvent = func(tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
+	m.OnAlarmEvent = func(eventID int, tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
 		fired = true
 	}
 	// quality=0 → skip evaluation entirely
@@ -424,7 +424,7 @@ func TestEvaluateTag_BadQuality_NoCallback(t *testing.T) {
 func TestEvaluateTag_BadQuality_VariousValues(t *testing.T) {
 	m := alarms.NewManager(nil, nil, 0)
 	fired := false
-	m.OnAlarmEvent = func(_ int, _ string, _ models.AlarmDefinition, _ float64, _ string) {
+	m.OnAlarmEvent = func(_ int, _ int, _ string, _ models.AlarmDefinition, _ float64, _ string) {
 		fired = true
 	}
 	for _, quality := range []int{0, 1, 64, 128, 191, 193, 255} {
@@ -439,7 +439,7 @@ func TestEvaluateTag_UnsupportedType_NoCallback(t *testing.T) {
 	// string value is not convertible to float — should be skipped.
 	m := alarms.NewManager(nil, nil, 0)
 	fired := false
-	m.OnAlarmEvent = func(_ int, _ string, _ models.AlarmDefinition, _ float64, _ string) {
+	m.OnAlarmEvent = func(_ int, _ int, _ string, _ models.AlarmDefinition, _ float64, _ string) {
 		fired = true
 	}
 	m.EvaluateTag(1, "tag1", "not-a-number", 192)
@@ -452,7 +452,7 @@ func TestEvaluateTag_NoDefinitions_NoCallback(t *testing.T) {
 	// No alarm definitions loaded (nil DB means LoadDefinitions is a no-op).
 	m := alarms.NewManager(nil, nil, 0)
 	fired := false
-	m.OnAlarmEvent = func(_ int, _ string, _ models.AlarmDefinition, _ float64, _ string) {
+	m.OnAlarmEvent = func(_ int, _ int, _ string, _ models.AlarmDefinition, _ float64, _ string) {
 		fired = true
 	}
 	m.EvaluateTag(99, "tagX", float64(500.0), 192)

@@ -4,10 +4,22 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/smtp"
 	"strconv"
 	"strings"
 	"time"
+)
+
+// smtpDialTimeout bounds the TCP connect + TLS handshake, and smtpSessionTimeout
+// the whole SMTP conversation when the caller's context has no deadline.
+// Without them a firewalled relay (packets dropped, no RST) parks the send for
+// minutes: the dispatcher walks its channels sequentially inside one goroutine,
+// so a hung email delays — or with its 30 s ctx cancels — Telegram, Slack,
+// Teams and PagerDuty for the same alarm.
+const (
+	smtpDialTimeout    = 10 * time.Second
+	smtpSessionTimeout = 30 * time.Second
 )
 
 // emailChannel sends alarm events as plain-text email via SMTP+STARTTLS
@@ -69,34 +81,74 @@ func (c *emailChannel) Send(ctx context.Context, e *Event) error {
 	addr := fmt.Sprintf("%s:%d", c.host, c.port)
 	auth := smtp.PlainAuth("", c.username, c.password, c.host)
 
-	// Implicit-TLS path (port 465 typically).
-	if c.useTLS {
-		return c.sendImplicitTLS(addr, auth, []byte(msg))
-	}
-	// STARTTLS path — net/smtp's SendMail negotiates it automatically
-	// when the server advertises STARTTLS, which covers 587 (submission)
-	// and 25 (legacy) relays.
-	return smtp.SendMail(addr, auth, c.from, c.to, []byte(msg))
+	// Both paths go through sendSMTP: net/smtp.SendMail has no timeout and no
+	// context, so we dial ourselves and put a deadline on the socket.
+	return c.sendSMTP(ctx, addr, auth, []byte(msg))
 }
 
-// sendImplicitTLS handles servers that wrap the whole connection in TLS
-// from byte zero (typically port 465). net/smtp.SendMail doesn't do
-// this out of the box, so we open the TLS conn ourselves and feed it
-// to smtp.NewClient.
-func (c *emailChannel) sendImplicitTLS(addr string, auth smtp.Auth, msg []byte) error {
-	conn, err := tls.Dial("tcp", addr, &tls.Config{
+// dial opens the transport to the relay, honouring ctx and a hard dial
+// timeout. useTLS servers wrap the whole connection in TLS from byte zero
+// (typically port 465); the others are upgraded later via STARTTLS.
+func (c *emailChannel) dial(ctx context.Context, addr string) (net.Conn, error) {
+	d := net.Dialer{Timeout: smtpDialTimeout}
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("smtp dial: %w", err)
+	}
+
+	// net/smtp offers no context-aware I/O, so the ctx deadline (or a default)
+	// is enforced with a socket deadline covering the whole conversation:
+	// a relay that accepts the TCP connection and then stalls can't hang us.
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(smtpSessionTimeout)
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("smtp deadline: %w", err)
+	}
+
+	if !c.useTLS {
+		return conn, nil
+	}
+	tlsConn := tls.Client(conn, &tls.Config{
 		ServerName: c.host,
 		MinVersion: tls.VersionTLS12,
 	})
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("tls dial: %w", err)
+	}
+	return tlsConn, nil
+}
+
+// sendSMTP performs the SMTP conversation on a bounded connection. It is the
+// timeout-aware equivalent of smtp.SendMail: STARTTLS is negotiated when the
+// server advertises it (587 submission, 25 legacy relays) and skipped when the
+// connection is already implicit TLS (465).
+func (c *emailChannel) sendSMTP(ctx context.Context, addr string, auth smtp.Auth, msg []byte) error {
+	conn, err := c.dial(ctx, addr)
 	if err != nil {
-		return fmt.Errorf("tls dial: %w", err)
+		return err
 	}
 	defer conn.Close()
+
 	client, err := smtp.NewClient(conn, c.host)
 	if err != nil {
 		return fmt.Errorf("smtp client: %w", err)
 	}
-	defer client.Quit()
+	defer client.Close()
+
+	if !c.useTLS {
+		if ok, _ := client.Extension("STARTTLS"); ok {
+			if err := client.StartTLS(&tls.Config{
+				ServerName: c.host,
+				MinVersion: tls.VersionTLS12,
+			}); err != nil {
+				return fmt.Errorf("starttls: %w", err)
+			}
+		}
+	}
 	if c.username != "" {
 		if err := client.Auth(auth); err != nil {
 			return fmt.Errorf("smtp auth: %w", err)
@@ -117,7 +169,10 @@ func (c *emailChannel) sendImplicitTLS(addr string, auth smtp.Auth, msg []byte) 
 	if _, err := w.Write(msg); err != nil {
 		return err
 	}
-	return w.Close()
+	if err := w.Close(); err != nil {
+		return err
+	}
+	return client.Quit()
 }
 
 func renderText(e Event) string {

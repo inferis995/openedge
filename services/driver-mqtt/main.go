@@ -211,15 +211,17 @@ func main() {
 	// Initialize Alarm Manager
 	driver.alarmManager = alarms.NewManager(database, mqttClient, gatewayID)
 
-	driver.alarmManager.OnAlarmEvent = func(tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
-		driver.publishDual(
-			tagID,
-			alias+"_Alarm",
-			status == "ACTIVE",
-			"BOOL",
-			0, // Quality: 0 = GOOD in internal standard (for UI compatibility)
-			time.Now().UnixMilli(),
-		)
+	driver.alarmManager.OnAlarmEvent = func(eventID int, tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
+		// Publish on sys/alarms: this is the ONLY route to core-api's
+		// handleAlarmEvent and therefore to the notification dispatcher.
+		//
+		// The previous publishDual(tagID, alias+"_Alarm", status == "ACTIVE", ...)
+		// was dropped on purpose: publishDual emits a data/ payload keyed by
+		// tag_id, so core-api's handleDataUpdate overwrote realtime:{tagID} and
+		// tag_shadow:{tagID} with true/false — the measured value was replaced
+		// by the alarm boolean on the HMI until the next poll. The alarm state
+		// now travels on its own topic, where it cannot be mistaken for it.
+		driver.publishAlarmEvent(eventID, tagID, alias, def, val, status)
 	}
 
 	go driver.alarmManager.StartTicker(context.Background())
@@ -433,6 +435,69 @@ func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataTyp
 				log.Printf("[DRIVER-MQTT] Publish error for %s on %s: %v", alias, topic, err)
 			}
 		}
+	}
+}
+
+// AlarmEventPayload is the sys/alarms message consumed by core-api
+// (handleAlarmEvent) and forwarded to the cloud by engine-historian.
+// EventID is the alarm_events row internal/alarms already wrote through the
+// driver's own DB connection: core-api uses it to skip its INSERT/UPDATE so
+// one alarm never produces two rows.
+type AlarmEventPayload struct {
+	EventID        int     `json:"event_id"`
+	TagID          int     `json:"tag_id"`
+	DefinitionID   int     `json:"definition_id"`
+	Status         string  `json:"status"`
+	AlarmType      string  `json:"alarm_type"`
+	Severity       string  `json:"severity"`
+	Message        string  `json:"message"`
+	ValueAtTrigger float64 `json:"value_at_trigger"`
+	Threshold      float64 `json:"threshold"`
+	TagAlias       string  `json:"tag_alias"`
+	Timestamp      int64   `json:"timestamp"`
+}
+
+// publishAlarmEvent publishes an alarm state change on
+// sys/alarms/{org_id}/{site}/{area}/{gateway}/{tag_alias}, using the same
+// slugified path components as the data/ topics (see publishDual).
+// Always legacy JSON, never Sparkplug: core-api only subscribes to sys/alarms.
+func (d *Driver) publishAlarmEvent(eventID int, tagID int, alias string, def models.AlarmDefinition, val float64, status string) {
+	d.configMu.RLock()
+	cfg := d.config
+	d.configMu.RUnlock()
+
+	if cfg == nil {
+		return
+	}
+
+	var threshold float64
+	if def.Threshold != nil {
+		threshold = *def.Threshold
+	}
+
+	topic := fmt.Sprintf("sys/alarms/%d/%s/%s/%s/%s",
+		cfg.OrgID, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name), slugify(alias))
+	payload, err := json.Marshal(AlarmEventPayload{
+		EventID:        eventID,
+		TagID:          tagID,
+		DefinitionID:   def.ID,
+		Status:         status,
+		AlarmType:      def.AlarmType,
+		Severity:       def.Severity,
+		Message:        def.Message,
+		ValueAtTrigger: val,
+		Threshold:      threshold,
+		TagAlias:       alias,
+		Timestamp:      time.Now().UnixMilli(),
+	})
+	if err != nil {
+		log.Printf("[DRIVER-MQTT] Failed to encode alarm event for %s: %v", alias, err)
+		return
+	}
+	// QoS 1: an alarm that nobody is paged for is the whole point of this
+	// topic, so it must survive a broker hiccup. Not retained: it's an event.
+	if err := d.mqttClient.PublishWithQoS(topic, string(payload), 1, false); err != nil {
+		log.Printf("[DRIVER-MQTT] Failed to publish alarm event for %s on %s: %v", alias, topic, err)
 	}
 }
 

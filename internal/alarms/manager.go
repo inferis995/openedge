@@ -39,8 +39,14 @@ type Manager struct {
 	mu           sync.RWMutex
 
 	// OnAlarmEvent is called whenever an alarm state changes (e.g. triggered or cleared)
-	// This allows the parent driver to publish the alarm to the cloud (e.g. via Sparkplug B)
-	OnAlarmEvent func(tagID int, alias string, def models.AlarmDefinition, val float64, status string)
+	// This allows the parent driver to publish the alarm to the cloud (e.g. on sys/alarms).
+	//
+	// eventID is the alarm_events row this state change refers to: the row this
+	// manager just INSERTed on ACTIVE, or the row tracked since the alarm fired on
+	// CLEARED. The driver forwards it so core-api knows the row already exists and
+	// skips its own INSERT/UPDATE — otherwise every alarm would be persisted twice.
+	// It is 0 only when the DB write failed or no DB is attached (tests).
+	OnAlarmEvent func(eventID int, tagID int, alias string, def models.AlarmDefinition, val float64, status string)
 }
 
 func NewManager(db *sql.DB, mqttClient MQTTPublisher, gatewayID int) *Manager {
@@ -192,13 +198,15 @@ func (m *Manager) LoadDefinitions() {
 				if tracks[defID].Triggered {
 					var alias string
 					m.db.QueryRow("SELECT alias FROM tags WHERE id = $1", tagID).Scan(&alias)
-					m.fireAlarmEvent(tagID, alias, tracks[defID].Definition, tracks[defID].InitialValue, "CLEARED")
-					// Update the database record with CLEARED status
+					// Update the database record with CLEARED status BEFORE notifying the
+					// driver: the callback publishes the event and whoever consumes it
+					// (core-api → notifications) must never see a still-ACTIVE row.
 					if tracks[defID].EventID > 0 {
 						if err := m.updateAlarmEventAsCleared(tracks[defID].EventID); err != nil {
 							log.Printf("[ALARM-MANAGER] Failed to update alarm event %d as CLEARED during cleanup: %v", tracks[defID].EventID, err)
 						}
 					}
+					m.fireAlarmEvent(tagID, alias, tracks[defID].Definition, tracks[defID].InitialValue, "CLEARED", tracks[defID].EventID)
 				}
 				delete(tracks, defID)
 			}
@@ -266,7 +274,7 @@ func (m *Manager) tickDelays() {
 		// No need to check again since we're iterating over alarms we just collected
 		var alias string
 		m.db.QueryRow("SELECT alias FROM tags WHERE id = $1", pt.tagID).Scan(&alias)
-		eventID := m.fireAlarmEvent(pt.tagID, alias, pt.definition, pt.initialValue, "ACTIVE")
+		eventID := m.fireAlarmEvent(pt.tagID, alias, pt.definition, pt.initialValue, "ACTIVE", 0)
 
 		// Store the event ID in the track for later CLEARED updates
 		if tracks, ok := m.activeTracks[pt.tagID]; ok {
@@ -324,7 +332,7 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 
 				// Evaluate immediately if delay is 0
 				if def.DelaySeconds == 0 {
-					eventID := m.fireAlarmEvent(tagID, alias, def, floatVal, "ACTIVE")
+					eventID := m.fireAlarmEvent(tagID, alias, def, floatVal, "ACTIVE", 0)
 					track.Triggered = true
 					track.EventID = eventID
 				}
@@ -336,14 +344,15 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 			if isTracking {
 				if isCleared(def, floatVal) {
 					if track.Triggered {
-						// It was fired, so we must publish a CLEAR event and update database
-						m.fireAlarmEvent(tagID, alias, def, floatVal, "CLEARED")
-						// Update the database record with CLEARED status
+						// It was fired, so we must update the database and publish a CLEAR
+						// event. DB first: the callback publishes the event downstream and
+						// consumers must never see a still-ACTIVE row for a cleared alarm.
 						if track.EventID > 0 {
 							if err := m.updateAlarmEventAsCleared(track.EventID); err != nil {
 								log.Printf("[ALARM-MANAGER] Failed to update alarm event %d as CLEARED: %v", track.EventID, err)
 							}
 						}
+						m.fireAlarmEvent(tagID, alias, def, floatVal, "CLEARED", track.EventID)
 					}
 					// Remove from tracking
 					delete(tracks, def.ID)
@@ -429,27 +438,34 @@ func (m *Manager) updateAlarmEventAsCleared(eventID int) error {
 	return nil
 }
 
-func (m *Manager) fireAlarmEvent(tagID int, alias string, def models.AlarmDefinition, val float64, status string) int {
+// fireAlarmEvent persists the state change and notifies the parent driver.
+// existingEventID is the alarm_events row the caller already knows about: 0 on
+// ACTIVE (the row is created here), and the tracked row id on CLEARED (created
+// when the alarm fired, already updated by the caller). The returned id — also
+// handed to OnAlarmEvent — identifies the row this event refers to, so the
+// driver can put it on the wire and core-api will not persist it a second time.
+func (m *Manager) fireAlarmEvent(tagID int, alias string, def models.AlarmDefinition, val float64, status string, existingEventID int) int {
 	// NOTE: MQTT publishing is now handled ONLY by OnAlarmEvent callback in the driver
 	// This function handles database persistence and triggers the callback
 
 	// Write to database for history tracking
-	var eventID int
-	var err error
+	eventID := existingEventID
 	if status == "ACTIVE" {
-		eventID, err = m.insertAlarmEvent(tagID, def, val, status)
+		id, err := m.insertAlarmEvent(tagID, def, val, status)
 		// Note: Duplicate errors are silently handled in insertAlarmEvent
 		if err != nil && !strings.Contains(err.Error(), "duplicate key") {
 			log.Printf("[ALARM-MANAGER] Failed to insert alarm event: %v", err)
 		}
-	} else if status == "CLEARED" {
-		// EventID should be passed from the track when clearing
-		// This will be handled by the caller
+		if id > 0 {
+			eventID = id
+		}
 	}
+	// CLEARED: the row already exists (existingEventID) and is updated by the
+	// caller, which owns the track holding its id.
 
 	// Notify parent driver if callback is set
 	if m.OnAlarmEvent != nil {
-		m.OnAlarmEvent(tagID, alias, def, val, status)
+		m.OnAlarmEvent(eventID, tagID, alias, def, val, status)
 	}
 
 	return eventID

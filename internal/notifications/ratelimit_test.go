@@ -42,6 +42,10 @@ func TestSeverityRankUnknownDefaultsToZero(t *testing.T) {
 		"medium": 1, "Medium": 1,
 		"high": 2, "critical": 3,
 		"": 0, "unknown-future-value": 0,
+		// Product vocabulary (alarm_definitions CHECK constraint): it must map
+		// onto the same tiers as the legacy words, otherwise the shipped
+		// default notif_min_severity='medium' silently drops every warning.
+		"info": 0, "warning": 1, "WARNING": 1, " Warning ": 1,
 	}
 	for in, want := range cases {
 		if got := severityRank(in); got != want {

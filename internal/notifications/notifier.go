@@ -23,15 +23,19 @@ import (
 // Kept lean on purpose so the package doesn't pull in the full
 // models.AlarmEvent (and its DB-dependent tags) — easier to unit-test.
 type Event struct {
-	AlarmID     int       // alarm_events.id
-	TagAlias    string    // human-friendly tag name
-	Severity    string    // low | medium | high | critical
-	Status      string    // ACTIVE | CLEARED
-	Threshold   float64   // configured limit
-	Value       float64   // measured value that fired the alarm
-	Description string    // free-text from the alarm definition
-	OccurredAt  time.Time // when the event happened (UTC)
-	OrgID       int       // for multi-tenant scope filtering (0 = on-prem)
+	AlarmID int // alarm_events.id (0 for synthetic events, e.g. OEE alerts)
+	// DefinitionID is alarm_definitions.id — unlike AlarmID it is the same on
+	// the ACTIVE and the CLEARED event of one alarm, which is what channels
+	// need to correlate the two (see dedupKey in pagerduty.go). 0 when unknown.
+	DefinitionID int
+	TagAlias     string    // human-friendly tag name
+	Severity     string    // info | warning | critical (legacy: low | medium | high)
+	Status       string    // ACTIVE | CLEARED
+	Threshold    float64   // configured limit
+	Value        float64   // measured value that fired the alarm
+	Description  string    // free-text from the alarm definition
+	OccurredAt   time.Time // when the event happened (UTC)
+	OrgID        int       // for multi-tenant scope filtering (0 = on-prem)
 }
 
 // Channel is anything that can deliver a notification. Implementations
@@ -196,17 +200,27 @@ func (d *Dispatcher) reload() {
 }
 
 // severityRank turns the severity string into a comparable int so the
-// minimum-severity filter is a simple ≥ check. Unknown values map to 0
-// (i.e. always pass) to err on the side of NOT silencing alerts.
+// minimum-severity filter is a simple ≥ check.
+//
+// Two vocabularies reach this function. Alarms actually carry the product
+// vocabulary — info | warning | critical (see the alarm_definitions CHECK
+// constraint and the UI default 'warning') — while notif_min_severity and the
+// older OEE rules still speak low | medium | high | critical. They are mapped
+// onto the same scale by tier, so the shipped default notif_min_severity=
+// 'medium' lets warning and critical through instead of silently dropping
+// every alarm the product can actually produce.
+//
+// Unknown values map to the lowest rank so an unrecognised severity is never
+// promoted above the operator's threshold.
 func severityRank(s string) int {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "low":
+	case "low", "info": // informational tier
 		return 0
-	case "medium":
+	case "medium", "warning": // warning tier
 		return 1
-	case "high":
+	case "high": // legacy tier between warning and critical
 		return 2
-	case "critical":
+	case "critical": // highest tier
 		return 3
 	}
 	return 0

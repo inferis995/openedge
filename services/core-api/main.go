@@ -1211,6 +1211,10 @@ func handleAlarmEvent(topic string, payload []byte, db *sql.DB) {
 	}
 
 	var event struct {
+		// EventID is the alarm_events row the publisher already wrote (edge
+		// drivers persist through their own DB connection). 0/absent means the
+		// publisher expects core-api to persist the event itself.
+		EventID        int     `json:"event_id"`
 		TagID          int     `json:"tag_id"`
 		DefinitionID   int     `json:"definition_id"`
 		Status         string  `json:"status"` // "ACTIVE", "CLEARED"
@@ -1229,30 +1233,41 @@ func handleAlarmEvent(topic string, payload []byte, db *sql.DB) {
 	}
 
 	eventTime := time.UnixMilli(event.Timestamp)
-	var insertedID int
+	// alarmID is the alarm_events row this event refers to, whoever wrote it.
+	insertedID := event.EventID
 
-	if event.Status == "ACTIVE" {
-		err := db.QueryRow(`
-			INSERT INTO alarm_events
-				(tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time)
-			VALUES
-				($1, $2, $3, $4, $5, $6, $7, $8)
-			RETURNING id
-		`, event.TagID, event.DefinitionID, "ACTIVE", event.AlarmType, event.Severity, event.Message, event.ValueAtTrigger, eventTime).
-			Scan(&insertedID)
-		if err != nil {
-			log.Printf("[ALARM] Failed to insert trigger event: %v", err)
-		}
-	} else if event.Status == "CLEARED" {
-		_, err := db.Exec(`
-			UPDATE alarm_events
-			SET status = 'CLEARED', clear_time = $1
-			WHERE definition_id = $2
-			  AND tag_id = $3
-			  AND clear_time IS NULL
-		`, eventTime, event.DefinitionID, event.TagID)
-		if err != nil {
-			log.Printf("[ALARM] Failed to update clear event: %v", err)
+	// Two kinds of publishers land on sys/alarms and they must be persisted
+	// differently:
+	//   • edge drivers (internal/alarms.Manager) already INSERT the ACTIVE row
+	//     and UPDATE it on CLEARED using their own DB connection — they carry
+	//     event_id > 0. Writing here as well would duplicate every alarm row,
+	//     so we skip straight to the notification/webhook fan-out.
+	//   • external or legacy publishers send no event_id (0): nothing persisted
+	//     the event yet, so keep the original behaviour and write it here.
+	if event.EventID == 0 {
+		if event.Status == "ACTIVE" {
+			err := db.QueryRow(`
+				INSERT INTO alarm_events
+					(tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time)
+				VALUES
+					($1, $2, $3, $4, $5, $6, $7, $8)
+				RETURNING id
+			`, event.TagID, event.DefinitionID, "ACTIVE", event.AlarmType, event.Severity, event.Message, event.ValueAtTrigger, eventTime).
+				Scan(&insertedID)
+			if err != nil {
+				log.Printf("[ALARM] Failed to insert trigger event: %v", err)
+			}
+		} else if event.Status == "CLEARED" {
+			_, err := db.Exec(`
+				UPDATE alarm_events
+				SET status = 'CLEARED', clear_time = $1
+				WHERE definition_id = $2
+				  AND tag_id = $3
+				  AND clear_time IS NULL
+			`, eventTime, event.DefinitionID, event.TagID)
+			if err != nil {
+				log.Printf("[ALARM] Failed to update clear event: %v", err)
+			}
 		}
 	}
 
@@ -1267,14 +1282,18 @@ func handleAlarmEvent(topic string, payload []byte, db *sql.DB) {
 			alias = fmt.Sprintf("tag #%d", event.TagID)
 		}
 		notifDispatcher.Dispatch(notifications.Event{
-			AlarmID:     insertedID,
-			TagAlias:    alias,
-			Severity:    event.Severity,
-			Status:      event.Status,
-			Threshold:   event.Threshold,
-			Value:       event.ValueAtTrigger,
-			Description: event.Message,
-			OccurredAt:  eventTime.UTC(),
+			AlarmID: insertedID,
+			// DefinitionID identifies the alarm rule and is stable across the
+			// ACTIVE → CLEARED pair, so channels can correlate them (PagerDuty
+			// needs it to resolve the incident it opened).
+			DefinitionID: event.DefinitionID,
+			TagAlias:     alias,
+			Severity:     event.Severity,
+			Status:       event.Status,
+			Threshold:    event.Threshold,
+			Value:        event.ValueAtTrigger,
+			Description:  event.Message,
+			OccurredAt:   eventTime.UTC(),
 		})
 	}
 

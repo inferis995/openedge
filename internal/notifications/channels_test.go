@@ -275,3 +275,34 @@ func TestPagerDuty_SeverityMapping(t *testing.T) {
 		srv.Close()
 	}
 }
+
+// The trigger and the resolve of one alarm must share a dedup key, otherwise
+// PagerDuty resolves an incident that was never opened and the real one stays
+// up forever. alarm_events.id can't be used: it differs (or is 0) on CLEARED.
+func TestPagerDuty_DedupKeyStableAcrossActiveAndCleared(t *testing.T) {
+	active := *testEvent
+	active.AlarmID, active.DefinitionID = 871, 12
+
+	cleared := *testEvent
+	cleared.Status = "CLEARED"
+	cleared.AlarmID, cleared.DefinitionID = 0, 12 // no row id on clear
+
+	if a, c := dedupKey(&active), dedupKey(&cleared); a != c {
+		t.Errorf("dedup key differs between ACTIVE (%q) and CLEARED (%q)", a, c)
+	}
+}
+
+// Synthetic alerts (OEE) carry no definition id and no alarm row: they used to
+// collapse onto openedge-alarm-0, merging unrelated alerts into one incident.
+func TestPagerDuty_DedupKeyDistinctPerSource(t *testing.T) {
+	a := Event{AlarmID: 0, TagAlias: "OEE/availability", Status: "ACTIVE"}
+	b := Event{AlarmID: 0, TagAlias: "OEE/quality", Status: "ACTIVE"}
+	if dedupKey(&a) == dedupKey(&b) {
+		t.Errorf("distinct alert sources share dedup key %q", dedupKey(&a))
+	}
+	// Same source in a different org must not collide either.
+	c := Event{AlarmID: 0, TagAlias: "OEE/quality", Status: "ACTIVE", OrgID: 3}
+	if dedupKey(&b) == dedupKey(&c) {
+		t.Errorf("orgs share dedup key %q", dedupKey(&b))
+	}
+}
