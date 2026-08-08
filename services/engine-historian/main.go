@@ -762,10 +762,22 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 	// ── Handle DEATH messages ─────────────────────────────────────────────
 	// When a device/node goes offline, mark all its known tags as BAD quality
 	// in Redis so the trend shows N/A instead of stale data.
-	if topicInfo.MessageType == sparkplug.MessageTypeDDEATH || topicInfo.MessageType == sparkplug.MessageTypeNDEATH {
+	if topicInfo.MessageType == sparkplug.MessageTypeDDEATH {
 		deviceKey := fmt.Sprintf("%s/%s/%s", topicInfo.GroupID, topicInfo.EdgeNodeID, topicInfo.DeviceID)
-		log.Printf("[HISTORIAN] Sparkplug %s received for %s — marking tags offline", topicInfo.MessageType, deviceKey)
+		log.Printf("[HISTORIAN] Sparkplug DDEATH received for %s — marking tags offline", deviceKey)
 		s.markDeviceTagsOffline(deviceKey)
+		return
+	}
+	if topicInfo.MessageType == sparkplug.MessageTypeNDEATH {
+		// NDEATH is a NODE-level topic (spBv1.0/{group}/NDEATH/{node}), so
+		// DeviceID is empty. Building the usual "group/node/device" key
+		// produced "group/node/" — which matches nothing in deviceTagMap, so
+		// an entire edge node dying marked NOTHING offline: the dashboard kept
+		// showing its last values and the trend drew a straight line across
+		// the outage, indistinguishable from a stable process.
+		log.Printf("[HISTORIAN] Sparkplug NDEATH received for %s/%s — marking every device of the node offline",
+			topicInfo.GroupID, topicInfo.EdgeNodeID)
+		s.markNodeTagsOffline(topicInfo.GroupID, topicInfo.EdgeNodeID)
 		return
 	}
 
@@ -1303,7 +1315,9 @@ func (s *HistorianService) markDeviceTagsOffline(deviceKey string) {
 	s.deviceTagMapMu.RUnlock()
 
 	if len(tagIDs) == 0 {
-		log.Printf("[HISTORIAN] No tracked tags for device %s — trying DB lookup", deviceKey)
+		// No DB fallback exists here: tags become known only once a value has
+		// been seen from the device (trackDeviceTag).
+		log.Printf("[HISTORIAN] No tracked tags for device %s — nothing to mark offline", deviceKey)
 		return
 	}
 
@@ -1311,6 +1325,30 @@ func (s *HistorianService) markDeviceTagsOffline(deviceKey string) {
 		s.markTagOffline(tagID)
 	}
 	log.Printf("[HISTORIAN] Marked %d tags offline for Sparkplug device %s", len(tagIDs), deviceKey)
+}
+
+// markNodeTagsOffline marks every device belonging to one edge node offline.
+// Called on NDEATH, which announces the death of the whole node rather than a
+// single device, so every "group/node/*" entry has to be swept.
+func (s *HistorianService) markNodeTagsOffline(groupID, edgeNodeID string) {
+	prefix := fmt.Sprintf("%s/%s/", groupID, edgeNodeID)
+
+	s.deviceTagMapMu.RLock()
+	var keys []string
+	for k := range s.deviceTagMap {
+		if strings.HasPrefix(k, prefix) {
+			keys = append(keys, k)
+		}
+	}
+	s.deviceTagMapMu.RUnlock()
+
+	if len(keys) == 0 {
+		log.Printf("[HISTORIAN] NDEATH for %s but no devices are tracked for it yet", prefix)
+		return
+	}
+	for _, k := range keys {
+		s.markDeviceTagsOffline(k)
+	}
 }
 
 // markTagOffline does two things when a tag goes offline:
@@ -1330,7 +1368,9 @@ func (s *HistorianService) markTagOffline(tagID int) {
 			alreadyOffline = rv.Q > 0
 
 			// ── 1. Update Redis realtime quality ────────────────────────
-			rv.Q = 1 // BAD quality
+			rv.Q = 2 // BAD — 1 is UNCERTAIN, and the synoptic widgets only
+			//          flag >= 2, so a dead device used to render as a normal
+			//          value on the mimic the operator watches.
 			rv.Ts = time.Now().UnixMilli()
 			rvJSON, _ := json.Marshal(rv)
 			s.redisClient.Set(realtimeKey, string(rvJSON), time.Duration(realtimeCacheTTL)*time.Second)
