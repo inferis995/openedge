@@ -21,6 +21,18 @@ vendor/
 bin/
 dist/
 /cli
+# `go build ./services/<name>/` drops the binary in the CURRENT directory, so
+# running it from the repo root leaves these here (the per-service paths below
+# only cover builds run inside the service directory).
+/core-api
+/engine-historian
+/driver-manager
+/driver-modbus
+/driver-mqtt
+/driver-opcua
+/driver-redis
+/driver-s7
+/driver-lorawan
 
 # Node.js
 node_modules/
