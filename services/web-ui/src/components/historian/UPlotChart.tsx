@@ -55,20 +55,46 @@ function buildTooltipPlugin(pens: PenSeries[]): uPlot.Plugin {
                     hour: '2-digit', minute: '2-digit', second: '2-digit',
                 });
 
-                let html = `<div class="font-semibold text-foreground mb-1.5 border-b border-border pb-1">${timeStr}</div>`;
+                // Built with the DOM API rather than innerHTML: pen.label and
+                // pen.unit come from tag aliases, which are attacker-influenced
+                // (an admin names a tag, and the LoRaWAN import derives aliases
+                // from device-supplied fields). Interpolating them into HTML was
+                // stored XSS, and since the JWT lives in localStorage the payload
+                // could exfiltrate an operator's — or a global admin's — session.
+                tooltip.replaceChildren();
+
+                const header = document.createElement('div');
+                header.className = 'font-semibold text-foreground mb-1.5 border-b border-border pb-1';
+                header.textContent = timeStr;
+                tooltip.appendChild(header);
+
                 for (let i = 0; i < pens.length; i++) {
                     const pen = pens[i];
                     if (!pen.visible) continue;
                     const raw = u.data[i + 1]?.[idx];
                     const val = raw === null || raw === undefined ? '—' :
                         Number.isFinite(raw) ? raw.toFixed(3).replace(/\.?0+$/, '') : '—';
-                    html += `<div class="flex items-center gap-1.5 mt-0.5">
-                        <span style="width:10px;height:10px;border-radius:2px;background:${pen.color};flex-shrink:0;display:inline-block"></span>
-                        <span class="text-muted-foreground truncate max-w-[80px]">${pen.label}</span>
-                        <span class="ml-auto font-mono font-medium">${val}${pen.unit ? ' ' + pen.unit : ''}</span>
-                    </div>`;
+
+                    const row = document.createElement('div');
+                    row.className = 'flex items-center gap-1.5 mt-0.5';
+
+                    const swatch = document.createElement('span');
+                    swatch.style.cssText = 'width:10px;height:10px;border-radius:2px;flex-shrink:0;display:inline-block';
+                    swatch.style.background = pen.color;
+                    row.appendChild(swatch);
+
+                    const label = document.createElement('span');
+                    label.className = 'text-muted-foreground truncate max-w-[80px]';
+                    label.textContent = pen.label;
+                    row.appendChild(label);
+
+                    const value = document.createElement('span');
+                    value.className = 'ml-auto font-mono font-medium';
+                    value.textContent = `${val}${pen.unit ? ' ' + pen.unit : ''}`;
+                    row.appendChild(value);
+
+                    tooltip.appendChild(row);
                 }
-                tooltip.innerHTML = html;
                 tooltip.classList.remove('hidden');
 
                 const overRect = u.over.getBoundingClientRect();

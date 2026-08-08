@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { synopticsApi, Synoptic, SynopticWidget } from '@/api/synoptics';
 import { tagsApi } from '@/api/tags';
+import { alarmsApi } from '@/api/alarms';
 import { i3xApi } from '@/api/i3x';
 import { TagWithHierarchy } from '@/types/trend';
 import { useRealtime } from '@/hooks/useRealtime';
@@ -173,17 +174,23 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
 
     useEffect(() => {
         if (mode !== 'view' || canvasTagIds.size === 0) return;
+        // Use the shared API client: it attaches the JWT via its interceptor.
+        // This used to be a raw fetch reading localStorage['token'] — a key that
+        // does not exist (the store persists under 'auth-storage'), so every
+        // request went out unauthenticated, 401'd, and was swallowed. The result
+        // was a mimic page where alarm borders and badges NEVER lit up: an active
+        // alarm on the plant showed as a normal green screen to the operator.
         const fetchAlarms = async () => {
             try {
-                const res = await fetch('/api/alarms/active', {
-                    headers: { 'Authorization': `Bearer ${localStorage.getItem('token') ?? ''}` },
-                });
-                if (!res.ok) return;
-                const data = await res.json() as Array<{ tag_id?: number }>;
+                const data = await alarmsApi.getActiveAlarms();
                 const ids = new Set<number>();
                 for (const a of data) { if (a.tag_id != null) ids.add(a.tag_id); }
                 setAlarmTagIds(ids);
-            } catch { /* ignore */ }
+            } catch (err) {
+                // Surface the failure instead of hiding it — a silent catch here
+                // is what let the broken auth go unnoticed.
+                console.error('[synoptic] failed to load active alarms', err);
+            }
         };
         void fetchAlarms();
         const interval = setInterval(() => void fetchAlarms(), 30_000);
@@ -285,7 +292,13 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         if (mode !== 'view') return;
         const tag = tags.find(t => t.id === tagId);
         let rawValue = value;
-        if (tag?.scaling_enabled && !tag.invert) {
+        // `invert` deliberately does NOT gate this. Server-side (internal/scaling)
+        // invert applies only to BOOL tags; numeric tags are always linearly
+        // scaled on read. Skipping the reverse map when invert happened to be set
+        // sent an engineering-unit number straight to the raw PLC register — e.g.
+        // a 0–27648 ↔ 0–100 tag received 50 counts (~0.2% of span) for a
+        // requested 50%, while the EU-scaled read-back looked consistent.
+        if (tag?.scaling_enabled) {
             const euMin = tag.scaling_eu_min ?? 0;
             const euMax = tag.scaling_eu_max ?? 100;
             const rawMin = tag.scaling_raw_min ?? 0;
