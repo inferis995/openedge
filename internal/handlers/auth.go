@@ -389,8 +389,12 @@ func (h *AuthHandler) SSOCallback(c *gin.Context) {
 		return
 	}
 
-	// Redirect to frontend with token in query (frontend stores it in localStorage)
-	c.Redirect(http.StatusFound, fmt.Sprintf("/?sso_token=%s", jwt))
+	// Hand the token back in the URL *fragment*, not the query string.
+	// A fragment is never sent to a server, so the JWT stays out of access
+	// logs, proxy logs and the Referer header of any resource the landing
+	// page loads. The frontend reads it from location.hash and immediately
+	// scrubs it from the address bar.
+	c.Redirect(http.StatusFound, fmt.Sprintf("/#sso_token=%s", jwt))
 }
 
 func publicHost() string {

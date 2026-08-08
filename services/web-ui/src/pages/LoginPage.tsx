@@ -21,10 +21,15 @@ const LoginPage = () => {
     const navigate = useNavigate();
     const { login } = useAuthStore();
 
-    // Handle SSO callback: backend redirects to /?sso_token=JWT
+    // Handle SSO callback: backend redirects to /#sso_token=JWT.
+    // The token travels in the fragment because fragments are never sent to a
+    // server — keeping the JWT out of access logs and Referer headers. The
+    // query string is still read as a fallback for links issued before this
+    // change (and is scrubbed from the URL either way).
     useEffect(() => {
-        const params = new URLSearchParams(window.location.search);
-        const ssoToken = params.get('sso_token');
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        const ssoToken = hashParams.get('sso_token')
+            ?? new URLSearchParams(window.location.search).get('sso_token');
         if (ssoToken) {
             try {
                 const payload = JSON.parse(atob(ssoToken.split('.')[1]));
