@@ -108,13 +108,18 @@ func SyncGatewayAssets(ctx context.Context, db *sql.DB, orgID int) (int, int, er
 		var cfg map[string]interface{}
 		_ = json.Unmarshal([]byte(configJSON), &cfg)
 
+		// connection_config is free-form JSON accepted from the API, so these
+		// keys may hold a number or null. A bare v.(string) panicked inside this
+		// background goroutine — which has no recover — taking down the whole
+		// core-api process (API, WebSocket fan-out and MQTT ingest), and the
+		// restart hit the same row again on the next pass.
 		ipAddress := ""
-		if v, ok := cfg["host"]; ok {
-			ipAddress = strings.TrimSpace(strings.Split(v.(string), ":")[0])
+		if v, ok := cfg["host"].(string); ok {
+			ipAddress = strings.TrimSpace(strings.Split(v, ":")[0])
 		}
 		if ipAddress == "" {
-			if v, ok := cfg["ip"]; ok {
-				ipAddress = strings.TrimSpace(v.(string))
+			if v, ok := cfg["ip"].(string); ok {
+				ipAddress = strings.TrimSpace(v)
 			}
 		}
 

@@ -152,12 +152,13 @@ func encodeMetric(metric *Metric) ([]byte, error) {
 		data = protowire.AppendVarint(data, 1)
 	}
 
-	// Encode properties (field 9) - used for Quality in Sparkplug B
-	if metric.Quality > 0 {
-		propertiesData := encodeQualityProperty(metric.Quality)
-		data = protowire.AppendTag(data, metricPropertiesField, protowire.BytesType)
-		data = protowire.AppendBytes(data, propertiesData)
-	}
+	// Encode properties (field 9) - used for Quality in Sparkplug B.
+	// Always emitted, including for quality 0 (BAD): skipping it made an
+	// explicit BAD indistinguishable from "no quality stated", which the
+	// decoder must read as GOOD per the spec.
+	propertiesData := encodeQualityProperty(metric.Quality)
+	data = protowire.AppendTag(data, metricPropertiesField, protowire.BytesType)
+	data = protowire.AppendBytes(data, propertiesData)
 
 	// Encode value based on data type (fields 10-16)
 	if !metric.IsNull && metric.Value != nil {
@@ -399,7 +400,14 @@ func DecodePayloadProtobuf(data []byte) (*Payload, error) {
 
 // decodeMetric decodes a single metric from Protobuf format
 func decodeMetric(data []byte) (*Metric, error) {
-	metric := &Metric{}
+	// Default to GOOD. In Sparkplug B the "quality" PropertySet entry is
+	// OPTIONAL, and its absence means the value is good — spec-compliant
+	// publishers (Ignition, Tahu, most PLC gateways) simply omit it.
+	// Leaving the zero value here meant ConvertSparkplugToLegacyQuality(0)
+	// returned 2 (BAD), so the historian wrote `value NULL, source 'offline'`
+	// for EVERY sample from such a device: the real measurement was discarded
+	// and the trend was one continuous gap on perfectly healthy hardware.
+	metric := &Metric{Quality: QualityGood}
 
 	var fieldNum protowire.Number
 	var wireType protowire.Type
@@ -488,9 +496,10 @@ func decodeMetric(data []byte) (*Metric, error) {
 				return nil, fmt.Errorf("failed to read properties")
 			}
 			offset += n
-			// Decode properties to extract quality
-			quality := decodeQualityFromProperties(propsData)
-			if quality > 0 {
+			// Decode properties to extract quality. An explicitly present
+			// value is honoured even when it is 0 (BAD); when the key is
+			// absent the GOOD default set above stands.
+			if quality, found := decodeQualityFromProperties(propsData); found {
 				metric.Quality = quality
 			}
 
@@ -564,7 +573,10 @@ func decodeMetric(data []byte) (*Metric, error) {
 }
 
 // decodeQualityFromProperties extracts quality from PropertySet
-func decodeQualityFromProperties(data []byte) int32 {
+// It returns found=false when the PropertySet carries no "quality" key, so the
+// caller can tell an ABSENT quality (spec-compliant: means good) from one that
+// is explicitly present and 0 (BAD).
+func decodeQualityFromProperties(data []byte) (int32, bool) {
 	var keys []string
 	var values []int32
 	var fieldNum protowire.Number
@@ -574,7 +586,7 @@ func decodeQualityFromProperties(data []byte) int32 {
 	for offset < len(data) {
 		tag, n := protowire.ConsumeVarint(data[offset:])
 		if n < 0 {
-			return 0
+			return 0, false
 		}
 		offset += n
 
@@ -584,7 +596,7 @@ func decodeQualityFromProperties(data []byte) int32 {
 		case propertySetKeysField:
 			v, n := protowire.ConsumeString(data[offset:])
 			if n < 0 {
-				return 0
+				return 0, false
 			}
 			offset += n
 			keys = append(keys, v)
@@ -592,7 +604,7 @@ func decodeQualityFromProperties(data []byte) int32 {
 		case propertySetValuesField:
 			propData, n := protowire.ConsumeBytes(data[offset:])
 			if n < 0 {
-				return 0
+				return 0, false
 			}
 			offset += n
 			val := decodePropertyValue(propData)
@@ -601,7 +613,7 @@ func decodeQualityFromProperties(data []byte) int32 {
 		default:
 			n := protowire.ConsumeFieldValue(fieldNum, wireType, data[offset:])
 			if n < 0 {
-				return 0
+				return 0, false
 			}
 			offset += n
 		}
@@ -610,11 +622,11 @@ func decodeQualityFromProperties(data []byte) int32 {
 	// Find "quality" key and return its value
 	for i, key := range keys {
 		if key == "quality" && i < len(values) {
-			return values[i]
+			return values[i], true
 		}
 	}
 
-	return 0
+	return 0, false
 }
 
 // decodePropertyValue decodes a PropertyValue message
