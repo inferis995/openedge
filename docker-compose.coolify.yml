@@ -32,6 +32,8 @@ services:
 
   postgres:
     image: timescale/timescaledb:latest-pg16
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-industrial_edge}
       POSTGRES_USER: ${POSTGRES_USER:-industrial_user}
@@ -48,6 +50,8 @@ services:
 
   redis:
     image: redis/redis-stack:latest
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - redis-data:/data
     healthcheck:
@@ -59,6 +63,8 @@ services:
 
   mosquitto:
     image: eclipse-mosquitto:2
+    security_opt:
+      - no-new-privileges:true
     entrypoint: ["/mosquitto/config/docker-entrypoint.sh"]
     command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
     environment:
@@ -79,6 +85,8 @@ services:
 
   core-api:
     image: ${CORE_API_IMAGE:-openedge-core-api:latest}
+    security_opt:
+      - no-new-privileges:true
     build:
       context: .
       dockerfile: services/core-api/Dockerfile
@@ -123,6 +131,8 @@ services:
 
   web-ui:
     image: ${WEB_UI_IMAGE:-openedge-web-ui:latest}
+    security_opt:
+      - no-new-privileges:true
     build:
       context: .
       dockerfile: services/web-ui/Dockerfile
@@ -158,6 +168,8 @@ services:
       context: .
       dockerfile: services/driver-manager/Dockerfile
     image: openedge-driver-manager:latest
+    security_opt:
+      - no-new-privileges:true
     environment:
       DB_HOST: postgres
       DB_PORT: 5432

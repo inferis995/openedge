@@ -57,6 +57,23 @@ mosquitto/data/*
 mosquitto/log/*
 !mosquitto/log/.gitignore
 
+# Mosquitto Dynamic Security state — generated on first start by
+# mosquitto/docker-entrypoint.sh INTO mosquitto/config, which is bind-mounted
+# straight from this git tree. The file holds the broker admin credential and one
+# password hash per organization, so it must never be committed.
+# (mosquitto/config/mosquitto.conf is tracked on purpose and is not matched here.)
+mosquitto/config/dynamic-security.json
+mosquitto/config/dynamic-security.json.*
+mosquitto/config/*.db
+# Password files / TLS material if an operator adds any alongside the conf.
+mosquitto/config/passwd*
+mosquitto/config/pwfile*
+mosquitto/config/*.pw
+mosquitto/config/acl_file*
+mosquitto/config/*.key
+mosquitto/config/*.pem
+mosquitto/config/*.crt
+
 # Temporary files
 nul
 *.tmp

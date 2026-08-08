@@ -19,6 +19,11 @@ services:
   # ── Traefik v3 — reverse proxy + automatic TLS ──────────────────────────────
   traefik:
     image: traefik:v3.1
+    # Every other service in this overlay is a patch on docker-compose.yml, which
+    # already sets security_opt. Compose CONCATENATES list values across overlay
+    # files, so repeating it there would produce duplicate entries.
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-traefik
     command:
       - --providers.docker=true
@@ -169,7 +174,9 @@ services:
     image: grafana/grafana:12.0.2
     container_name: openedge-grafana
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # Fail fast: this Grafana is published on the public internet via Traefik
+      # (see the router labels below), so it must never fall back to "admin".
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required — Grafana is internet-facing in this overlay; set it in .env (openssl rand -base64 24)}
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana-data:/var/lib/grafana

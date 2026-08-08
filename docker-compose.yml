@@ -27,8 +27,13 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-industrial_edge}
       POSTGRES_USER: ${POSTGRES_USER:-industrial_user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — run 'make start'}
+    # Datastore — loopback only. Containers reach it as postgres:5432 over
+    # openedge-net; publishing on 0.0.0.0 put the DB on the LAN/Internet.
+    # Override with POSTGRES_BIND=0.0.0.0 only behind a firewall you control.
     ports:
-      - "5432:5432"
+      - "${POSTGRES_BIND:-127.0.0.1}:5432:5432"
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
@@ -50,14 +55,21 @@ services:
   redis:
     image: redis:7-alpine
     container_name: openedge-redis
-    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec",
-              "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    # REDIS_PASSWORD is optional: when unset the ${VAR:+...} expansion collapses to
+    # nothing and Redis starts exactly as before, so existing installs keep working.
+    # $$ escapes compose interpolation so the expansion happens in the container.
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --appendfsync everysec --maxmemory 256mb --maxmemory-policy allkeys-lru $${REDIS_PASSWORD:+--requirepass \"$$REDIS_PASSWORD\"}"]
+    # Datastore — loopback only (see postgres).
     ports:
-      - "6379:6379"
+      - "${REDIS_BIND:-127.0.0.1}:6379:6379"
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning $${REDIS_PASSWORD:+-a \"$$REDIS_PASSWORD\"} ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -70,6 +82,8 @@ services:
 
   mosquitto:
     image: eclipse-mosquitto:2
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-mosquitto
     entrypoint: ["/mosquitto/config/docker-entrypoint.sh"]
     command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
@@ -114,6 +128,7 @@ services:
       DB_NAME: ${POSTGRES_DB:-industrial_edge}
       REDIS_HOST: redis
       REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
       MQTT_USERNAME: ${MQTT_ADMIN_USER:-core-api}
@@ -128,8 +143,15 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./backups:/backups
+    # Browsers never talk to :8081 — web-ui's nginx proxies /api and /ws to
+    # core-api:8081 over openedge-net, and Prometheus scrapes /metrics the same
+    # way. Published on loopback only so the raw API (and /metrics) is reachable
+    # for local curl/debug but not from the LAN. Set CORE_API_BIND=0.0.0.0 if you
+    # deliberately want remote edges to hit the API without a reverse proxy.
     ports:
-      - "8081:8081"
+      - "${CORE_API_BIND:-127.0.0.1}:8081:8081"
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       postgres:
         condition: service_healthy
@@ -155,6 +177,8 @@ services:
       context: .
       dockerfile: services/web-ui/Dockerfile
     image: openedge-web-ui:latest
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-web-ui
     ports:
       - "${WEB_UI_PORT:-3000}:80"
@@ -179,6 +203,8 @@ services:
       context: .
       dockerfile: services/driver-manager/Dockerfile
     image: openedge-driver-manager:latest
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-driver-manager
     environment:
       DB_HOST: postgres
@@ -224,6 +250,8 @@ services:
       context: .
       dockerfile: services/engine-historian/Dockerfile
     image: openedge-engine-historian:latest
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-engine-historian
     environment:
       DB_HOST: postgres
@@ -233,6 +261,7 @@ services:
       DB_NAME: ${POSTGRES_DB:-industrial_edge}
       REDIS_HOST: redis
       REDIS_PORT: ${REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
       MQTT_CLIENT_ID: engine-historian
@@ -260,6 +289,8 @@ services:
   caddy:
     profiles: ["tls"]
     image: caddy:2
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-caddy
     restart: unless-stopped
     ports:
@@ -284,6 +315,8 @@ services:
   prometheus:
     profiles: ["monitoring"]
     image: prom/prometheus:v3.4.0
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -293,8 +326,10 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=30d"
       - "--web.enable-lifecycle"
+    # Unauthenticated admin surface — loopback only. Grafana queries it as
+    # prometheus:9090 over openedge-net.
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_BIND:-127.0.0.1}:9090:9090"
     restart: unless-stopped
     networks:
       - openedge-net
@@ -302,8 +337,13 @@ services:
   grafana:
     profiles: ["monitoring"]
     image: grafana/grafana:12.0.2
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-grafana
     environment:
+      # On-prem/LAN default kept so `make monitoring-up` still works on existing
+      # installs. SET GRAFANA_ADMIN_PASSWORD in .env — the internet-facing
+      # docker-compose.vps.yml makes it mandatory rather than defaulted.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_INSTALL_PLUGINS: "grafana-clock-panel"
@@ -322,6 +362,8 @@ services:
   alertmanager:
     profiles: ["monitoring"]
     image: prom/alertmanager:v0.28.1
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-alertmanager
     volumes:
       - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
@@ -329,8 +371,9 @@ services:
     command:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
       - "--storage.path=/alertmanager"
+    # Unauthenticated admin surface — loopback only.
     ports:
-      - "9093:9093"
+      - "${ALERTMANAGER_BIND:-127.0.0.1}:9093:9093"
     restart: unless-stopped
     networks:
       - openedge-net
@@ -338,10 +381,13 @@ services:
   loki:
     profiles: ["monitoring"]
     image: grafana/loki:3.5.0
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-loki
     command: -config.file=/etc/loki/local-config.yaml
+    # Unauthenticated log store — loopback only. Grafana reads it as loki:3100.
     ports:
-      - "3100:3100"
+      - "${LOKI_BIND:-127.0.0.1}:3100:3100"
     volumes:
       - loki-data:/loki
     restart: unless-stopped
@@ -351,6 +397,8 @@ services:
   promtail:
     profiles: ["monitoring"]
     image: grafana/promtail:3.5.0
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-promtail
     volumes:
       - /var/log:/var/log:ro
@@ -366,6 +414,8 @@ services:
   postgres-exporter:
     profiles: ["monitoring"]
     image: prometheuscommunity/postgres-exporter:v0.16.0
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-postgres-exporter
     environment:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-industrial_user}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-industrial_edge}?sslmode=disable"
@@ -378,9 +428,12 @@ services:
   redis-exporter:
     profiles: ["monitoring"]
     image: oliver006/redis_exporter:v1.67.0
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-redis-exporter
     environment:
       REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     depends_on:
       - redis
     restart: unless-stopped
@@ -390,6 +443,8 @@ services:
   node-exporter:
     profiles: ["monitoring"]
     image: prom/node-exporter:v1.9.1
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-node-exporter
     volumes:
       - /proc:/host/proc:ro
@@ -407,6 +462,8 @@ services:
   mosquitto-exporter:
     profiles: ["monitoring"]
     image: sapcc/mosquitto-exporter:0.8.0
+    security_opt:
+      - no-new-privileges:true
     container_name: openedge-mosquitto-exporter
     environment:
       BROKER_ENDPOINT: "tcp://mosquitto:1883"
@@ -427,6 +484,8 @@ services:
       context: .
       dockerfile: services/driver-modbus/Dockerfile
     image: industrial-driver-modbus:latest
+    security_opt:
+      - no-new-privileges:true
     networks:
       - openedge-net
 
@@ -436,6 +495,8 @@ services:
       context: .
       dockerfile: services/driver-s7/Dockerfile
     image: industrial-driver-s7:latest
+    security_opt:
+      - no-new-privileges:true
     networks:
       - openedge-net
 
@@ -445,6 +506,8 @@ services:
       context: .
       dockerfile: services/driver-opcua/Dockerfile
     image: industrial-driver-opcua:latest
+    security_opt:
+      - no-new-privileges:true
     networks:
       - openedge-net
 
@@ -454,6 +517,8 @@ services:
       context: .
       dockerfile: services/driver-mqtt/Dockerfile
     image: industrial-driver-mqtt:latest
+    security_opt:
+      - no-new-privileges:true
     networks:
       - openedge-net
 
@@ -463,6 +528,8 @@ services:
       context: .
       dockerfile: services/driver-redis/Dockerfile
     image: industrial-driver-redis:latest
+    security_opt:
+      - no-new-privileges:true
     networks:
       - openedge-net
 
@@ -472,6 +539,8 @@ services:
       context: .
       dockerfile: services/driver-lorawan/Dockerfile
     image: industrial-driver-lorawan:latest
+    security_opt:
+      - no-new-privileges:true
     networks:
       - openedge-net
 
