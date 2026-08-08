@@ -462,9 +462,13 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	// 2. Names like "opc-ua1" should keep their hyphens (not become "opc ua1")
 	// 3. The slugify function only replaces spaces with hyphens, so names without spaces stay the same
 
-	// For alias: convert hyphens to underscores to match DB naming convention
-	// MQTT topic uses "tag-name" but DB stores "Tag_Name"
-	alias = strings.ReplaceAll(alias, "-", "_")
+	// The alias arrives already slugified in the topic (sparkplug.slugify:
+	// lowercase, ' ' and '_' -> '-'). It used to be converted back to
+	// underscores here while every comparison in getTagInfo produced the
+	// HYPHENATED form, so a DB alias containing a hyphen or a space could
+	// never match: those tags were silently never historised, and one failed
+	// query ran per message forever. Both sides are now reduced to the same
+	// canonical slug in SQL, so no pre-mangling is needed.
 
 	// Parse JSON payload: {"v": value, "ts": timestamp_ms, "q": quality}
 	var mqttPayload MQTTPayload
@@ -952,11 +956,16 @@ func (s *HistorianService) getTagInfo(org, site, area, gateway, alias string) (*
 		JOIN areas a ON g.area_id = a.id
 		JOIN sites s ON a.site_id = s.id
 		JOIN organizations o ON s.org_id = o.id
-		WHERE TRIM(LOWER(o.name)) = TRIM(LOWER($1))
-		  AND (TRIM(LOWER(s.name)) = TRIM(LOWER($2)) OR REPLACE(TRIM(LOWER(s.name)), ' ', '-') = TRIM(LOWER($2)))
-		  AND (TRIM(LOWER(a.name)) = TRIM(LOWER($3)) OR REPLACE(TRIM(LOWER(a.name)), ' ', '-') = TRIM(LOWER($3)))
-		  AND (TRIM(LOWER(g.name)) = TRIM(LOWER($4)) OR REPLACE(TRIM(LOWER(g.name)), ' ', '-') = TRIM(LOWER($4)))
-		  AND (TRIM(LOWER(t.alias)) = TRIM(LOWER($5)) OR REPLACE(TRIM(LOWER(t.alias)), ' ', '-') = TRIM(LOWER($5)) OR REPLACE(TRIM(LOWER(t.alias)), '_', '-') = TRIM(LOWER($5)))
+		-- Both sides are reduced to the same canonical slug (lowercase, ' '
+		-- and '_' collapsed to '-'), mirroring sparkplug.slugify, so a name
+		-- spelled "Motor 1", "Motor_1" or "motor-1" matches the topic either
+		-- way. Comparing raw-or-hyphenated against an underscored input, as
+		-- before, matched only aliases whose sole separator was '_'.
+		WHERE LOWER(REPLACE(REPLACE(BTRIM(o.name), ' ', '-'), '_', '-')) = LOWER(REPLACE(REPLACE(BTRIM($1), ' ', '-'), '_', '-'))
+		  AND LOWER(REPLACE(REPLACE(BTRIM(s.name), ' ', '-'), '_', '-')) = LOWER(REPLACE(REPLACE(BTRIM($2), ' ', '-'), '_', '-'))
+		  AND LOWER(REPLACE(REPLACE(BTRIM(a.name), ' ', '-'), '_', '-')) = LOWER(REPLACE(REPLACE(BTRIM($3), ' ', '-'), '_', '-'))
+		  AND LOWER(REPLACE(REPLACE(BTRIM(g.name), ' ', '-'), '_', '-')) = LOWER(REPLACE(REPLACE(BTRIM($4), ' ', '-'), '_', '-'))
+		  AND LOWER(REPLACE(REPLACE(BTRIM(t.alias), ' ', '-'), '_', '-')) = LOWER(REPLACE(REPLACE(BTRIM($5), ' ', '-'), '_', '-'))
 	`
 
 	var tagInfo TagInfo
@@ -1150,62 +1159,87 @@ func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface
 
 // hasValueChanged returns true if the new value differs from the previous value.
 func (s *HistorianService) hasValueChanged(prev, new interface{}) bool {
-	switch prevVal := prev.(type) {
-	case float64:
-		switch nv := new.(type) {
-		case float64:
-			return nv != prevVal
-		case bool:
+	// Same coercion as exceedsDeadband: compare numerics as float64 so a
+	// Sparkplug int32 is not treated as "different kind" from the float64 that
+	// came back out of Redis.
+	if prevNum, ok := numericValue(prev); ok {
+		if newNum, ok := numericValue(new); ok {
+			return newNum != prevNum
+		}
+		if nb, ok := new.(bool); ok {
 			boolAsFloat := 0.0
-			if nv {
+			if nb {
 				boolAsFloat = 1.0
 			}
-			return boolAsFloat != prevVal
-		default:
-			return true
+			return boolAsFloat != prevNum
 		}
-	case bool:
-		switch nv := new.(type) {
-		case bool:
-			return nv != prevVal
-		case float64:
-			return (nv >= 0.5) != prevVal
-		default:
-			return true
-		}
-	default:
-		return fmt.Sprintf("%v", prev) != fmt.Sprintf("%v", new)
-	}
-}
-
-// exceedsDeadband checks if the new value exceeds the deadband from the previous value
-func (s *HistorianService) exceedsDeadband(prev, new interface{}, deadband float64) bool {
-	// Handle different value types
-	switch prevVal := prev.(type) {
-	case float64:
-		newVal, ok := new.(float64)
-		if !ok {
-			return true // Type mismatch, store the value
-		}
-		return math.Abs(newVal-prevVal) >= deadband
-	case int:
-		// JSON numbers are unmarshaled as float64 by default
-		newVal, ok := new.(float64)
-		if !ok {
-			return true
-		}
-		return math.Abs(newVal-float64(prevVal)) >= deadband
-	case bool:
-		// For boolean values, any change should be stored
-		newVal, ok := new.(bool)
-		if !ok {
-			return true
-		}
-		return newVal != prevVal
-	default:
-		// Unknown type, store the value
 		return true
 	}
+
+	if prevBool, ok := prev.(bool); ok {
+		if nb, ok := new.(bool); ok {
+			return nb != prevBool
+		}
+		if nn, ok := numericValue(new); ok {
+			return (nn >= 0.5) != prevBool
+		}
+		return true
+	}
+
+	return fmt.Sprintf("%v", prev) != fmt.Sprintf("%v", new)
+}
+
+// numericValue coerces any Go numeric a driver or Sparkplug decoder may produce
+// into float64.
+//
+// Previous values round-trip through Redis as JSON, so they always come back as
+// float64, while Sparkplug metrics decode to int32/int64/float32. The deadband
+// and change checks below asserted on the concrete type, so every Sparkplug
+// comparison hit "type mismatch -> store", silently disabling historize_deadband
+// and report-by-exception on that path: a motionless 1 Hz tag with a deadband of
+// 5.0 still wrote ~86k rows/day, and in dual publish mode each change produced
+// two rows at the same timestamp, double-counting every aggregate.
+func numericValue(v interface{}) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case uint32:
+		return float64(n), true
+	case uint64:
+		return float64(n), true
+	}
+	return 0, false
+}
+
+// exceedsDeadband checks if the new value exceeds the deadband from the previous value.
+func (s *HistorianService) exceedsDeadband(prev, new interface{}, deadband float64) bool {
+	// Numeric comparison is done in float64 regardless of the concrete types on
+	// either side (see numericValue).
+	if prevNum, ok := numericValue(prev); ok {
+		if newNum, ok := numericValue(new); ok {
+			return math.Abs(newNum-prevNum) >= deadband
+		}
+		return true // genuinely different kinds of value — store it
+	}
+
+	if prevBool, ok := prev.(bool); ok {
+		newBool, ok := new.(bool)
+		if !ok {
+			return true
+		}
+		return newBool != prevBool
+	}
+
+	// Unknown type, store the value
+	return true
 }
 
 // storePreviousValue stores the previous value in Redis for deadband comparison

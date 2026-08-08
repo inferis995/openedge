@@ -6,6 +6,11 @@ import './index.css'
 import './i18n'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary.tsx'
+import { consumeSSOToken } from './lib/ssoBootstrap'
+
+// Must run BEFORE the router mounts: the SSO callback hands the JWT back in the
+// URL fragment, and RequireAuth's redirect to /login would otherwise discard it.
+consumeSSOToken()
 
 const queryClient = new QueryClient({
     defaultOptions: {
