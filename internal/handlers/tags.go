@@ -263,8 +263,14 @@ func (h *TagsHandler) List(c *gin.Context) {
 
 	if gatewayIDStr != "" {
 		// Case 1: Filter by Specific Gateway
-		gatewayID, err := strconv.Atoi(gatewayIDStr)
-		if err != nil {
+		//
+		// convErr, not err: ':=' here would declare a NEW err scoped to this
+		// block, so the `rows, err = h.db.Query(...)` below would assign the
+		// shadowed one while the `if err != nil` after the if/else kept reading
+		// the outer (still nil) variable — a failed query would sail through
+		// the check and `defer rows.Close()` would panic on a nil *sql.Rows.
+		gatewayID, convErr := strconv.Atoi(gatewayIDStr)
+		if convErr != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid gateway_id parameter"})
 			return
 		}

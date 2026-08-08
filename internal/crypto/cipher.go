@@ -105,8 +105,10 @@ func Decrypt(encryptedStr string) (string, error) {
 	data, err := base64.URLEncoding.DecodeString(encryptedStr)
 	if err != nil {
 		// Not base64 at all → legacy plain text value.
+		// Returning nil despite err is deliberate: pre-encryption deployments
+		// stored these values in the clear and must keep working.
 		log.Printf("[CRYPTO] WARN: stored value is not base64 — treating as legacy plaintext (stored unencrypted)")
-		return encryptedStr, nil
+		return encryptedStr, nil //nolint:nilerr // legacy plaintext fallback, logged above
 	}
 
 	block, err := aes.NewCipher(k)
@@ -132,7 +134,7 @@ func Decrypt(encryptedStr string) (string, error) {
 		// Either the key rotated (real data loss) or this is legacy plaintext that
 		// happened to base64-decode. Both are worth an operator's attention.
 		log.Printf("[CRYPTO] WARN: AES-GCM open failed — treating as legacy plaintext; if ENCRYPTION_KEY was rotated this value is unrecoverable")
-		return encryptedStr, nil
+		return encryptedStr, nil //nolint:nilerr // legacy plaintext fallback, logged above
 	}
 
 	return string(plaintextBytes), nil
