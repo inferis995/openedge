@@ -37,6 +37,18 @@ setup-env:
 		printf "GRAFANA_ADMIN_PASSWORD=$$GF_PASS\n" >> .env; \
 		echo "[setup] Generated GRAFANA_ADMIN_PASSWORD"; \
 	fi
+	@if ! grep -q "^ENCRYPTION_KEY=" .env || grep -q "^ENCRYPTION_KEY=CHANGE_ME" .env; then \
+		ENC_KEY=$$(openssl rand -hex 16); \
+		grep -v "^ENCRYPTION_KEY=" .env > .env.tmp && mv .env.tmp .env; \
+		printf "ENCRYPTION_KEY=$$ENC_KEY\n" >> .env; \
+		echo "[setup] Generated ENCRYPTION_KEY (AES-256, exactly 32 bytes)"; \
+	fi
+	@if ! grep -q "^OPENEDGE_INITIAL_ADMIN_PASSWORD=" .env || grep -q "^OPENEDGE_INITIAL_ADMIN_PASSWORD=CHANGE_ME" .env; then \
+		ADMIN_PASS=$$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20); \
+		grep -v "^OPENEDGE_INITIAL_ADMIN_PASSWORD=" .env > .env.tmp && mv .env.tmp .env; \
+		printf "OPENEDGE_INITIAL_ADMIN_PASSWORD=$$ADMIN_PASS\n" >> .env; \
+		echo "[setup] Generated the initial admin password (shown by 'make start')"; \
+	fi
 	@echo "[setup] .env ready — all secrets auto-generated"
 
 ## Build all images — core services + all drivers (modbus/s7/opcua/mqtt/redis/lorawan)
@@ -55,10 +67,12 @@ start: setup-env
 	@echo "OpenEdge is starting up."
 	@echo "  Web UI:   http://localhost:${WEB_UI_PORT:-3000}"
 	@echo "  Core API: http://localhost:8081"
-	@echo "  Login:    admin / admin123"
+	@echo "  Login:    admin / $$(grep '^OPENEDGE_INITIAL_ADMIN_PASSWORD=' .env | cut -d= -f2-)"
+	@echo ""
+	@echo "  This password was generated for this installation and is stored in .env."
+	@echo "  It is a GLOBAL ADMIN: it can read every tenant and write to every PLC."
 	@echo ""
 	@echo "Tip: run 'make logs' to follow startup logs."
-	@echo "     Change the default password after first login."
 
 ## Stop all running services
 down:
