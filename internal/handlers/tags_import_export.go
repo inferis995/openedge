@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -163,8 +164,10 @@ func (h *TagsHandler) ImportTags(c *gin.Context) {
 	if (result.Created > 0 || result.Updated > 0) && h.mqttClient != nil {
 		topic := fmt.Sprintf("sys/command/reload/%d", req.GatewayID)
 		if err := h.mqttClient.Publish(topic, "reload"); err != nil {
-			// Log error but don't fail the request
-			// log.Printf("[API] Failed to publish import reload: %v", err)
+			// Same as Update: the import succeeded, but the driver will not pick
+			// the new tags up until it reconnects, so say so. The log line here
+			// was commented out, leaving the failure completely invisible.
+			log.Printf("[API] tag import applied but reload command to gateway %d failed: %v", req.GatewayID, err)
 		}
 	}
 

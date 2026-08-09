@@ -42,12 +42,6 @@ const (
 	retryBaseDelay    = 1 * time.Second
 	retryMaxDelay     = 30 * time.Second
 
-	// Failure cooldown: after maxStartRetries consecutive pull/start failures a
-	// gateway is skipped for failureCooldownInitial, doubling on continued
-	// failures up to failureCooldownMax, so one bad gateway cannot starve the fleet.
-	failureCooldownInitial = 5 * time.Minute
-	failureCooldownMax     = 1 * time.Hour
-
 	// Docker
 	dockerNetworkName = "industrial-network"
 

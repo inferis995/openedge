@@ -781,9 +781,12 @@ func (h *TagsHandler) Update(c *gin.Context) {
 	if h.mqttClient != nil {
 		topic := fmt.Sprintf("sys/command/reload/%d", tag.GatewayID)
 		if err := h.mqttClient.Publish(topic, "reload"); err != nil {
-			// Log error but don't fail the request
-			// The MQTT connection might be down temporarily
-			// The driver will still work with old config until reconnected
+			// Don't fail the request: the tag was saved, and the driver keeps
+			// running with its previous config until it reconnects. But it must
+			// be logged — the comment used to say "log error" while the branch
+			// was empty, so a config change that never reached the driver left
+			// no trace anywhere and the operator saw a success message.
+			log.Printf("[API] tag %d saved but reload command to gateway %d failed: %v", tag.ID, tag.GatewayID, err)
 		}
 	}
 

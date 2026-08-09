@@ -74,10 +74,6 @@ type Driver struct {
 	prevValuesMu      sync.RWMutex
 	isConnected       *bool // pointer to detect uninitialized state (protected by configMu)
 
-	// Log-once tracking for parse errors (unsupported types, out of bounds)
-	parseErrLogged   map[int]bool
-	parseErrLoggedMu sync.Mutex
-
 	// Write Cooldown
 	writeCooldowns map[int]time.Time
 	cooldownMu     sync.RWMutex
@@ -193,7 +189,6 @@ func main() {
 		reloadChan:        make(chan struct{}, 1),
 		previousValues:    make(map[int]interface{}),
 		previousQualities: make(map[int]int),
-		parseErrLogged:    make(map[int]bool),
 		writeCooldowns:    make(map[int]time.Time),
 		settingsManager:   settings.NewManager(database),
 		alarmManager:      alarms.NewManager(database, mqttClient, gatewayID),

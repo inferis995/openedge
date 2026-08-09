@@ -67,12 +67,6 @@ func NewClient(config Config, mqttClient *mqtt.Client) *SparkplugClient {
 	return c
 }
 
-// newClientWithPublisher is the test seam for NewClient: same client, arbitrary
-// publisher. Unexported so drivers keep using NewClient with *mqtt.Client.
-func newClientWithPublisher(config Config, p Publisher) *SparkplugClient {
-	return &SparkplugClient{config: config, mqttClient: p}
-}
-
 // Connect establishes connection and sends NBIRTH message
 func (c *SparkplugClient) Connect() error {
 	c.mu.Lock()

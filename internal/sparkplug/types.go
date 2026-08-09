@@ -131,14 +131,6 @@ type TopicInfo struct {
 	DeviceID    string // Tag alias
 }
 
-// Client is the Sparkplug B client interface
-type Client struct {
-	config     Config
-	seqNum     uint64
-	connected  bool
-	mqttClient interface{} // Will be *mqtt.Client from the mqtt package
-}
-
 // LegacyPayload represents the legacy JSON format
 type LegacyPayload struct {
 	TagID     int         `json:"tag_id"`
