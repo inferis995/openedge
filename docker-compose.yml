@@ -105,10 +105,15 @@ services:
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log
     healthcheck:
-      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/broker/version", "-C", "1",
-             "-i", "healthcheck", "-W", "3",
-             "-u", "${MQTT_ADMIN_USER:-core-api}",
-             "-P", "${MQTT_ADMIN_PASSWORD:-}"]
+      # A TCP check, deliberately: the previous probe subscribed to $$SYS as the
+      # dynamic-security ADMIN, which has no ACL for it. That passed only while
+      # the plugin silently failed to load; once it loaded and started enforcing,
+      # every subscribe was denied, the container never became healthy, and the
+      # four services gated on it refused to start. Authorization is verified by
+      # the acceptance suite, which is the right place for it — what this probe
+      # has to answer is "is the broker accepting connections".
+      test: ["CMD-SHELL",
+             "nc -z 127.0.0.1 1883 2>/dev/null || mosquitto_sub -t '$$SYS/broker/version' -C 1 -W 2 -u \"$$MQTT_ADMIN_USER\" -P \"$$MQTT_ADMIN_PASSWORD\" >/dev/null 2>&1"]
       interval: 10s
       timeout: 10s
       retries: 5
