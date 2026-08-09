@@ -131,6 +131,67 @@ jobs:
           name: frontend-coverage
           path: services/web-ui/coverage/
 
+  # ── End-to-end acceptance ────────────────────────────────────────────────────
+  # Runs the ASSEMBLED stack and follows real paths across process boundaries.
+  # This is the only job that can catch the failure mode that produced this
+  # codebase's worst defects: two halves that are each individually correct and
+  # simply not wired to each other (alarms were persisted, notifications were
+  # implemented, and nothing published to the topic joining them).
+  e2e:
+    name: End-to-End
+    runs-on: ubuntu-latest
+    needs: [go-test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          # Deterministic credentials for the run; nothing here is a real secret.
+          {
+            echo "JWT_SECRET=${{ env.JWT_SECRET }}"
+            echo "OPENEDGE_INITIAL_ADMIN_PASSWORD=e2e-admin-password"
+            echo "MQTT_ADMIN_USER=core-api"
+            echo "MQTT_ADMIN_PASSWORD=e2e-mqtt-password"
+            echo "ENCRYPTION_KEY=e2e-encryption-key-for-ci-32byte"
+          } >> .env
+
+      - name: Start the stack
+        run: docker compose up -d --build
+
+      - name: Wait for the API
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8081/health >/dev/null 2>&1; then
+              echo "API is up after ${i} attempts"; exit 0
+            fi
+            sleep 5
+          done
+          echo "API never became ready"; exit 1
+
+      - name: Run acceptance tests
+        env:
+          E2E_API_URL: http://127.0.0.1:8081
+          E2E_MQTT_HOST: 127.0.0.1
+          E2E_MQTT_PORT: "18830"
+          E2E_ADMIN_PASSWORD: e2e-admin-password
+          E2E_MQTT_USER: core-api
+          E2E_MQTT_PASSWORD: e2e-mqtt-password
+        run: go test -tags=e2e -v -timeout=10m ./test/e2e/...
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
   # ── Docker: build (no push) ──────────────────────────────────────────────────
   docker-build:
     name: Docker Build

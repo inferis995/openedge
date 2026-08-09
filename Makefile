@@ -236,7 +236,15 @@ test: test-go test-frontend
 
 ## Run Go tests with race detector
 test-go:
-	JWT_SECRET=local-test-secret-key-minimum-32-chars go test -race ./internal/...
+	JWT_SECRET=local-test-secret-key-minimum-32-chars go test -race ./internal/... ./services/...
+
+## Run end-to-end acceptance tests against a RUNNING stack.
+## Start it first (make start), then: make test-e2e
+## These cross process boundaries — they catch the "both halves correct, wired
+## to nothing" defects that unit tests structurally cannot see.
+test-e2e:
+	@echo "Expecting the stack at $${E2E_API_URL:-http://127.0.0.1:8081} — run 'make start' first."
+	go test -tags=e2e -v -timeout=10m ./test/e2e/...
 
 ## Run frontend unit tests (single run, no watch)
 test-frontend:
