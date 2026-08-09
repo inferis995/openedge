@@ -164,8 +164,28 @@ jobs:
             echo "ENCRYPTION_KEY=e2e-encryption-key-for-ci-32byte"
           } >> .env
 
+      - name: Build images
+        run: docker compose build
+
       - name: Start the stack
-        run: docker compose up -d --build
+        # Split from the build, and report WHICH container is unhealthy on
+        # failure: `docker compose up` waits on depends_on healthchecks and
+        # exits with a message that does not say which probe failed, which
+        # turns every startup problem into a guessing game.
+        run: |
+          set -o pipefail
+          docker compose up -d 2>&1 | tee /tmp/compose-up.log || {
+            echo "=== compose up failed — container states ==="
+            docker compose ps -a
+            echo "=== health probe output per container ==="
+            for c in $(docker compose ps -aq); do
+              name=$(docker inspect --format '{{.Name}}' "$c")
+              health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$c")
+              echo "--- $name : $health"
+              docker inspect --format '{{if .State.Health}}{{range .State.Health.Log}}{{.Output}}{{end}}{{end}}' "$c" | tail -5
+            done
+            exit 1
+          }
 
       - name: Wait for the API
         run: |
