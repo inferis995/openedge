@@ -235,12 +235,33 @@ func main() {
 	<-quit
 
 	log.Println("[DRIVER-MQTT] Shutting down...")
+	// Announce the edge node's death to Sparkplug hosts before we go.
+	driver.publishSparkplugNodeDeath()
 	close(driver.stopChan)
 
 	// Publish offline status on shutdown
 	healthTopic := fmt.Sprintf("sys/health/%d", gatewayID)
 	mqttClient.PublishWithQoS(healthTopic, "offline", 1, true)
 	log.Println("[DRIVER-MQTT] Shutdown complete")
+}
+
+// publishSparkplugNodeDeath publishes NDEATH on a graceful shutdown.
+//
+// It cannot ride on the MQTT Last Will: MQTT allows exactly one Will per
+// connection and this driver's single mqtt.Client already wills
+// sys/health/{gateway_id}="offline", which core-api and the OpenEdge UI depend
+// on for gateway status (published again just below on a clean stop). So the
+// death is announced explicitly here; without it a host keeps this node's
+// metrics marked live forever after a clean stop.
+func (d *Driver) publishSparkplugNodeDeath() {
+	d.sparkplugMu.RLock()
+	spClient := d.sparkplugClient
+	d.sparkplugMu.RUnlock()
+
+	if spClient == nil {
+		return
+	}
+	spClient.Disconnect() // sends NDEATH
 }
 
 // loadConfig reads the gateway and tag configuration from the database
@@ -394,6 +415,9 @@ func (d *Driver) initSparkplugClientLocked(orgName, siteName, areaName, gatewayN
 	}
 
 	if d.sparkplugClient == nil {
+		// SetConnected(true) publishes the NBIRTH announcing this edge node.
+		// It must happen before any DBIRTH/DDATA, or a Sparkplug host discards
+		// everything this gateway sends and loops asking for a rebirth.
 		d.sparkplugClient = sparkplug.NewClient(config, d.mqttClient)
 		d.sparkplugClient.SetConnected(true)
 	}

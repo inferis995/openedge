@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"sync"
 	"time"
 )
 
@@ -14,28 +13,22 @@ import (
 // with Sparkplug B structure but not the binary Protobuf format.
 // For production use, integrate: github.com/eclipse/sparkplugb
 
-var (
-	seqMu   sync.Mutex
-	seqNum  uint64
-	seqMax  uint64 = 256 // Sparkplug B sequence rolls over at 256
-)
+// The sequence counter that used to live here — a package-level `seqNum` shared
+// by every SparkplugClient built in one process — is gone. Sequence numbers are
+// per edge node by definition, so a second gateway in the same driver process
+// stole numbers from the first and both streams looked full of gaps to a host.
+// The counter now belongs to SparkplugClient (see client.go: nextSeq), and the
+// seq to stamp is passed in by the caller that owns it.
 
-// nextSeq returns the next sequence number, rolling over at 256
-func nextSeq() uint64 {
-	seqMu.Lock()
-	defer seqMu.Unlock()
-
-	seq := seqNum
-	seqNum = (seqNum + 1) % seqMax
-	return seq
-}
-
-// CreatePayload creates a Sparkplug B payload from tag data
-func CreatePayload(tags []TagData) *Payload {
+// CreatePayload creates a Sparkplug B payload from tag data.
+// seq is the caller's (per-edge-node) sequence number for this message.
+func CreatePayload(tags []TagData, seq uint64) *Payload {
 	metrics := make([]Metric, 0, len(tags))
 
 	for _, tag := range tags {
 		metric := Metric{
+			// TagData.DeviceID holds the tag ALIAS: it is the metric name, not
+			// the Sparkplug device — the device is the gateway (see client.go).
 			Name:      tag.DeviceID,
 			DataType:  mapDataType(tag.DataType),
 			Timestamp: tag.Timestamp,
@@ -47,26 +40,26 @@ func CreatePayload(tags []TagData) *Payload {
 
 	return &Payload{
 		Timestamp: time.Now().UnixMilli(),
-		Seq:       nextSeq(),
+		Seq:       seq,
 		Metrics:   metrics,
 	}
 }
 
 // CreateDDATAPayload creates a DDATA payload for regular data updates
-func CreateDDATAPayload(deviceID string, tags []TagData) *Payload {
-	return CreatePayload(tags)
+func CreateDDATAPayload(deviceID string, tags []TagData, seq uint64) *Payload {
+	return CreatePayload(tags, seq)
 }
 
 // CreateDBIRTHPayload creates a DBIRTH payload for device birth messages
-func CreateDBIRTHPayload(deviceID string, tags []TagData) *Payload {
-	return CreatePayload(tags)
+func CreateDBIRTHPayload(deviceID string, tags []TagData, seq uint64) *Payload {
+	return CreatePayload(tags, seq)
 }
 
 // CreateSingleMetricPayload creates a payload with a single metric
-func CreateSingleMetricPayload(deviceID string, tag TagData) *Payload {
+func CreateSingleMetricPayload(deviceID string, tag TagData, seq uint64) *Payload {
 	return &Payload{
 		Timestamp: time.Now().UnixMilli(),
-		Seq:       nextSeq(),
+		Seq:       seq,
 		Metrics: []Metric{
 			{
 				Name:      tag.DeviceID,

@@ -111,7 +111,7 @@ func TestCreateProtoPayload(t *testing.T) {
 		},
 	}
 
-	encoded, err := CreateProtoPayload(tags)
+	encoded, err := CreateProtoPayload(tags, 0)
 	if err != nil {
 		t.Fatalf("CreateProtoPayload failed: %v", err)
 	}

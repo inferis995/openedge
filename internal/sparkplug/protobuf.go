@@ -684,39 +684,59 @@ func decodePropertyValue(data []byte) int32 {
 	return result
 }
 
-// CreateProtoPayload creates a Protobuf-encoded Sparkplug B payload from tag data
-func CreateProtoPayload(tags []TagData) ([]byte, error) {
-	payload := CreatePayload(tags)
+// CreateProtoPayload creates a Protobuf-encoded Sparkplug B payload from tag data.
+// seq comes from the publishing edge node's own counter (SparkplugClient).
+func CreateProtoPayload(tags []TagData, seq uint64) ([]byte, error) {
+	payload := CreatePayload(tags, seq)
 	return EncodePayload(payload)
 }
 
 // CreateProtoDDATAPayload creates a Protobuf-encoded DDATA payload
-func CreateProtoDDATAPayload(deviceID string, tags []TagData) ([]byte, error) {
-	payload := CreateDDATAPayload(deviceID, tags)
+func CreateProtoDDATAPayload(deviceID string, tags []TagData, seq uint64) ([]byte, error) {
+	payload := CreateDDATAPayload(deviceID, tags, seq)
 	return EncodePayload(payload)
 }
 
 // CreateProtoDBIRTHPayload creates a Protobuf-encoded DBIRTH payload
-func CreateProtoDBIRTHPayload(deviceID string, tags []TagData) ([]byte, error) {
-	payload := CreateDBIRTHPayload(deviceID, tags)
+func CreateProtoDBIRTHPayload(deviceID string, tags []TagData, seq uint64) ([]byte, error) {
+	payload := CreateDBIRTHPayload(deviceID, tags, seq)
 	return EncodePayload(payload)
 }
 
-// CreateProtoNDEATHPayload creates a Protobuf-encoded NDEATH payload
-func CreateProtoNDEATHPayload() ([]byte, error) {
+// CreateProtoNDEATHPayload creates a Protobuf-encoded NDEATH payload.
+//
+// The spec requires the NDEATH to carry the bdSeq of the session it closes, so
+// a host can tell it apart from a stale death left over from an earlier one.
+// The payload used to be empty, which gave the host nothing to correlate.
+// NDEATH does not consume a sequence number.
+func CreateProtoNDEATHPayload(bdSeq uint64) ([]byte, error) {
+	now := time.Now().UnixMilli()
 	payload := &Payload{
-		Timestamp: time.Now().UnixMilli(),
+		Timestamp: now,
 		Seq:       0,
-		Metrics:   []Metric{},
+		Metrics: []Metric{
+			{
+				Name:      "bdSeq",
+				DataType:  DataTypeUInt64,
+				Timestamp: now,
+				// Explicit: the encoder always writes the quality property and
+				// the zero value would be read back as BAD.
+				Quality: QualityGood,
+				Value:   bdSeq,
+			},
+		},
 	}
 	return EncodePayload(payload)
 }
 
-// CreateProtoDDEATHPayload creates a Protobuf-encoded DDEATH payload
-func CreateProtoDDEATHPayload(deviceID string) ([]byte, error) {
+// CreateProtoDDEATHPayload creates a Protobuf-encoded DDEATH payload.
+// A DDEATH is part of the node's sequence stream, so it carries the caller's seq
+// (it used to be hard-coded to 0, which looked to a host like the node had
+// re-birthed and left a gap in the stream).
+func CreateProtoDDEATHPayload(deviceID string, seq uint64) ([]byte, error) {
 	payload := &Payload{
 		Timestamp: time.Now().UnixMilli(),
-		Seq:       0,
+		Seq:       seq,
 		Metrics:   []Metric{},
 	}
 	return EncodePayload(payload)

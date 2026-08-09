@@ -267,7 +267,27 @@ func main() {
 	<-sigChan
 
 	log.Println("Shutting down driver-s7...")
+	// Announce the edge node's death to Sparkplug hosts before we go.
+	driver.publishSparkplugNodeDeath()
 	close(driver.stopChan)
+}
+
+// publishSparkplugNodeDeath publishes NDEATH on a graceful shutdown.
+//
+// It cannot ride on the MQTT Last Will: MQTT allows exactly one Will per
+// connection and this driver's single mqtt.Client already wills
+// sys/health/{gateway_id}="offline", which core-api and the OpenEdge UI depend
+// on for gateway status. So the death is announced explicitly here; without it
+// a host keeps this node's metrics marked live forever after a clean stop.
+func (d *Driver) publishSparkplugNodeDeath() {
+	d.sparkplugMu.RLock()
+	spClient := d.sparkplugClient
+	d.sparkplugMu.RUnlock()
+
+	if spClient == nil {
+		return
+	}
+	spClient.Disconnect() // sends NDEATH
 }
 
 // loadConfig loads the gateway configuration from PostgreSQL
@@ -403,6 +423,9 @@ func (d *Driver) initSparkplugClientLocked(orgName, siteName, areaName, gatewayN
 	}
 
 	if d.sparkplugClient == nil {
+		// SetConnected(true) publishes the NBIRTH announcing this edge node.
+		// It must happen before any DBIRTH/DDATA, or a Sparkplug host discards
+		// everything this gateway sends and loops asking for a rebirth.
 		d.sparkplugClient = sparkplug.NewClient(config, d.mqttClient)
 		d.sparkplugClient.SetConnected(true)
 	}
@@ -466,7 +489,9 @@ func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataTyp
 					Quality:   quality,
 					OrgID:     cfg.OrgID,
 				}
-				if err := spClient.PublishSingleTag(tagData); err != nil {
+				// DDATA goes to the GATEWAY device (the one a DBIRTH announces),
+				// not to the tag: the alias is the metric name in the payload.
+				if err := spClient.PublishSingleTag(slugify(cfg.Gateway.Name), tagData); err != nil {
 					log.Printf("[DRIVER-S7] Sparkplug publish error for %s: %v", alias, err)
 				}
 			}

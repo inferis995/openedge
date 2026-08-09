@@ -88,8 +88,14 @@ type Config struct {
 
 // TagData represents a tag value to be published
 type TagData struct {
-	TagID     int
-	DeviceID  string      // Alias for the tag (used as device_id in topic)
+	TagID int
+	// DeviceID is the tag ALIAS and becomes the Sparkplug METRIC NAME.
+	// It is NOT the device_id of the topic: a tag is a metric of a device, and
+	// the device is the gateway announced by DBIRTH. Publishing each tag as its
+	// own device_id (the old behaviour) named devices no DBIRTH ever declared,
+	// so compliant hosts dropped every value. The name is kept to avoid a
+	// sweeping rename across five drivers.
+	DeviceID  string
 	Value     interface{} // The actual value
 	DataType  string      // Ralph data type: BOOL, INT, UINT, DINT, REAL, STRING
 	Timestamp int64       // Unix timestamp in milliseconds

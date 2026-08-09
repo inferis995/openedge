@@ -283,8 +283,10 @@ func main() {
 
 	log.Println("[OPC-UA Driver] Shutting down...")
 
-	// Publish DDEATH before shutting down
+	// Publish DDEATH before shutting down, then NDEATH for the node itself
+	// (the device dies first, then the node that hosted it).
 	driver.publishDDEATH()
+	driver.publishSparkplugNodeDeath()
 
 	close(driver.stopChan)
 	driver.wg.Wait()
@@ -615,7 +617,10 @@ func (d *Driver) initSparkplugClientLocked(orgName, siteName, areaName, gatewayN
 		EnableLegacy: true,
 	}
 
-	// Create sparkplug client with the internal mqtt wrapper
+	// Create sparkplug client with the internal mqtt wrapper.
+	// SetConnected(true) publishes the NBIRTH announcing this edge node.
+	// It must happen before any DBIRTH/DDATA, or a Sparkplug host discards
+	// everything this gateway sends and loops asking for a rebirth.
 	d.sparkplugClient = sparkplug.NewClient(config, d.mqttClient)
 	d.sparkplugClient.SetConnected(true)
 
@@ -697,7 +702,10 @@ func (d *Driver) publishTagValue(tag models.Tag, value interface{}, quality int)
 				Quality:   quality,
 				OrgID:     cfg.OrgID,
 			}
-			if err := sparkplugClient.PublishSingleTag(tagData); err != nil {
+			// DDATA goes to the GATEWAY device — the same device announced by
+			// PublishDBIRTH(slugify(cfg.Gateway.Name), …) in
+			// handleConnectionStateChange. The alias is the metric name.
+			if err := sparkplugClient.PublishSingleTag(slugify(cfg.Gateway.Name), tagData); err != nil {
 				log.Printf("[OPC-UA Driver] Sparkplug publish error for %s: %v", alias, err)
 			}
 		} else {
@@ -708,7 +716,7 @@ func (d *Driver) publishTagValue(tag models.Tag, value interface{}, quality int)
 		// Both formats - publish legacy first, then Sparkplug B
 		d.publishLegacy(tag.ID, cfg.OrgID, alias, value, timestamp, quality, cfg)
 
-		// Publish Sparkplug B format
+		// Publish Sparkplug B format (addressed to the gateway device — see above)
 		if sparkplugClient != nil && sparkplugClient.IsConnected() {
 			tagData := sparkplug.TagData{
 				TagID:     tag.ID,
@@ -719,7 +727,7 @@ func (d *Driver) publishTagValue(tag models.Tag, value interface{}, quality int)
 				Quality:   quality,
 				OrgID:     cfg.OrgID,
 			}
-			if err := sparkplugClient.PublishSingleTag(tagData); err != nil {
+			if err := sparkplugClient.PublishSingleTag(slugify(cfg.Gateway.Name), tagData); err != nil {
 				log.Printf("[OPC-UA Driver] Sparkplug publish error for %s: %v", alias, err)
 			}
 		}
@@ -887,6 +895,24 @@ func (d *Driver) publishDDEATH() {
 	if err := spClient.PublishDDEATH(slugify(cfg.Gateway.Name)); err != nil {
 		log.Printf("[OPC-UA Driver] Failed to publish DDEATH: %v", err)
 	}
+}
+
+// publishSparkplugNodeDeath publishes NDEATH on a graceful shutdown.
+//
+// It cannot ride on the MQTT Last Will: MQTT allows exactly one Will per
+// connection and this driver's single mqtt.Client already wills
+// sys/health/{gateway_id}="offline", which core-api and the OpenEdge UI depend
+// on for gateway status. So the death is announced explicitly here; without it
+// a host keeps this node's metrics marked live forever after a clean stop.
+func (d *Driver) publishSparkplugNodeDeath() {
+	d.sparkplugMu.RLock()
+	spClient := d.sparkplugClient
+	d.sparkplugMu.RUnlock()
+
+	if spClient == nil {
+		return
+	}
+	spClient.Disconnect() // sends NDEATH
 }
 
 // pollLoop reads OPC UA node values at the configured scan rate
@@ -1325,7 +1351,8 @@ func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataTyp
 				Quality:   quality,
 				OrgID:     cfg.OrgID,
 			}
-			if err := sparkplugClient.PublishSingleTag(tagData); err != nil {
+			// DDATA is addressed to the gateway device announced by DBIRTH.
+			if err := sparkplugClient.PublishSingleTag(slugify(cfg.Gateway.Name), tagData); err != nil {
 				log.Printf("[OPC-UA Driver] Sparkplug publish error for %s: %v", alias, err)
 			}
 		}
