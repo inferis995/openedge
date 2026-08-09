@@ -187,6 +187,26 @@ jobs:
             exit 1
           }
 
+      - name: Broker diagnostics
+        # The broker refused EVERY client — core-api, engine-historian and
+        # driver-manager all logged "not authorised" — while the TCP healthcheck
+        # stayed green, so nothing upstream noticed. The startup lines that say
+        # why scroll out of the 200-line failure dump, so print them here,
+        # always, before anything can push them away.
+        run: |
+          echo "=== mosquitto startup ==="
+          docker compose logs mosquitto | head -40
+          echo "=== dynamic-security.json ==="
+          docker compose exec -T mosquitto sh -c 'ls -l /mosquitto/config/ && id && \
+            grep -o "\"username\"[^,]*" /mosquitto/config/dynamic-security.json' || \
+            echo "(could not read the dynsec config — that alone would explain the denials)"
+          echo "=== authenticated connect as the admin ==="
+          docker compose exec -T mosquitto mosquitto_sub -t 'diag/#' -C 1 -W 3 \
+            -u "$MQTT_ADMIN_USER" -P "$MQTT_ADMIN_PASSWORD" || echo "(admin connect/subscribe failed)"
+        env:
+          MQTT_ADMIN_USER: core-api
+          MQTT_ADMIN_PASSWORD: e2e-mqtt-password
+
       - name: Wait for the API
         run: |
           for i in $(seq 1 60); do

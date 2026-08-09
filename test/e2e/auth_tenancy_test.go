@@ -211,6 +211,11 @@ func TestOrgAdminCannotEscalateToGlobalAdmin(t *testing.T) {
 	org := createOrg(t, admin, "e2e-escalate-"+suffix)
 	orgAdmin := createOrgAdmin(t, admin, org.ID, "e2e-esc-"+suffix, "e2e-Password-"+suffix)
 
+	// The contract is about the user that ends up in the database, not about a
+	// status code: refusing the request and forcing the caller's own org are
+	// both correct answers, and the handler picks the second because an org
+	// admin's UI legitimately omits org_id. What must never happen is a user
+	// with role=admin and org_id NULL — that is a platform administrator.
 	t.Run("cannot create a global admin", func(t *testing.T) {
 		status, body := orgAdmin.do(http.MethodPost, "/api/users", map[string]interface{}{
 			"username":  "e2e-ghost-" + suffix,
@@ -219,8 +224,24 @@ func TestOrgAdminCannotEscalateToGlobalAdmin(t *testing.T) {
 			"full_name": "ghost",
 			"org_id":    nil, // null org_id + admin role == global admin
 		})
-		if status < 400 {
-			t.Fatalf("an org admin created a GLOBAL admin (status %d): %s", status, truncate(body))
+		if status >= 400 {
+			return // refused outright — also fine
+		}
+
+		var created struct {
+			Role  string `json:"role"`
+			OrgID *int   `json:"org_id"`
+		}
+		if err := json.Unmarshal(body, &created); err != nil {
+			t.Fatalf("decode created user: %v — body: %s", err, truncate(body))
+		}
+		if created.OrgID == nil {
+			t.Fatalf("an org admin created a GLOBAL admin (role %q, org_id null): %s",
+				created.Role, truncate(body))
+		}
+		if *created.OrgID != org.ID {
+			t.Fatalf("created user landed in org %d, want the caller's org %d: %s",
+				*created.OrgID, org.ID, truncate(body))
 		}
 	})
 
