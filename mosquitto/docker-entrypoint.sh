@@ -98,20 +98,35 @@ EOF
         exit 1
     fi
 
+    # Report WHICH command failed. mosquitto_ctrl answers a wrong argument list
+    # with a bare "Error: Invalid input." and nothing else, which under `set -e`
+    # became a restart loop whose logs never named the offending call.
     ctrl() {
-        mosquitto_ctrl -h 127.0.0.1 -p "$BOOT_PORT" -u "$ADMIN_USER" -P "$ADMIN_PASS" "$@"
+        if ! out=$(mosquitto_ctrl -h 127.0.0.1 -p "$BOOT_PORT" \
+                     -u "$ADMIN_USER" -P "$ADMIN_PASS" "$@" 2>&1); then
+            echo "[MQTT-INIT] ERROR: mosquitto_ctrl $* failed: $out" >&2
+            kill "$BOOT_PID" 2>/dev/null || true
+            exit 1
+        fi
     }
 
-    ctrl dynsec createRole "$PLATFORM_ROLE" >/dev/null 2>&1 || true
+    # Tolerated on its own line: a re-run after a partial bootstrap finds the
+    # role already there, and that is not a failure.
+    mosquitto_ctrl -h 127.0.0.1 -p "$BOOT_PORT" -u "$ADMIN_USER" -P "$ADMIN_PASS" \
+        dynsec createRole "$PLATFORM_ROLE" >/dev/null 2>&1 || true
+
+    # addRoleACL takes <rolename> <acltype> <topicFilter> [priority] — there is
+    # no allow/deny argument, and passing one is the "Invalid input" above.
+    #
     # '#' does not match topics beginning with $SYS, so the broker's own status
     # tree needs its own grant — the healthcheck reads it to prove that
     # authentication AND authorization work, which is the check that would have
     # caught this whole class of failure.
     for acl in publishClientSend publishClientReceive subscribePattern unsubscribePattern; do
-        ctrl dynsec addRoleACL "$PLATFORM_ROLE" "$acl" '#' 1 allow >/dev/null
+        ctrl dynsec addRoleACL "$PLATFORM_ROLE" "$acl" '#' 1
     done
-    ctrl dynsec addRoleACL "$PLATFORM_ROLE" subscribePattern '$SYS/#' 1 allow >/dev/null
-    ctrl dynsec addClientRole "$ADMIN_USER" "$PLATFORM_ROLE" 1 >/dev/null
+    ctrl dynsec addRoleACL "$PLATFORM_ROLE" subscribePattern '$SYS/#' 1
+    ctrl dynsec addClientRole "$ADMIN_USER" "$PLATFORM_ROLE" 1
 
     kill "$BOOT_PID" 2>/dev/null || true
     wait "$BOOT_PID" 2>/dev/null || true
