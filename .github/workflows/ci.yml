@@ -201,7 +201,12 @@ jobs:
             grep -o "\"username\"[^,]*" /mosquitto/config/dynamic-security.json' || \
             echo "(could not read the dynsec config — that alone would explain the denials)"
           echo "=== authenticated connect as the admin ==="
-          docker compose exec -T mosquitto mosquitto_sub -t 'diag/#' -C 1 -W 3 \
+          # $SYS/broker/version is retained, so a working connect+subscribe
+          # returns immediately. The earlier probe waited on 'diag/#', which
+          # nobody publishes: it always timed out and printed a failure line in
+          # runs that were entirely healthy — a diagnostic that cries wolf is
+          # worse than none, because everyone learns to skip past it.
+          docker compose exec -T mosquitto mosquitto_sub -t '$SYS/broker/version' -C 1 -W 3 \
             -u "$MQTT_ADMIN_USER" -P "$MQTT_ADMIN_PASSWORD" || echo "(admin connect/subscribe failed)"
         env:
           MQTT_ADMIN_USER: core-api
