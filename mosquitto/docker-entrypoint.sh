@@ -105,6 +105,8 @@ EOF
         if ! out=$(mosquitto_ctrl -h 127.0.0.1 -p "$BOOT_PORT" \
                      -u "$ADMIN_USER" -P "$ADMIN_PASS" "$@" 2>&1); then
             echo "[MQTT-INIT] ERROR: mosquitto_ctrl $* failed: $out" >&2
+            echo "[MQTT-INIT] usage reported by this build of mosquitto_ctrl:" >&2
+            mosquitto_ctrl dynsec help 2>&1 | head -40 >&2 || true
             kill "$BOOT_PID" 2>/dev/null || true
             exit 1
         fi
@@ -115,17 +117,19 @@ EOF
     mosquitto_ctrl -h 127.0.0.1 -p "$BOOT_PORT" -u "$ADMIN_USER" -P "$ADMIN_PASS" \
         dynsec createRole "$PLATFORM_ROLE" >/dev/null 2>&1 || true
 
-    # addRoleACL takes <rolename> <acltype> <topicFilter> [priority] — there is
-    # no allow/deny argument, and passing one is the "Invalid input" above.
+    # addRoleACL is <rolename> <acltype> <topicFilter> allow|deny [priority].
+    # allow/deny is REQUIRED and comes BEFORE the priority; anything else in that
+    # slot is rejected with a bare "Error: Invalid input." (the usage line
+    # `dynsec init` prints omits it, which is what sent this the wrong way twice).
     #
     # '#' does not match topics beginning with $SYS, so the broker's own status
     # tree needs its own grant — the healthcheck reads it to prove that
     # authentication AND authorization work, which is the check that would have
     # caught this whole class of failure.
     for acl in publishClientSend publishClientReceive subscribePattern unsubscribePattern; do
-        ctrl dynsec addRoleACL "$PLATFORM_ROLE" "$acl" '#' 1
+        ctrl dynsec addRoleACL "$PLATFORM_ROLE" "$acl" '#' allow 1
     done
-    ctrl dynsec addRoleACL "$PLATFORM_ROLE" subscribePattern '$SYS/#' 1
+    ctrl dynsec addRoleACL "$PLATFORM_ROLE" subscribePattern '$SYS/#' allow 1
     ctrl dynsec addClientRole "$ADMIN_USER" "$PLATFORM_ROLE" 1
 
     kill "$BOOT_PID" 2>/dev/null || true
