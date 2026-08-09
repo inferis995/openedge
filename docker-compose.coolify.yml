@@ -114,6 +114,12 @@ services:
       ALLOWED_ORIGINS: https://${PUBLIC_HOST}
       LOG_FORMAT: json
       SWAGGER_ENABLED: "false"
+      # Encrypts the MQTT/cloud credentials kept in global_settings. Required
+      # here, not optional-with-a-default like JWT_SECRET's neighbours: this is
+      # the multi-tenant deployment, and without the key core-api falls back to
+      # storing every tenant's broker password in cleartext in the database.
+      # Deploy must fail loudly rather than come up quietly insecure.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       OPENEDGE_INITIAL_ADMIN_PASSWORD: ${OPENEDGE_INITIAL_ADMIN_PASSWORD:-}
       PUBLIC_HOST: ${PUBLIC_HOST}
     volumes:

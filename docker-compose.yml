@@ -145,6 +145,15 @@ services:
       MQTT_PORT: 1883
       MQTT_USERNAME: ${MQTT_ADMIN_USER:-core-api}
       MQTT_PASSWORD: ${MQTT_ADMIN_PASSWORD:-}
+      # Encrypts MQTT/cloud credentials stored in global_settings. It was
+      # generated into .env and documented, but never passed to the container,
+      # so core-api always fell back to storing those secrets in cleartext.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
+      # Password for the bootstrap admin, applied only when the users table is
+      # empty. Same defect as above: generated, documented and read by the code,
+      # but never reaching the container — so every Docker deployment created
+      # the account with the built-in default regardless of what .env said.
+      OPENEDGE_INITIAL_ADMIN_PASSWORD: ${OPENEDGE_INITIAL_ADMIN_PASSWORD:-}
       MQTT_PUBLIC_HOST: ${PUBLIC_HOST:-localhost}
       MQTT_PUBLIC_PORT: ${MQTT_PUBLIC_PORT:-18830}
       PORT: ${PORT:-8081}
