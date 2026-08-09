@@ -198,6 +198,66 @@ func TestPublishedValueReachesTheAPI(t *testing.T) {
 	}
 }
 
+// TestPublishedValueIsHistorised covers the OTHER consumer of the same message.
+//
+// TestPublishedValueReachesTheAPI proves core-api received it and cached it in
+// Redis — and that passed while engine-historian, a separate process, was being
+// refused by the broker on every single connection attempt. It never read
+// MQTT_USERNAME/MQTT_PASSWORD, which the compose file had been passing it all
+// along, so on any authenticated deployment nothing was ever written to
+// tag_history: the historian's entire job, silently not happening, with a green
+// stack and a green test suite.
+//
+// Asserting the live value is therefore not enough — the persisted series has
+// to be asserted separately, because a different process owns it.
+func TestPublishedValueIsHistorised(t *testing.T) {
+	admin, _ := adminSession(t)
+	fx := newFixture(t, admin) // historize: true
+	orgScoped := &apiClient{t: t, token: admin.token, orgID: fmt.Sprintf("%d", fx.org.ID)}
+
+	mq := mqttConnect(t, "e2e-historian-"+uniqueSuffix())
+	want := 73.25
+	publish(t, mq, fx.dataTopic, map[string]interface{}{
+		"tag_id": fx.tagID,
+		"org_id": fx.org.ID,
+		"v":      want,
+		"ts":     time.Now().UnixMilli(),
+		"q":      0,
+	})
+
+	// raw=true bypasses the continuous aggregates, which only materialise on
+	// their own schedule and would make a fresh point look missing.
+	query := fmt.Sprintf("/api/history?tag_id=%d&start=%s&end=%s&raw=true",
+		fx.tagID,
+		time.Now().Add(-1*time.Hour).UTC().Format(time.RFC3339),
+		time.Now().Add(1*time.Hour).UTC().Format(time.RFC3339))
+
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		status, raw := orgScoped.do(http.MethodGet, query, nil)
+		if status == http.StatusOK {
+			var resp struct {
+				Data []struct {
+					Value *float64 `json:"value"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(raw, &resp); err == nil {
+				for _, p := range resp.Data {
+					if p.Value != nil && *p.Value == want {
+						return // the historian is alive and writing
+					}
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("value %v published on %s never reached tag_history — "+
+				"engine-historian is not consuming (check whether the broker is refusing it)",
+				want, fx.dataTopic)
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
+
 // TestTagCurrentValueIsOrgScoped: this endpoint only checked that the tag id
 // EXISTED, so any authenticated user could read every tenant's live process
 // values by iterating ids.

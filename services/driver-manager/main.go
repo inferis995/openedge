@@ -534,6 +534,13 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 		fmt.Sprintf("DB_NAME=%s", getEnv("DB_NAME", "industrial_edge")),
 		fmt.Sprintf("MQTT_HOST=%s", mqttHost),
 		fmt.Sprintf("MQTT_PORT=%s", getEnv("MQTT_PORT", "1883")),
+		// The broker requires authentication. The database credentials above
+		// were forwarded and these were not, so a spawned driver reached the
+		// broker as an anonymous client and was refused on every attempt — the
+		// container stayed up, the gateway showed as running, and no field
+		// value ever arrived.
+		fmt.Sprintf("MQTT_USERNAME=%s", getEnv("MQTT_USERNAME", "")),
+		fmt.Sprintf("MQTT_PASSWORD=%s", getEnv("MQTT_PASSWORD", "")),
 		"SPARKPLUG_ENABLED=true",
 		"TZ=" + getEnv("TZ", "Europe/Rome"),
 	}
