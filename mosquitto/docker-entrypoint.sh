@@ -39,13 +39,28 @@ fi
 #
 # Applied on every start because a deployment that already booted once carries
 # the bad ownership on its volume and would never recover otherwise.
+#
+# The DIRECTORY matters as much as the file. The dynsec plugin persists changes
+# by writing a temporary file next to the config and renaming it, so a directory
+# the broker cannot write into means no change is ever saved — and the plugin
+# keeps serving happily from memory. That is not only a bootstrap concern:
+# core-api provisions a Mosquitto user per organization at runtime
+# (internal/mqtt/dynsec.go), and those accounts would silently vanish on the
+# next broker restart, locking every tenant's edge devices out.
+DYNSEC_DIR=$(dirname "$DYNSEC_FILE")
 if [ "$(id -u)" = "0" ]; then
-    chown "$MOSQ_USER:$MOSQ_USER" "$DYNSEC_FILE"
+    chown -R "$MOSQ_USER:$MOSQ_USER" "$DYNSEC_DIR"
 fi
 chmod 600 "$DYNSEC_FILE"
 if [ "$(stat -c '%U' "$DYNSEC_FILE")" != "$MOSQ_USER" ]; then
     echo "[MQTT-INIT] ERROR: $DYNSEC_FILE is not owned by $MOSQ_USER — the broker" >&2
     echo "[MQTT-INIT] would run but deny every client. Refusing to start." >&2
+    exit 1
+fi
+if [ "$(stat -c '%U' "$DYNSEC_DIR")" != "$MOSQ_USER" ]; then
+    echo "[MQTT-INIT] ERROR: $DYNSEC_DIR is not owned by $MOSQ_USER — the broker" >&2
+    echo "[MQTT-INIT] cannot persist ACL changes there, so every organization's" >&2
+    echo "[MQTT-INIT] MQTT account would disappear on restart. Refusing to start." >&2
     exit 1
 fi
 
@@ -138,13 +153,14 @@ EOF
 
     if ! grep -q "\"$PLATFORM_ROLE\"" "$DYNSEC_FILE"; then
         echo "[MQTT-INIT] ERROR: role $PLATFORM_ROLE was not persisted; services would be denied." >&2
+        echo "[MQTT-INIT] The commands were accepted, so the plugin could not write" >&2
+        echo "[MQTT-INIT] $DYNSEC_FILE. Broker log follows:" >&2
+        cat /tmp/mosquitto-bootstrap.log >&2 || true
+        ls -ld "$DYNSEC_DIR" "$DYNSEC_FILE" >&2 || true
         exit 1
     fi
     echo "[MQTT-INIT] Granted $ADMIN_USER the $PLATFORM_ROLE role (data topics + \$SYS)"
 
-    if [ "$(id -u)" = "0" ]; then
-        chown "$MOSQ_USER:$MOSQ_USER" "$DYNSEC_FILE"
-    fi
     chmod 600 "$DYNSEC_FILE"
 fi
 
