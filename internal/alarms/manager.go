@@ -3,13 +3,25 @@ package alarms
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/ralph/industrial-edge-middleware/internal/models"
+)
+
+const (
+	// alarmDBTimeout bounds every DB call on the alarm firing path. The pool is
+	// opened with statement_timeout=30s, which is far too long for a loop that
+	// has to scan every tag of a gateway once per poll cycle.
+	alarmDBTimeout = 5 * time.Second
+
+	// alarmInsertRetryInterval is the minimum spacing between attempts to
+	// persist an alarm whose INSERT failed. tickDelays runs once per second;
+	// without this floor an unreachable database would be hammered every tick.
+	alarmInsertRetryInterval = 30 * time.Second
 )
 
 // MQTT publisher interface expected by AlarmManager
@@ -17,17 +29,52 @@ type MQTTPublisher interface {
 	PublishWithQoS(topic string, payload interface{}, qos byte, retained bool) error
 }
 
+// eventRef carries the alarm_events row id of ONE alarm occurrence. The live
+// track and every queued I/O action for that occurrence share the same pointer:
+// the ACTIVE write fills the id in, the CLEARED write reads it back when it
+// executes. That indirection is what lets a CLEARED transition be decided (and
+// the track deleted) while the ACTIVE row is still being written — the clear
+// still finds the right row instead of orphaning an ACTIVE event.
+//
+// Always read/written with Manager.mu held.
+type eventRef struct{ id int }
+
 // ActiveAlarmTracks state of an alarm rule that is currently active or in delay
 type activeAlarmTrack struct {
 	Definition   models.AlarmDefinition
 	ActiveSince  time.Time
 	Triggered    bool // True if it has passed the delay phase and fired via MQTT
 	InitialValue float64
-	EventID      int  // Database alarm_events.id for CLEARED updates
+	FiredAt      time.Time // When Triggered became true — the alarm_events.trigger_time
+	Event        *eventRef // Database alarm_events.id for CLEARED updates (id==0: not persisted yet)
+
+	// NextInsertRetry throttles re-attempts of a failed ACTIVE insert. Zero
+	// means "no write has been attempted yet".
+	NextInsertRetry time.Time
+}
+
+// alarmIO is one durable side-effect plus notification that a state transition
+// decided on. Transitions are computed under Manager.mu and appended to
+// Manager.pendingIO; the DB writes and the OnAlarmEvent publish then happen in
+// drainIO() with NO lock held, so a Postgres stall or a full MQTT publish queue
+// can no longer freeze the scan of the remaining tags on the gateway.
+type alarmIO struct {
+	tagID       int
+	alias       string
+	lookupAlias bool // resolve alias from the DB (callers that do not have it)
+	def         models.AlarmDefinition
+	value       float64
+	status      string // "ACTIVE" or "CLEARED"
+	ref         *eventRef
+	triggeredAt time.Time
+	// notify is false for insert retries: the operator has already been told
+	// about this alarm, only the durable record was missing.
+	notify bool
 }
 
 type Manager struct {
 	db           *sql.DB
+	store        alarmStore // durable writes; nil when no DB is attached (tests)
 	mqttClient   MQTTPublisher
 	gatewayID    int
 	orgID        int
@@ -36,6 +83,8 @@ type Manager struct {
 	gatewayName  string
 	definitions  map[int][]models.AlarmDefinition  // tag_id -> definitions
 	activeTracks map[int]map[int]*activeAlarmTrack // tag_id -> definition_id -> track
+	pendingIO    []alarmIO                         // ordered queue drained outside the lock
+	ioDraining   bool                              // a goroutine is inside drainIO
 	mu           sync.RWMutex
 
 	// OnAlarmEvent is called whenever an alarm state changes (e.g. triggered or cleared)
@@ -56,6 +105,9 @@ func NewManager(db *sql.DB, mqttClient MQTTPublisher, gatewayID int) *Manager {
 		gatewayID:    gatewayID,
 		definitions:  make(map[int][]models.AlarmDefinition),
 		activeTracks: make(map[int]map[int]*activeAlarmTrack),
+	}
+	if db != nil {
+		m.store = &sqlStore{db: db}
 	}
 	m.loadGatewayContext()
 	m.LoadDefinitions()
@@ -112,7 +164,8 @@ func (m *Manager) loadActiveAlarmsFromDB() {
 					ActiveSince:  triggerTime,
 					Triggered:    true, // Already triggered (loaded from DB)
 					InitialValue: triggerValue,
-					EventID:      eventID, // Critical: load the event ID for proper clearing
+					FiredAt:      triggerTime,
+					Event:        &eventRef{id: eventID}, // Critical: load the event ID for proper clearing
 				}
 				count++
 				log.Printf("[ALARM-MANAGER] Restored active alarm tracking: tagID=%d, defID=%d, eventID=%d", tagID, defID, eventID)
@@ -194,25 +247,28 @@ func (m *Manager) LoadDefinitions() {
 				}
 			}
 			if !found {
-				// We must fire CLEAR if the track was triggered but definition is gone
+				// We must fire CLEAR if the track was triggered but definition is gone.
+				// The alias lookup, the UPDATE and the callback all run in drainIO
+				// once the lock is released — none of them belongs under m.mu.
 				if tracks[defID].Triggered {
-					var alias string
-					m.db.QueryRow("SELECT alias FROM tags WHERE id = $1", tagID).Scan(&alias)
-					// Update the database record with CLEARED status BEFORE notifying the
-					// driver: the callback publishes the event and whoever consumes it
-					// (core-api → notifications) must never see a still-ACTIVE row.
-					if tracks[defID].EventID > 0 {
-						if err := m.updateAlarmEventAsCleared(tracks[defID].EventID); err != nil {
-							log.Printf("[ALARM-MANAGER] Failed to update alarm event %d as CLEARED during cleanup: %v", tracks[defID].EventID, err)
-						}
-					}
-					m.fireAlarmEvent(tagID, alias, tracks[defID].Definition, tracks[defID].InitialValue, "CLEARED", tracks[defID].EventID)
+					m.queueIO(alarmIO{
+						tagID:       tagID,
+						lookupAlias: true,
+						def:         tracks[defID].Definition,
+						value:       tracks[defID].InitialValue,
+						status:      "CLEARED",
+						ref:         tracks[defID].Event,
+						triggeredAt: tracks[defID].FiredAt,
+						notify:      true,
+					})
 				}
 				delete(tracks, defID)
 			}
 		}
 	}
 	m.mu.Unlock()
+
+	m.drainIO()
 
 	log.Printf("[ALARM-MANAGER] Loaded %d active alarm rules for %d tags", count, len(newDefs))
 }
@@ -234,55 +290,67 @@ func (m *Manager) StartTicker(ctx context.Context) {
 	}
 }
 
-// tickDelays safely evaluates all activeTracks to see if they reached their fire duration
+// tickDelays evaluates all activeTracks to see if they reached their fire
+// duration, and re-attempts the persistence of alarms whose INSERT failed.
+//
+// Only the state transitions happen under the lock: the writes and the MQTT
+// publish are queued and executed by drainIO() afterwards, so a slow database
+// can no longer stall the 1 s ticker (and, through it, every other alarm).
 func (m *Manager) tickDelays() {
 	m.mu.Lock()
-	defer m.mu.Unlock() // Keep lock for entire operation to prevent race conditions
 
 	now := time.Now()
 
-	// Collect alarms to trigger - we will do everything while holding the lock
-	// to prevent race conditions where state could change between operations
-	type pendingTrigger struct {
-		tagID        int
-		definition   models.AlarmDefinition
-		initialValue float64
-	}
-	var toTrigger []pendingTrigger
-
 	for tagID, tracks := range m.activeTracks {
 		for _, track := range tracks {
-			if !track.Triggered {
+			switch {
+			case !track.Triggered:
 				durationSecs := int(now.Sub(track.ActiveSince).Seconds())
 				if durationSecs >= track.Definition.DelaySeconds {
-					toTrigger = append(toTrigger, pendingTrigger{
-						tagID:        tagID,
-						definition:   track.Definition,
-						initialValue: track.InitialValue,
-					})
 					track.Triggered = true
+					track.FiredAt = now
+					track.NextInsertRetry = now.Add(alarmInsertRetryInterval)
+					m.queueIO(alarmIO{
+						tagID:       tagID,
+						lookupAlias: true,
+						def:         track.Definition,
+						value:       track.InitialValue,
+						status:      "ACTIVE",
+						ref:         track.Event,
+						triggeredAt: now,
+						notify:      true,
+					})
 				}
+
+			case track.Event.id == 0 && !now.Before(track.NextInsertRetry):
+				// The alarm was announced but its INSERT failed, so right now it
+				// exists nowhere durable: a restart would lose it and no CLEARED
+				// row could ever be written for it. Retry the write.
+				//
+				// notify=false — the operator was already told when the alarm
+				// fired, and a retry must never produce a second notification.
+				// NextInsertRetry is pushed forward here, under the lock, so a
+				// dead database is retried at most every alarmInsertRetryInterval
+				// instead of on every tick.
+				track.NextInsertRetry = now.Add(alarmInsertRetryInterval)
+				m.queueIO(alarmIO{
+					tagID: tagID,
+					// No alias lookup: nothing is published for a retry, so the
+					// extra SELECT would be pure load on an already sick DB.
+					def:         track.Definition,
+					value:       track.InitialValue,
+					status:      "ACTIVE",
+					ref:         track.Event,
+					triggeredAt: track.FiredAt,
+					notify:      false,
+				})
 			}
 		}
 	}
 
-	// Now trigger the alarms - still holding lock to ensure consistency
-	// Note: DB operations are done while holding lock, which is acceptable
-	// because tickDelays runs infrequently (once per second)
-	for _, pt := range toTrigger {
-		// Fire the alarm event - we already set Triggered=true in the collection phase
-		// No need to check again since we're iterating over alarms we just collected
-		var alias string
-		m.db.QueryRow("SELECT alias FROM tags WHERE id = $1", pt.tagID).Scan(&alias)
-		eventID := m.fireAlarmEvent(pt.tagID, alias, pt.definition, pt.initialValue, "ACTIVE", 0)
+	m.mu.Unlock()
 
-		// Store the event ID in the track for later CLEARED updates
-		if tracks, ok := m.activeTracks[pt.tagID]; ok {
-			if track, ok := tracks[pt.definition.ID]; ok {
-				track.EventID = eventID
-			}
-		}
-	}
+	m.drainIO()
 }
 
 // EvaluateTag checks a new tag value against all its alarm rules
@@ -297,10 +365,10 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	defs, exists := m.definitions[tagID]
 	if !exists || len(defs) == 0 {
+		m.mu.Unlock()
 		return
 	}
 
@@ -326,15 +394,25 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 					ActiveSince:  now,
 					Triggered:    false,
 					InitialValue: floatVal,
-					EventID:      0,
+					Event:        &eventRef{},
 				}
 				track = tracks[def.ID]
 
 				// Evaluate immediately if delay is 0
 				if def.DelaySeconds == 0 {
-					eventID := m.fireAlarmEvent(tagID, alias, def, floatVal, "ACTIVE", 0)
 					track.Triggered = true
-					track.EventID = eventID
+					track.FiredAt = now
+					track.NextInsertRetry = now.Add(alarmInsertRetryInterval)
+					m.queueIO(alarmIO{
+						tagID:       tagID,
+						alias:       alias,
+						def:         def,
+						value:       floatVal,
+						status:      "ACTIVE",
+						ref:         track.Event,
+						triggeredAt: now,
+						notify:      true,
+					})
 				}
 			}
 			// Delay ticking is handled by StartTicker() background loop now
@@ -358,15 +436,20 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 				}
 				if isCleared(def, floatVal) {
 					if track.Triggered {
-						// It was fired, so we must update the database and publish a CLEAR
-						// event. DB first: the callback publishes the event downstream and
-						// consumers must never see a still-ACTIVE row for a cleared alarm.
-						if track.EventID > 0 {
-							if err := m.updateAlarmEventAsCleared(track.EventID); err != nil {
-								log.Printf("[ALARM-MANAGER] Failed to update alarm event %d as CLEARED: %v", track.EventID, err)
-							}
-						}
-						m.fireAlarmEvent(tagID, alias, def, floatVal, "CLEARED", track.EventID)
+						// It was fired, so we must update the database and publish a
+						// CLEAR event. Both happen in drainIO, DB first: the callback
+						// publishes downstream and consumers must never see a
+						// still-ACTIVE row for a cleared alarm.
+						m.queueIO(alarmIO{
+							tagID:       tagID,
+							alias:       alias,
+							def:         def,
+							value:       floatVal,
+							status:      "CLEARED",
+							ref:         track.Event,
+							triggeredAt: track.FiredAt,
+							notify:      true,
+						})
 					}
 					// Remove from tracking
 					delete(tracks, def.ID)
@@ -374,72 +457,244 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 			}
 		}
 	}
+
+	m.mu.Unlock()
+
+	// Everything that can block — the DB writes and the MQTT publish done by
+	// OnAlarmEvent — happens here, with the lock released.
+	m.drainIO()
 }
 
-// insertAlarmEvent creates a new alarm event record in the database
-// Uses ON CONFLICT to prevent duplicate ACTIVE events for the same tag/definition
-// Returns the ID of the created event (or existing event if duplicate) or error
-func (m *Manager) insertAlarmEvent(tagID int, def models.AlarmDefinition, val float64, status string) (int, error) {
-	if m.db == nil {
-		return 0, fmt.Errorf("database connection is nil")
+// queueIO appends a durable side-effect to the pending queue.
+// MUST be called with m.mu held.
+func (m *Manager) queueIO(io alarmIO) {
+	m.pendingIO = append(m.pendingIO, io)
+	// The queue is deliberately unbounded — dropping an industrial alarm to save
+	// memory is never the right trade — but a backlog this size means the DB or
+	// the broker has been unresponsive for a long time and the operator should
+	// know before the process runs out of memory.
+	if n := len(m.pendingIO); n == 1000 || n%10000 == 0 {
+		log.Printf("[ALARM-MANAGER] %d alarm writes/publishes are backed up — database or broker is not keeping up", n)
 	}
+}
+
+// drainIO executes the queued alarm I/O with m.mu released.
+//
+// Ordering: actions are appended under m.mu in the exact order the transitions
+// were decided, popped FIFO here, and at most one goroutine drains at a time
+// (m.ioDraining). So the ACTIVE and CLEARED writes of the same alarm can never
+// overtake each other, and a CLEARED row is always written before its callback
+// fires — the guarantees that used to come from holding m.mu across the I/O.
+//
+// A caller that finds another goroutine already draining returns immediately
+// instead of blocking: its actions are already in the queue, and the active
+// drainer re-checks the queue under m.mu before clearing the flag, so there is
+// no window in which work is left stranded. That is what keeps a stalled
+// database off the poll loop, rather than merely moving the stall from m.mu
+// onto another mutex.
+func (m *Manager) drainIO() {
+	m.mu.Lock()
+	if m.ioDraining {
+		m.mu.Unlock()
+		return
+	}
+	m.ioDraining = true
+
+	for len(m.pendingIO) > 0 {
+		act := m.pendingIO[0]
+		m.pendingIO = m.pendingIO[1:]
+		m.mu.Unlock()
+
+		m.executeIO(act)
+
+		m.mu.Lock()
+	}
+
+	m.ioDraining = false
+	m.mu.Unlock()
+}
+
+// executeIO performs the durable write and the notification for one action.
+// It runs with NO lock held; m.mu is taken only for the short reads/writes of
+// the shared eventRef and the track.
+func (m *Manager) executeIO(act alarmIO) {
+	alias := act.alias
+	if act.lookupAlias && m.store != nil {
+		if resolved, err := m.store.TagAlias(act.tagID); err != nil {
+			log.Printf("[ALARM-MANAGER] Could not resolve alias for tag %d: %v", act.tagID, err)
+		} else {
+			alias = resolved
+		}
+	}
+
+	if m.store != nil {
+		switch act.status {
+		case "ACTIVE":
+			m.persistActive(act)
+		case "CLEARED":
+			m.persistCleared(act)
+		}
+	}
+
+	if act.notify && m.OnAlarmEvent != nil {
+		m.mu.Lock()
+		eventID := act.ref.id
+		m.mu.Unlock()
+		m.OnAlarmEvent(eventID, act.tagID, alias, act.def, act.value, act.status)
+	}
+}
+
+// persistActive writes (or re-writes) the ACTIVE alarm_events row.
+func (m *Manager) persistActive(act alarmIO) {
+	m.mu.Lock()
+	alreadyPersisted := act.ref.id > 0
+	m.mu.Unlock()
+	if alreadyPersisted {
+		// A retry was queued while the first INSERT was still in flight against
+		// a slow database and that INSERT has since landed. Writing again here
+		// would create the duplicate ACTIVE row we are trying to prevent.
+		return
+	}
+
+	id, err := m.store.InsertActive(act.tagID, act.def, act.value, act.triggeredAt)
+	if err != nil {
+		// The alarm is announced but NOT durably recorded. ref.id stays 0, which
+		// is precisely what makes tickDelays retry it: the failure is no longer
+		// swallowed and the event is not lost. NextInsertRetry was already
+		// pushed forward by the caller, so the retry is throttled.
+		log.Printf("[ALARM-MANAGER] Failed to persist ACTIVE alarm (tag=%d def=%d) — will retry: %v",
+			act.tagID, act.def.ID, err)
+		return
+	}
+
+	m.mu.Lock()
+	act.ref.id = id
+	m.mu.Unlock()
+}
+
+// persistCleared closes the alarm_events row of an alarm that has cleared.
+// The DB write happens BEFORE the caller publishes the event downstream.
+func (m *Manager) persistCleared(act alarmIO) {
+	m.mu.Lock()
+	eventID := act.ref.id
+	m.mu.Unlock()
+
+	if eventID > 0 {
+		if err := m.store.MarkCleared(eventID); err != nil {
+			log.Printf("[ALARM-MANAGER] Failed to update alarm event %d as CLEARED: %v", eventID, err)
+		}
+		return
+	}
+
+	// The ACTIVE insert never succeeded and the condition cleared before a retry
+	// could land. Record the whole occurrence as a single already-closed row so
+	// the operator still has a history entry, instead of no trace at all.
+	id, err := m.store.InsertCleared(act.tagID, act.def, act.value, act.triggeredAt, time.Now())
+	if err != nil {
+		log.Printf("[ALARM-MANAGER] Failed to record unpersisted alarm as CLEARED (tag=%d def=%d): %v",
+			act.tagID, act.def.ID, err)
+		return
+	}
+
+	m.mu.Lock()
+	act.ref.id = id
+	m.mu.Unlock()
+}
+
+// alarmStore is the durable side of the alarm pipeline. It is an interface so
+// the retry/durability semantics can be exercised against a store that fails on
+// demand; production always uses sqlStore.
+type alarmStore interface {
+	// InsertActive creates the ACTIVE row for an alarm occurrence, or returns
+	// the id of the one that is already open for this tag+definition.
+	InsertActive(tagID int, def models.AlarmDefinition, val float64, triggerTime time.Time) (int, error)
+	// InsertCleared records an already-closed occurrence in a single row.
+	InsertCleared(tagID int, def models.AlarmDefinition, val float64, triggerTime, clearTime time.Time) (int, error)
+	// MarkCleared closes an existing ACTIVE row.
+	MarkCleared(eventID int) error
+	// TagAlias resolves the human-readable name of a tag.
+	TagAlias(tagID int) (string, error)
+}
+
+type sqlStore struct{ db *sql.DB }
+
+// InsertActive creates a new ACTIVE alarm event record in the database.
+//
+// The INSERT is conditional (WHERE NOT EXISTS) rather than a plain INSERT whose
+// error string is inspected afterwards: the partial unique index this code used
+// to rely on (alarm_events_active_unique) existed in no migration, so nothing at
+// all prevented duplicate open rows for the same tag+definition. The index is
+// now created by runAutoMigrations, but only as a backstop — on TimescaleDB
+// alarm_events is a hypertable and a unique index there must contain the
+// partitioning column, so the index cannot always be installed. The conditional
+// INSERT enforces the invariant regardless of which of the two the deployment
+// got.
+//
+// If a row is already open, its id is returned with no error: that is exactly
+// what the caller needs in order to CLEAR it later.
+func (s *sqlStore) InsertActive(tagID int, def models.AlarmDefinition, val float64, triggerTime time.Time) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), alarmDBTimeout)
+	defer cancel()
 
 	var eventID int
-	// For ACTIVE status, use ON CONFLICT to handle duplicates gracefully
-	// The unique index alarm_events_active_unique prevents duplicate ACTIVE events
-	if status == "ACTIVE" {
-		// Try to insert first
-		err := m.db.QueryRow(`
-			INSERT INTO alarm_events (tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			RETURNING id
-		`, tagID, def.ID, status, def.AlarmType, def.Severity, def.Message, val, time.Now()).Scan(&eventID)
+	err := s.db.QueryRowContext(ctx, `
+		INSERT INTO alarm_events (tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time)
+		SELECT $1, $2, 'ACTIVE', $3, $4, $5, $6, $7
+		WHERE NOT EXISTS (
+			SELECT 1 FROM alarm_events
+			WHERE tag_id = $1 AND definition_id = $2 AND status = 'ACTIVE' AND clear_time IS NULL
+		)
+		RETURNING id
+	`, tagID, def.ID, def.AlarmType, def.Severity, def.Message, val, triggerTime).Scan(&eventID)
 
-		// If it's a duplicate error, fetch the existing event ID and return it (no error)
-		if err != nil && strings.Contains(err.Error(), "duplicate key") {
-			// Fetch the existing active alarm event
-			err = m.db.QueryRow(`
-				SELECT id FROM alarm_events
-				WHERE tag_id = $1 AND definition_id = $2 AND status = 'ACTIVE' AND clear_time IS NULL
-				ORDER BY trigger_time DESC LIMIT 1
-			`, tagID, def.ID).Scan(&eventID)
-			if err != nil {
-				// If we can't find the existing event, log and return the duplicate as a new error
-				log.Printf("[ALARM-MANAGER] Duplicate detected but couldn't find existing event for tag %d: %v", tagID, err)
-				// Return the original error which will be handled by the caller
-				return 0, fmt.Errorf("duplicate key: %w", err)
-			}
-			// Return the existing event ID with no error - duplicate was handled successfully
-			return eventID, nil
-		}
+	switch {
+	case err == nil:
+		return eventID, nil
 
+	case errors.Is(err, sql.ErrNoRows):
+		// Nothing inserted: an ACTIVE row for this tag+definition is already
+		// open (e.g. left behind by a restart). Adopt it.
+		lookupCtx, lookupCancel := context.WithTimeout(context.Background(), alarmDBTimeout)
+		defer lookupCancel()
+
+		err = s.db.QueryRowContext(lookupCtx, `
+			SELECT id FROM alarm_events
+			WHERE tag_id = $1 AND definition_id = $2 AND status = 'ACTIVE' AND clear_time IS NULL
+			ORDER BY trigger_time DESC LIMIT 1
+		`, tagID, def.ID).Scan(&eventID)
 		if err != nil {
-			return 0, fmt.Errorf("failed to insert alarm event: %w", err)
+			return 0, fmt.Errorf("open alarm event not found for tag %d def %d: %w", tagID, def.ID, err)
 		}
 		return eventID, nil
-	}
 
-	// For other statuses (CLEARED), just do a normal insert
-	err := m.db.QueryRow(`
-		INSERT INTO alarm_events (tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING id
-	`, tagID, def.ID, status, def.AlarmType, def.Severity, def.Message, val, time.Now()).Scan(&eventID)
-
-	if err != nil {
+	default:
 		return 0, fmt.Errorf("failed to insert alarm event: %w", err)
 	}
+}
 
+// InsertCleared writes a single already-closed alarm_events row.
+func (s *sqlStore) InsertCleared(tagID int, def models.AlarmDefinition, val float64, triggerTime, clearTime time.Time) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), alarmDBTimeout)
+	defer cancel()
+
+	var eventID int
+	err := s.db.QueryRowContext(ctx, `
+		INSERT INTO alarm_events (tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time, clear_time)
+		VALUES ($1, $2, 'CLEARED', $3, $4, $5, $6, $7, $8)
+		RETURNING id
+	`, tagID, def.ID, def.AlarmType, def.Severity, def.Message, val, triggerTime, clearTime).Scan(&eventID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to insert cleared alarm event: %w", err)
+	}
 	return eventID, nil
 }
 
-// updateAlarmEventAsCleared updates an existing alarm event with CLEARED status
-func (m *Manager) updateAlarmEventAsCleared(eventID int) error {
-	if m.db == nil {
-		return fmt.Errorf("database connection is nil")
-	}
+// MarkCleared updates an existing alarm event with CLEARED status
+func (s *sqlStore) MarkCleared(eventID int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), alarmDBTimeout)
+	defer cancel()
 
-	_, err := m.db.Exec(`
+	_, err := s.db.ExecContext(ctx, `
 		UPDATE alarm_events
 		SET status = 'CLEARED', clear_time = $1
 		WHERE id = $2
@@ -452,37 +707,16 @@ func (m *Manager) updateAlarmEventAsCleared(eventID int) error {
 	return nil
 }
 
-// fireAlarmEvent persists the state change and notifies the parent driver.
-// existingEventID is the alarm_events row the caller already knows about: 0 on
-// ACTIVE (the row is created here), and the tracked row id on CLEARED (created
-// when the alarm fired, already updated by the caller). The returned id — also
-// handed to OnAlarmEvent — identifies the row this event refers to, so the
-// driver can put it on the wire and core-api will not persist it a second time.
-func (m *Manager) fireAlarmEvent(tagID int, alias string, def models.AlarmDefinition, val float64, status string, existingEventID int) int {
-	// NOTE: MQTT publishing is now handled ONLY by OnAlarmEvent callback in the driver
-	// This function handles database persistence and triggers the callback
+// TagAlias resolves the display name of a tag.
+func (s *sqlStore) TagAlias(tagID int) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), alarmDBTimeout)
+	defer cancel()
 
-	// Write to database for history tracking
-	eventID := existingEventID
-	if status == "ACTIVE" {
-		id, err := m.insertAlarmEvent(tagID, def, val, status)
-		// Note: Duplicate errors are silently handled in insertAlarmEvent
-		if err != nil && !strings.Contains(err.Error(), "duplicate key") {
-			log.Printf("[ALARM-MANAGER] Failed to insert alarm event: %v", err)
-		}
-		if id > 0 {
-			eventID = id
-		}
+	var alias string
+	if err := s.db.QueryRowContext(ctx, `SELECT alias FROM tags WHERE id = $1`, tagID).Scan(&alias); err != nil {
+		return "", err
 	}
-	// CLEARED: the row already exists (existingEventID) and is updated by the
-	// caller, which owns the track holding its id.
-
-	// Notify parent driver if callback is set
-	if m.OnAlarmEvent != nil {
-		m.OnAlarmEvent(eventID, tagID, alias, def, val, status)
-	}
-
-	return eventID
+	return alias, nil
 }
 
 // Helpers

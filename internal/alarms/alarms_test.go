@@ -1,6 +1,7 @@
 package alarms_test
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/ralph/industrial-edge-middleware/internal/alarms"
@@ -554,5 +555,239 @@ func TestPersistingConditionStillFiresAfterDelay(t *testing.T) {
 	m.EvaluateTag(42, "temp", 90.0, 192)
 	if fired != 2 || lastStatus != "CLEARED" {
 		t.Errorf("recovered value: fired=%d status=%q, want 2 CLEARED", fired, lastStatus)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Durability: a failed alarm INSERT must be retried, not silently lost
+// ---------------------------------------------------------------------------
+
+// highDef is a zero-delay "high" rule used by the durability tests.
+func highDef() models.AlarmDefinition {
+	threshold := 100.0
+	return models.AlarmDefinition{
+		ID:           1,
+		AlarmType:    "high",
+		Threshold:    &threshold,
+		Deadband:     5,
+		DelaySeconds: 0,
+		Enabled:      true,
+	}
+}
+
+// The alarm is announced to the operator even when the DB write fails, but the
+// track must NOT be left marked as durably recorded: the manager has to keep
+// trying until the row exists.
+func TestFailedInsertIsRetriedUntilItSucceeds(t *testing.T) {
+	m := alarms.NewTestManager()
+	store := m.UseFakeStore()
+	m.SetDefinitions(42, []models.AlarmDefinition{highDef()})
+
+	var events []string
+	m.OnAlarmEvent = func(_ int, _ int, _ string, _ models.AlarmDefinition, _ float64, status string) {
+		events = append(events, status)
+	}
+
+	store.FailActive(true)
+	m.EvaluateTag(42, "temp", 101.0, 192)
+
+	if len(events) != 1 || events[0] != "ACTIVE" {
+		t.Fatalf("operator must still be told about the alarm: events=%v", events)
+	}
+	if got := m.TrackEventID(42, 1); got != 0 {
+		t.Fatalf("track eventID = %d, want 0 (write failed → not durably recorded)", got)
+	}
+
+	// The DB recovers; the next due retry must persist the alarm.
+	store.FailActive(false)
+	m.ExpireInsertRetry(42, 1)
+	m.TickDelays()
+
+	if got := m.TrackEventID(42, 1); got <= 0 {
+		t.Fatalf("after retry: track eventID = %d, want a real row id", got)
+	}
+	if len(events) != 1 {
+		t.Fatalf("retry produced a duplicate notification: events=%v", events)
+	}
+
+	// And the recovered row is the one that gets closed.
+	m.EvaluateTag(42, "temp", 90.0, 192)
+	if len(events) != 2 || events[1] != "CLEARED" {
+		t.Fatalf("events=%v, want ACTIVE then CLEARED", events)
+	}
+	_, _, marked := store.Counters()
+	if marked != 1 {
+		t.Errorf("marked-cleared rows = %d, want 1", marked)
+	}
+}
+
+// A retry must not fire a second notification for an already announced alarm,
+// and must not hammer the database on every tick while it keeps failing.
+func TestFailedInsertRetryIsThrottledAndNeverRenotifies(t *testing.T) {
+	m := alarms.NewTestManager()
+	store := m.UseFakeStore()
+	store.FailActive(true)
+	m.SetDefinitions(42, []models.AlarmDefinition{highDef()})
+
+	notifications := 0
+	m.OnAlarmEvent = func(_ int, _ int, _ string, _ models.AlarmDefinition, _ float64, _ string) {
+		notifications++
+	}
+
+	m.EvaluateTag(42, "temp", 101.0, 192)
+	attemptsAfterFire, _, _ := store.Counters()
+	if attemptsAfterFire != 1 {
+		t.Fatalf("insert attempts after firing = %d, want 1", attemptsAfterFire)
+	}
+
+	// 60 ticks with the retry not yet due: no extra write, no extra alarm.
+	for i := 0; i < 60; i++ {
+		m.TickDelays()
+	}
+	attempts, _, _ := store.Counters()
+	if attempts != 1 {
+		t.Errorf("insert attempts after 60 ticks = %d, want 1 (retry must be throttled)", attempts)
+	}
+	if notifications != 1 {
+		t.Errorf("notifications = %d, want 1", notifications)
+	}
+
+	// Once due, exactly one further attempt is made per retry window.
+	m.ExpireInsertRetry(42, 1)
+	m.TickDelays()
+	m.TickDelays()
+	attempts, _, _ = store.Counters()
+	if attempts != 2 {
+		t.Errorf("insert attempts after one due retry = %d, want 2", attempts)
+	}
+	if notifications != 1 {
+		t.Errorf("notifications = %d, want 1 — a retry must never re-announce the alarm", notifications)
+	}
+}
+
+// If the condition clears before any retry lands, the occurrence must still end
+// up in history — as a single already-closed row — instead of vanishing.
+func TestUnpersistedAlarmIsRecordedWhenItClears(t *testing.T) {
+	m := alarms.NewTestManager()
+	store := m.UseFakeStore()
+	store.FailActive(true)
+	m.SetDefinitions(42, []models.AlarmDefinition{highDef()})
+
+	m.EvaluateTag(42, "temp", 101.0, 192)
+	m.EvaluateTag(42, "temp", 90.0, 192)
+
+	_, clearedInserts, marked := store.Counters()
+	if clearedInserts != 1 {
+		t.Errorf("standalone CLEARED rows = %d, want 1 (the occurrence must be recorded)", clearedInserts)
+	}
+	if marked != 0 {
+		t.Errorf("marked-cleared rows = %d, want 0 (there was no ACTIVE row to close)", marked)
+	}
+}
+
+// A track that persisted correctly must never take the retry path.
+func TestSuccessfulInsertIsNeverRetried(t *testing.T) {
+	m := alarms.NewTestManager()
+	store := m.UseFakeStore()
+	m.SetDefinitions(42, []models.AlarmDefinition{highDef()})
+
+	m.EvaluateTag(42, "temp", 101.0, 192)
+	if got := m.TrackEventID(42, 1); got <= 0 {
+		t.Fatalf("track eventID = %d, want a real row id", got)
+	}
+
+	m.ExpireInsertRetry(42, 1)
+	for i := 0; i < 5; i++ {
+		m.TickDelays()
+	}
+	attempts, _, _ := store.Counters()
+	if attempts != 1 {
+		t.Errorf("insert attempts = %d, want 1 — a persisted alarm must not be re-inserted", attempts)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// I/O outside the lock: ordering and race freedom
+// ---------------------------------------------------------------------------
+
+// The CLEARED row must be written before the CLEARED callback fires, even now
+// that both happen outside the manager lock.
+func TestClearedRowIsWrittenBeforeCallback(t *testing.T) {
+	m := alarms.NewTestManager()
+	store := m.UseFakeStore()
+	m.SetDefinitions(42, []models.AlarmDefinition{highDef()})
+
+	var markedWhenNotified int
+	m.OnAlarmEvent = func(_ int, _ int, _ string, _ models.AlarmDefinition, _ float64, status string) {
+		if status == "CLEARED" {
+			_, _, markedWhenNotified = store.Counters()
+		}
+	}
+
+	m.EvaluateTag(42, "temp", 101.0, 192)
+	m.EvaluateTag(42, "temp", 90.0, 192)
+
+	if markedWhenNotified != 1 {
+		t.Errorf("row was still open when the CLEARED callback ran (marked=%d)", markedWhenNotified)
+	}
+}
+
+// The poll loop, the delay ticker and a definition reload all mutate the same
+// tracks while the I/O now happens with the lock released. Under -race this
+// asserts the queue/drain handoff introduces no data race, no lost event and no
+// duplicate ACTIVE notification per occurrence.
+func TestConcurrentEvaluationAndTickingIsRaceFree(t *testing.T) {
+	m := alarms.NewTestManager()
+	m.UseFakeStore()
+
+	defs := make([]models.AlarmDefinition, 0, 8)
+	for i := 1; i <= 8; i++ {
+		threshold := 100.0
+		defs = append(defs, models.AlarmDefinition{
+			ID: i, AlarmType: "high", Threshold: &threshold, Deadband: 5, Enabled: true,
+		})
+	}
+	m.SetDefinitions(42, defs)
+
+	var mu sync.Mutex
+	counts := map[string]int{}
+	m.OnAlarmEvent = func(_ int, _ int, _ string, _ models.AlarmDefinition, _ float64, status string) {
+		mu.Lock()
+		counts[status]++
+		mu.Unlock()
+	}
+
+	var wg sync.WaitGroup
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				m.EvaluateTag(42, "temp", 101.0, 192)
+				m.EvaluateTag(42, "temp", 90.0, 192)
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 400; i++ {
+			m.TickDelays()
+		}
+	}()
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	// Every announced alarm must have been announced as cleared exactly once:
+	// no CLEARED without an ACTIVE and none lost.
+	if counts["ACTIVE"] != counts["CLEARED"] {
+		t.Errorf("ACTIVE=%d CLEARED=%d — events must pair up", counts["ACTIVE"], counts["CLEARED"])
+	}
+	if counts["ACTIVE"] == 0 {
+		t.Error("no alarms fired at all")
+	}
+	if got := m.PendingCount(42); got != 0 {
+		t.Errorf("pending tracks left = %d, want 0", got)
 	}
 }

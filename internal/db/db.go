@@ -1244,8 +1244,110 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: org mfa_required migration: %v", err)
 	}
 
+	// Migration: at most one open alarm_events row per (tag_id, definition_id).
+	ensureSingleOpenAlarmEvent(db)
+
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
+}
+
+// ensureSingleOpenAlarmEvent enforces "at most one open alarm_events row per
+// (tag_id, definition_id)".
+//
+// internal/alarms claimed to rely on a partial unique index called
+// alarm_events_active_unique to deduplicate its INSERTs, but that index existed
+// in no migration: the INSERT never failed, the duplicate-handling branch was
+// dead code and nothing stopped two ACTIVE rows for the same alarm — one of
+// which could then never be cleared, leaving a phantom alarm on the operator's
+// screen forever.
+//
+// The migration runs in two steps and is safe to re-run:
+//
+//  1. De-duplicate. Existing installations may already hold duplicate open rows
+//     and CREATE UNIQUE INDEX would simply fail on them, leaving the index
+//     permanently absent. So the most recent open row per (tag_id, definition_id)
+//     is kept and the older ones are closed (status CLEARED, clear_time set to
+//     their own trigger_time so no fake alarm duration appears in reports).
+//     This runs in its own transaction: either every stale duplicate is closed
+//     or none is — the table is never left half-migrated.
+//
+//  2. Create the index. On TimescaleDB alarm_events is a hypertable partitioned
+//     on trigger_time, and Postgres only accepts unique indexes on a partitioned
+//     table when they contain the partitioning column — which would defeat the
+//     purpose. There the CREATE fails and we log it as an explicit warning
+//     rather than aborting startup: internal/alarms also enforces the invariant
+//     in its INSERT (conditional on WHERE NOT EXISTS), so the index is the
+//     backstop, not the only line of defence. A plain non-unique partial index
+//     is created either way to keep that WHERE NOT EXISTS probe cheap.
+func ensureSingleOpenAlarmEvent(db *sql.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	// Step 0: nothing to do if the alarm pipeline has not been provisioned yet
+	// (fresh DB where migrations/20250308_schema.sql has not run).
+	var exists bool
+	if err := db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = 'alarm_events'
+		)`).Scan(&exists); err != nil || !exists {
+		return
+	}
+
+	// Step 1: close the duplicates, atomically.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		log.Printf("[DB] alarm_events dedup: cannot start transaction: %v", err)
+		return
+	}
+	res, err := tx.ExecContext(ctx, `
+		UPDATE alarm_events ae
+		SET status = 'CLEARED', clear_time = ae.trigger_time
+		FROM (
+			SELECT tag_id, definition_id, MAX(trigger_time) AS keep_time
+			FROM alarm_events
+			WHERE status = 'ACTIVE' AND clear_time IS NULL
+			GROUP BY tag_id, definition_id
+			HAVING COUNT(*) > 1
+		) dup
+		WHERE ae.tag_id = dup.tag_id
+		  AND ae.definition_id = dup.definition_id
+		  AND ae.status = 'ACTIVE'
+		  AND ae.clear_time IS NULL
+		  AND ae.trigger_time < dup.keep_time`)
+	if err != nil {
+		_ = tx.Rollback()
+		log.Printf("[DB] alarm_events dedup failed, rolled back — %s index NOT created: %v",
+			"alarm_events_active_unique", err)
+		return
+	}
+	closed, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		log.Printf("[DB] alarm_events dedup: commit failed, nothing changed: %v", err)
+		return
+	}
+	if closed > 0 {
+		log.Printf("[DB] alarm_events: closed %d duplicate open alarm rows (kept the most recent per tag+definition)", closed)
+	}
+
+	// Step 2a: lookup index for the application-level duplicate check.
+	if _, err := db.ExecContext(ctx, `
+		CREATE INDEX IF NOT EXISTS alarm_events_active_lookup
+		ON alarm_events (tag_id, definition_id)
+		WHERE status = 'ACTIVE' AND clear_time IS NULL`); err != nil {
+		log.Printf("Warning: alarm_events_active_lookup index: %v", err)
+	}
+
+	// Step 2b: the real constraint. Best-effort — see the doc comment.
+	if _, err := db.ExecContext(ctx, `
+		CREATE UNIQUE INDEX IF NOT EXISTS alarm_events_active_unique
+		ON alarm_events (tag_id, definition_id)
+		WHERE status = 'ACTIVE' AND clear_time IS NULL`); err != nil {
+		log.Printf("[DB] alarm_events_active_unique NOT created (%v) — duplicate ACTIVE alarms "+
+			"remain prevented by the conditional INSERT in internal/alarms; this is expected on "+
+			"TimescaleDB, where a unique index on the alarm_events hypertable would have to "+
+			"include trigger_time", err)
+	}
 }
 
 // StartHistorianRetentionWorker runs a daily cleanup of old historian data.
