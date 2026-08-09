@@ -654,16 +654,7 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: failed to seed enterprise settings: %v", err)
 	}
 
-	// Bootstrap "safety net" admin: il file migrations/20250308_schema.sql
-	// seedando admin/admin123 gira solo se Postgres trova il volume vuoto
-	// (docker-entrypoint-initdb.d). Su un volume preesistente la seed
-	// non viene applicata e l'utente non riesce a loggarsi.
-	// Qui controlliamo a runtime: se la tabella users esiste ed è vuota,
-	// inseriamo l'admin di default. Idempotente via ON CONFLICT.
-	if err := bootstrapAdminIfMissing(db); err != nil {
-		log.Printf("Warning: bootstrap admin check failed: %v", err)
-	}
-	warnAboutDefaultAdminPassword(db)
+	// NOTE: the admin bootstrap deliberately does NOT run here. See BootstrapAdmin.
 
 	// Migration: add LORAWAN as a valid driver_type.
 	// The CHECK constraint must be dropped and re-created because PostgreSQL
@@ -1379,6 +1370,28 @@ func runHistorianCleanup(db *sql.DB, retentionDays int) {
 		log.Printf("[HISTORIAN] Removed %d rows older than %d days", rows, retentionDays)
 		_, _ = db.ExecContext(ctx, `VACUUM ANALYZE tag_history`)
 	}
+}
+
+// BootstrapAdmin creates the initial administrator when the users table is
+// empty, then reports whether any global admin still uses the built-in default
+// password.
+//
+// It is EXPORTED and called explicitly by core-api instead of running inside
+// runAutoMigrations, because every service — driver-manager and all six drivers
+// included — calls Connect and therefore ran the migrations. Whichever process
+// reached an empty users table first created the account, and only core-api's
+// container is given OPENEDGE_INITIAL_ADMIN_PASSWORD: in practice
+// driver-manager usually won the race and created 'admin' with the default
+// password, silently defeating the variable on every fresh install.
+//
+// Creating login credentials is core-api's job. Adding the variable to the
+// other containers would paper over that, and would still leave the outcome
+// dependent on a start-up race.
+func BootstrapAdmin(db *sql.DB) {
+	if err := bootstrapAdminIfMissing(db); err != nil {
+		log.Printf("Warning: bootstrap admin check failed: %v", err)
+	}
+	warnAboutDefaultAdminPassword(db)
 }
 
 // bootstrapAdminIfMissing assicura che esista almeno un utente admin

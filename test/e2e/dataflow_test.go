@@ -158,8 +158,7 @@ func slug(s string) string {
 // and the value must become readable through the API. It uses a hyphenated
 // alias on purpose (see newFixture).
 func TestPublishedValueReachesTheAPI(t *testing.T) {
-	user, pass := adminCredentials()
-	admin, _ := login(t, user, pass)
+	admin, _ := adminSession(t)
 	fx := newFixture(t, admin)
 
 	mq := mqttConnect(t, "e2e-publisher-"+uniqueSuffix())
@@ -203,8 +202,7 @@ func TestPublishedValueReachesTheAPI(t *testing.T) {
 // EXISTED, so any authenticated user could read every tenant's live process
 // values by iterating ids.
 func TestTagCurrentValueIsOrgScoped(t *testing.T) {
-	user, pass := adminCredentials()
-	admin, _ := login(t, user, pass)
+	admin, _ := adminSession(t)
 
 	victim := newFixture(t, admin)
 
@@ -234,8 +232,7 @@ func TestTagCurrentValueIsOrgScoped(t *testing.T) {
 // It subscribes to sys/alarms/# and asserts that raising a value past a
 // threshold produces a message there.
 func TestAlarmEventReachesTheNotificationTopic(t *testing.T) {
-	user, pass := adminCredentials()
-	admin, _ := login(t, user, pass)
+	admin, _ := adminSession(t)
 	fx := newFixture(t, admin)
 	orgScoped := &apiClient{t: t, token: admin.token, orgID: fmt.Sprintf("%d", fx.org.ID)}
 

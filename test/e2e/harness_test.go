@@ -25,6 +25,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -131,11 +132,29 @@ type loginResponse struct {
 }
 
 // login authenticates and returns a client carrying the session token.
+//
+// /api/auth/login is rate limited per IP (burst 5, then one every 6 s) and the
+// whole suite arrives from a single address, so a 429 here says nothing about
+// the code under test. Back off and retry rather than weakening the limiter:
+// throttling credential stuffing is exactly what it is for.
 func login(t *testing.T, username, password string) (*apiClient, loginResponse) {
 	t.Helper()
 	anon := &apiClient{t: t}
-	raw := anon.mustDo(http.MethodPost, "/api/auth/login",
-		map[string]string{"username": username, "password": password}, http.StatusOK)
+	body := map[string]string{"username": username, "password": password}
+
+	var status int
+	var raw []byte
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		status, raw = anon.do(http.MethodPost, "/api/auth/login", body)
+		if status != http.StatusTooManyRequests || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(3 * time.Second)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("login as %q: status %d — body: %s", username, status, truncate(raw))
+	}
 
 	var lr loginResponse
 	if err := json.Unmarshal(raw, &lr); err != nil {
@@ -146,6 +165,30 @@ func login(t *testing.T, username, password string) (*apiClient, loginResponse) 
 	}
 	return &apiClient{t: t, token: lr.Token}, lr
 }
+
+// adminSession returns the bootstrap admin's session, logging in at most once
+// for the whole suite. Every test needs it, and re-authenticating per test
+// spent the rate-limit budget on work a real client would do with one token.
+func adminSession(t *testing.T) (*apiClient, loginResponse) {
+	t.Helper()
+	adminOnce.Do(func() {
+		user, pass := adminCredentials()
+		c, lr := login(t, user, pass)
+		adminClient, adminLogin = c, lr
+	})
+	if adminClient == nil {
+		t.Fatal("the bootstrap admin login failed earlier in this run")
+	}
+	// The cached client carries the token, not the *testing.T of whichever test
+	// happened to log in first — failures must be reported against the caller.
+	return &apiClient{t: t, token: adminClient.token}, adminLogin
+}
+
+var (
+	adminOnce   sync.Once
+	adminClient *apiClient
+	adminLogin  loginResponse
+)
 
 // ── Readiness ───────────────────────────────────────────────────────────────
 

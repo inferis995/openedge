@@ -16,8 +16,7 @@ import (
 
 // TestLoginWorks is the smoke test everything else depends on.
 func TestLoginWorks(t *testing.T) {
-	user, pass := adminCredentials()
-	c, lr := login(t, user, pass)
+	c, lr := adminSession(t)
 
 	if lr.User.Role != "admin" {
 		t.Errorf("bootstrap user role = %q, want admin", lr.User.Role)
@@ -159,8 +158,7 @@ func createOrgAdmin(t *testing.T, admin *apiClient, orgID int, username, passwor
 // arbitrary container image to another customer's plant, and the SSO provider
 // could be overwritten to hijack their logins.
 func TestOrgAdminCannotReachAnotherTenant(t *testing.T) {
-	user, pass := adminCredentials()
-	admin, _ := login(t, user, pass)
+	admin, _ := adminSession(t)
 
 	suffix := uniqueSuffix()
 	victim := createOrg(t, admin, "e2e-victim-"+suffix)
@@ -207,8 +205,7 @@ func TestOrgAdminCannotReachAnotherTenant(t *testing.T) {
 // /api/users had no org scoping, so an org admin could create a user with
 // role=admin and org_id=null — a global admin — or reset the real one's password.
 func TestOrgAdminCannotEscalateToGlobalAdmin(t *testing.T) {
-	user, pass := adminCredentials()
-	admin, adminLogin := login(t, user, pass)
+	admin, bootstrap := adminSession(t)
 
 	suffix := uniqueSuffix()
 	org := createOrg(t, admin, "e2e-escalate-"+suffix)
@@ -229,7 +226,7 @@ func TestOrgAdminCannotEscalateToGlobalAdmin(t *testing.T) {
 
 	t.Run("cannot reset the global admin's password", func(t *testing.T) {
 		status, body := orgAdmin.do(http.MethodPut,
-			fmt.Sprintf("/api/users/%d", adminLogin.User.ID),
+			fmt.Sprintf("/api/users/%d", bootstrap.User.ID),
 			map[string]interface{}{"password": "e2e-pwned-" + suffix})
 		if status < 400 {
 			t.Fatalf("an org admin reset the GLOBAL admin's password (status %d): %s", status, truncate(body))
@@ -258,8 +255,7 @@ func TestOrgAdminCannotEscalateToGlobalAdmin(t *testing.T) {
 // secrets) and the audit CSV spans every user on the platform. RequireRole(admin)
 // let an org admin download both.
 func TestPlatformWideRoutesRequireGlobalAdmin(t *testing.T) {
-	user, pass := adminCredentials()
-	admin, _ := login(t, user, pass)
+	admin, _ := adminSession(t)
 
 	suffix := uniqueSuffix()
 	org := createOrg(t, admin, "e2e-platform-"+suffix)
