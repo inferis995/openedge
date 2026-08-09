@@ -85,7 +85,13 @@ services:
     security_opt:
       - no-new-privileges:true
     container_name: openedge-mosquitto
-    entrypoint: ["/mosquitto/config/docker-entrypoint.sh"]
+    # The script lives at mosquitto/docker-entrypoint.sh, NOT inside
+    # mosquitto/config — that directory is where the container writes
+    # dynamic-security.json, so the bootstrap script is deliberately kept out
+    # of it and mounted read-only at its own path. Pointing the entrypoint at
+    # /mosquitto/config/docker-entrypoint.sh made the broker fail to start with
+    # "no such file or directory", taking the whole stack down with it.
+    entrypoint: ["/openedge-mosquitto-entrypoint.sh"]
     command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
     environment:
       MQTT_ADMIN_USER: ${MQTT_ADMIN_USER:-core-api}
@@ -94,6 +100,7 @@ services:
       - "18830:1883"
       - "9001:9001"
     volumes:
+      - ./mosquitto/docker-entrypoint.sh:/openedge-mosquitto-entrypoint.sh:ro
       - ./mosquitto/config:/mosquitto/config
       - ./mosquitto/data:/mosquitto/data
       - ./mosquitto/log:/mosquitto/log

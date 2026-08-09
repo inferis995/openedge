@@ -65,12 +65,16 @@ services:
     image: eclipse-mosquitto:2
     security_opt:
       - no-new-privileges:true
-    entrypoint: ["/mosquitto/config/docker-entrypoint.sh"]
+    # Same fix as docker-compose.yml: the bootstrap script lives at
+    # mosquitto/docker-entrypoint.sh, outside the config directory the
+    # container writes credentials into, and is mounted read-only.
+    entrypoint: ["/openedge-mosquitto-entrypoint.sh"]
     command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
     environment:
       MQTT_ADMIN_USER: ${MQTT_ADMIN_USER:-core-api}
       MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD}
     volumes:
+      - ./mosquitto/docker-entrypoint.sh:/openedge-mosquitto-entrypoint.sh:ro
       - ./mosquitto/config:/mosquitto/config
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
