@@ -7,7 +7,7 @@ on:
     branches: [main, master, develop]
 
 env:
-  GO_VERSION: "1.22"
+  GO_VERSION: "1.25.12"  # must match the toolchain in go.mod: govulncheck reports against whatever runs
   NODE_VERSION: "20"
   JWT_SECRET: "ci-test-secret-key-minimum-32-chars-ok"
 
@@ -78,7 +78,10 @@ jobs:
         run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
       - name: Run govulncheck
-        run: govulncheck ./...
+        # Gated by a script with an explicit, documented allowlist: a handful of
+        # Moby DAEMON advisories have no fixed version in any release, and this
+        # project only uses the client half. Every other finding still fails.
+        run: ./scripts/govulncheck-gate.sh
 
   # ── Frontend: lint + type-check ──────────────────────────────────────────────
   frontend-lint:
@@ -161,8 +164,53 @@ jobs:
             echo "ENCRYPTION_KEY=e2e-encryption-key-for-ci-32byte"
           } >> .env
 
+      - name: Build images
+        run: docker compose build
+
       - name: Start the stack
-        run: docker compose up -d --build
+        # Split from the build, and report WHICH container is unhealthy on
+        # failure: `docker compose up` waits on depends_on healthchecks and
+        # exits with a message that does not say which probe failed, which
+        # turns every startup problem into a guessing game.
+        run: |
+          set -o pipefail
+          docker compose up -d 2>&1 | tee /tmp/compose-up.log || {
+            echo "=== compose up failed — container states ==="
+            docker compose ps -a
+            echo "=== health probe output per container ==="
+            for c in $(docker compose ps -aq); do
+              name=$(docker inspect --format '{{.Name}}' "$c")
+              health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$c")
+              echo "--- $name : $health"
+              docker inspect --format '{{if .State.Health}}{{range .State.Health.Log}}{{.Output}}{{end}}{{end}}' "$c" | tail -5
+            done
+            exit 1
+          }
+
+      - name: Broker diagnostics
+        # The broker refused EVERY client — core-api, engine-historian and
+        # driver-manager all logged "not authorised" — while the TCP healthcheck
+        # stayed green, so nothing upstream noticed. The startup lines that say
+        # why scroll out of the 200-line failure dump, so print them here,
+        # always, before anything can push them away.
+        run: |
+          echo "=== mosquitto startup ==="
+          docker compose logs mosquitto | head -40
+          echo "=== dynamic-security.json ==="
+          docker compose exec -T mosquitto sh -c 'ls -l /mosquitto/config/ && id && \
+            grep -o "\"username\"[^,]*" /mosquitto/config/dynamic-security.json' || \
+            echo "(could not read the dynsec config — that alone would explain the denials)"
+          echo "=== authenticated connect as the admin ==="
+          # $SYS/broker/version is retained, so a working connect+subscribe
+          # returns immediately. The earlier probe waited on 'diag/#', which
+          # nobody publishes: it always timed out and printed a failure line in
+          # runs that were entirely healthy — a diagnostic that cries wolf is
+          # worse than none, because everyone learns to skip past it.
+          docker compose exec -T mosquitto mosquitto_sub -t '$SYS/broker/version' -C 1 -W 3 \
+            -u "$MQTT_ADMIN_USER" -P "$MQTT_ADMIN_PASSWORD" || echo "(admin connect/subscribe failed)"
+        env:
+          MQTT_ADMIN_USER: core-api
+          MQTT_ADMIN_PASSWORD: e2e-mqtt-password
 
       - name: Wait for the API
         run: |

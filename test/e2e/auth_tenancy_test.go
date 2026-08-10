@@ -16,8 +16,7 @@ import (
 
 // TestLoginWorks is the smoke test everything else depends on.
 func TestLoginWorks(t *testing.T) {
-	user, pass := adminCredentials()
-	c, lr := login(t, user, pass)
+	c, lr := adminSession(t)
 
 	if lr.User.Role != "admin" {
 		t.Errorf("bootstrap user role = %q, want admin", lr.User.Role)
@@ -159,8 +158,7 @@ func createOrgAdmin(t *testing.T, admin *apiClient, orgID int, username, passwor
 // arbitrary container image to another customer's plant, and the SSO provider
 // could be overwritten to hijack their logins.
 func TestOrgAdminCannotReachAnotherTenant(t *testing.T) {
-	user, pass := adminCredentials()
-	admin, _ := login(t, user, pass)
+	admin, _ := adminSession(t)
 
 	suffix := uniqueSuffix()
 	victim := createOrg(t, admin, "e2e-victim-"+suffix)
@@ -207,13 +205,17 @@ func TestOrgAdminCannotReachAnotherTenant(t *testing.T) {
 // /api/users had no org scoping, so an org admin could create a user with
 // role=admin and org_id=null — a global admin — or reset the real one's password.
 func TestOrgAdminCannotEscalateToGlobalAdmin(t *testing.T) {
-	user, pass := adminCredentials()
-	admin, adminLogin := login(t, user, pass)
+	admin, bootstrap := adminSession(t)
 
 	suffix := uniqueSuffix()
 	org := createOrg(t, admin, "e2e-escalate-"+suffix)
 	orgAdmin := createOrgAdmin(t, admin, org.ID, "e2e-esc-"+suffix, "e2e-Password-"+suffix)
 
+	// The contract is about the user that ends up in the database, not about a
+	// status code: refusing the request and forcing the caller's own org are
+	// both correct answers, and the handler picks the second because an org
+	// admin's UI legitimately omits org_id. What must never happen is a user
+	// with role=admin and org_id NULL — that is a platform administrator.
 	t.Run("cannot create a global admin", func(t *testing.T) {
 		status, body := orgAdmin.do(http.MethodPost, "/api/users", map[string]interface{}{
 			"username":  "e2e-ghost-" + suffix,
@@ -222,14 +224,30 @@ func TestOrgAdminCannotEscalateToGlobalAdmin(t *testing.T) {
 			"full_name": "ghost",
 			"org_id":    nil, // null org_id + admin role == global admin
 		})
-		if status < 400 {
-			t.Fatalf("an org admin created a GLOBAL admin (status %d): %s", status, truncate(body))
+		if status >= 400 {
+			return // refused outright — also fine
+		}
+
+		var created struct {
+			Role  string `json:"role"`
+			OrgID *int   `json:"org_id"`
+		}
+		if err := json.Unmarshal(body, &created); err != nil {
+			t.Fatalf("decode created user: %v — body: %s", err, truncate(body))
+		}
+		if created.OrgID == nil {
+			t.Fatalf("an org admin created a GLOBAL admin (role %q, org_id null): %s",
+				created.Role, truncate(body))
+		}
+		if *created.OrgID != org.ID {
+			t.Fatalf("created user landed in org %d, want the caller's org %d: %s",
+				*created.OrgID, org.ID, truncate(body))
 		}
 	})
 
 	t.Run("cannot reset the global admin's password", func(t *testing.T) {
 		status, body := orgAdmin.do(http.MethodPut,
-			fmt.Sprintf("/api/users/%d", adminLogin.User.ID),
+			fmt.Sprintf("/api/users/%d", bootstrap.User.ID),
 			map[string]interface{}{"password": "e2e-pwned-" + suffix})
 		if status < 400 {
 			t.Fatalf("an org admin reset the GLOBAL admin's password (status %d): %s", status, truncate(body))
@@ -258,8 +276,7 @@ func TestOrgAdminCannotEscalateToGlobalAdmin(t *testing.T) {
 // secrets) and the audit CSV spans every user on the platform. RequireRole(admin)
 // let an org admin download both.
 func TestPlatformWideRoutesRequireGlobalAdmin(t *testing.T) {
-	user, pass := adminCredentials()
-	admin, _ := login(t, user, pass)
+	admin, _ := adminSession(t)
 
 	suffix := uniqueSuffix()
 	org := createOrg(t, admin, "e2e-platform-"+suffix)

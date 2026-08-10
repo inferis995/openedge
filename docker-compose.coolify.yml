@@ -65,12 +65,16 @@ services:
     image: eclipse-mosquitto:2
     security_opt:
       - no-new-privileges:true
-    entrypoint: ["/mosquitto/config/docker-entrypoint.sh"]
+    # Same fix as docker-compose.yml: the bootstrap script lives at
+    # mosquitto/docker-entrypoint.sh, outside the config directory the
+    # container writes credentials into, and is mounted read-only.
+    entrypoint: ["/openedge-mosquitto-entrypoint.sh"]
     command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
     environment:
       MQTT_ADMIN_USER: ${MQTT_ADMIN_USER:-core-api}
       MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD}
     volumes:
+      - ./mosquitto/docker-entrypoint.sh:/openedge-mosquitto-entrypoint.sh:ro
       - ./mosquitto/config:/mosquitto/config
       - mosquitto-data:/mosquitto/data
       - mosquitto-log:/mosquitto/log
@@ -110,6 +114,12 @@ services:
       ALLOWED_ORIGINS: https://${PUBLIC_HOST}
       LOG_FORMAT: json
       SWAGGER_ENABLED: "false"
+      # Encrypts the MQTT/cloud credentials kept in global_settings. Required
+      # here, not optional-with-a-default like JWT_SECRET's neighbours: this is
+      # the multi-tenant deployment, and without the key core-api falls back to
+      # storing every tenant's broker password in cleartext in the database.
+      # Deploy must fail loudly rather than come up quietly insecure.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       OPENEDGE_INITIAL_ADMIN_PASSWORD: ${OPENEDGE_INITIAL_ADMIN_PASSWORD:-}
       PUBLIC_HOST: ${PUBLIC_HOST}
     volumes:

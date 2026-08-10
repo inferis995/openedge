@@ -158,8 +158,7 @@ func slug(s string) string {
 // and the value must become readable through the API. It uses a hyphenated
 // alias on purpose (see newFixture).
 func TestPublishedValueReachesTheAPI(t *testing.T) {
-	user, pass := adminCredentials()
-	admin, _ := login(t, user, pass)
+	admin, _ := adminSession(t)
 	fx := newFixture(t, admin)
 
 	mq := mqttConnect(t, "e2e-publisher-"+uniqueSuffix())
@@ -199,12 +198,71 @@ func TestPublishedValueReachesTheAPI(t *testing.T) {
 	}
 }
 
+// TestPublishedValueIsHistorised covers the OTHER consumer of the same message.
+//
+// TestPublishedValueReachesTheAPI proves core-api received it and cached it in
+// Redis — and that passed while engine-historian, a separate process, was being
+// refused by the broker on every single connection attempt. It never read
+// MQTT_USERNAME/MQTT_PASSWORD, which the compose file had been passing it all
+// along, so on any authenticated deployment nothing was ever written to
+// tag_history: the historian's entire job, silently not happening, with a green
+// stack and a green test suite.
+//
+// Asserting the live value is therefore not enough — the persisted series has
+// to be asserted separately, because a different process owns it.
+func TestPublishedValueIsHistorised(t *testing.T) {
+	admin, _ := adminSession(t)
+	fx := newFixture(t, admin) // historize: true
+	orgScoped := &apiClient{t: t, token: admin.token, orgID: fmt.Sprintf("%d", fx.org.ID)}
+
+	mq := mqttConnect(t, "e2e-historian-"+uniqueSuffix())
+	want := 73.25
+	publish(t, mq, fx.dataTopic, map[string]interface{}{
+		"tag_id": fx.tagID,
+		"org_id": fx.org.ID,
+		"v":      want,
+		"ts":     time.Now().UnixMilli(),
+		"q":      0,
+	})
+
+	// raw=true bypasses the continuous aggregates, which only materialise on
+	// their own schedule and would make a fresh point look missing.
+	query := fmt.Sprintf("/api/history?tag_id=%d&start=%s&end=%s&raw=true",
+		fx.tagID,
+		time.Now().Add(-1*time.Hour).UTC().Format(time.RFC3339),
+		time.Now().Add(1*time.Hour).UTC().Format(time.RFC3339))
+
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		status, raw := orgScoped.do(http.MethodGet, query, nil)
+		if status == http.StatusOK {
+			var resp struct {
+				Data []struct {
+					Value *float64 `json:"value"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(raw, &resp); err == nil {
+				for _, p := range resp.Data {
+					if p.Value != nil && *p.Value == want {
+						return // the historian is alive and writing
+					}
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("value %v published on %s never reached tag_history — "+
+				"engine-historian is not consuming (check whether the broker is refusing it)",
+				want, fx.dataTopic)
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
+
 // TestTagCurrentValueIsOrgScoped: this endpoint only checked that the tag id
 // EXISTED, so any authenticated user could read every tenant's live process
 // values by iterating ids.
 func TestTagCurrentValueIsOrgScoped(t *testing.T) {
-	user, pass := adminCredentials()
-	admin, _ := login(t, user, pass)
+	admin, _ := adminSession(t)
 
 	victim := newFixture(t, admin)
 
@@ -225,23 +283,29 @@ func TestTagCurrentValueIsOrgScoped(t *testing.T) {
 	}
 }
 
-// TestAlarmEventReachesTheNotificationTopic is the single most important test
-// here. Alarms were evaluated, persisted and had a fully implemented
-// notification dispatcher — and no notification was ever sent, because NOTHING
-// published to sys/alarms, the only topic that reaches the dispatcher. Both
-// halves passed their unit tests.
+// TestAlarmEventIsConsumedAndBecomesVisible covers the half of the alarm chain
+// that lives between processes. Alarms were evaluated, persisted and had a fully
+// implemented notification dispatcher — and no notification was ever sent,
+// because NOTHING published to sys/alarms, the only topic that reaches the
+// dispatcher. Both halves passed their unit tests.
 //
-// It subscribes to sys/alarms/# and asserts that raising a value past a
-// threshold produces a message there.
-func TestAlarmEventReachesTheNotificationTopic(t *testing.T) {
-	user, pass := adminCredentials()
-	admin, _ := login(t, user, pass)
+// Evaluation itself runs inside the DRIVER processes (internal/alarms.Manager,
+// used by driver-modbus, -s7, -opcua, -redis, …): each driver compares the
+// values it polls from the field and publishes the event. Publishing a value on
+// a data/ topic therefore does NOT produce an alarm — no driver ever saw it —
+// so this test plays the driver's part and asserts the rest of the chain:
+// broker -> core-api's sys/alarms subscription -> Postgres -> the API an
+// operator's dashboard reads. That is precisely the join that was missing, and
+// it is what a "CRITICAL: failed to subscribe to alarms topic" at startup, or a
+// silently-denied subscribe, would break.
+func TestAlarmEventIsConsumedAndBecomesVisible(t *testing.T) {
+	admin, _ := adminSession(t)
 	fx := newFixture(t, admin)
 	orgScoped := &apiClient{t: t, token: admin.token, orgID: fmt.Sprintf("%d", fx.org.ID)}
 
-	// A high alarm that fires immediately (no delay) above 100.
-	// The endpoint REPLACES the tag's whole alarm configuration, so the body is
-	// an array; alarm_type is lowercase ("high"), matching isConditionViolated.
+	// A high alarm above 100. The endpoint REPLACES the tag's whole alarm
+	// configuration, so the body is an array; alarm_type is lowercase ("high"),
+	// matching isConditionViolated.
 	orgScoped.mustDo(http.MethodPut, fmt.Sprintf("/api/tags/%d/alarms", fx.tagID),
 		[]map[string]interface{}{{
 			"tag_id":        fx.tagID,
@@ -254,44 +318,60 @@ func TestAlarmEventReachesTheNotificationTopic(t *testing.T) {
 			"enabled":       true,
 		}}, http.StatusOK)
 
-	// Listen on the topic that feeds the notification dispatcher.
-	sub := mqttConnect(t, "e2e-alarm-listener-"+uniqueSuffix())
-	alarms := make(chan []byte, 8)
-	tok := sub.Subscribe("sys/alarms/#", 1, func(_ paho.Client, m paho.Message) {
-		select {
-		case alarms <- m.Payload():
-		default:
-		}
-	})
-	if !tok.WaitTimeout(10*time.Second) || tok.Error() != nil {
-		t.Fatalf("subscribe to sys/alarms/#: %v", tok.Error())
+	// The definition id is what correlates ACTIVE with CLEARED, so read it back
+	// rather than guessing.
+	raw := orgScoped.mustDo(http.MethodGet, fmt.Sprintf("/api/tags/%d/alarms", fx.tagID), nil, http.StatusOK)
+	var defs []struct {
+		ID int `json:"id"`
 	}
+	if err := json.Unmarshal(raw, &defs); err != nil || len(defs) == 0 {
+		t.Fatalf("could not read back the alarm definition: %v — body: %s", err, truncate(raw))
+	}
+	defID := defs[0].ID
 
-	// Drive the tag past the threshold. The driver normally evaluates alarms,
-	// so this asserts the full chain the drivers use.
+	// Publish exactly what a driver publishes. event_id 0 means "nothing has
+	// persisted this yet", which is the branch core-api must handle.
+	alarmTopic := fmt.Sprintf("sys/alarms/%d/%s/%s/%s/%s",
+		fx.org.ID, slug("site"), slug("area"), slug("gw"), slug(fx.tagAlias))
+
 	pub := mqttConnect(t, "e2e-alarm-publisher-"+uniqueSuffix())
-	publish(t, pub, fx.dataTopic, map[string]interface{}{
-		"tag_id": fx.tagID,
-		"org_id": fx.org.ID,
-		"v":      150.0,
-		"ts":     time.Now().UnixMilli(),
-		"q":      0,
+	publish(t, pub, alarmTopic, map[string]interface{}{
+		"event_id":         0,
+		"tag_id":           fx.tagID,
+		"definition_id":    defID,
+		"status":           "ACTIVE",
+		"alarm_type":       "high",
+		"severity":         "critical",
+		"message":          "e2e high alarm",
+		"value_at_trigger": 150.0,
+		"threshold":        100.0,
+		"tag_alias":        fx.tagAlias,
+		"timestamp":        time.Now().UnixMilli(),
 	})
 
-	select {
-	case payload := <-alarms:
-		var ev struct {
-			TagID  int    `json:"tag_id"`
-			Status string `json:"status"`
+	// It crosses the broker and another process, so poll.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		status, body := orgScoped.do(http.MethodGet, "/api/alarms/active", nil)
+		if status == http.StatusOK {
+			var active []struct {
+				TagID        int    `json:"tag_id"`
+				DefinitionID int    `json:"definition_id"`
+				Status       string `json:"status"`
+			}
+			if err := json.Unmarshal(body, &active); err == nil {
+				for _, a := range active {
+					if a.TagID == fx.tagID && a.DefinitionID == defID {
+						return // the event survived the whole chain
+					}
+				}
+			}
 		}
-		if err := json.Unmarshal(payload, &ev); err != nil {
-			t.Fatalf("alarm event on sys/alarms is not valid JSON: %v — %s", err, truncate(payload))
+		if time.Now().After(deadline) {
+			t.Fatalf("an alarm published on %s never appeared at /api/alarms/active — "+
+				"the alarm-to-operator path is not wired, so nobody would ever be paged",
+				alarmTopic)
 		}
-		if ev.Status == "" {
-			t.Errorf("alarm event carries no status — the notification dispatcher needs it: %s", truncate(payload))
-		}
-	case <-time.After(30 * time.Second):
-		t.Fatal("no message on sys/alarms/# after crossing the threshold — " +
-			"the alarm-to-notification path is not wired, so no operator would ever be paged")
+		time.Sleep(500 * time.Millisecond)
 	}
 }

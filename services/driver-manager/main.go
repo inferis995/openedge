@@ -19,11 +19,11 @@ import (
 	"syscall"
 	"time"
 
-	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	iemqtt "github.com/ralph/industrial-edge-middleware/internal/mqtt"
@@ -31,62 +31,62 @@ import (
 
 const (
 	// Timing
-	pollInterval        = 10 * time.Second
-	imagePullTimeout    = 5 * time.Minute
+	pollInterval          = 10 * time.Second
+	imagePullTimeout      = 5 * time.Minute
 	containerStartTimeout = 30 * time.Second
-	containerStopTimeout = 10 * time.Second
+	containerStopTimeout  = 10 * time.Second
 
 	// Retry configuration
-	maxPullRetries    = 3
-	maxStartRetries   = 5
-	retryBaseDelay    = 1 * time.Second
-	retryMaxDelay     = 30 * time.Second
+	maxPullRetries  = 3
+	maxStartRetries = 5
+	retryBaseDelay  = 1 * time.Second
+	retryMaxDelay   = 30 * time.Second
 
 	// Docker
 	dockerNetworkName = "industrial-network"
 
 	// Error codes
-	ErrCodeImagePull   = "ERR_DRIVER_IMAGE_PULL"
+	ErrCodeImagePull       = "ERR_DRIVER_IMAGE_PULL"
 	ErrCodeContainerCreate = "ERR_DRIVER_CREATE"
 	ErrCodeContainerStart  = "ERR_DRIVER_START"
-	ErrCodeDBQuery       = "ERR_DB_QUERY"
-	ErrCodeDBConnect     = "ERR_DB_CONNECT"
+	ErrCodeDBQuery         = "ERR_DB_QUERY"
+	ErrCodeDBConnect       = "ERR_DB_CONNECT"
 )
 
 // Resource limits per driver type (CPU in nanoseconds, memory in bytes)
 type ResourceLimits struct {
-	CPU     int64
-	Memory  int64
+	CPU    int64
+	Memory int64
 }
 
 var driverResourceLimits = map[string]ResourceLimits{
-	"S7":        {CPU: 500000000, Memory: 128 * 1024 * 1024},  // 0.5 CPU, 128MB
-	"MODBUS_TCP": {CPU: 250000000, Memory: 64 * 1024 * 1024},  // 0.25 CPU, 64MB
-	"MQTT":      {CPU: 250000000, Memory: 64 * 1024 * 1024},   // 0.25 CPU, 64MB
-	"OPC_UA":    {CPU: 1000000000, Memory: 256 * 1024 * 1024}, // 1.0 CPU, 256MB
-	"LORAWAN":   {CPU: 250000000, Memory: 64 * 1024 * 1024},   // 0.25 CPU, 64MB — event-driven, low overhead
+	"S7":         {CPU: 500000000, Memory: 128 * 1024 * 1024},  // 0.5 CPU, 128MB
+	"MODBUS_TCP": {CPU: 250000000, Memory: 64 * 1024 * 1024},   // 0.25 CPU, 64MB
+	"MQTT":       {CPU: 250000000, Memory: 64 * 1024 * 1024},   // 0.25 CPU, 64MB
+	"OPC_UA":     {CPU: 1000000000, Memory: 256 * 1024 * 1024}, // 1.0 CPU, 256MB
+	"LORAWAN":    {CPU: 250000000, Memory: 64 * 1024 * 1024},   // 0.25 CPU, 64MB — event-driven, low overhead
 }
 
 // GatewayState tracks the current state of a gateway container
 type GatewayState struct {
-	Gateway            models.Gateway
-	ContainerID        string
-	Running            bool
-	ConsecutiveErrors  int
-	LastError          string
-	LastErrorTime      time.Time
-	CooldownUntil      time.Time     // skip start attempts until this instant
-	CooldownBackoff    time.Duration // current cooldown length (doubles up to failureCooldownMax)
+	Gateway           models.Gateway
+	ContainerID       string
+	Running           bool
+	ConsecutiveErrors int
+	LastError         string
+	LastErrorTime     time.Time
+	CooldownUntil     time.Time     // skip start attempts until this instant
+	CooldownBackoff   time.Duration // current cooldown length (doubles up to failureCooldownMax)
 }
 
 // GatewayStatus represents the status published to MQTT
 type GatewayStatus struct {
-	GatewayID   int       `json:"gateway_id"`
-	Status      string    `json:"status"` // online, offline, error
-	ContainerID string    `json:"container_id,omitempty"`
-	Error       string    `json:"error,omitempty"`
-	Timestamp   int64     `json:"timestamp"`
-	DriverType  string    `json:"driver_type"`
+	GatewayID   int    `json:"gateway_id"`
+	Status      string `json:"status"` // online, offline, error
+	ContainerID string `json:"container_id,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Timestamp   int64  `json:"timestamp"`
+	DriverType  string `json:"driver_type"`
 }
 
 // MQTTClient interface for publishing status
@@ -97,16 +97,16 @@ type MQTTClient interface {
 
 // Manager manages driver container lifecycle
 type Manager struct {
-	database      *sql.DB
-	dbCfg         db.Config
-	dockerClient  *client.Client
-	gatewayStates map[int]*GatewayState
-	mu            sync.RWMutex
-	ctx           context.Context
-	cancel        context.CancelFunc
-	networkID     string
+	database          *sql.DB
+	dbCfg             db.Config
+	dockerClient      *client.Client
+	gatewayStates     map[int]*GatewayState
+	mu                sync.RWMutex
+	ctx               context.Context
+	cancel            context.CancelFunc
+	networkID         string
 	consecutiveErrors int
-	mqttClient    MQTTClient
+	mqttClient        MQTTClient
 
 	// Per-image pull cooldown: a registry that keeps failing must not cost
 	// every sync cycle 15 minutes of serial retries, starving the other
@@ -173,14 +173,14 @@ func main() {
 
 	// Create manager instance
 	manager := &Manager{
-		database:        database,
-		dbCfg:           dbCfg,
-		dockerClient:    dockerClient,
-		gatewayStates:   make(map[int]*GatewayState),
-		pullFailures:    make(map[string]pullFailState),
-		ctx:             ctx,
-		cancel:          cancel,
-		mqttClient:      mqttClient,
+		database:      database,
+		dbCfg:         dbCfg,
+		dockerClient:  dockerClient,
+		gatewayStates: make(map[int]*GatewayState),
+		pullFailures:  make(map[string]pullFailState),
+		ctx:           ctx,
+		cancel:        cancel,
+		mqttClient:    mqttClient,
 	}
 
 	// Get or create Docker network
@@ -296,7 +296,7 @@ func (m *mqttStatusClient) PublishWithQoS(topic string, payload interface{}, qos
 // Note: Docker API calls are thread-safe, no lock needed here
 func (m *Manager) ensureNetwork() error {
 	// Try to find existing network
-	networks, err := m.dockerClient.NetworkList(m.ctx, types.NetworkListOptions{})
+	networks, err := m.dockerClient.NetworkList(m.ctx, network.ListOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to list networks: %w", err)
 	}
@@ -311,9 +311,8 @@ func (m *Manager) ensureNetwork() error {
 
 	// Create network if not found
 	log.Printf("[DRIVER-MANAGER] Creating Docker network: %s", dockerNetworkName)
-	networkResp, err := m.dockerClient.NetworkCreate(m.ctx, dockerNetworkName, types.NetworkCreate{
-		CheckDuplicate: true,
-		Driver:         "bridge",
+	networkResp, err := m.dockerClient.NetworkCreate(m.ctx, dockerNetworkName, network.CreateOptions{
+		Driver: "bridge",
 		IPAM: &network.IPAM{
 			Config: []network.IPAMConfig{
 				{Subnet: "172.20.0.0/16"},
@@ -373,7 +372,7 @@ func (m *Manager) pullImageWithRetry(imageName string) error {
 		// Create pull context with timeout
 		pullCtx, pullCancel := context.WithTimeout(m.ctx, imagePullTimeout)
 
-		reader, err := m.dockerClient.ImagePull(pullCtx, imageName, types.ImagePullOptions{})
+		reader, err := m.dockerClient.ImagePull(pullCtx, imageName, image.PullOptions{})
 		if err != nil {
 			pullCancel()
 			if attempt == maxPullRetries-1 {
@@ -450,7 +449,7 @@ func (m *Manager) publishGatewayStatus(gatewayID int, status string, errorMsg st
 	statusObj := GatewayStatus{
 		GatewayID: gatewayID,
 		Status:    status,
-		Timestamp:  time.Now().UnixMilli(),
+		Timestamp: time.Now().UnixMilli(),
 	}
 
 	if errorMsg != "" {
@@ -535,6 +534,13 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 		fmt.Sprintf("DB_NAME=%s", getEnv("DB_NAME", "industrial_edge")),
 		fmt.Sprintf("MQTT_HOST=%s", mqttHost),
 		fmt.Sprintf("MQTT_PORT=%s", getEnv("MQTT_PORT", "1883")),
+		// The broker requires authentication. The database credentials above
+		// were forwarded and these were not, so a spawned driver reached the
+		// broker as an anonymous client and was refused on every attempt — the
+		// container stayed up, the gateway showed as running, and no field
+		// value ever arrived.
+		fmt.Sprintf("MQTT_USERNAME=%s", getEnv("MQTT_USERNAME", "")),
+		fmt.Sprintf("MQTT_PASSWORD=%s", getEnv("MQTT_PASSWORD", "")),
 		"SPARKPLUG_ENABLED=true",
 		"TZ=" + getEnv("TZ", "Europe/Rome"),
 	}
@@ -583,7 +589,7 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 			return nil
 		}
 		// Exists but stopped/wrong image: remove and recreate below.
-		_ = m.dockerClient.ContainerRemove(adoptCtx, containerName, types.ContainerRemoveOptions{Force: true})
+		_ = m.dockerClient.ContainerRemove(adoptCtx, containerName, container.RemoveOptions{Force: true})
 	}
 
 	// 7. Create container
@@ -601,9 +607,9 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 	startCtx, startCancel := context.WithTimeout(m.ctx, containerStartTimeout)
 	defer startCancel()
 
-	if err := m.dockerClient.ContainerStart(startCtx, resp.ID, types.ContainerStartOptions{}); err != nil {
+	if err := m.dockerClient.ContainerStart(startCtx, resp.ID, container.StartOptions{}); err != nil {
 		// Clean up created container if start fails
-		_ = m.dockerClient.ContainerRemove(m.ctx, resp.ID, types.ContainerRemoveOptions{})
+		_ = m.dockerClient.ContainerRemove(m.ctx, resp.ID, container.RemoveOptions{})
 		errMsg := fmt.Sprintf("%s: failed to start container: %v", ErrCodeContainerStart, err)
 		m.publishGatewayStatus(gateway.ID, "error", errMsg)
 		return fmt.Errorf("failed to start container: %w", err)
@@ -821,7 +827,7 @@ func (m *Manager) stopGatewayContainer(gatewayID int) error {
 	}
 
 	// Remove container
-	if err := m.dockerClient.ContainerRemove(m.ctx, state.ContainerID, types.ContainerRemoveOptions{}); err != nil {
+	if err := m.dockerClient.ContainerRemove(m.ctx, state.ContainerID, container.RemoveOptions{}); err != nil {
 		log.Printf("[DRIVER-MANAGER] WARNING: Failed to remove container %s: %v", state.ContainerID, err)
 	}
 
@@ -962,7 +968,7 @@ func (m *Manager) handleOTAUpdate(_ mqtt.Client, msg mqtt.Message) {
 	pullCtx, cancel := context.WithTimeout(m.ctx, imagePullTimeout)
 	defer cancel()
 
-	reader, err := m.dockerClient.ImagePull(pullCtx, payload.Image, types.ImagePullOptions{})
+	reader, err := m.dockerClient.ImagePull(pullCtx, payload.Image, image.PullOptions{})
 	if err != nil {
 		log.Printf("[OTA] Image pull failed: %v", err)
 		return

@@ -134,6 +134,14 @@ func main() {
 	database.SetMaxIdleConns(10)
 	database.SetConnMaxLifetime(5 * time.Minute)
 
+	// Create the initial administrator, if there is none. Only core-api does
+	// this: every service runs the migrations through Connect, so leaving the
+	// bootstrap in there let whichever process started first create the account
+	// — usually driver-manager, whose container has no
+	// OPENEDGE_INITIAL_ADMIN_PASSWORD, so the default password was used no
+	// matter what the operator configured.
+	db.BootstrapAdmin(database)
+
 	// Load EU scaling config once at startup, then refresh every 30 s.
 	go func() {
 		loadScalingCache(database)

@@ -160,6 +160,12 @@ func main() {
 	mqttHost := getEnv("MQTT_HOST", "localhost")
 	mqttPort, _ := strconv.Atoi(getEnv("MQTT_PORT", "1883"))
 	mqttClientID := getEnv("MQTT_CLIENT_ID", "engine-historian")
+	// The broker runs with allow_anonymous false. These were passed to the
+	// container and simply never read here, so the historian was refused at
+	// CONNECT — "not authorised", retrying forever — on every authenticated
+	// deployment: no tag history written, no alarm forwarded to the cloud.
+	mqttUsername := getEnv("MQTT_USERNAME", "")
+	mqttPassword := getEnv("MQTT_PASSWORD", "")
 
 	redisHost := getEnv("REDIS_HOST", "localhost")
 	redisPort, _ := strconv.Atoi(getEnv("REDIS_PORT", "6379"))
@@ -210,6 +216,8 @@ func main() {
 		Host:         mqttHost,
 		Port:         mqttPort,
 		ClientID:     mqttClientID,
+		Username:     mqttUsername,
+		Password:     mqttPassword,
 		CleanSession: false,
 	})
 

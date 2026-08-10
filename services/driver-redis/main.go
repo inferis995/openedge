@@ -114,6 +114,12 @@ func main() {
 		Host:          getEnv("MQTT_HOST", "localhost"),
 		Port:          getEnvInt("MQTT_PORT", 1883),
 		ClientID:      fmt.Sprintf("driver-redis-%d", gatewayID),
+		// The OpenEdge broker runs with allow_anonymous false. Without these the
+		// driver is refused at CONNECT and retries forever: the gateway looks
+		// configured, the container looks up, and not one field value ever
+		// reaches the platform.
+		Username:      getEnv("MQTT_USERNAME", ""),
+		Password:      getEnv("MQTT_PASSWORD", ""),
 		CleanSession:  true,
 		AutoReconnect: true,
 		KeepAlive:     30 * time.Second,
