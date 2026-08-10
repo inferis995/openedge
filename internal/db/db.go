@@ -1369,7 +1369,7 @@ func isHypertable(db *sql.DB, table string) bool {
 // migrations/20250308_schema.sql carried add_compression_policy and
 // add_retention_policy, but nothing ever executed that file, so on every real
 // install the historian was an uncompressed hypertable that grew without
-// bound. Ageing was a Go worker issuing DELETE ... WHERE time < cutoff once a
+// bound. Aging was a Go worker issuing DELETE ... WHERE time < cutoff once a
 // day.
 //
 // Why that is not good enough for a plant. DELETE on a hypertable rewrites
