@@ -44,7 +44,7 @@ func parseLevel(s string) Level {
 	case "error":
 		return LevelError
 	default:
-		// Unset or unrecognised means info: verbose enough to explain a
+		// Unset or unrecognized means info: verbose enough to explain a
 		// start-up failure, quiet enough to survive a production shift.
 		return LevelInfo
 	}

@@ -1363,7 +1363,7 @@ func isHypertable(db *sql.DB, table string) bool {
 	return exists
 }
 
-// EnsureRetentionPolicies hands ageing and compression to TimescaleDB.
+// EnsureRetentionPolicies hands aging and compression to TimescaleDB.
 //
 // What was here before: the hypertables were created without a single policy —
 // migrations/20250308_schema.sql carried add_compression_policy and
@@ -1459,7 +1459,7 @@ func EnsureRetentionPolicies(db *sql.DB, historianRetentionDays int) {
 //
 // This remains as the fallback for a deployment where TimescaleDB is absent and
 // tag_history is an ordinary table. When it IS a hypertable, TimescaleDB's own
-// retention job owns ageing and this worker drops old chunks rather than
+// retention job owns aging and this worker drops old chunks rather than
 // deleting rows — see runHistorianCleanup.
 func StartHistorianRetentionWorker(db *sql.DB, retentionDays int) {
 	if retentionDays <= 0 {

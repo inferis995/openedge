@@ -223,6 +223,36 @@ func TestUSBBackupScriptMatchesTheBackupNaming(t *testing.T) {
 	}
 }
 
+// .env.example must be valid shell, because scripts/backup.sh sources it.
+//
+// It was not. BACKUP_SCHEDULE=0 3 * * * — a cron expression, unquoted — reads
+// to a shell as "run the command 3 with the arguments * * *". backup.sh runs
+// under set -e, so it aborted with exit 127 before dumping anything: on a
+// default install, created by copying this very file, the backup never ran at
+// all. The only trace was one line in a log nobody reads, and the backups
+// directory simply stayed empty.
+//
+// The check is deliberately broader than that one line. Any value containing a
+// space and lacking quotes breaks the same way, and the next one will be added
+// by somebody who never learns this happened.
+func TestEnvExampleIsValidShell(t *testing.T) {
+	root := repoRoot(t)
+	envFile := filepath.Join(root, ".env.example")
+
+	out, err := exec.Command("sh", "-c",
+		fmt.Sprintf("set -a; . %q; set +a", envFile)).CombinedOutput()
+	if err != nil {
+		t.Fatalf(".env.example cannot be sourced by a shell: %v\n%s\n"+
+			"scripts/backup.sh sources it under set -e, so this aborts the backup "+
+			"before it dumps anything. Quote any value containing spaces.",
+			err, out)
+	}
+	if len(out) > 0 {
+		t.Fatalf(".env.example produced output when sourced, which means the shell "+
+			"tried to execute part of it:\n%s", out)
+	}
+}
+
 // `make restore` must point at the script that can read what backup.sh writes.
 func TestMakeRestoreUsesTheWorkingScript(t *testing.T) {
 	root := repoRoot(t)

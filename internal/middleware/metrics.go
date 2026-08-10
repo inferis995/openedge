@@ -20,7 +20,7 @@ import (
 //
 // The label is c.FullPath() — the ROUTE TEMPLATE ("/api/tags/:id"), not the
 // request path ("/api/tags/8412"). Using the raw path would mint a new
-// Prometheus series per tag, per user, per organisation, which is the standard
+// Prometheus series per tag, per user, per organization, which is the standard
 // way to take down a monitoring stack with its own instrumentation. Requests
 // that match no route have an empty FullPath and collapse to "<unmatched>",
 // so a scan for random URLs cannot do the same thing.

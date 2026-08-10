@@ -15,7 +15,7 @@ import (
 )
 
 // topicPrefix returns the first segment of a topic, for use as a metric label.
-// Anything unrecognised collapses to "other" so a malformed or hostile topic
+// Anything unrecognized collapses to "other" so a malformed or hostile topic
 // cannot mint unbounded series in Prometheus.
 func topicPrefix(topic string) string {
 	seg := topic
