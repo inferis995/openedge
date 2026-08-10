@@ -317,6 +317,10 @@ func main() {
 	// Create Gin router
 	router := gin.Default()
 
+	// Request metrics — registered first so the observed latency includes every
+	// other middleware, which is what a client actually waits for.
+	router.Use(middleware.Metrics())
+
 	// Security headers — applied to every response.
 	// HSTS is intentionally omitted until TLS is configured.
 	router.Use(func(c *gin.Context) {

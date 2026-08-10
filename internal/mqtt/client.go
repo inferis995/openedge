@@ -9,7 +9,26 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+
+	"github.com/ralph/industrial-edge-middleware/internal/logging"
+	"github.com/ralph/industrial-edge-middleware/internal/telemetry"
 )
+
+// topicPrefix returns the first segment of a topic, for use as a metric label.
+// Anything unrecognised collapses to "other" so a malformed or hostile topic
+// cannot mint unbounded series in Prometheus.
+func topicPrefix(topic string) string {
+	seg := topic
+	if i := strings.IndexByte(topic, '/'); i >= 0 {
+		seg = topic[:i]
+	}
+	switch seg {
+	case "data", "sys", "spBv1.0":
+		return seg
+	default:
+		return "other"
+	}
+}
 
 // opTimeout bounds every broker round-trip (connect, subscribe, publish).
 // Without it a stalled broker (TCP alive but no ACKs) blocks the caller's
@@ -126,7 +145,16 @@ func (c *Client) handleIncomingMessage(client mqtt.Client, msg mqtt.Message) {
 	topic := msg.Topic()
 	payload := msg.Payload()
 
-	log.Printf("[MQTT-INcoming] Received message on topic: %s, payload: %s", topic, string(payload))
+	// Counted here rather than in each subscriber, so it cannot drift as
+	// subscriptions are added. The label is the first topic segment — data,
+	// sys, spBv1.0 — which keeps cardinality at a handful of series instead of
+	// one per tag.
+	telemetry.MQTTMessagesReceived.WithLabelValues(topicPrefix(topic)).Inc()
+
+	// One line per inbound message, payload included. Useful when tracing a
+	// device; ruinous at plant rates, where it both costs CPU and evicts the
+	// startup errors from the container's rotated logs. See internal/logging.
+	logging.Debugf("[MQTT-INcoming] Received message on topic: %s, payload: %s", topic, string(payload))
 
 	// Find matching handler
 	c.handlersMu.RLock()
@@ -203,6 +231,10 @@ func (c *Client) Connect() error {
 // Disconnect closes the connection to the MQTT broker
 func (c *Client) Disconnect(timeout int) {
 	c.client.Disconnect(uint(timeout))
+	// Also cleared here: a deliberate shutdown never fires onConnectionLost, so
+	// without this the gauge would stay at 1 in the final scrape and the last
+	// thing Prometheus recorded about a stopped service would be "connected".
+	telemetry.MQTTConnected.Set(0)
 	log.Printf("[MQTT] Disconnected from broker")
 }
 
@@ -302,6 +334,7 @@ func (c *Client) PublishWithQoS(topic string, payload interface{}, qos byte, ret
 // onConnect is called when the client connects to the broker
 func (c *Client) onConnect(client mqtt.Client) {
 	log.Println("[MQTT] Connection established")
+	telemetry.MQTTConnected.Set(1)
 
 	// Re-subscribe to all topics on reconnect
 	c.subscribeMu.Lock()
@@ -325,4 +358,5 @@ func (c *Client) onConnect(client mqtt.Client) {
 // onConnectionLost is called when the connection to the broker is lost
 func (c *Client) onConnectionLost(client mqtt.Client, err error) {
 	log.Printf("[MQTT] Connection lost: %v", err)
+	telemetry.MQTTConnected.Set(0)
 }

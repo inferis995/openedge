@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/ralph/industrial-edge-middleware/internal/models"
+
+	"github.com/ralph/industrial-edge-middleware/internal/logging"
 )
 
 const (
@@ -383,7 +385,7 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 		isViolating := isConditionViolated(def, floatVal)
 		track, isTracking := tracks[def.ID]
 
-		log.Printf("[ALARM-MANAGER-DEBUG] tagID=%d, defID=%d, type=%s, val=%v, isViolating=%v, isTracking=%v, Triggered=%v",
+		logging.Debugf("[ALARM-MANAGER-DEBUG] tagID=%d, defID=%d, type=%s, val=%v, isViolating=%v, isTracking=%v, Triggered=%v",
 			tagID, def.ID, def.AlarmType, floatVal, isViolating, isTracking, track != nil && track.Triggered)
 
 		if isViolating {

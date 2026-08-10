@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/ralph/industrial-edge-middleware/internal/models"
+
+	"github.com/ralph/industrial-edge-middleware/internal/logging"
 )
 
 // Manager handles global settings with caching and hot-reload support
@@ -109,7 +111,7 @@ func (m *Manager) ShouldPublish(tagID int, newValue, oldValue interface{}, newQu
 	// Universal RBE Logic (Applies to Legacy, Sparkplug, and Dual)
 	// 1. Publish if quality changed
 	if newQuality != oldQuality {
-		log.Printf("[RBE-DEBUG] Publishing Tag %d due to QUALITY CHANGE (%d -> %d)", tagID, oldQuality, newQuality)
+		logging.Debugf("[RBE-DEBUG] Publishing Tag %d due to QUALITY CHANGE (%d -> %d)", tagID, oldQuality, newQuality)
 		m.recordPublish()
 		m.updateLastPublish(tagID)
 		return true
@@ -117,7 +119,7 @@ func (m *Manager) ShouldPublish(tagID int, newValue, oldValue interface{}, newQu
 
 	// 2. Publish if value changed (considering deadband)
 	if !valuesEqual(newValue, oldValue, config.RBEDeadbandPercent) {
-		log.Printf("[RBE-DEBUG] Publishing Tag %d due to VALUE CHANGE. Old: %v (%T), New: %v (%T)", tagID, oldValue, oldValue, newValue, newValue)
+		logging.Debugf("[RBE-DEBUG] Publishing Tag %d due to VALUE CHANGE. Old: %v (%T), New: %v (%T)", tagID, oldValue, oldValue, newValue, newValue)
 		m.recordPublish()
 		m.updateLastPublish(tagID)
 		return true
@@ -136,7 +138,7 @@ func (m *Manager) ShouldPublish(tagID int, newValue, oldValue interface{}, newQu
 		m.mu.RUnlock()
 
 		if !exists || time.Since(lastPub) > time.Duration(config.RBEHeartbeatSeconds)*time.Second {
-			log.Printf("[RBE-DEBUG] Publishing Tag %d due to Heartbeat elapsed", tagID)
+			logging.Debugf("[RBE-DEBUG] Publishing Tag %d due to Heartbeat elapsed", tagID)
 			m.recordPublish()
 			m.updateLastPublish(tagID)
 			return true

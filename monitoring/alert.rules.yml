@@ -100,3 +100,68 @@ groups:
         annotations:
           summary: "Redis is evicting keys (>10/s)"
           description: "Redis is under memory pressure and evicting keys — tag shadow data may be lost."
+
+      # ── The plant went quiet ────────────────────────────────────────────────
+      #
+      # Every rule above this point watches a PROCESS. None of them fires in the
+      # failure that matters most here: core-api up, broker up, database up,
+      # disk fine — and not one value arriving from the field. A driver
+      # container in a crash loop, a plant network cut, a broker ACL that stops
+      # matching after a rename all look exactly like a quiet Sunday.
+      #
+      # Gated on TagsTotal: a freshly installed system with nothing configured
+      # yet is legitimately silent, and an alert that greets every new install
+      # with a page is one that gets silenced before it is ever useful.
+      - alert: NoFieldDataReceived
+        expr: |
+          sum(rate(openedge_mqtt_messages_received_total{prefix=~"data|spBv1.0"}[10m])) == 0
+          and on() openedge_tags_total > 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No field data received for 20 minutes"
+          description: >-
+            {{ with query "openedge_tags_total" }}{{ . | first | value }}{{ end }} tags are
+            configured but no value has arrived from any driver. Historian and alarms are
+            blind: check the driver containers and the plant network before trusting any
+            dashboard reading as current.
+
+      # Field data slowed sharply without stopping — a subset of drivers died,
+      # or a gateway dropped off. Absolute thresholds cannot express this,
+      # because every installation has a different normal.
+      - alert: FieldDataRateCollapsed
+        expr: |
+          sum(rate(openedge_mqtt_messages_received_total{prefix=~"data|spBv1.0"}[15m]))
+            < 0.2 * sum(rate(openedge_mqtt_messages_received_total{prefix=~"data|spBv1.0"}[15m] offset 1h))
+          and on() openedge_tags_total > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Field data rate fell below 20% of the previous hour"
+          description: "Part of the plant has stopped reporting. Check for a failed driver or an offline gateway."
+
+      # core-api's own connection to the broker. Distinct from MQTTBrokerDown:
+      # the broker can be perfectly healthy while this service is refused —
+      # wrong credentials after a rotation, or an ACL that no longer matches.
+      - alert: CoreAPIDisconnectedFromBroker
+        expr: openedge_mqtt_connected == 0
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "core-api is not connected to the MQTT broker"
+          description: "The broker may be up while this service is refused — check credentials and ACLs."
+
+      # Alarms that nobody clears. Not a fault in itself, but a queue that only
+      # grows means the operators have stopped trusting the alarm list, which is
+      # how a real alarm gets missed.
+      - alert: ActiveAlarmsPileUp
+        expr: openedge_active_alarms_total > 100
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $value }} alarms active for over 30 minutes"
+          description: "Unacknowledged alarms are accumulating — the alarm list may no longer be actionable."
