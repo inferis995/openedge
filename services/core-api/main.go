@@ -1007,6 +1007,10 @@ func main() {
 			retentionDays = n
 		}
 	}
+	// Hand ageing and compression to TimescaleDB where it is available. Called
+	// after the retention window is read, because the policies encode it — and
+	// re-applied on every start so a changed setting actually takes effect.
+	db.EnsureRetentionPolicies(database, retentionDays)
 	db.StartHistorianRetentionWorker(database, retentionDays)
 
 	// Start OT asset sync worker (syncs gateways → ot_assets every hour for NIS2 compliance).

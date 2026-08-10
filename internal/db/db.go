@@ -1341,8 +1341,126 @@ func ensureSingleOpenAlarmEvent(db *sql.DB) {
 	}
 }
 
+// isHypertable reports whether a table is managed by TimescaleDB.
+//
+// It matters because the two cases need different tools, and using the wrong
+// one is slow rather than wrong — which is the failure mode that only shows up
+// once a plant has been running for a year.
+func isHypertable(db *sql.DB, table string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var exists bool
+	// timescaledb_information.hypertables is absent entirely when the extension
+	// is not installed, so the query erroring IS the answer.
+	if err := db.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM timescaledb_information.hypertables
+			WHERE hypertable_name = $1
+		)`, table).Scan(&exists); err != nil {
+		return false
+	}
+	return exists
+}
+
+// EnsureRetentionPolicies hands ageing and compression to TimescaleDB.
+//
+// What was here before: the hypertables were created without a single policy —
+// migrations/20250308_schema.sql carried add_compression_policy and
+// add_retention_policy, but nothing ever executed that file, so on every real
+// install the historian was an uncompressed hypertable that grew without
+// bound. Ageing was a Go worker issuing DELETE ... WHERE time < cutoff once a
+// day.
+//
+// Why that is not good enough for a plant. DELETE on a hypertable rewrites
+// rows, leaves dead tuples across every chunk, and needs a VACUUM afterwards
+// that does not return the space to the filesystem; drop_chunks unlinks whole
+// chunk tables and returns the space immediately. And without compression the
+// historian occupies several times what it needs to — for append-only numeric
+// series ordered by time, which is the case compression was designed for.
+//
+// The policies are removed and re-added rather than created if_not_exists,
+// because the retention window is operator-configurable: if_not_exists would
+// leave yesterday's interval in place and silently ignore the new setting.
+func EnsureRetentionPolicies(db *sql.DB, historianRetentionDays int) {
+	if !isHypertable(db, "tag_history") {
+		log.Printf("[RETENTION] tag_history is not a hypertable — TimescaleDB policies skipped; " +
+			"the fallback cleanup worker will age data with DELETE instead")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	// Compression pays off most on tag_history: append-only, ordered by time,
+	// and read almost exclusively one tag at a time. Segmenting by tag_id keeps
+	// a single-tag trend query reading one compressed batch instead of
+	// decompressing the whole chunk.
+	if _, err := db.ExecContext(ctx, `
+		ALTER TABLE tag_history SET (
+			timescaledb.compress,
+			timescaledb.compress_segmentby = 'tag_id',
+			timescaledb.compress_orderby   = 'time DESC'
+		)`); err != nil {
+		log.Printf("[RETENTION] could not enable compression on tag_history: %v", err)
+	} else {
+		// Seven days uncompressed: long enough that the recent window most
+		// dashboards read stays uncompressed and fast, short enough that the
+		// bulk of the history is compressed.
+		_, _ = db.ExecContext(ctx, `SELECT remove_compression_policy('tag_history', if_exists => TRUE)`)
+		if _, err := db.ExecContext(ctx,
+			`SELECT add_compression_policy('tag_history', INTERVAL '7 days')`); err != nil {
+			log.Printf("[RETENTION] could not add compression policy: %v", err)
+		} else {
+			log.Printf("[RETENTION] tag_history compressed after 7 days")
+		}
+	}
+
+	// Retention, per table. system_events is operational chatter — gateway up
+	// and down — and is worth far less than the tag values, so it is aged more
+	// aggressively. alarm_events follows the historian window because operators
+	// report on alarm history over the same period they trend values.
+	policies := []struct {
+		table string
+		days  int
+	}{
+		{"tag_history", historianRetentionDays},
+		{"alarm_events", historianRetentionDays},
+		{"system_events", 90},
+	}
+
+	for _, p := range policies {
+		if p.days <= 0 {
+			// Explicitly disabled. Drop any policy left over from a previous
+			// setting, or the old window would silently keep deleting.
+			if isHypertable(db, p.table) {
+				_, _ = db.ExecContext(ctx,
+					fmt.Sprintf(`SELECT remove_retention_policy('%s', if_exists => TRUE)`, p.table))
+				log.Printf("[RETENTION] %s: retention disabled, data kept indefinitely", p.table)
+			}
+			continue
+		}
+		if !isHypertable(db, p.table) {
+			continue
+		}
+		_, _ = db.ExecContext(ctx,
+			fmt.Sprintf(`SELECT remove_retention_policy('%s', if_exists => TRUE)`, p.table))
+		if _, err := db.ExecContext(ctx,
+			fmt.Sprintf(`SELECT add_retention_policy('%s', INTERVAL '%d days')`, p.table, p.days)); err != nil {
+			log.Printf("[RETENTION] could not set retention on %s: %v", p.table, err)
+			continue
+		}
+		log.Printf("[RETENTION] %s: chunks older than %d days dropped automatically", p.table, p.days)
+	}
+}
+
 // StartHistorianRetentionWorker runs a daily cleanup of old historian data.
 // retentionDays <= 0 disables cleanup.
+//
+// This remains as the fallback for a deployment where TimescaleDB is absent and
+// tag_history is an ordinary table. When it IS a hypertable, TimescaleDB's own
+// retention job owns ageing and this worker drops old chunks rather than
+// deleting rows — see runHistorianCleanup.
 func StartHistorianRetentionWorker(db *sql.DB, retentionDays int) {
 	if retentionDays <= 0 {
 		return
@@ -1360,6 +1478,24 @@ func runHistorianCleanup(db *sql.DB, retentionDays int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	cutoff := time.Now().AddDate(0, 0, -retentionDays)
+
+	// On a hypertable, drop the chunks. DELETE would rewrite rows and leave
+	// dead tuples spread across every chunk, and the VACUUM that follows does
+	// not hand the space back to the filesystem — so a disk that filled up
+	// stays full even after the cleanup "succeeded". drop_chunks unlinks whole
+	// chunk tables, which is both far cheaper and actually reclaims space.
+	//
+	// This normally finds nothing to do: TimescaleDB's own retention policy,
+	// installed by EnsureRetentionPolicies, gets there first. It stays as the
+	// backstop for the case where the background scheduler is not running.
+	if isHypertable(db, "tag_history") {
+		if _, err := db.ExecContext(ctx,
+			`SELECT drop_chunks('tag_history', older_than => $1::timestamptz)`, cutoff); err != nil {
+			log.Printf("[HISTORIAN] drop_chunks failed: %v", err)
+		}
+		return
+	}
+
 	result, err := db.ExecContext(ctx, `DELETE FROM tag_history WHERE time < $1`, cutoff)
 	if err != nil {
 		log.Printf("[HISTORIAN] Cleanup error: %v", err)

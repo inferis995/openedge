@@ -237,6 +237,16 @@ jobs:
           E2E_ADMIN_PASSWORD: e2e-admin-password
           E2E_MQTT_USER: core-api
           E2E_MQTT_PASSWORD: e2e-mqtt-password
+          # The retention suite asserts TimescaleDB policies directly against
+          # the database: whether the Go code calls add_retention_policy is
+          # exactly what the never-executed SQL file also appeared to do, so
+          # only the state in the database settles it. Postgres is published on
+          # 127.0.0.1 by the default compose.
+          E2E_DB_HOST: 127.0.0.1
+          E2E_DB_PORT: "5432"
+          E2E_DB_USER: industrial_user
+          E2E_DB_NAME: industrial_edge
+          E2E_DB_PASSWORD: CHANGE_ME_IN_PRODUCTION # from .env.example, copied in Prepare environment
         run: go test -tags=e2e -v -timeout=10m ./test/e2e/...
 
       - name: Dump container logs on failure
