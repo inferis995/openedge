@@ -14,7 +14,7 @@ COPY services/driver-redis/ services/driver-redis/
 WORKDIR /app/services/driver-redis
 RUN CGO_ENABLED=0 GOOS=linux go build -o /driver-redis
 
-FROM alpine:3.19
+FROM alpine:3.22
 
 WORKDIR /app
 COPY --from=builder /driver-redis .

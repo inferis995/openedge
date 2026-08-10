@@ -1,0 +1,119 @@
+# Automated dependency updates.
+#
+# Dependabot opens the PRs; CI decides whether they are safe. Nothing here
+# merges on its own — a dependency bump on this platform ships to industrial
+# plants, so a human approves it. What automation buys us is that the bump is
+# always ON OFFER and never silently missed.
+#
+# Grouping matters more than it looks: four ecosystems bumping individually
+# would open tens of PRs a week, everyone would stop reading them, and a real
+# security bump would arrive in a pile nobody triages. So patch+minor are
+# batched into one PR per ecosystem, and only majors — the ones that actually
+# need a human to think — arrive alone.
+version: 2
+
+updates:
+  # ── Go modules (all services build from this one module) ──────────────────
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(go)"
+    groups:
+      go-patch-minor:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  # ── Frontend ──────────────────────────────────────────────────────────────
+  - package-ecosystem: npm
+    directory: /services/web-ui
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(web-ui)"
+    groups:
+      # Build/test tooling churns constantly and never ships to a browser;
+      # keeping it out of the runtime group means a real runtime advisory is
+      # not buried under a vite bump.
+      frontend-tooling:
+        patterns:
+          - "vite"
+          - "vitest"
+          - "@vitest/*"
+          - "eslint*"
+          - "@typescript-eslint/*"
+          - "typescript"
+          - "@vitejs/*"
+          - "jsdom"
+          - "@testing-library/*"
+        update-types: [minor, patch]
+      frontend-runtime:
+        patterns: ["*"]
+        exclude-patterns:
+          - "vite"
+          - "vitest"
+          - "@vitest/*"
+          - "eslint*"
+          - "@typescript-eslint/*"
+          - "typescript"
+          - "@vitejs/*"
+          - "jsdom"
+          - "@testing-library/*"
+        update-types: [minor, patch]
+
+  # ── Container base images ─────────────────────────────────────────────────
+  #
+  # This is the ecosystem that would otherwise rot invisibly. Nothing in the
+  # Go or npm manifests describes the Alpine userland the binary runs on, so an
+  # OpenSSL CVE in the base layer is invisible to every other check here.
+  - package-ecosystem: docker
+    directories:
+      - /services/core-api
+      - /services/web-ui
+      - /services/driver-manager
+      - /services/engine-historian
+      - /services/cli
+      - /services/driver-modbus
+      - /services/driver-opcua
+      - /services/driver-s7
+      - /services/driver-mqtt
+      - /services/driver-redis
+      - /services/driver-lorawan
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(docker)"
+    groups:
+      base-images:
+        patterns: ["*"]
+
+  # ── The workflows themselves ──────────────────────────────────────────────
+  #
+  # A pinned action that goes unmaintained is supply-chain exposure with commit
+  # access to this repo, so it gets the same treatment as application code.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(actions)"
+    groups:
+      actions:
+        patterns: ["*"]

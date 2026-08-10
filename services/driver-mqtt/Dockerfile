@@ -19,7 +19,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o driver-mqtt ./services/driver-mqtt
 
 # Runtime stage
-FROM alpine:3.19
+FROM alpine:3.22
 
 WORKDIR /app
 

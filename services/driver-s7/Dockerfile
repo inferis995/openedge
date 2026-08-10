@@ -19,7 +19,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o driver-s7 ./services/driver-s7
 
 # Runtime stage
-FROM alpine:3.19
+FROM alpine:3.22
 
 WORKDIR /app
 

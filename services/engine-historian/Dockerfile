@@ -15,7 +15,7 @@ COPY services/engine-historian/*.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o engine-historian .
 
 # Runtime stage
-FROM alpine:3.19
+FROM alpine:3.22
 
 WORKDIR /app
 

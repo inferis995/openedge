@@ -107,6 +107,13 @@ jobs:
       - name: ESLint
         run: npm run lint
 
+      # Blocks a PR that pulls in a vulnerable package. The nightly Security
+      # workflow runs the same gate against unchanged code, for advisories
+      # published after the fact.
+      - name: Dependency audit
+        working-directory: .
+        run: ./scripts/npm-audit-gate.sh
+
   # ── Frontend: test ────────────────────────────────────────────────────────────
   frontend-test:
     name: Frontend Test
