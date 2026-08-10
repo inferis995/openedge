@@ -170,12 +170,18 @@ jobs:
       # toolchain bundled in a builder is whatever upstream shipped, is not
       # separately patchable here, and is discarded before anything reaches a
       # customer. Its OS layer, which a tag bump does fix, still has to be clean.
+      #
+      # The input is vuln-type, not Trivy's own --pkg-types flag: the action
+      # takes a fixed set of inputs and merely WARNS about unknown ones, so
+      # pkg-types was accepted, silently dropped, and the scan ran unrestricted.
+      # If this ever needs an option the action does not expose, run the Trivy
+      # binary directly rather than passing a flag that quietly does nothing.
       - name: Scan ${{ matrix.image }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ matrix.image }}
           scanners: vuln
-          pkg-types: os
+          vuln-type: os
           severity: HIGH,CRITICAL
           ignore-unfixed: true
           exit-code: "1"
