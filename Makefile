@@ -134,10 +134,13 @@ backup-to-usb:
 	./scripts/backup-to-usb.sh $(USB)
 
 ## Restore from a backup file. DESTRUCTIVE — wipes the live database.
-##   make restore BACKUP=./backups/openedge-20250604T030000Z.dump
+##   make restore BACKUP=./backups/openedge_20250604T030000Z.sql.gz
+##
+## Takes a safety dump of the CURRENT database first, so restoring the wrong
+## file is recoverable.
 restore:
-	@: $${BACKUP:?BACKUP is required (path to dump file)}
-	./scripts/restore-backup.sh $(BACKUP)
+	@: $${BACKUP:?BACKUP is required (path to a .sql.gz from scripts/backup.sh)}
+	./scripts/restore.sh $(BACKUP) --yes-i-have-a-recent-backup
 
 # ── Controlled on-prem upgrade ──────────────────────────────────────────────
 ## Safe upgrade: snapshot → pull → up -d → health probe. Rolls back path

@@ -14,7 +14,11 @@ set -euo pipefail
 
 # 1. Locate the latest backup -----------------------------------------------
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
-LATEST=$(ls -t "$BACKUP_DIR"/openedge-*.dump* 2>/dev/null | head -n1 || true)
+# scripts/backup.sh writes openedge_<ts>.sql.gz. This used to glob
+# openedge-*.dump* — a hyphen and a format no producer in this repo has
+# ever written — so it matched nothing and exited with "no backups found"
+# on a machine with a directory full of them.
+LATEST=$(ls -t "$BACKUP_DIR"/openedge_*.sql.gz 2>/dev/null | head -n1 || true)
 if [[ -z "$LATEST" ]]; then
   echo "no backups found in $BACKUP_DIR — run the backup container first" >&2
   exit 1

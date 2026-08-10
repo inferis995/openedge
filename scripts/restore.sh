@@ -4,8 +4,8 @@
 # Usage:
 #   ./scripts/restore.sh <backup_file.sql.gz> --yes-i-have-a-recent-backup
 #
-# This DROPs the live database. The confirmation flag is mandatory and mirrors
-# scripts/restore-backup.sh; the previous "Ctrl+C within 5s" countdown was not a
+# This DROPs the live database. The confirmation flag is mandatory; the previous
+# "Ctrl+C within 5s" countdown was not a
 # confirmation at all — under cron, nohup, CI or any non-interactive shell there
 # was nobody to press it, and the production database went away regardless.
 #
@@ -125,8 +125,42 @@ docker exec "$CONTAINER_ID" psql -U "$PGUSER" -d postgres -v ON_ERROR_STOP=1 -c 
 docker exec "$CONTAINER_ID" psql -U "$PGUSER" -d postgres -v ON_ERROR_STOP=1 -c \
   "CREATE DATABASE \"${PGDB}\";"
 
+# TimescaleDB needs the database put into restore mode first.
+#
+# A pg_dump of this database contains rows for TimescaleDB's own catalog — the
+# hypertable, chunk and policy definitions. Replaying them into a live extension
+# makes it try to process each one as a new object while it is being told the
+# object already exists. timescaledb_pre_restore() suspends that machinery for
+# the duration; post_restore() turns it back on and revalidates the catalog.
+#
+# Without the pair the restore either fails partway or, worse, completes with
+# tag_history as an ordinary table: the historian is present, queryable, and
+# quietly no longer a hypertable, so compression and retention never run again
+# and the next disk problem arrives without warning.
+echo "[RESTORE] Preparing TimescaleDB for restore..."
+docker exec "$CONTAINER_ID" psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 -c \
+  "CREATE EXTENSION IF NOT EXISTS timescaledb;"
+docker exec "$CONTAINER_ID" psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 -c \
+  "SELECT timescaledb_pre_restore();"
+
+# The dump recreates the extension itself, which is expected and harmless here.
 gunzip -c "$BACKUP_FILE" | docker exec -i "$CONTAINER_ID" psql \
   -U "$PGUSER" -v ON_ERROR_STOP=1 "$PGDB"
+
+echo "[RESTORE] Re-enabling TimescaleDB..."
+docker exec "$CONTAINER_ID" psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 -c \
+  "SELECT timescaledb_post_restore();"
+
+# Prove the historian came back as a hypertable rather than a plain table. A
+# restore that "succeeded" into an ordinary table is the failure mode this
+# whole block exists to prevent, and it is invisible from the UI.
+if ! docker exec "$CONTAINER_ID" psql -U "$PGUSER" -d "$PGDB" -tAc \
+  "SELECT 1 FROM timescaledb_information.hypertables WHERE hypertable_name = 'tag_history'" \
+  | grep -q 1; then
+  echo "[RESTORE] WARNING: tag_history is not a hypertable after restore." >&2
+  echo "[RESTORE] The data is present but compression and retention will not run." >&2
+  echo "[RESTORE] Restart core-api, which recreates the structures, then verify." >&2
+fi
 
 echo "[RESTORE] Completed successfully."
 if [ "$SAFETY_OK" = "1" ]; then
