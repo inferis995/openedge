@@ -22,6 +22,9 @@ services:
 
   postgres:
     image: timescale/timescaledb:latest-pg16
+    mem_limit: ${POSTGRES_MEM_LIMIT:-4g}
+    cpus: ${POSTGRES_CPUS:-4.0}
+    pids_limit: 512
     container_name: openedge-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-industrial_edge}
@@ -54,6 +57,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    mem_limit: ${REDIS_MEM_LIMIT:-512m}
+    cpus: ${REDIS_CPUS:-1.0}
+    pids_limit: 128
     container_name: openedge-redis
     # REDIS_PASSWORD is optional: when unset the ${VAR:+...} expansion collapses to
     # nothing and Redis starts exactly as before, so existing installs keep working.
@@ -82,6 +88,9 @@ services:
 
   mosquitto:
     image: eclipse-mosquitto:2
+    mem_limit: ${MOSQUITTO_MEM_LIMIT:-256m}
+    cpus: ${MOSQUITTO_CPUS:-1.0}
+    pids_limit: 256
     security_opt:
       - no-new-privileges:true
     container_name: openedge-mosquitto
@@ -135,6 +144,9 @@ services:
       context: .
       dockerfile: services/core-api/Dockerfile
     image: openedge-core-api:latest
+    mem_limit: ${CORE_API_MEM_LIMIT:-1g}
+    cpus: ${CORE_API_CPUS:-2.0}
+    pids_limit: 512
     container_name: openedge-core-api
     environment:
       DB_HOST: postgres
@@ -202,6 +214,9 @@ services:
       context: .
       dockerfile: services/web-ui/Dockerfile
     image: openedge-web-ui:latest
+    mem_limit: ${WEB_UI_MEM_LIMIT:-128m}
+    cpus: ${WEB_UI_CPUS:-0.5}
+    pids_limit: 128
     security_opt:
       - no-new-privileges:true
     container_name: openedge-web-ui
@@ -228,6 +243,9 @@ services:
       context: .
       dockerfile: services/driver-manager/Dockerfile
     image: openedge-driver-manager:latest
+    mem_limit: ${DRIVER_MANAGER_MEM_LIMIT:-512m}
+    cpus: ${DRIVER_MANAGER_CPUS:-1.0}
+    pids_limit: 256
     security_opt:
       - no-new-privileges:true
     container_name: openedge-driver-manager
@@ -275,6 +293,9 @@ services:
       context: .
       dockerfile: services/engine-historian/Dockerfile
     image: openedge-engine-historian:latest
+    mem_limit: ${HISTORIAN_MEM_LIMIT:-512m}
+    cpus: ${HISTORIAN_CPUS:-1.0}
+    pids_limit: 256
     security_opt:
       - no-new-privileges:true
     container_name: openedge-engine-historian
@@ -377,7 +398,13 @@ services:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "3001:3000"
+      # Bound to localhost like Prometheus and Alertmanager beside it. It was
+      # the one monitoring service published on every interface, while carrying
+      # an admin password that defaults to "admin" for on-prem installs — and
+      # Grafana can query the datasource, so reaching it is reaching the
+      # historian. Set GRAFANA_BIND=0.0.0.0 to expose it on a network you
+      # control, and set GRAFANA_ADMIN_PASSWORD before you do.
+      - "${GRAFANA_BIND:-127.0.0.1}:3001:3000"
     depends_on:
       - prometheus
     restart: unless-stopped
@@ -509,6 +536,9 @@ services:
       context: .
       dockerfile: services/driver-modbus/Dockerfile
     image: industrial-driver-modbus:latest
+    mem_limit: ${DRIVER_MEM_LIMIT:-256m}
+    cpus: ${DRIVER_CPUS:-0.5}
+    pids_limit: 128
     security_opt:
       - no-new-privileges:true
     networks:
@@ -520,6 +550,9 @@ services:
       context: .
       dockerfile: services/driver-s7/Dockerfile
     image: industrial-driver-s7:latest
+    mem_limit: ${DRIVER_MEM_LIMIT:-256m}
+    cpus: ${DRIVER_CPUS:-0.5}
+    pids_limit: 128
     security_opt:
       - no-new-privileges:true
     networks:
@@ -531,6 +564,9 @@ services:
       context: .
       dockerfile: services/driver-opcua/Dockerfile
     image: industrial-driver-opcua:latest
+    mem_limit: ${DRIVER_MEM_LIMIT:-256m}
+    cpus: ${DRIVER_CPUS:-0.5}
+    pids_limit: 128
     security_opt:
       - no-new-privileges:true
     networks:
@@ -542,6 +578,9 @@ services:
       context: .
       dockerfile: services/driver-mqtt/Dockerfile
     image: industrial-driver-mqtt:latest
+    mem_limit: ${DRIVER_MEM_LIMIT:-256m}
+    cpus: ${DRIVER_CPUS:-0.5}
+    pids_limit: 128
     security_opt:
       - no-new-privileges:true
     networks:
@@ -553,6 +592,9 @@ services:
       context: .
       dockerfile: services/driver-redis/Dockerfile
     image: industrial-driver-redis:latest
+    mem_limit: ${DRIVER_MEM_LIMIT:-256m}
+    cpus: ${DRIVER_CPUS:-0.5}
+    pids_limit: 128
     security_opt:
       - no-new-privileges:true
     networks:
@@ -564,6 +606,9 @@ services:
       context: .
       dockerfile: services/driver-lorawan/Dockerfile
     image: industrial-driver-lorawan:latest
+    mem_limit: ${DRIVER_MEM_LIMIT:-256m}
+    cpus: ${DRIVER_CPUS:-0.5}
+    pids_limit: 128
     security_opt:
       - no-new-privileges:true
     networks:
