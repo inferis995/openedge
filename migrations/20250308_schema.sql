@@ -151,8 +151,20 @@ ALTER TABLE tag_history SET (
 );
 SELECT add_compression_policy('tag_history', INTERVAL '7 days', if_not_exists => TRUE);
 
--- Add retention policy
-SELECT add_retention_policy('tag_history', INTERVAL '90 days', if_not_exists => TRUE);
+-- Retention is NOT set here.
+--
+-- It used to be, at 90 days, and that number won: this file runs at initdb,
+-- before core-api has ever started, and if_not_exists meant the application
+-- could not correct it afterwards. The application seeds
+-- historian_retention_days = 365 and shows that figure in the UI, so the
+-- database quietly discarded nine months of history the operator believed was
+-- retained — invisibly, because the fallback DELETE at 365 days then found
+-- nothing to remove, which is also what a correctly-aged table returns.
+--
+-- The retention window is an operator setting, so it belongs to the process
+-- that can read that setting and re-apply it when it changes:
+-- db.EnsureRetentionPolicies, called on every core-api start. Do not add a
+-- policy here.
 
 COMMENT ON TABLE tag_history IS 'TimescaleDB hypertable: Time-series historian with automatic compression';
 COMMENT ON COLUMN tag_history.value IS 'Actual tag value. NULL = offline/bad-quality marker (source=''offline'') that the query layer turns into a chart gap.';

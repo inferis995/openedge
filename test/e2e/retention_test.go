@@ -97,6 +97,52 @@ func TestHistorianHasARetentionPolicy(t *testing.T) {
 	}
 }
 
+// The policy must match the CONFIGURED window, not merely exist.
+//
+// This is the test that would have caught the defect. Both mechanisms were
+// present and neither was broken on its own: initdb installed a 90-day policy
+// from the schema file, the application seeded historian_retention_days = 365
+// and showed that in the UI. The database dropped chunks at 90 days while every
+// operator-facing surface said a year, and nothing reported the difference —
+// the worker's DELETE at 365 days returned zero rows, which is also what a
+// correctly-aged table returns.
+//
+// Asserting a policy exists would have passed throughout. Only comparing it to
+// the setting fails.
+func TestRetentionMatchesTheConfiguredWindow(t *testing.T) {
+	db := openDB(t)
+
+	var configured int
+	if err := db.QueryRow(`
+		SELECT value::int FROM global_settings
+		WHERE key = 'historian_retention_days'`).Scan(&configured); err != nil {
+		t.Fatalf("reading historian_retention_days: %v", err)
+	}
+	if configured <= 0 {
+		t.Skipf("retention disabled in settings (%d days) — nothing to compare", configured)
+	}
+
+	iv := retentionInterval(t, db, "tag_history")
+	if iv == "" {
+		t.Fatalf("historian_retention_days is %d but tag_history has no retention policy", configured)
+	}
+
+	// Compare as intervals in the database rather than parsing Postgres's
+	// interval text in Go, where '3 mons' and '90 days' are equal to Postgres
+	// and unequal to strings.Compare.
+	var equal bool
+	if err := db.QueryRow(
+		`SELECT $1::interval = make_interval(days => $2)`, iv, configured).Scan(&equal); err != nil {
+		t.Fatalf("comparing intervals: %v", err)
+	}
+	if !equal {
+		t.Fatalf("tag_history is aged at %s but historian_retention_days says %d days — "+
+			"the database is silently discarding data the operator believes is retained",
+			iv, configured)
+	}
+	t.Logf("retention policy and setting agree: %d days", configured)
+}
+
 // Alarm and event history age too. These were hypertables that nothing at all
 // cleaned up: the Go worker only ever touched tag_history.
 func TestEventHypertablesHaveRetentionPolicies(t *testing.T) {

@@ -37,6 +37,13 @@ internal/
 ### Database Migrations
 ALL migrations live in `internal/db/db.go` → `runAutoMigrations()`.
 Run at startup automatically. Pattern:
+
+> There is a second path that is **not** a migration system: `migrations/*.sql`
+> is mounted at `/docker-entrypoint-initdb.d` and runs once, on an empty data
+> directory. It seeds the base schema for a NEW database and never reaches an
+> existing one. Adding a file there produces a change that works locally and
+> never ships. See `migrations/README.md`.
+
 ```go
 if _, err := db.ExecContext(context.Background(), `CREATE TABLE IF NOT EXISTS ...`); err != nil {
     log.Printf("Warning: ...")
