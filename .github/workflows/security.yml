@@ -45,9 +45,9 @@ jobs:
     name: Go Dependencies
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
@@ -63,9 +63,9 @@ jobs:
     name: Frontend Dependencies
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -89,7 +89,7 @@ jobs:
     outputs:
       images: ${{ steps.collect.outputs.images }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Read the tags out of the Dockerfiles rather than listing them here, so
       # this cannot quietly drift out of sync with what is actually built.
@@ -117,7 +117,7 @@ jobs:
       # everybody learns to ignore. Anything with a fix available is a real,
       # actionable finding — bump the tag — and fails the build.
       - name: Scan ${{ matrix.image }}
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ matrix.image }}
           scanners: vuln
@@ -139,7 +139,7 @@ jobs:
       issues: write
     steps:
       - name: Open or update the tracking issue
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const title = 'Scheduled security scan is failing';
