@@ -116,8 +116,13 @@ jobs:
       # something this repo can act on, and a permanently red job is one
       # everybody learns to ignore. Anything with a fix available is a real,
       # actionable finding — bump the tag — and fails the build.
+      # Pinned to a commit, not a tag. This action had a supply-chain incident,
+      # and a tag is a movable pointer: whoever controls the repo can retarget
+      # v0.36.0 at new code, which then runs here with a token. The SHA cannot
+      # be retargeted. Dependabot still offers upgrades and rewrites both the
+      # SHA and the trailing comment.
       - name: Scan ${{ matrix.image }}
-        uses: aquasecurity/trivy-action@0.29.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ matrix.image }}
           scanners: vuln
