@@ -8,7 +8,7 @@ on:
 
 env:
   GO_VERSION: "1.25.12"  # must match the toolchain in go.mod: govulncheck reports against whatever runs
-  NODE_VERSION: "20"
+  NODE_VERSION: "22"
   JWT_SECRET: "ci-test-secret-key-minimum-32-chars-ok"
 
 jobs:

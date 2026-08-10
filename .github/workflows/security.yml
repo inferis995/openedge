@@ -37,7 +37,7 @@ permissions:
 
 env:
   GO_VERSION: "1.25.12"
-  NODE_VERSION: "20"
+  NODE_VERSION: "22"
 
 jobs:
   # ── Go dependencies and stdlib ──────────────────────────────────────────────
@@ -83,44 +83,70 @@ jobs:
   # The blind spot everything else shares: an OpenSSL or musl CVE in the runtime
   # layer is not in go.sum and not in package-lock.json, so a project can be
   # fully green on both and still ship a rotten userland.
+  #
+  # Builder and runtime stages are collected separately, because they carry
+  # genuinely different risk and scanning them identically produces findings
+  # nobody can act on.
+  #
+  # A runtime image IS the product: its userland runs on a customer's machine
+  # and is reachable from the network. A builder image is discarded at the end
+  # of the multi-stage build — nothing in it ships. The first scan of node:20
+  # made the distinction concrete: it failed on six node-tar advisories inside
+  # the npm that Node bundles, which never leave CI and which no tag can fix,
+  # since every Node image carries whatever npm shipped with it. Left that way,
+  # the job would have been permanently red for a reason nobody could resolve,
+  # and a permanently red job is a muted one.
+  #
+  # So builders are scanned for their OS packages, where a fix means bumping the
+  # tag, and not for the language tooling upstream pinned for us. The split is
+  # derived from the Dockerfiles themselves — a stage with `AS <name>` is a
+  # builder — so it cannot drift from what is actually built.
   collect-base-images:
     name: Collect Base Images
     runs-on: ubuntu-latest
     outputs:
-      images: ${{ steps.collect.outputs.images }}
+      runtime: ${{ steps.collect.outputs.runtime }}
+      builder: ${{ steps.collect.outputs.builder }}
     steps:
       - uses: actions/checkout@v4
 
-      # Read the tags out of the Dockerfiles rather than listing them here, so
-      # this cannot quietly drift out of sync with what is actually built.
       - name: Collect base images from Dockerfiles
         id: collect
         run: |
-          images=$(grep -rhE '^FROM ' services/*/Dockerfile \
-            | sed -E 's/^FROM (--platform=[^ ]+ )?//; s/ +[Aa][Ss] .*//' \
-            | sort -u \
-            | jq -R . | jq -sc .)
-          echo "Found: $images"
-          echo "images=$images" >> "$GITHUB_OUTPUT"
+          strip() { sed -E 's/^FROM (--platform=[^ ]+ )?//; s/ +[Aa][Ss] .*//'; }
+
+          builder=$(grep -rhE '^FROM .+ [Aa][Ss] ' services/*/Dockerfile \
+            | strip | sort -u | jq -R . | jq -sc .)
+          runtime=$(grep -rhE '^FROM ' services/*/Dockerfile \
+            | grep -viE ' [Aa][Ss] ' | strip | sort -u | jq -R . | jq -sc .)
+
+          echo "runtime (ships to customers): $runtime"
+          echo "builder (discarded after build): $builder"
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+          echo "builder=$builder" >> "$GITHUB_OUTPUT"
 
   base-images:
-    name: Base Image ${{ matrix.image }}
+    name: Runtime Image ${{ matrix.image }}
     needs: collect-base-images
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        image: ${{ fromJSON(needs.collect-base-images.outputs.images) }}
+        image: ${{ fromJSON(needs.collect-base-images.outputs.runtime) }}
     steps:
+      # Everything in the image — OS packages and bundled libraries alike. This
+      # one ships, so all of it is customer-facing.
+      #
       # ignore-unfixed is deliberate: a distro CVE with no released patch is not
       # something this repo can act on, and a permanently red job is one
       # everybody learns to ignore. Anything with a fix available is a real,
       # actionable finding — bump the tag — and fails the build.
-      # Pinned to a commit, not a tag. This action had a supply-chain incident,
-      # and a tag is a movable pointer: whoever controls the repo can retarget
-      # v0.36.0 at new code, which then runs here with a token. The SHA cannot
-      # be retargeted. Dependabot still offers upgrades and rewrites both the
-      # SHA and the trailing comment.
+      #
+      # The action is pinned to a commit, not a tag. It had a supply-chain
+      # incident, and a tag is a movable pointer: whoever controls that repo can
+      # retarget v0.36.0 at new code, which then runs here with a token. A SHA
+      # cannot be retargeted. Dependabot still offers upgrades and rewrites both
+      # the SHA and the trailing comment.
       - name: Scan ${{ matrix.image }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -131,10 +157,34 @@ jobs:
           exit-code: "1"
           format: table
 
+  builder-images:
+    name: Builder Image ${{ matrix.image }}
+    needs: collect-base-images
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJSON(needs.collect-base-images.outputs.builder) }}
+    steps:
+      # OS packages only — see the note on collect-base-images. The language
+      # toolchain bundled in a builder is whatever upstream shipped, is not
+      # separately patchable here, and is discarded before anything reaches a
+      # customer. Its OS layer, which a tag bump does fix, still has to be clean.
+      - name: Scan ${{ matrix.image }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ matrix.image }}
+          scanners: vuln
+          pkg-types: os
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: table
+
   # ── Make a scheduled failure visible ────────────────────────────────────────
   report:
     name: Report
-    needs: [go-vulnerabilities, frontend-vulnerabilities, base-images]
+    needs: [go-vulnerabilities, frontend-vulnerabilities, base-images, builder-images]
     # Only for the scheduled run: a push or a manual dispatch already has
     # somebody looking at the result.
     if: failure() && github.event_name == 'schedule'
