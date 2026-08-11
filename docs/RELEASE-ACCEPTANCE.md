@@ -182,6 +182,41 @@ Enable MFA for every administrator before handover.
 
 ---
 
+## 6b. Permissions, when upgrading an existing installation
+
+Skip this on a fresh install; it only matters where accounts already exist.
+
+Seven per-user permissions were stored, shown as checkboxes on the Users page,
+and enforced on nothing: the middleware that checks them was mounted on no
+route. Unticking a box saved, redisplayed as unticked, and changed nothing an
+account could do. They are enforced now, which moves the goalposts in two
+directions at once.
+
+**Accounts that lose something.** A non-admin with no row in `role_permissions`
+is denied by default, so on the first start after this upgrade a plain user
+cannot:
+
+- write a tag or load a recipe — every synoptic button, setpoint and recipe
+- export tags or OEE reports
+- read the audit log
+
+Administrators are unaffected: `RequirePermission` admits them before it
+consults the table.
+
+**Accounts that gain something.** Acknowledging alarms, editing recipes,
+managing shifts and downloading the edge installer used to require an
+administrator. They now follow their permission, so those tasks can be
+delegated without handing out an admin account — which is how a control room
+stops sharing one login that nobody can attribute anything to.
+
+Before the shift starts, not during it:
+
+- [ ] List the non-admin accounts and agree with the customer what each does
+- [ ] Grant the permissions from Users → Permissions, one account at a time
+- [ ] Have an operator write one setpoint and acknowledge one alarm, and watch
+      it work — the first time somebody discovers this is mid-incident is the
+      worst possible time
+
 ## 7. Handover
 
 - [ ] Credentials in the customer's password manager, not in an email

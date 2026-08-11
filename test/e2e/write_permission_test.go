@@ -220,3 +220,91 @@ func TestOutOfRangeSetpointIsRejected(t *testing.T) {
 	orgScoped.mustDo(http.MethodPost, fmt.Sprintf("/api/tags/%d/write", fx.tagID),
 		map[string]interface{}{"value": 500.0}, http.StatusBadRequest)
 }
+
+// Acknowledging an alarm required admin, and can_ack_alarms enforced nothing.
+//
+// That is backwards for a control room: acknowledging is an operator's core
+// job, and making it admin-only is how a site ends up with one shared admin
+// login that nobody can attribute anything to. RequirePermission still admits
+// every admin, so this only widens who CAN be given the task.
+func TestAckAlarmsFollowsThePermission(t *testing.T) {
+	admin, _ := adminSession(t)
+	fx := newFixture(t, admin)
+	orgScoped := &apiClient{t: t, token: admin.token, orgID: fmt.Sprintf("%d", fx.org.ID)}
+
+	// Raise an alarm to acknowledge, the way a driver does.
+	orgScoped.mustDo(http.MethodPut, fmt.Sprintf("/api/tags/%d/alarms", fx.tagID),
+		[]map[string]interface{}{{
+			"tag_id": fx.tagID, "alarm_type": "high", "threshold": 100.0,
+			"severity": "critical", "message": "e2e ack alarm",
+			"deadband": 1.0, "delay_seconds": 0, "enabled": true,
+		}}, http.StatusOK)
+
+	suffix := uniqueSuffix()
+	operator, userID := createOrgUser(t, admin, fx.org.ID, "op-ack-"+suffix, "operator-password-1")
+	operator.orgID = fmt.Sprintf("%d", fx.org.ID)
+
+	// The alarm id is not needed to prove the gate: authorization runs before
+	// the handler looks anything up, so a refused call and a "not found" are
+	// distinguishable, and only the former is about permissions.
+	const anyAlarmID = 999999
+
+	status, _ := operator.do(http.MethodPost, fmt.Sprintf("/api/alarms/%d/ack", anyAlarmID), nil)
+	if status != http.StatusForbidden {
+		t.Fatalf("an operator without can_ack_alarms got %d, want 403", status)
+	}
+
+	admin.mustDo(http.MethodPut, fmt.Sprintf("/api/users/%d/permissions", userID),
+		map[string]interface{}{"can_ack_alarms": true}, http.StatusOK)
+
+	// Past the gate now: whatever the handler answers about a non-existent
+	// alarm, it must no longer be "forbidden".
+	status, _ = operator.do(http.MethodPost, fmt.Sprintf("/api/alarms/%d/ack", anyAlarmID), nil)
+	if status == http.StatusForbidden {
+		t.Fatal("granting can_ack_alarms changed nothing — the permission is still not enforced")
+	}
+}
+
+// Bulk export is how a tenant's data leaves the platform, and it was open to
+// every authenticated account. This one TIGHTENS: an existing plain user loses
+// the export until an administrator grants it, which is the deliberate cost of
+// making the checkbox mean something.
+func TestExportRequiresThePermission(t *testing.T) {
+	admin, _ := adminSession(t)
+	fx := newFixture(t, admin)
+
+	suffix := uniqueSuffix()
+	viewer, userID := createOrgUser(t, admin, fx.org.ID, "viewer-"+suffix, "operator-password-1")
+	viewer.orgID = fmt.Sprintf("%d", fx.org.ID)
+
+	viewer.mustDo(http.MethodGet, "/api/tags/export", nil, http.StatusForbidden)
+
+	admin.mustDo(http.MethodPut, fmt.Sprintf("/api/users/%d/permissions", userID),
+		map[string]interface{}{"can_export_data": true}, http.StatusOK)
+
+	status, _ := viewer.do(http.MethodGet, "/api/tags/export", nil)
+	if status == http.StatusForbidden {
+		t.Fatal("granting can_export_data changed nothing — the permission is still not enforced")
+	}
+}
+
+// The audit log answers "who did this". Every account in the tenant could read
+// it, which makes it a directory of colleagues' activity rather than a control.
+func TestAuditLogRequiresThePermission(t *testing.T) {
+	admin, _ := adminSession(t)
+	fx := newFixture(t, admin)
+
+	suffix := uniqueSuffix()
+	viewer, _ := createOrgUser(t, admin, fx.org.ID, "audit-"+suffix, "operator-password-1")
+	viewer.orgID = fmt.Sprintf("%d", fx.org.ID)
+
+	viewer.mustDo(http.MethodGet, "/api/audit/logs", nil, http.StatusForbidden)
+
+	// An admin still reads it without any row in role_permissions — the
+	// short-circuit in RequirePermission is what keeps administrators working
+	// through an upgrade that grants nobody anything yet.
+	orgScopedAdmin := &apiClient{t: t, token: admin.token, orgID: fmt.Sprintf("%d", fx.org.ID)}
+	if status, _ := orgScopedAdmin.do(http.MethodGet, "/api/audit/logs", nil); status == http.StatusForbidden {
+		t.Fatal("an admin was refused the audit log — RequirePermission should admit every admin")
+	}
+}

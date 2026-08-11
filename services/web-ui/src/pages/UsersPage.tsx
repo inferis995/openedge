@@ -632,13 +632,19 @@ const UsersPage = () => {
                     </DialogHeader>
                     <div className="space-y-3 py-2">
                         {([
-                            ['can_write_tags', 'Write Tags (i3x)'],
-                            ['can_ack_alarms', 'Acknowledge Alarms'],
-                            ['can_export_data', 'Export Data'],
-                            ['can_manage_recipes', 'Manage Recipes'],
-                            ['can_manage_shifts', 'Manage Shifts'],
-                            ['can_view_audit', 'View Audit Log'],
-                            ['can_download_installer', 'Download Edge Installer'],
+                            // The label said "(i3x)" back when that API was the
+                            // only thing checking it. It now governs every way
+                            // of commanding an output — synoptic buttons, the
+                            // tag write endpoint and recipe loads — so calling
+                            // it an integration setting would understate it
+                            // badly to whoever is ticking the box.
+                            ['can_write_tags', 'Write tags — command outputs from synoptics, the API and recipes'],
+                            ['can_ack_alarms', 'Acknowledge alarms'],
+                            ['can_export_data', 'Export data (tag exports, OEE reports)'],
+                            ['can_manage_recipes', 'Create and edit recipes'],
+                            ['can_manage_shifts', 'Manage shifts and assignments'],
+                            ['can_view_audit', 'View the audit log'],
+                            ['can_download_installer', 'Download the edge installer (contains gateway credentials)'],
                         ] as [keyof typeof perms, string][]).map(([key, label]) => (
                             <label key={key} className="flex items-center justify-between cursor-pointer select-none">
                                 <span className="text-sm">{label}</span>

@@ -18,6 +18,7 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	_ "github.com/ralph/industrial-edge-middleware/docs"
 	"github.com/ralph/industrial-edge-middleware/internal/auth"
 	"github.com/ralph/industrial-edge-middleware/internal/connectors"
@@ -34,7 +35,6 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	otSync "github.com/ralph/industrial-edge-middleware/internal/sync"
 	"github.com/ralph/industrial-edge-middleware/internal/telemetry"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -486,7 +486,11 @@ func main() {
 			log.Println("[API] Registering Tags routes including Import/Export")
 			// Import/Export endpoints for bulk tag management - params must be registered before wildcards if possible (though Gin handles priority)
 			tags.POST("/import", middleware.RequireRole(models.RoleAdmin), tagsHandler.ImportTags)
-			tags.GET("/export", tagsHandler.ExportTags)
+			// Bulk export is how a tenant's data leaves the platform, and it was
+			// open to every authenticated account.
+			tags.GET("/export",
+				middleware.RequirePermission(database, middleware.PermExportData),
+				tagsHandler.ExportTags)
 			tags.PUT("/reorder", middleware.RequireRole(models.RoleAdmin), tagsHandler.ReorderTags)
 
 			// Tag hierarchy endpoints for trend page
@@ -533,7 +537,13 @@ func main() {
 			alarms.GET("/active", alarmsHandler.GetActiveAlarms)
 			alarms.GET("/history", alarmsHandler.GetAlarmHistory)
 			alarms.GET("/count/all", alarmsHandler.GetAllAlarmCounts)
-			alarms.POST("/:id/ack", middleware.RequireRole(models.RoleAdmin), alarmsHandler.AcknowledgeAlarm)
+			// Acknowledging an alarm is an operator's core job, and requiring
+			// admin for it is how a control room ends up sharing one admin login.
+			// RequirePermission still admits every admin, so this only widens who
+			// CAN be given the task — which is what the checkbox promised.
+			alarms.POST("/:id/ack",
+				middleware.RequirePermission(database, middleware.PermAckAlarms),
+				alarmsHandler.AcknowledgeAlarm)
 			alarms.DELETE("/history/all", middleware.RequireRole(models.RoleAdmin), alarmsHandler.DeleteAllAlarmHistory)
 			alarms.DELETE("/history/:id", middleware.RequireRole(models.RoleAdmin), alarmsHandler.DeleteAlarmHistory)
 		}
@@ -616,10 +626,10 @@ func main() {
 		recipes.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
 			recipes.GET("", recipesHandler.List)
-			recipes.POST("", middleware.RequireRole(models.RoleAdmin), recipesHandler.Create)
+			recipes.POST("", middleware.RequirePermission(database, middleware.PermManageRecipes), recipesHandler.Create)
 			recipes.GET("/:id", recipesHandler.Get)
-			recipes.PUT("/:id", middleware.RequireRole(models.RoleAdmin), recipesHandler.Update)
-			recipes.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), recipesHandler.Delete)
+			recipes.PUT("/:id", middleware.RequirePermission(database, middleware.PermManageRecipes), recipesHandler.Update)
+			recipes.DELETE("/:id", middleware.RequirePermission(database, middleware.PermManageRecipes), recipesHandler.Delete)
 			// Load: any authenticated org member can trigger; the run is
 			// audited with the actor's user_id + username for accountability.
 			// Loading a recipe publishes a whole batch of setpoints to the
@@ -657,12 +667,12 @@ func main() {
 		{
 			shifts.GET("", shiftsHandler.List)
 			shifts.GET("/current", shiftsHandler.Current)
-			shifts.POST("", middleware.RequireRole(models.RoleAdmin), shiftsHandler.Create)
-			shifts.PUT("/:id", middleware.RequireRole(models.RoleAdmin), shiftsHandler.Update)
-			shifts.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), shiftsHandler.Delete)
+			shifts.POST("", middleware.RequirePermission(database, middleware.PermManageShifts), shiftsHandler.Create)
+			shifts.PUT("/:id", middleware.RequirePermission(database, middleware.PermManageShifts), shiftsHandler.Update)
+			shifts.DELETE("/:id", middleware.RequirePermission(database, middleware.PermManageShifts), shiftsHandler.Delete)
 			shifts.GET("/:id/assignments", shiftsHandler.ListAssignments)
-			shifts.POST("/:id/assignments", middleware.RequireRole(models.RoleAdmin), shiftsHandler.CreateAssignment)
-			shifts.DELETE("/assignments/:aid", middleware.RequireRole(models.RoleAdmin), shiftsHandler.DeleteAssignment)
+			shifts.POST("/:id/assignments", middleware.RequirePermission(database, middleware.PermManageShifts), shiftsHandler.CreateAssignment)
+			shifts.DELETE("/assignments/:aid", middleware.RequirePermission(database, middleware.PermManageShifts), shiftsHandler.DeleteAssignment)
 		}
 
 		// Custom KPIs (metriche di produzione definite dall'operatore).
@@ -743,10 +753,11 @@ func main() {
 
 			// Export CSV — report professionali scaricabili.
 			exportHandler := handlers.NewOEEExportHandler(database, oeeHandler, oeeHistoryHandler, lossesHandler)
-			oeeGrp.GET("/export/history.csv", exportHandler.ExportHistoryCSV)
-			oeeGrp.GET("/export/by-shift.csv", exportHandler.ExportByShiftCSV)
-			oeeGrp.GET("/export/losses.csv", exportHandler.ExportLossTreeCSV)
-			oeeGrp.GET("/export/profiles.csv", exportHandler.ExportProfilesCSV)
+			exportPerm := middleware.RequirePermission(database, middleware.PermExportData)
+			oeeGrp.GET("/export/history.csv", exportPerm, exportHandler.ExportHistoryCSV)
+			oeeGrp.GET("/export/by-shift.csv", exportPerm, exportHandler.ExportByShiftCSV)
+			oeeGrp.GET("/export/losses.csv", exportPerm, exportHandler.ExportLossTreeCSV)
+			oeeGrp.GET("/export/profiles.csv", exportPerm, exportHandler.ExportProfilesCSV)
 		}
 
 		// Cron worker OEE: ogni ora salva snapshot per profilo; a
@@ -780,8 +791,8 @@ func main() {
 		aiops := api.Group("/aiops")
 		aiops.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
-			aiops.GET("/summary",       aiopsHandler.GetOrgSummary)
-			aiops.GET("/anomalies",     aiopsHandler.GetTagAnomalies)
+			aiops.GET("/summary", aiopsHandler.GetOrgSummary)
+			aiops.GET("/anomalies", aiopsHandler.GetTagAnomalies)
 			aiops.GET("/alarms/digest", aiopsHandler.GetAlarmDigest)
 		}
 
@@ -789,8 +800,15 @@ func main() {
 		audit := api.Group("/audit")
 		audit.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
-			audit.GET("/logs", auditHandler.GetAuditLogs)
-			audit.GET("/actions", auditHandler.GetAuditActions)
+			// Who did what, and when. Readable by every account in the tenant
+			// until now, which makes the audit trail a directory of colleagues'
+			// activity rather than a control.
+			audit.GET("/logs",
+				middleware.RequirePermission(database, middleware.PermViewAudit),
+				auditHandler.GetAuditLogs)
+			audit.GET("/actions",
+				middleware.RequirePermission(database, middleware.PermViewAudit),
+				auditHandler.GetAuditActions)
 		}
 
 		// API keys for edge-to-cloud authentication (org admin only)
@@ -806,7 +824,13 @@ func main() {
 		// Edge installer — generates a ready-to-run ZIP for edge deployment (org admin only)
 		installerHandler := handlers.NewEdgeInstallerHandler(database)
 		orgEdge := api.Group("/organizations/:id")
-		orgEdge.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin), middleware.RequireOrgParam("id"))
+		// The ZIP carries the gateway's MQTT credentials, so the org-ownership
+		// check stays. RequirePermission replaces the blanket admin gate: admins
+		// still pass, and a commissioning engineer can be given the task without
+		// being made an administrator of the whole tenant.
+		orgEdge.Use(middleware.RequireAuth,
+			middleware.RequirePermission(database, middleware.PermDownloadInstaller),
+			middleware.RequireOrgParam("id"))
 		{
 			orgEdge.GET("/edge-installer", installerHandler.Download)
 		}
@@ -1506,9 +1530,9 @@ func handleWriteCommand(topic string, payload []byte, db *sql.DB, mqttClient *mq
 	// Format 3: {"value": x} (timestamp optional)
 	var writeRequest struct {
 		Value     interface{} `json:"value,omitempty"`
-		V         interface{} `json:"v,omitempty"`     // Legacy format
+		V         interface{} `json:"v,omitempty"` // Legacy format
 		Timestamp int64       `json:"timestamp,omitempty"`
-		TS        int64       `json:"ts,omitempty"`        // Legacy format
+		TS        int64       `json:"ts,omitempty"` // Legacy format
 	}
 
 	if err := json.Unmarshal(payload, &writeRequest); err != nil {
