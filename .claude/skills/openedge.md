@@ -886,6 +886,23 @@ separa una modifica da un incidente.
   atto esplicito.
 - `DELETE /api/udt/types/{id}` — rifiutato con `409` finche' esistono istanze.
 
+### Dalla UI
+
+- **Tipi (UDT)** — elenco dei tipi con il numero di istanze che ne dipendono.
+  Creare un tipo chiede solo il nome e porta subito all'editor: un tipo con un
+  membro segnaposto non e' finito, e lasciare l'utente sull'elenco farebbe
+  credere il contrario.
+- **Tipi → apri un tipo** — editor dei membri: nome, suffisso, tipo di dato,
+  storicizzazione, scalatura e allarmi. Il salvataggio riporta quanti tag ha
+  creato, aggiornato ed eliminato.
+- **Istanze** — elenco e creazione. La creazione dice quanti tag ha generato,
+  cosi' un indirizzo base sbagliato si vede alla prima istanza e non alla decima.
+
+La rimozione di un membro apre una finestra che ripete i numeri calcolati
+dall'API — quali membri, quanti tag, quante righe di storico — invece di
+chiedere «sei sicuro?». A «sei sicuro?» rispondono tutti di si'; a «questo
+cancella 1.243.902 righe» no.
+
 ### Permessi
 
 Scrivere tipi e istanze richiede `can_write_tags` (gli admin passano sempre).

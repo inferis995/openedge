@@ -622,6 +622,12 @@ Pompa02 a 40011, e cosi' via — istanziare dieci pompe e' un ciclo. Verifica
 sempre l'indirizzo generato del **primo** tag sul PLC reale prima di crearne
 altri nove: un errore nel `base_address` si moltiplica per dieci in silenzio.
 
+### Dalla UI
+
+Menu **Tipi (UDT)** e **Istanze**. Stessa semantica dell'API: l'editor del tipo
+salva tutti i membri insieme e riporta la riconciliazione, e la rimozione di un
+membro apre la finestra che quantifica la perdita.
+
 ### La cosa da non fare in automatico
 
 Rimuovere un membro da un tipo cancella quel tag su **ogni** istanza e con esso

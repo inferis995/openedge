@@ -26,6 +26,9 @@ import OEEProfilesPage from '@/pages/OEEProfilesPage';
 import OEEKioskPage from '@/pages/OEEKioskPage';
 import I3XPage from '@/pages/I3XPage';
 import SynopticsPage from '@/pages/SynopticsPage';
+import UDTTypesPage from '@/pages/UDTTypesPage';
+import UDTTypeEditorPage from '@/pages/UDTTypeEditorPage';
+import UDTInstancesPage from '@/pages/UDTInstancesPage';
 import SynopticEditorPage from '@/pages/SynopticEditorPage';
 import AcceptInvitePage from '@/pages/AcceptInvitePage';
 import AuditPage from '@/pages/AuditPage';
@@ -150,6 +153,9 @@ function App() {
                     <Route path="/kpis" element={<CustomKPIsPage />} />
                     <Route path="/oee-profiles" element={<OEEProfilesPage />} />
                     <Route path="/i3x" element={<I3XPage />} />
+                    <Route path="/udt/types" element={<UDTTypesPage />} />
+                    <Route path="/udt/types/:id" element={<UDTTypeEditorPage />} />
+                    <Route path="/udt/instances" element={<UDTInstancesPage />} />
                     <Route path="/synoptics" element={<SynopticsPage />} />
                     <Route path="/synoptics/:id" element={<SynopticEditorPage mode="view" />} />
                     <Route path="/synoptics/:id/edit" element={<SynopticEditorPage mode="edit" />} />

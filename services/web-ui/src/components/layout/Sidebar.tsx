@@ -41,6 +41,8 @@ import {
     ClipboardList,
     TrendingDown,
     AlertTriangle,
+    Boxes,
+    Layers,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -83,6 +85,8 @@ const Sidebar = () => {
         { name: t('nav.shifts'), path: '/shifts', icon: Clock },
         { name: t('nav.maintenance'), path: '/maintenance', icon: Wrench },
         { name: t('nav.i3x'), path: '/i3x', icon: Network },
+        { name: 'Tipi (UDT)', path: '/udt/types', icon: Boxes },
+        { name: 'Istanze', path: '/udt/instances', icon: Layers },
         { name: 'Sinottici', path: '/synoptics', icon: LayoutTemplate },
     ];
 
