@@ -657,6 +657,31 @@ func main() {
 			synoptics.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), synopticsHandler.Delete)
 		}
 
+		// UDT — user-defined types. Authoring a type is an engineering task
+		// with plant-wide reach: one edit reconciles every instance, and a
+		// member removal can delete historian data. It stays with the tag
+		// permission rather than getting a checkbox of its own, because
+		// somebody who can command an output can already change what the tags
+		// are, and a separate control would suggest a separation that is not
+		// real. Reads are open to anyone in the tenant.
+		udtHandler := handlers.NewUDTHandler(database)
+		udt := api.Group("/udt")
+		udt.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			udtWrite := middleware.RequirePermission(database, middleware.PermWriteTags)
+
+			udt.GET("/types", udtHandler.ListTypes)
+			udt.GET("/types/:id", udtHandler.GetType)
+			udt.POST("/types", udtWrite, udtHandler.CreateType)
+			udt.PUT("/types/:id", udtWrite, udtHandler.UpdateType)
+			udt.DELETE("/types/:id", udtWrite, udtHandler.DeleteType)
+
+			udt.GET("/instances", udtHandler.ListInstances)
+			udt.POST("/instances", udtWrite, udtHandler.CreateInstance)
+			udt.PUT("/instances/:id", udtWrite, udtHandler.UpdateInstance)
+			udt.DELETE("/instances/:id", udtWrite, udtHandler.DeleteInstance)
+		}
+
 		// Shifts (turni): definizione + assegnazione operatori + detection
 		// turno corrente. Le rotte di lettura sono accessibili a chiunque
 		// sia autenticato (utili sia per admin che per operatore), le

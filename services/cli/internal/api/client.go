@@ -283,3 +283,32 @@ func VerifyMFA(baseURL, mfaToken, code string, insecure bool) (LoginResponse, er
 	}
 	return r, nil
 }
+
+// RawDelete executes a DELETE and returns the raw bytes.
+//
+// Present because the MCP server can now remove things — a tag, a UDT
+// instance, a mimic page — and an agent that can create without being able to
+// delete leaves a plant model that only ever grows.
+func (c *Client) RawDelete(path string) ([]byte, error) {
+	req, err := http.NewRequest("DELETE", c.baseURL+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	if c.orgID > 0 {
+		req.Header.Set("X-Organization-ID", strconv.Itoa(c.orgID))
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(data))
+	}
+	return data, nil
+}

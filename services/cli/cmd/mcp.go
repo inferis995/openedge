@@ -440,6 +440,217 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 			Description: "Check the health and readiness of the OpenEdge API",
 			InputSchema: jsonSchema(map[string]interface{}{}),
 		},
+
+		// ── Provisioning ────────────────────────────────────────────────────
+		//
+		// Everything below builds a plant rather than reading one. The read
+		// tools above answer "what is happening"; these answer "make it exist",
+		// which is the half an agent could not reach before.
+
+		{
+			Name:        "list_sites",
+			Description: "List sites in the current organization",
+			InputSchema: jsonSchema(map[string]interface{}{}),
+		},
+		{
+			Name:        "create_site",
+			Description: "Create a site (the top level of the plant hierarchy: site -> area -> gateway -> tag)",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"name":   propStr("Site name"),
+				"org_id": propInt("Organization ID"),
+			}, []string{"name", "org_id"}),
+		},
+		{
+			Name:        "list_areas",
+			Description: "List areas, optionally filtered by site",
+			InputSchema: jsonSchema(map[string]interface{}{
+				"site_id": propInt("Filter by site ID (optional)"),
+			}),
+		},
+		{
+			Name:        "create_area",
+			Description: "Create an area inside a site",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"name":    propStr("Area name"),
+				"site_id": propInt("Parent site ID"),
+			}, []string{"name", "site_id"}),
+		},
+		{
+			Name: "create_gateway",
+			Description: "Create a gateway (a field device connection). driver_type selects the protocol: " +
+				"MODBUS_TCP, S7, OPCUA, MQTT, REDIS or LORAWAN. connection_config carries the " +
+				"protocol's settings, e.g. {\"ip\":\"192.168.1.10\",\"port\":502} for Modbus TCP, " +
+				"{\"ip\":\"192.168.1.20\",\"rack\":0,\"slot\":1} for S7.",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"name":              propStr("Gateway name"),
+				"area_id":           propInt("Parent area ID"),
+				"driver_type":       propStr("MODBUS_TCP, S7, OPCUA, MQTT, REDIS or LORAWAN"),
+				"connection_config": propAny("Protocol settings as an object"),
+				"scan_rate_ms":      propInt("Poll interval in milliseconds (default 1000)"),
+			}, []string{"name", "area_id", "driver_type", "connection_config"}),
+		},
+		{
+			Name: "create_tag",
+			Description: "Create a single tag on a gateway. Prefer a UDT instance when several tags " +
+				"share a shape — a type is edited once and every instance follows.",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"gateway_id":      propInt("Gateway ID"),
+				"code":            propStr("Device address, e.g. 40001 for Modbus or DB10.DBX0.0 for S7"),
+				"alias":           propStr("Human-readable name"),
+				"data_type":       propStr("INT, REAL, BOOL, DINT or STRING"),
+				"historize":       propBool("Record values to the historian (default false)"),
+				"scaling_enabled": propBool("Convert raw to engineering units"),
+				"scaling_raw_min": propAny("Raw range minimum, e.g. 0"),
+				"scaling_raw_max": propAny("Raw range maximum, e.g. 27648"),
+				"scaling_eu_min":  propAny("Engineering range minimum, e.g. 0"),
+				"scaling_eu_max":  propAny("Engineering range maximum, e.g. 100"),
+				"eu_unit":         propStr("Engineering unit, e.g. bar"),
+			}, []string{"gateway_id", "code", "alias", "data_type"}),
+		},
+		{
+			Name:        "delete_tag",
+			Description: "Delete a tag. This also deletes everything the historian recorded for it.",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"tag_id": propInt("Tag ID"),
+			}, []string{"tag_id"}),
+		},
+		{
+			Name: "set_tag_alarms",
+			Description: "Replace a tag's alarm definitions. Send the whole set: this endpoint " +
+				"replaces rather than appends.",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"tag_id": propInt("Tag ID"),
+				"alarms": propAny("Array of {alarm_type: high|low, threshold, severity, message, " +
+					"deadband, delay_seconds, enabled}"),
+			}, []string{"tag_id", "alarms"}),
+		},
+
+		// ── User-defined types ──────────────────────────────────────────────
+
+		{
+			Name:        "list_udt_types",
+			Description: "List user-defined types in the current organization",
+			InputSchema: jsonSchema(map[string]interface{}{}),
+		},
+		{
+			Name:        "get_udt_type",
+			Description: "Get one type with its members and their alarms",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"type_id": propInt("Type ID"),
+			}, []string{"type_id"}),
+		},
+		{
+			Name: "create_udt_type",
+			Description: "Define a reusable type. Members carry an address_suffix appended to each " +
+				"instance's base address, so the same type works on Modbus (suffix \"+2\") and " +
+				"S7 (suffix \".DBX0.1\"). Scaling and alarms are declared once here and apply " +
+				"to every instance.",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"name":        propStr("Type name, e.g. Motor"),
+				"description": propStr("What this type models"),
+				"members": propAny("Array of {name, address_suffix, data_type, historize, " +
+					"scaling_enabled, scaling_raw_min, scaling_raw_max, scaling_eu_min, " +
+					"scaling_eu_max, eu_unit, alarms:[{alarm_type, threshold, severity, message}]}"),
+			}, []string{"name", "members"}),
+		},
+		{
+			Name: "update_udt_type",
+			Description: "Replace a type's members and reconcile every instance. Send the members " +
+				"whole. Removing a member deletes that tag on every instance AND everything the " +
+				"historian recorded for it, so the call is refused unless confirm_data_loss is " +
+				"true — the refusal reports how many tags and rows are at stake.",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"type_id":           propInt("Type ID"),
+				"name":              propStr("Type name"),
+				"description":       propStr("What this type models"),
+				"members":           propAny("The complete member list, as in create_udt_type"),
+				"confirm_data_loss": propBool("Required to remove a member that instances carry"),
+			}, []string{"type_id", "name", "members"}),
+		},
+		{
+			Name:        "delete_udt_type",
+			Description: "Delete a type. Refused while instances still use it.",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"type_id": propInt("Type ID"),
+			}, []string{"type_id"}),
+		},
+		{
+			Name:        "list_udt_instances",
+			Description: "List instances, optionally filtered by type",
+			InputSchema: jsonSchema(map[string]interface{}{
+				"type_id": propInt("Filter by type ID (optional)"),
+			}),
+		},
+		{
+			Name: "create_udt_instance",
+			Description: "Stamp a type onto a gateway at a base address and generate its tags. " +
+				"Each tag's address becomes base_address + the member's address_suffix.",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"type_id":      propInt("Type ID"),
+				"gateway_id":   propInt("Gateway ID"),
+				"name":         propStr("Instance name, e.g. Pump_01 — it prefixes every generated tag"),
+				"base_address": propStr("Address the member suffixes are appended to, e.g. 40001 or DB10"),
+			}, []string{"type_id", "gateway_id", "name"}),
+		},
+		{
+			Name:        "delete_udt_instance",
+			Description: "Delete an instance and its generated tags, including their history",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"instance_id": propInt("Instance ID"),
+			}, []string{"instance_id"}),
+		},
+
+		// ── Synoptics (SCADA mimic pages) ───────────────────────────────────
+
+		{
+			Name:        "list_synoptics",
+			Description: "List SCADA mimic pages in the current organization",
+			InputSchema: jsonSchema(map[string]interface{}{}),
+		},
+		{
+			Name:        "get_synoptic",
+			Description: "Get one mimic page including its full widget layout",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"synoptic_id": propInt("Synoptic ID"),
+			}, []string{"synoptic_id"}),
+		},
+		{
+			Name: "create_synoptic",
+			Description: "Create a SCADA mimic page. layout is an array of widgets, each with " +
+				"{id, type, x, y, w, h, tagId, config}. Widget types include label, value, gauge, " +
+				"bargraph, indicator, button, setpoint, motor, valve, image and shapes.",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"name":             propStr("Page name"),
+				"description":      propStr("What this page shows"),
+				"background_color": propStr("Canvas background, e.g. #0f172a"),
+				"canvas_w":         propInt("Canvas width in pixels (default 1280)"),
+				"canvas_h":         propInt("Canvas height in pixels (default 720)"),
+				"layout":           propAny("Array of widget objects"),
+			}, []string{"name"}),
+		},
+		{
+			Name: "update_synoptic",
+			Description: "Replace a mimic page's layout. Send the whole layout — it is saved " +
+				"atomically. Pass expected_updated_at from get_synoptic and the save is refused " +
+				"if somebody else changed the page meanwhile, rather than overwriting their work.",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"synoptic_id":         propInt("Synoptic ID"),
+				"name":                propStr("Page name"),
+				"description":         propStr("What this page shows"),
+				"background_color":    propStr("Canvas background"),
+				"canvas_w":            propInt("Canvas width"),
+				"canvas_h":            propInt("Canvas height"),
+				"layout":              propAny("The complete widget array"),
+				"expected_updated_at": propStr("updated_at from get_synoptic, to detect a concurrent edit"),
+			}, []string{"synoptic_id", "name", "layout"}),
+		},
+		{
+			Name:        "delete_synoptic",
+			Description: "Delete a SCADA mimic page",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"synoptic_id": propInt("Synoptic ID"),
+			}, []string{"synoptic_id"}),
+		},
 	}
 
 	return s.okResponse(req.ID, mcpToolsListResult{Tools: tools})
@@ -645,9 +856,227 @@ func (s *mcpServer) executeTool(name string, args map[string]interface{}) (strin
 		data, _ := json.MarshalIndent(combined, "", "  ")
 		return string(data), nil
 
+	// ── Provisioning ────────────────────────────────────────────────────────
+
+	case "list_sites":
+		return s.toolGet("/api/sites")
+
+	case "create_site":
+		name := strArg(args, "name")
+		orgID := intArg(args, "org_id")
+		if name == "" || orgID == 0 {
+			return "", fmt.Errorf("name and org_id are required")
+		}
+		return s.toolPost("/api/sites", map[string]interface{}{"name": name, "org_id": orgID})
+
+	case "list_areas":
+		path := "/api/areas"
+		if siteID := intArg(args, "site_id"); siteID > 0 {
+			path += "?site_id=" + strconv.Itoa(siteID)
+		}
+		return s.toolGet(path)
+
+	case "create_area":
+		name := strArg(args, "name")
+		siteID := intArg(args, "site_id")
+		if name == "" || siteID == 0 {
+			return "", fmt.Errorf("name and site_id are required")
+		}
+		return s.toolPost("/api/areas", map[string]interface{}{"name": name, "site_id": siteID})
+
+	case "create_gateway":
+		name := strArg(args, "name")
+		areaID := intArg(args, "area_id")
+		driver := strArg(args, "driver_type")
+		if name == "" || areaID == 0 || driver == "" {
+			return "", fmt.Errorf("name, area_id and driver_type are required")
+		}
+		conn, ok := args["connection_config"]
+		if !ok {
+			return "", fmt.Errorf("connection_config is required — for MODBUS_TCP it is " +
+				`{"ip":"...","port":502}`)
+		}
+		body := map[string]interface{}{
+			"name": name, "area_id": areaID,
+			"driver_type": driver, "connection_config": conn,
+		}
+		if rate := intArg(args, "scan_rate_ms"); rate > 0 {
+			body["scan_rate_ms"] = rate
+		} else {
+			body["scan_rate_ms"] = 1000
+		}
+		return s.toolPost("/api/gateways", body)
+
+	case "create_tag":
+		gwID := intArg(args, "gateway_id")
+		if gwID == 0 {
+			return "", fmt.Errorf("gateway_id is required")
+		}
+		body := map[string]interface{}{
+			"gateway_id": gwID,
+			"code":       strArg(args, "code"),
+			"alias":      strArg(args, "alias"),
+			"data_type":  strArg(args, "data_type"),
+		}
+		// Only forward the optional fields that were actually supplied, so an
+		// omitted flag keeps the server's default instead of being set false.
+		for _, k := range []string{"historize", "scaling_enabled", "scaling_raw_min",
+			"scaling_raw_max", "scaling_eu_min", "scaling_eu_max", "eu_unit"} {
+			if v, ok := args[k]; ok {
+				body[k] = v
+			}
+		}
+		return s.toolPost("/api/tags", body)
+
+	case "delete_tag":
+		tagID := intArg(args, "tag_id")
+		if tagID == 0 {
+			return "", fmt.Errorf("tag_id is required")
+		}
+		return s.toolDelete(fmt.Sprintf("/api/tags/%d", tagID))
+
+	case "set_tag_alarms":
+		tagID := intArg(args, "tag_id")
+		alarms, ok := args["alarms"]
+		if tagID == 0 || !ok {
+			return "", fmt.Errorf("tag_id and alarms are required")
+		}
+		return s.toolPut(fmt.Sprintf("/api/tags/%d/alarms", tagID), alarms)
+
+	// ── User-defined types ──────────────────────────────────────────────────
+
+	case "list_udt_types":
+		return s.toolGet("/api/udt/types")
+
+	case "get_udt_type":
+		typeID := intArg(args, "type_id")
+		if typeID == 0 {
+			return "", fmt.Errorf("type_id is required")
+		}
+		return s.toolGet(fmt.Sprintf("/api/udt/types/%d", typeID))
+
+	case "create_udt_type":
+		name := strArg(args, "name")
+		members, ok := args["members"]
+		if name == "" || !ok {
+			return "", fmt.Errorf("name and members are required")
+		}
+		return s.toolPost("/api/udt/types", map[string]interface{}{
+			"name": name, "description": strArg(args, "description"), "members": members,
+		})
+
+	case "update_udt_type":
+		typeID := intArg(args, "type_id")
+		name := strArg(args, "name")
+		members, ok := args["members"]
+		if typeID == 0 || name == "" || !ok {
+			return "", fmt.Errorf("type_id, name and members are required")
+		}
+		return s.toolPut(fmt.Sprintf("/api/udt/types/%d", typeID), map[string]interface{}{
+			"name": name, "description": strArg(args, "description"), "members": members,
+			"confirm_data_loss": boolArg(args, "confirm_data_loss"),
+		})
+
+	case "delete_udt_type":
+		typeID := intArg(args, "type_id")
+		if typeID == 0 {
+			return "", fmt.Errorf("type_id is required")
+		}
+		return s.toolDelete(fmt.Sprintf("/api/udt/types/%d", typeID))
+
+	case "list_udt_instances":
+		path := "/api/udt/instances"
+		if typeID := intArg(args, "type_id"); typeID > 0 {
+			path += "?type_id=" + strconv.Itoa(typeID)
+		}
+		return s.toolGet(path)
+
+	case "create_udt_instance":
+		typeID := intArg(args, "type_id")
+		gwID := intArg(args, "gateway_id")
+		name := strArg(args, "name")
+		if typeID == 0 || gwID == 0 || name == "" {
+			return "", fmt.Errorf("type_id, gateway_id and name are required")
+		}
+		return s.toolPost("/api/udt/instances", map[string]interface{}{
+			"type_id": typeID, "gateway_id": gwID, "name": name,
+			"base_address": strArg(args, "base_address"),
+		})
+
+	case "delete_udt_instance":
+		instID := intArg(args, "instance_id")
+		if instID == 0 {
+			return "", fmt.Errorf("instance_id is required")
+		}
+		return s.toolDelete(fmt.Sprintf("/api/udt/instances/%d", instID))
+
+	// ── Synoptics ───────────────────────────────────────────────────────────
+
+	case "list_synoptics":
+		return s.toolGet("/api/synoptics")
+
+	case "get_synoptic":
+		id := intArg(args, "synoptic_id")
+		if id == 0 {
+			return "", fmt.Errorf("synoptic_id is required")
+		}
+		return s.toolGet(fmt.Sprintf("/api/synoptics/%d", id))
+
+	case "create_synoptic":
+		name := strArg(args, "name")
+		if name == "" {
+			return "", fmt.Errorf("name is required")
+		}
+		return s.toolPost("/api/synoptics", synopticBody(args, name))
+
+	case "update_synoptic":
+		id := intArg(args, "synoptic_id")
+		name := strArg(args, "name")
+		if id == 0 || name == "" {
+			return "", fmt.Errorf("synoptic_id and name are required")
+		}
+		body := synopticBody(args, name)
+		if ts := strArg(args, "expected_updated_at"); ts != "" {
+			body["expected_updated_at"] = ts
+		}
+		return s.toolPut(fmt.Sprintf("/api/synoptics/%d", id), body)
+
+	case "delete_synoptic":
+		id := intArg(args, "synoptic_id")
+		if id == 0 {
+			return "", fmt.Errorf("synoptic_id is required")
+		}
+		return s.toolDelete(fmt.Sprintf("/api/synoptics/%d", id))
+
 	default:
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
+}
+
+// synopticBody assembles a mimic-page payload, filling the canvas defaults the
+// API expects when the caller only cares about the widgets.
+func synopticBody(args map[string]interface{}, name string) map[string]interface{} {
+	body := map[string]interface{}{
+		"name":             name,
+		"description":      strArg(args, "description"),
+		"background_color": "#0f172a",
+		"canvas_w":         1280,
+		"canvas_h":         720,
+		"layout":           []interface{}{},
+	}
+	if v := strArg(args, "background_color"); v != "" {
+		body["background_color"] = v
+	}
+	if v := intArg(args, "canvas_w"); v > 0 {
+		body["canvas_w"] = v
+	}
+	if v := intArg(args, "canvas_h"); v > 0 {
+		body["canvas_h"] = v
+	}
+	if v, ok := args["layout"]; ok {
+		body["layout"] = v
+	}
+	return body
 }
 
 // toolGet calls GET on path and returns pretty JSON.
@@ -766,4 +1195,13 @@ func propBool(desc string) interface{} {
 
 func propAny(desc string) interface{} {
 	return map[string]interface{}{"description": desc}
+}
+
+// toolDelete calls DELETE on path and returns pretty JSON.
+func (s *mcpServer) toolDelete(path string) (string, error) {
+	data, err := s.client.RawDelete(path)
+	if err != nil {
+		return "", err
+	}
+	return prettyJSON(data), nil
 }

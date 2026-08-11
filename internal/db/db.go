@@ -727,6 +727,111 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: failed to create backup_audit index: %v", err)
 	}
 
+	// Migration: UDT — user-defined types.
+	//
+	// The problem they solve: tags are flat. Fifty identical motors mean fifty
+	// times N tags entered by hand, and moving one alarm threshold means fifty
+	// edits, of which one will be missed. A type declares the shape once —
+	// members, addresses relative to a base, scaling, alarms, historisation —
+	// and every instance is generated from it and stays bound to it.
+	//
+	// Instances are NOT copies. Editing the type reconciles every instance, so
+	// the type is the single place the truth lives. See the reconciler in
+	// internal/handlers/udt.go for what that costs on a member removal.
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS udt_types (
+			id          SERIAL PRIMARY KEY,
+			org_id      INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			name        TEXT NOT NULL,
+			description TEXT NOT NULL DEFAULT '',
+			created_by  INT REFERENCES users(id) ON DELETE SET NULL,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (org_id, name)
+		)`); err != nil {
+		log.Printf("Warning: failed to create udt_types: %v", err)
+	}
+
+	// A member is one tag-to-be. address_suffix is appended to the instance's
+	// base address, which is what makes the same type work across a Modbus
+	// gateway (base "40001", suffix "+2") and an S7 one (base "DB10", suffix
+	// ".DBX0.1") without the type knowing which protocol it will land on.
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS udt_members (
+			id                 SERIAL PRIMARY KEY,
+			type_id            INT NOT NULL REFERENCES udt_types(id) ON DELETE CASCADE,
+			name               TEXT NOT NULL,
+			address_suffix     TEXT NOT NULL DEFAULT '',
+			data_type          VARCHAR(20) NOT NULL,
+			historize          BOOLEAN NOT NULL DEFAULT false,
+			historize_deadband DOUBLE PRECISION NOT NULL DEFAULT 0,
+			scaling_enabled    BOOLEAN NOT NULL DEFAULT false,
+			scaling_raw_min    DOUBLE PRECISION NOT NULL DEFAULT 0,
+			scaling_raw_max    DOUBLE PRECISION NOT NULL DEFAULT 100,
+			scaling_eu_min     DOUBLE PRECISION NOT NULL DEFAULT 0,
+			scaling_eu_max     DOUBLE PRECISION NOT NULL DEFAULT 100,
+			scaling_clamp      BOOLEAN NOT NULL DEFAULT true,
+			eu_unit            TEXT NOT NULL DEFAULT '',
+			eu_decimals        INT NOT NULL DEFAULT 2,
+			invert             BOOLEAN NOT NULL DEFAULT false,
+			sort_order         INT NOT NULL DEFAULT 0,
+			UNIQUE (type_id, name)
+		)`); err != nil {
+		log.Printf("Warning: failed to create udt_members: %v", err)
+	}
+
+	// Alarms belong to the member, so "high pressure at 8 bar" is stated once
+	// for every motor that will ever exist rather than per instance.
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS udt_member_alarms (
+			id            SERIAL PRIMARY KEY,
+			member_id     INT NOT NULL REFERENCES udt_members(id) ON DELETE CASCADE,
+			alarm_type    VARCHAR(20) NOT NULL,
+			threshold     DOUBLE PRECISION,
+			deadband      DOUBLE PRECISION NOT NULL DEFAULT 0,
+			delay_seconds INT NOT NULL DEFAULT 0,
+			severity      VARCHAR(20) NOT NULL DEFAULT 'warning',
+			message       TEXT NOT NULL DEFAULT '',
+			enabled       BOOLEAN NOT NULL DEFAULT true
+		)`); err != nil {
+		log.Printf("Warning: failed to create udt_member_alarms: %v", err)
+	}
+
+	// An instance binds a type to one gateway at one base address. The org is
+	// derived through the gateway rather than stored, so an instance cannot
+	// drift into a different tenant than the tags it owns.
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS udt_instances (
+			id           SERIAL PRIMARY KEY,
+			type_id      INT NOT NULL REFERENCES udt_types(id) ON DELETE RESTRICT,
+			gateway_id   INT NOT NULL REFERENCES gateways(id) ON DELETE CASCADE,
+			name         TEXT NOT NULL,
+			base_address TEXT NOT NULL DEFAULT '',
+			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (gateway_id, name)
+		)`); err != nil {
+		log.Printf("Warning: failed to create udt_instances: %v", err)
+	}
+
+	// The link from a generated tag back to what generated it. ON DELETE
+	// CASCADE from the instance is deliberate — deleting an instance is an
+	// explicit act on that equipment — while udt_member_id is SET NULL so a
+	// member removal cannot silently take tags (and their history) with it;
+	// the reconciler decides that, loudly. See udt.go.
+	for _, stmt := range []string{
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS udt_instance_id INT REFERENCES udt_instances(id) ON DELETE CASCADE`,
+		`ALTER TABLE tags ADD COLUMN IF NOT EXISTS udt_member_id   INT REFERENCES udt_members(id) ON DELETE SET NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_tags_udt_instance ON tags (udt_instance_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_udt_members_type ON udt_members (type_id, sort_order)`,
+		`CREATE INDEX IF NOT EXISTS idx_udt_instances_type ON udt_instances (type_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_udt_member_alarms_member ON udt_member_alarms (member_id)`,
+	} {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: UDT migration (%s…): %v", stmt[:intMinDB(52, len(stmt))], err)
+		}
+	}
+
 	// Migration: synoptics — SCADA mimic pages. Org-scoped canvas with a
 	// background and a JSONB array of freely positioned widgets that bind to
 	// tags. The whole layout is saved atomically (no per-widget sub-CRUD).
@@ -1631,3 +1736,10 @@ func warnDefaultAdminPassword(what string) {
 	log.Printf("[DB] ############################################################")
 }
 
+// intMinDB is a local min for truncating statements in log lines.
+func intMinDB(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
