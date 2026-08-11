@@ -157,6 +157,12 @@ interface SynopticPayload {
     canvas_w: number;
     canvas_h: number;
     layout: SynopticWidget[];
+
+    // The updated_at this editor loaded. The API refuses the save if the row
+    // has moved on since, so two engineers with the same drawing open cannot
+    // silently overwrite one another — nothing versions synoptics, so the
+    // overwritten work is simply gone.
+    expected_updated_at?: string;
 }
 
 export const synopticsApi = {

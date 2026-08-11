@@ -124,6 +124,9 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [saveStatus, setSaveStatus] = useState<'idle' | 'ok' | 'error'>('idle');
+    // Held separately from saveStatus: a conflict must stay on screen until the
+    // user acts on it, while the ok/error toasts auto-dismiss.
+    const [conflictMsg, setConflictMsg] = useState<string | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [scale, setScale] = useState(1);
     const scaleRef = useRef(scale);
@@ -557,6 +560,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         if (!synoptic) return;
         setIsSaving(true);
         setSaveStatus('idle');
+        setConflictMsg(null);
         try {
             await synopticsApi.update(synoptic.id, {
                 name: synoptic.name, description: synoptic.description,
@@ -564,10 +568,25 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                 background_color: synoptic.background_color,
                 canvas_w: synoptic.canvas_w, canvas_h: synoptic.canvas_h,
                 layout: widgets,
+                // Echo what we loaded. The API refuses the save if somebody
+                // else has saved since — nothing versions synoptics, so a
+                // silent overwrite destroys their work with no way back.
+                expected_updated_at: synoptic.updated_at,
             });
             setSaveStatus('ok');
             setTimeout(() => setSaveStatus('idle'), 2500);
         } catch (e) {
+            const status = (e as { response?: { status?: number; data?: { error?: string } } })?.response?.status;
+            if (status === 409) {
+                // Deliberately sticky: no auto-dismiss, and the layout stays on
+                // screen so the work can be copied out before reloading.
+                setConflictMsg(
+                    (e as { response?: { data?: { error?: string } } })?.response?.data?.error ??
+                    'Questo sinottico è stato modificato da qualcun altro. Ricarica prima di salvare.'
+                );
+                setSaveStatus('idle');
+                return;
+            }
             console.error('Failed to save synoptic', e);
             setSaveStatus('error');
             setTimeout(() => setSaveStatus('idle'), 4000);
@@ -611,6 +630,16 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                             )}
                             {saveStatus === 'error' && (
                                 <span className="flex items-center gap-1 text-xs text-destructive"><AlertTriangle size={14} /> Errore</span>
+                            )}
+                            {conflictMsg && (
+                                <div className="flex items-center gap-2 text-xs text-amber-600 border border-amber-500/40 bg-amber-500/10 rounded px-2 py-1 max-w-md">
+                                    <AlertTriangle size={14} className="shrink-0" />
+                                    <span className="leading-snug">{conflictMsg}</span>
+                                    <button
+                                        className="underline shrink-0 font-medium"
+                                        onClick={() => window.location.reload()}
+                                    >Ricarica</button>
+                                </div>
                             )}
                             <Button size="sm" className="gap-1" onClick={handleSave} disabled={isSaving}>
                                 {isSaving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />} Salva

@@ -64,6 +64,10 @@ type synopticRequest struct {
 	CanvasW         int             `json:"canvas_w"`
 	CanvasH         int             `json:"canvas_h"`
 	Layout          json.RawMessage `json:"layout"`
+
+	// ExpectedUpdatedAt carries the updated_at the client loaded. When present
+	// the save is refused if the row has moved on since — see Update.
+	ExpectedUpdatedAt *time.Time `json:"expected_updated_at,omitempty"`
 }
 
 // List returns all synoptics for the caller's org (header fields + layout so
@@ -192,17 +196,55 @@ func (h *SynopticsHandler) Update(c *gin.Context) {
 	}
 	applyDefaults(&req)
 
-	res, err := h.db.ExecContext(c.Request.Context(), `
-		UPDATE synoptics
-		SET name = $1, description = $2, background_color = $3,
-		    canvas_w = $4, canvas_h = $5, layout = $6, site_id = $7, area_id = $8, updated_at = NOW()
-		WHERE id = $9 AND org_id = $10`,
-		req.Name, req.Description, req.BackgroundColor, req.CanvasW, req.CanvasH, req.Layout, req.SiteID, req.AreaID, id, orgID)
+	// Refuse a save built on a stale copy.
+	//
+	// A synoptic is hours of work laid out by hand. Two engineers with the same
+	// screen open used to both save successfully, and the second silently threw
+	// away everything the first had done — no error, no warning, and no way
+	// back, since nothing versions these. The client echoes the updated_at it
+	// loaded; if the row has moved on since, the save is refused and the
+	// operator is told to reload rather than losing the other person's work.
+	//
+	// Clients that send no expected_updated_at keep the previous behaviour, so
+	// an older UI build against a newer API still saves.
+	var res sql.Result
+	if req.ExpectedUpdatedAt != nil {
+		res, err = h.db.ExecContext(c.Request.Context(), `
+			UPDATE synoptics
+			SET name = $1, description = $2, background_color = $3,
+			    canvas_w = $4, canvas_h = $5, layout = $6, site_id = $7, area_id = $8, updated_at = NOW()
+			WHERE id = $9 AND org_id = $10 AND updated_at = $11`,
+			req.Name, req.Description, req.BackgroundColor, req.CanvasW, req.CanvasH,
+			req.Layout, req.SiteID, req.AreaID, id, orgID, *req.ExpectedUpdatedAt)
+	} else {
+		res, err = h.db.ExecContext(c.Request.Context(), `
+			UPDATE synoptics
+			SET name = $1, description = $2, background_color = $3,
+			    canvas_w = $4, canvas_h = $5, layout = $6, site_id = $7, area_id = $8, updated_at = NOW()
+			WHERE id = $9 AND org_id = $10`,
+			req.Name, req.Description, req.BackgroundColor, req.CanvasW, req.CanvasH,
+			req.Layout, req.SiteID, req.AreaID, id, orgID)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		// Nothing matched. Separate the two reasons, because "not found" sent
+		// to somebody who is looking at the drawing is a baffling message.
+		if req.ExpectedUpdatedAt != nil {
+			var exists bool
+			_ = h.db.QueryRowContext(c.Request.Context(),
+				`SELECT EXISTS (SELECT 1 FROM synoptics WHERE id = $1 AND org_id = $2)`,
+				id, orgID).Scan(&exists)
+			if exists {
+				c.JSON(http.StatusConflict, gin.H{
+					"error": "this synoptic was modified by somebody else since you opened it — " +
+						"reload before saving, or your changes will overwrite theirs",
+				})
+				return
+			}
+		}
 		c.JSON(http.StatusNotFound, gin.H{"error": "synoptic not found"})
 		return
 	}

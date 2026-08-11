@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/audit"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
+	"github.com/ralph/industrial-edge-middleware/internal/scaling"
 )
 
 type writeAck struct {
@@ -41,7 +43,7 @@ type RecipesHandler struct {
 	db         *sql.DB
 	mqttClient *mqtt.Client
 
-	ackMu     sync.Mutex
+	ackMu      sync.Mutex
 	ackWaiters map[int]*pendingAck // tagID → waiting Load call
 }
 
@@ -74,15 +76,15 @@ func NewRecipesHandler(db *sql.DB, m *mqtt.Client) *RecipesHandler {
 // Recipe is the wire shape returned by the list/get endpoints. Values
 // are joined in on Get; List returns the count for the index page.
 type Recipe struct {
-	ID          int            `json:"id"`
-	OrgID       int            `json:"org_id"`
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
-	CreatedBy   *int           `json:"created_by,omitempty"`
-	ValueCount  int            `json:"value_count"`
-	Values      []RecipeValue  `json:"values,omitempty"`
+	ID          int           `json:"id"`
+	OrgID       int           `json:"org_id"`
+	Name        string        `json:"name"`
+	Description string        `json:"description,omitempty"`
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
+	CreatedBy   *int          `json:"created_by,omitempty"`
+	ValueCount  int           `json:"value_count"`
+	Values      []RecipeValue `json:"values,omitempty"`
 }
 
 type RecipeValue struct {
@@ -92,6 +94,10 @@ type RecipeValue struct {
 	GatewayID int    `json:"gateway_id,omitempty"`
 	DataType  string `json:"data_type,omitempty"`
 	Value     string `json:"value"`
+
+	// Loaded alongside so a recipe load can convert to raw before publishing.
+	// Not serialised: the API speaks engineering units, as the UI does.
+	Scaling scaling.Config `json:"-"`
 }
 
 type RecipeRun struct {
@@ -109,9 +115,9 @@ type RecipeRun struct {
 // time (an empty recipe is a valid placeholder) but the LOAD endpoint
 // will refuse to fire it.
 type CreateRecipeRequest struct {
-	Name        string              `json:"name" binding:"required"`
-	Description string              `json:"description"`
-	Values      []recipeValueInput  `json:"values"`
+	Name        string             `json:"name" binding:"required"`
+	Description string             `json:"description"`
+	Values      []recipeValueInput `json:"values"`
 }
 
 type recipeValueInput struct {
@@ -417,6 +423,14 @@ func (h *RecipesHandler) Load(c *gin.Context) {
 	pendingIDs := make(map[int]bool)
 
 	for _, v := range values {
+		// Engineering units in, raw out — see RecipeValue.deviceValue.
+		devVal, convErr := v.deviceValue()
+		if convErr != nil {
+			results = append(results, result{TagID: v.TagID, TagAlias: v.TagAlias, OK: false,
+				Error: convErr.Error()})
+			continue
+		}
+
 		cmd := struct {
 			TagID    int    `json:"tag_id"`
 			Code     string `json:"code"`
@@ -426,7 +440,7 @@ func (h *RecipesHandler) Load(c *gin.Context) {
 		}{
 			TagID:    v.TagID,
 			Code:     v.TagCode,
-			Value:    v.Value,
+			Value:    devVal,
 			DataType: v.DataType,
 			RunID:    runID,
 		}
@@ -497,11 +511,11 @@ done:
 	})
 
 	c.JSON(http.StatusOK, gin.H{
-		"run_id":   runID,
-		"status":   status,
-		"written":  len(results) - failures,
-		"failed":   failures,
-		"results":  results,
+		"run_id":  runID,
+		"status":  status,
+		"written": len(results) - failures,
+		"failed":  failures,
+		"results": results,
 	})
 }
 
@@ -549,7 +563,9 @@ func (h *RecipesHandler) Runs(c *gin.Context) {
 // per-row roundtrips.
 func (h *RecipesHandler) loadValues(recipeID int) ([]RecipeValue, error) {
 	rows, err := h.db.Query(`
-		SELECT v.tag_id, t.alias, t.code, t.gateway_id, t.data_type, v.value
+		SELECT v.tag_id, t.alias, t.code, t.gateway_id, t.data_type, v.value,
+		       t.scaling_enabled, t.scaling_raw_min, t.scaling_raw_max,
+		       t.scaling_eu_min, t.scaling_eu_max, t.scaling_clamp, t.invert
 		FROM recipe_values v JOIN tags t ON t.id = v.tag_id
 		WHERE v.recipe_id = $1
 		ORDER BY t.alias`, recipeID)
@@ -560,12 +576,44 @@ func (h *RecipesHandler) loadValues(recipeID int) ([]RecipeValue, error) {
 	out := []RecipeValue{}
 	for rows.Next() {
 		var rv RecipeValue
-		if err := rows.Scan(&rv.TagID, &rv.TagAlias, &rv.TagCode, &rv.GatewayID, &rv.DataType, &rv.Value); err != nil {
+		if err := rows.Scan(&rv.TagID, &rv.TagAlias, &rv.TagCode, &rv.GatewayID, &rv.DataType, &rv.Value,
+			&rv.Scaling.Enabled, &rv.Scaling.RawMin, &rv.Scaling.RawMax,
+			&rv.Scaling.EuMin, &rv.Scaling.EuMax, &rv.Scaling.Clamp, &rv.Scaling.Invert); err != nil {
 			return nil, err
 		}
 		out = append(out, rv)
 	}
 	return out, nil
+}
+
+// deviceValue converts a recipe entry to what the device expects.
+//
+// Recipe values are entered by hand, and an operator types the numbers they see
+// everywhere else in the product — engineering units. They were published to
+// the driver verbatim, so a recipe loading "50" onto a tag scaled 0..27648 raw
+// to 0..100 bar commanded 50 raw, about 0.18 bar. A recipe writes a whole batch
+// of setpoints at once, which makes it the same defect as the single tag write
+// with more of the plant behind it.
+//
+// Non-numeric values (BOOL, STRING) and unscaled tags pass through untouched.
+func (rv RecipeValue) deviceValue() (string, error) {
+	if !rv.Scaling.Enabled {
+		return rv.Value, nil
+	}
+	eu, err := strconv.ParseFloat(strings.TrimSpace(rv.Value), 64)
+	if err != nil {
+		// Not a number — a BOOL or a string setpoint. Nothing to convert.
+		return rv.Value, nil
+	}
+	raw, err := scaling.Reverse(eu, rv.Scaling)
+	if err != nil {
+		return "", err
+	}
+	f, ok := raw.(float64)
+	if !ok {
+		return rv.Value, nil
+	}
+	return strconv.FormatFloat(f, 'f', -1, 64), nil
 }
 
 // assertTagsBelongToOrg verifies every tag in `vals` belongs to `orgID`

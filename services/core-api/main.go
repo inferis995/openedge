@@ -505,7 +505,25 @@ func main() {
 			tags.GET("/:id/current", tagsHandler.GetCurrentValue)
 			tags.GET("/:id/shadow", tagsHandler.GetShadow)
 			tags.GET("/shadows", tagsHandler.GetShadowBatch)
-			tags.POST("/:id/write", tagsHandler.Write)
+			// Commanding a physical output is the most consequential thing this
+			// API does, and it was the one mutating tag route with no check at
+			// all: Create, Update and Delete each require admin, while /write
+			// accepted any authenticated user in the organization.
+			//
+			// The granular permission existed the whole time — can_write_tags,
+			// stored per user, editable from the Users page, with this very
+			// middleware written to enforce it — and RequirePermission was
+			// mounted on no route in the codebase. Unchecking the box saved,
+			// displayed as unchecked, and changed nothing.
+			//
+			// Admins pass unconditionally (see RequirePermission); everyone else
+			// needs the flag. Users with no row default to denied, so after this
+			// upgrade an operator who was writing setpoints yesterday must be
+			// granted the permission explicitly — deliberately, because the
+			// alternative is inferring consent to command a plant.
+			tags.POST("/:id/write",
+				middleware.RequirePermission(database, middleware.PermWriteTags),
+				tagsHandler.Write)
 		}
 
 		// Alarms endpoints (Global logic for viewing and acknowledging)
@@ -604,7 +622,14 @@ func main() {
 			recipes.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), recipesHandler.Delete)
 			// Load: any authenticated org member can trigger; the run is
 			// audited with the actor's user_id + username for accountability.
-			recipes.POST("/:id/load", recipesHandler.Load)
+			// Loading a recipe publishes a whole batch of setpoints to the
+			// PLC — the same act as POST /tags/:id/write, with more of the
+			// plant behind it — and had no check of any kind. Gated on the same
+			// permission, so one decision covers both ways of commanding an
+			// output rather than leaving the back door open.
+			recipes.POST("/:id/load",
+				middleware.RequirePermission(database, middleware.PermWriteTags),
+				recipesHandler.Load)
 			recipes.GET("/:id/runs", recipesHandler.Runs)
 		}
 

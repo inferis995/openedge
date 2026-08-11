@@ -952,6 +952,23 @@ func (h *TagsHandler) Write(c *gin.Context) {
 		}
 	}
 
+	// Convert the engineering-unit value the operator entered back to the raw
+	// value the device expects.
+	//
+	// The read path applies scaling and its result replaces the raw value for
+	// Redis, the WebSocket broadcast, the historian and the tag shadow — so
+	// every number a synoptic displays is in engineering units. Writes used to
+	// travel the other way untouched: the number typed into a setpoint reached
+	// the register verbatim. On a tag scaled 0..27648 raw to 0..100 bar that
+	// turned a 50 bar setpoint into 50 raw, about 0.18 bar; with the scale
+	// running the other way it commands a value far larger than the one asked
+	// for, which is the case that hurts somebody.
+	deviceValue, scaleErr := toDeviceValue(c.Request.Context(), h.db, tag.ID, req.Value)
+	if scaleErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": scaleErr.Error()})
+		return
+	}
+
 	// 2. Publish write command to MQTT
 	if h.mqttClient == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MQTT client not available"})
@@ -966,7 +983,7 @@ func (h *TagsHandler) Write(c *gin.Context) {
 	}{
 		TagID:    tag.ID,
 		Code:     tag.Code,
-		Value:    req.Value,
+		Value:    deviceValue,
 		DataType: tag.DataType,
 	}
 
@@ -1127,15 +1144,15 @@ type AreaHierarchy struct {
 
 // SiteHierarchy represents a site in the hierarchy
 type SiteHierarchy struct {
-	ID    int            `json:"id"`
-	Name  string         `json:"name"`
+	ID    int             `json:"id"`
+	Name  string          `json:"name"`
 	Areas []AreaHierarchy `json:"areas"`
 }
 
 // OrganizationHierarchy represents an organization in the hierarchy
 type OrganizationHierarchy struct {
-	ID    int            `json:"id"`
-	Name  string         `json:"name"`
+	ID    int             `json:"id"`
+	Name  string          `json:"name"`
 	Sites []SiteHierarchy `json:"sites"`
 }
 
@@ -1376,11 +1393,11 @@ func buildTagHierarchy(tags []TagWithHierarchy) []OrganizationHierarchy {
 // TagShadowResponse is the Digital Twin "last known value" for a tag.
 // source="live" when edge is online; "historic" when reading from DB fallback.
 type TagShadowResponse struct {
-	TagID  int         `json:"tag_id"`
-	Value  interface{} `json:"value"`
-	Quality int        `json:"quality"`
-	Ts     int64       `json:"ts"`
-	Source string      `json:"source"` // "live" | "historic" | "unknown"
+	TagID   int         `json:"tag_id"`
+	Value   interface{} `json:"value"`
+	Quality int         `json:"quality"`
+	Ts      int64       `json:"ts"`
+	Source  string      `json:"source"` // "live" | "historic" | "unknown"
 }
 
 // GetShadow handles GET /api/tags/:id/shadow.

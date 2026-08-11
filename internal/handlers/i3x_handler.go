@@ -781,12 +781,22 @@ func (h *I3XHandler) WritePropertyValue(c *gin.Context) {
 		return
 	}
 
+	// Engineering units in, raw out — see internal/handlers/write_scaling.go.
+	// The i3X API reports values through the same scaled read path as the rest
+	// of the product, so a caller writing back what it read must get the same
+	// conversion the synoptic does.
+	deviceValue, scaleErr := toDeviceValue(c.Request.Context(), h.db, tagID, req.Value)
+	if scaleErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": "OUT_OF_RANGE", "message": scaleErr.Error()})
+		return
+	}
+
 	cmd := struct {
 		TagID    int         `json:"tag_id"`
 		Code     string      `json:"code"`
 		Value    interface{} `json:"value"`
 		DataType string      `json:"data_type"`
-	}{TagID: tagID, Code: code, Value: req.Value, DataType: dataType}
+	}{TagID: tagID, Code: code, Value: deviceValue, DataType: dataType}
 
 	payload, _ := json.Marshal(cmd)
 	topic := fmt.Sprintf("cmd/write/%d", gwID)
