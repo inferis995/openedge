@@ -31,7 +31,7 @@ type CustomKPI struct {
 	Name          string   `json:"name"`
 	TagID         int      `json:"tag_id"`
 	TagAlias      string   `json:"tag_alias,omitempty"`
-	Aggregation   string   `json:"aggregation"`   // avg|sum|min|max|last|delta|count
+	Aggregation   string   `json:"aggregation"` // avg|sum|min|max|last|delta|count
 	WindowMinutes int      `json:"window_minutes"`
 	Unit          string   `json:"unit"`
 	Multiplier    float64  `json:"multiplier"`
@@ -206,10 +206,10 @@ func EvaluateAll(db *sql.DB) []KPIWidget {
 	}
 	defer rows.Close()
 	type defRow struct {
-		id, tagID, windowMin int
+		id, tagID, windowMin      int
 		name, agg, unit, goodWhen string
-		mult float64
-		target sql.NullFloat64
+		mult                      float64
+		target                    sql.NullFloat64
 	}
 	defs := []defRow{}
 	for rows.Next() {

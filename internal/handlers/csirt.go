@@ -22,28 +22,28 @@ func NewCSIRTHandler(db *sql.DB) *CSIRTHandler {
 
 // CSIRTIncident is the full incident struct returned from the DB with computed fields.
 type CSIRTIncident struct {
-	ID                   int        `json:"id"`
-	OrgID                int        `json:"org_id"`
-	ThreatEventID        *int       `json:"threat_event_id"`
-	Title                string     `json:"title"`
-	Description          *string    `json:"description"`
-	Severity             string     `json:"severity"`
-	Status               string     `json:"status"`
-	AffectedSystems      *string    `json:"affected_systems"`
-	ImpactDescription    *string    `json:"impact_description"`
-	EarlyWarningDue      time.Time  `json:"early_warning_due"`
-	NotificationDue      time.Time  `json:"notification_due"`
-	FinalReportDue       time.Time  `json:"final_report_due"`
-	EarlyWarningSentAt   *time.Time `json:"early_warning_sent_at"`
-	NotificationSentAt   *time.Time `json:"notification_sent_at"`
-	FinalReportSentAt    *time.Time `json:"final_report_sent_at"`
-	RootCause            *string    `json:"root_cause"`
-	Remediation          *string    `json:"remediation"`
-	CreatedBy            *int       `json:"created_by"`
-	ClosedBy             *int       `json:"closed_by"`
-	ClosedAt             *time.Time `json:"closed_at"`
-	CreatedAt            time.Time  `json:"created_at"`
-	UpdatedAt            time.Time  `json:"updated_at"`
+	ID                 int        `json:"id"`
+	OrgID              int        `json:"org_id"`
+	ThreatEventID      *int       `json:"threat_event_id"`
+	Title              string     `json:"title"`
+	Description        *string    `json:"description"`
+	Severity           string     `json:"severity"`
+	Status             string     `json:"status"`
+	AffectedSystems    *string    `json:"affected_systems"`
+	ImpactDescription  *string    `json:"impact_description"`
+	EarlyWarningDue    time.Time  `json:"early_warning_due"`
+	NotificationDue    time.Time  `json:"notification_due"`
+	FinalReportDue     time.Time  `json:"final_report_due"`
+	EarlyWarningSentAt *time.Time `json:"early_warning_sent_at"`
+	NotificationSentAt *time.Time `json:"notification_sent_at"`
+	FinalReportSentAt  *time.Time `json:"final_report_sent_at"`
+	RootCause          *string    `json:"root_cause"`
+	Remediation        *string    `json:"remediation"`
+	CreatedBy          *int       `json:"created_by"`
+	ClosedBy           *int       `json:"closed_by"`
+	ClosedAt           *time.Time `json:"closed_at"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 	// Computed deadline fields
 	EarlyWarningOverdue    bool    `json:"early_warning_overdue"`
 	NotificationOverdue    bool    `json:"notification_overdue"`

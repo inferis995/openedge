@@ -96,7 +96,7 @@ type RecipeValue struct {
 	Value     string `json:"value"`
 
 	// Loaded alongside so a recipe load can convert to raw before publishing.
-	// Not serialised: the API speaks engineering units, as the UI does.
+	// Not serialized: the API speaks engineering units, as the UI does.
 	Scaling scaling.Config `json:"-"`
 }
 
@@ -596,15 +596,19 @@ func (h *RecipesHandler) loadValues(recipeID int) ([]RecipeValue, error) {
 // with more of the plant behind it.
 //
 // Non-numeric values (BOOL, STRING) and unscaled tags pass through untouched.
-func (rv RecipeValue) deviceValue() (string, error) {
+func (rv *RecipeValue) deviceValue() (string, error) {
 	if !rv.Scaling.Enabled {
 		return rv.Value, nil
 	}
-	eu, err := strconv.ParseFloat(strings.TrimSpace(rv.Value), 64)
-	if err != nil {
-		// Not a number — a BOOL or a string setpoint. Nothing to convert.
+
+	// A value that is not a number is a BOOL or a string setpoint, which has
+	// nothing to convert. That is a type discrimination, not a failure, so the
+	// parse error is discarded on purpose rather than propagated.
+	eu, numeric := parseFloatOK(rv.Value)
+	if !numeric {
 		return rv.Value, nil
 	}
+
 	raw, err := scaling.Reverse(eu, rv.Scaling)
 	if err != nil {
 		return "", err
@@ -614,6 +618,12 @@ func (rv RecipeValue) deviceValue() (string, error) {
 		return rv.Value, nil
 	}
 	return strconv.FormatFloat(f, 'f', -1, 64), nil
+}
+
+// parseFloatOK reports whether s is a number, and its value if so.
+func parseFloatOK(s string) (float64, bool) {
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	return f, err == nil
 }
 
 // assertTagsBelongToOrg verifies every tag in `vals` belongs to `orgID`

@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 
 	"github.com/ralph/industrial-edge-middleware/internal/scaling"
 )
@@ -37,21 +39,30 @@ func tagScalingConfig(ctx context.Context, db *sql.DB, tagID int) (scaling.Confi
 	return cfg, err
 }
 
+// ErrScalingUnknown reports that a tag's conversion could not be read, so
+// whether the value needs converting is unknown.
+var ErrScalingUnknown = errors.New("cannot determine the tag's engineering-unit scaling")
+
 // toDeviceValue converts an engineering-unit value to what the device expects.
 //
 // Returns the value unchanged when the tag is unscaled, so a plant working in
-// raw counts is unaffected. Returns an error only for a value outside the
-// configured engineering range — refused rather than clamped, because silently
-// turning an operator's 500 into 100 reports success and leaves them believing
-// the plant is at 500.
+// raw counts is unaffected. A value outside the configured engineering range is
+// refused rather than clamped: silently turning an operator's 500 into 100
+// reports success and leaves them believing the plant is at 500.
 //
-// A failure to READ the configuration is deliberately not fatal: a write is
-// refused only when we know the value is wrong, never because a lookup was
-// unlucky. An unscaled tag and an unreadable one behave identically, which is
-// also how the read path treats a cache miss.
+// A failed lookup is also refused, and that is worth stating because the
+// tempting alternative is to shrug and send the value through. Doing so would
+// command a physical output with a number that may or may not have needed
+// converting — which is the defect this function exists to prevent, arriving by
+// way of an error path instead. By the time this runs the caller has already
+// read the same tag row successfully, so a failure here is anomalous and worth
+// stopping for.
 func toDeviceValue(ctx context.Context, db *sql.DB, tagID int, value interface{}) (interface{}, error) {
 	cfg, err := tagScalingConfig(ctx, db, tagID)
-	if err != nil || !cfg.Enabled {
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrScalingUnknown, err)
+	}
+	if !cfg.Enabled {
 		return value, nil
 	}
 	return scaling.Reverse(value, cfg)

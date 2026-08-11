@@ -40,12 +40,12 @@ func NewAPIKeysHandler(db *sql.DB) *APIKeysHandler {
 }
 
 type apiKeyRow struct {
-	ID          int        `json:"id"`
-	Name        string     `json:"name"`
-	KeyPrefix   string     `json:"key_prefix"`
-	CreatedAt   time.Time  `json:"created_at"`
-	LastUsedAt  *time.Time `json:"last_used_at,omitempty"`
-	PlaintextKey string    `json:"key,omitempty"` // returned only on creation
+	ID           int        `json:"id"`
+	Name         string     `json:"name"`
+	KeyPrefix    string     `json:"key_prefix"`
+	CreatedAt    time.Time  `json:"created_at"`
+	LastUsedAt   *time.Time `json:"last_used_at,omitempty"`
+	PlaintextKey string     `json:"key,omitempty"` // returned only on creation
 }
 
 // Create generates a new API key for the organization.

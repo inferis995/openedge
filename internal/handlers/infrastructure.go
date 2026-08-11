@@ -96,7 +96,7 @@ type InfrastructureSummary struct {
 }
 
 type InfrastructureResponse struct {
-	Gateways []GatewayInfraEntry  `json:"gateways"`
+	Gateways []GatewayInfraEntry   `json:"gateways"`
 	Summary  InfrastructureSummary `json:"summary"`
 }
 

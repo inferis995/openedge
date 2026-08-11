@@ -34,19 +34,19 @@ func NewDashboardHandler(db *sql.DB) *DashboardHandler {
 
 // DashboardOverview è la response shape consumata dal frontend.
 type DashboardOverview struct {
-	GeneratedAt time.Time       `json:"generated_at"`
-	System      SystemStatus    `json:"system"`
-	Alarms      AlarmsBlock     `json:"alarms"`
-	Gateways    GatewaysBlock   `json:"gateways"`
-	Operations  OperationsBlock `json:"operations"`
-	Activity    []ActivityEvent `json:"activity"`
-	KPI         []KPIWidget     `json:"kpi"`
-	Shift       *ShiftBlock     `json:"shift,omitempty"`
+	GeneratedAt time.Time         `json:"generated_at"`
+	System      SystemStatus      `json:"system"`
+	Alarms      AlarmsBlock       `json:"alarms"`
+	Gateways    GatewaysBlock     `json:"gateways"`
+	Operations  OperationsBlock   `json:"operations"`
+	Activity    []ActivityEvent   `json:"activity"`
+	KPI         []KPIWidget       `json:"kpi"`
+	Shift       *ShiftBlock       `json:"shift,omitempty"`
 	Maintenance *MaintenanceBlock `json:"maintenance,omitempty"`
 	// OEE è la "card lampante" della dashboard. In modalità "legacy" (0
 	// profili) la UI mostra un'unica card; in modalità "profiles" mostra
 	// rollup + griglia di card per profilo.
-	OEE         *OEEOverview    `json:"oee,omitempty"`
+	OEE *OEEOverview `json:"oee,omitempty"`
 }
 
 // MaintenanceBlock è il widget "manutenzione in corso" della dashboard.
@@ -146,19 +146,19 @@ type ActivityEvent struct {
 // Il design dei KPI è volutamente uniforme — l'operatore guarda il valore
 // e la freccia e capisce in 1 secondo se siamo meglio o peggio.
 type KPIWidget struct {
-	Key       string   `json:"key"`        // identificatore stabile per il frontend
-	Label     string   `json:"label"`      // etichetta human-friendly
-	Value     float64  `json:"value"`
-	Unit      string   `json:"unit"`
-	Trend     string   `json:"trend"`      // up | down | flat
-	DeltaPct  float64  `json:"delta_pct"`  // % vs periodo precedente
-	GoodWhen  string   `json:"good_when"`  // "up" o "down" — guida il colore
+	Key      string  `json:"key"`   // identificatore stabile per il frontend
+	Label    string  `json:"label"` // etichetta human-friendly
+	Value    float64 `json:"value"`
+	Unit     string  `json:"unit"`
+	Trend    string  `json:"trend"`     // up | down | flat
+	DeltaPct float64 `json:"delta_pct"` // % vs periodo precedente
+	GoodWhen string  `json:"good_when"` // "up" o "down" — guida il colore
 	// Target è la soglia configurabile (settings kpi_target_<key>).
 	// Quando popolato, il frontend mostra "Target ≤ N" (good_when=down) o
 	// "Target ≥ N" (good_when=up) e colora il valore in base al rispetto
 	// del target. Nil = nessun target configurato.
-	Target       *float64 `json:"target,omitempty"`
-	TargetMet    *bool    `json:"target_met,omitempty"`
+	Target    *float64 `json:"target,omitempty"`
+	TargetMet *bool    `json:"target_met,omitempty"`
 }
 
 // Overview risponde al GET. Ogni blocco è popolato indipendentemente —
@@ -315,7 +315,6 @@ func (h *DashboardHandler) currentShift() *ShiftBlock {
 
 	return out
 }
-
 
 func (h *DashboardHandler) system() SystemStatus {
 	dbOk := h.db.Ping() == nil

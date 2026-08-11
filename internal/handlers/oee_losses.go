@@ -53,13 +53,13 @@ func NewLossesHandler(db *sql.DB) *LossesHandler {
 // LossCategoryAgg è una riga del Pareto cause: categoria + durata totale
 // + numero eventi nel range richiesto.
 type LossCategoryAgg struct {
-	CategoryID    int     `json:"category_id"`
-	Code          string  `json:"code"`
-	Pillar        string  `json:"pillar"`
-	DisplayLabel  string  `json:"display_label"`
-	Color         string  `json:"color"`
-	EventsCount   int     `json:"events_count"`
-	TotalMinutes  float64 `json:"total_minutes"`
+	CategoryID     int     `json:"category_id"`
+	Code           string  `json:"code"`
+	Pillar         string  `json:"pillar"`
+	DisplayLabel   string  `json:"display_label"`
+	Color          string  `json:"color"`
+	EventsCount    int     `json:"events_count"`
+	TotalMinutes   float64 `json:"total_minutes"`
 	PercentOfTotal float64 `json:"percent_of_total"`
 }
 
@@ -127,21 +127,23 @@ func (h *LossesHandler) LossTree(c *gin.Context) {
 
 // ReliabilityStats è la risposta del calcolo MTBF/MTTR.
 type ReliabilityStats struct {
-	ProfileID       int     `json:"profile_id"`
-	FromBucket      string  `json:"from"`
-	ToBucket        string  `json:"to"`
-	BreakdownCount  int     `json:"breakdown_count"`
-	TotalRunMin     float64 `json:"total_run_min"`
-	TotalRepairMin  float64 `json:"total_repair_min"`
-	MTBFMinutes     float64 `json:"mtbf_minutes"`
-	MTBFHours       float64 `json:"mtbf_hours"`
-	MTTRMinutes     float64 `json:"mttr_minutes"`
+	ProfileID      int     `json:"profile_id"`
+	FromBucket     string  `json:"from"`
+	ToBucket       string  `json:"to"`
+	BreakdownCount int     `json:"breakdown_count"`
+	TotalRunMin    float64 `json:"total_run_min"`
+	TotalRepairMin float64 `json:"total_repair_min"`
+	MTBFMinutes    float64 `json:"mtbf_minutes"`
+	MTBFHours      float64 `json:"mtbf_hours"`
+	MTTRMinutes    float64 `json:"mttr_minutes"`
 }
 
 // MTBFMTTR GET /api/oee/profiles/:id/reliability?from=Y&to=Z
 //
 // MTBF = uptime / num_breakdowns
-//   uptime = planned_min(somma oee_history) − repair_min
+//
+//	uptime = planned_min(somma oee_history) − repair_min
+//
 // MTTR = sum(breakdown_duration) / num_breakdowns
 //
 // Solo eventi categorizzati come 'breakdown' contano (non setup, non

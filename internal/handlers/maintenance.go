@@ -31,14 +31,14 @@ func NewMaintenanceHandler(db *sql.DB) *MaintenanceHandler {
 
 // MaintenanceWindow è la response shape verso il frontend.
 type MaintenanceWindow struct {
-	ID        int        `json:"id"`
-	Title     string     `json:"title"`
-	StartAt   time.Time  `json:"start_at"`
-	EndAt     time.Time  `json:"end_at"`
-	Reason    string     `json:"reason,omitempty"`
-	CreatedBy *int       `json:"created_by,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
-	Active    bool       `json:"active"` // calcolato server-side: NOW() ∈ [start, end]
+	ID        int       `json:"id"`
+	Title     string    `json:"title"`
+	StartAt   time.Time `json:"start_at"`
+	EndAt     time.Time `json:"end_at"`
+	Reason    string    `json:"reason,omitempty"`
+	CreatedBy *int      `json:"created_by,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	Active    bool      `json:"active"` // calcolato server-side: NOW() ∈ [start, end]
 }
 
 // CreateMaintenanceRequest body per POST + PUT.

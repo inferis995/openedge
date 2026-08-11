@@ -86,11 +86,11 @@ func (h *ComplianceReportHandler) GenerateReport(c *gin.Context) {
 	}
 
 	validTypes := map[string]bool{
-		"nis2_assessment":    true,
+		"nis2_assessment":     true,
 		"iec62443_assessment": true,
-		"asset_inventory":    true,
-		"incident_timeline":  true,
-		"full_compliance":    true,
+		"asset_inventory":     true,
+		"incident_timeline":   true,
+		"full_compliance":     true,
 	}
 	if !validTypes[req.ReportType] {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid report_type"})
@@ -569,13 +569,13 @@ func (h *ComplianceReportHandler) buildAssetInventory(
 	}
 
 	return map[string]interface{}{
-		"org_name":      org,
-		"generated_at":  time.Now().UTC(),
-		"total_assets":  len(assets),
+		"org_name":       org,
+		"generated_at":   time.Now().UTC(),
+		"total_assets":   len(assets),
 		"avg_risk_score": avgRisk,
-		"assets":        assets,
-		"critical_cves": criticalCVEs,
-		"unauthorized":  unauthorized,
+		"assets":         assets,
+		"critical_cves":  criticalCVEs,
+		"unauthorized":   unauthorized,
 	}, nil
 }
 
@@ -620,11 +620,11 @@ func (h *ComplianceReportHandler) buildFullCompliance(
 	}
 
 	return map[string]interface{}{
-		"generated_at":       time.Now().UTC(),
-		"period":             map[string]interface{}{"from": periodFrom, "to": periodTo},
-		"nis2_assessment":    nis2,
+		"generated_at":        time.Now().UTC(),
+		"period":              map[string]interface{}{"from": periodFrom, "to": periodTo},
+		"nis2_assessment":     nis2,
 		"iec62443_assessment": iec,
-		"asset_inventory":    inv,
-		"incident_timeline":  timeline,
+		"asset_inventory":     inv,
+		"incident_timeline":   timeline,
 	}, nil
 }

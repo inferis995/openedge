@@ -31,15 +31,15 @@ func NewWebhooksHandler(db *sql.DB) *WebhooksHandler {
 
 // Webhook is the DB/API shape for a single webhook subscription.
 type Webhook struct {
-	ID              int       `json:"id"`
-	OrgID           int       `json:"org_id"`
-	URL             string    `json:"url"`
-	Events          []string  `json:"events"`
-	Enabled         bool      `json:"enabled"`
-	CreatedAt       time.Time `json:"created_at"`
+	ID              int        `json:"id"`
+	OrgID           int        `json:"org_id"`
+	URL             string     `json:"url"`
+	Events          []string   `json:"events"`
+	Enabled         bool       `json:"enabled"`
+	CreatedAt       time.Time  `json:"created_at"`
 	LastTriggeredAt *time.Time `json:"last_triggered_at"`
-	LastStatusCode  *int      `json:"last_status_code"`
-	LastError       *string   `json:"last_error"`
+	LastStatusCode  *int       `json:"last_status_code"`
+	LastError       *string    `json:"last_error"`
 }
 
 // Create handles POST /api/organizations/:id/webhooks.
@@ -171,7 +171,10 @@ func DeliverWebhookEvent(db *sql.DB, orgID int, event string, payload interface{
 	}
 	defer rows.Close()
 
-	type hook struct{ id int; url, secret string }
+	type hook struct {
+		id          int
+		url, secret string
+	}
 	var hooks []hook
 	for rows.Next() {
 		var h hook
@@ -185,9 +188,9 @@ func DeliverWebhookEvent(db *sql.DB, orgID int, event string, payload interface{
 	}
 
 	body, err := json.Marshal(map[string]interface{}{
-		"event":      event,
-		"org_id":     orgID,
-		"payload":    payload,
+		"event":        event,
+		"org_id":       orgID,
+		"payload":      payload,
 		"delivered_at": time.Now().UTC().Format(time.RFC3339),
 	})
 	if err != nil {

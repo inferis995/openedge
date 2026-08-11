@@ -11,10 +11,10 @@ import (
 )
 
 type OEEExportHandler struct {
-	db       *sql.DB
-	oee      *OEEHandler
-	history  *OEEHistoryHandler
-	losses   *LossesHandler
+	db      *sql.DB
+	oee     *OEEHandler
+	history *OEEHistoryHandler
+	losses  *LossesHandler
 }
 
 func NewOEEExportHandler(db *sql.DB, oee *OEEHandler, history *OEEHistoryHandler, losses *LossesHandler) *OEEExportHandler {

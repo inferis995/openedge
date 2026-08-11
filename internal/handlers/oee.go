@@ -149,10 +149,10 @@ func (h *OEEHandler) overview() OEEOverview {
 		// vede già nel singolo profilo "Fabbrica" se decide di crearlo.
 		fn := func(s float64) float64 { return s / float64(count) }
 		out.Rollup = &OEESnapshot{
-			OEE:          fn(rollupSum.oee),
-			Availability: fn(rollupSum.a),
-			Performance:  fn(rollupSum.p),
-			Quality:      fn(rollupSum.q),
+			OEE:                fn(rollupSum.oee),
+			Availability:       fn(rollupSum.a),
+			Performance:        fn(rollupSum.p),
+			Quality:            fn(rollupSum.q),
 			AvailabilitySource: "rollup",
 			PerformanceSource:  "rollup",
 			QualitySource:      "rollup",
@@ -170,21 +170,21 @@ func (h *OEEHandler) overview() OEEOverview {
 // gli ultimi N campioni e dice all'admin "sì, questo tag funziona per
 // quel ruolo" o "no, ecco perché".
 type TagTestResult struct {
-	TagID        int     `json:"tag_id"`
-	Alias        string  `json:"alias"`
-	Code         string  `json:"code"`
-	DataType     string  `json:"data_type"`
-	SamplesCount int     `json:"samples_count"`
-	CurrentValue float64 `json:"current_value"`
-	FirstValue   float64 `json:"first_value"`
-	LastValue    float64 `json:"last_value"`
-	MinValue     float64 `json:"min_value"`
-	MaxValue     float64 `json:"max_value"`
-	Delta        float64 `json:"delta"`
-	IsMonotonic  bool    `json:"is_monotonic"`
-	IsBoolish    bool    `json:"is_boolish"`
+	TagID        int      `json:"tag_id"`
+	Alias        string   `json:"alias"`
+	Code         string   `json:"code"`
+	DataType     string   `json:"data_type"`
+	SamplesCount int      `json:"samples_count"`
+	CurrentValue float64  `json:"current_value"`
+	FirstValue   float64  `json:"first_value"`
+	LastValue    float64  `json:"last_value"`
+	MinValue     float64  `json:"min_value"`
+	MaxValue     float64  `json:"max_value"`
+	Delta        float64  `json:"delta"`
+	IsMonotonic  bool     `json:"is_monotonic"`
+	IsBoolish    bool     `json:"is_boolish"`
 	Warnings     []string `json:"warnings"`
-	Ok           bool    `json:"ok"`
+	Ok           bool     `json:"ok"`
 }
 
 // TestTag GET /api/oee/test-tag/:id?role=running|counter — verdetto
@@ -1166,10 +1166,10 @@ func (h *OEEHandler) Hierarchy(c *gin.Context) {
 		n := float64(len(plist))
 		if n > 0 {
 			areaNode.Snapshot = OEESnapshot{
-				OEE:          sum.oee / n,
-				Availability: sum.a / n,
-				Performance:  sum.p / n,
-				Quality:      sum.q / n,
+				OEE:                sum.oee / n,
+				Availability:       sum.a / n,
+				Performance:        sum.p / n,
+				Quality:            sum.q / n,
 				AvailabilitySource: "rollup", PerformanceSource: "rollup", QualitySource: "rollup",
 			}
 		}
@@ -1202,10 +1202,10 @@ func (h *OEEHandler) Hierarchy(c *gin.Context) {
 		n := float64(len(areasForSite))
 		if n > 0 {
 			siteNode.Snapshot = OEESnapshot{
-				OEE:          sum.oee / n,
-				Availability: sum.a / n,
-				Performance:  sum.p / n,
-				Quality:      sum.q / n,
+				OEE:                sum.oee / n,
+				Availability:       sum.a / n,
+				Performance:        sum.p / n,
+				Quality:            sum.q / n,
 				AvailabilitySource: "rollup", PerformanceSource: "rollup", QualitySource: "rollup",
 			}
 		}
@@ -1235,10 +1235,10 @@ func (h *OEEHandler) Hierarchy(c *gin.Context) {
 		}
 		n := float64(len(unassigned))
 		node.Snapshot = OEESnapshot{
-			OEE:          sum.oee / n,
-			Availability: sum.a / n,
-			Performance:  sum.p / n,
-			Quality:      sum.q / n,
+			OEE:                sum.oee / n,
+			Availability:       sum.a / n,
+			Performance:        sum.p / n,
+			Quality:            sum.q / n,
 			AvailabilitySource: "rollup", PerformanceSource: "rollup", QualitySource: "rollup",
 		}
 		unassignedNode = &node

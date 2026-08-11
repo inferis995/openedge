@@ -68,24 +68,24 @@ type aiopsAnomaliesResponse struct {
 }
 
 type aiopsAlarmItem struct {
-	Severity        string   `json:"severity"`
-	TagID           int      `json:"tag_id"`
-	TagAlias        string   `json:"tag_alias"`
-	AlarmType       string   `json:"alarm_type"`
-	Message         *string  `json:"message"`
-	ValueAtTrigger  *float64 `json:"value_at_trigger"`
-	TriggerTime     string   `json:"trigger_time"`
-	Status          string   `json:"status"`
-	ClearTime       *string  `json:"clear_time"`
+	Severity       string   `json:"severity"`
+	TagID          int      `json:"tag_id"`
+	TagAlias       string   `json:"tag_alias"`
+	AlarmType      string   `json:"alarm_type"`
+	Message        *string  `json:"message"`
+	ValueAtTrigger *float64 `json:"value_at_trigger"`
+	TriggerTime    string   `json:"trigger_time"`
+	Status         string   `json:"status"`
+	ClearTime      *string  `json:"clear_time"`
 }
 
 type aiopsAlarmDigest struct {
-	PeriodHours int                `json:"period_hours"`
-	TotalFired  int                `json:"total_fired"`
-	StillActive int                `json:"still_active"`
-	Cleared     int                `json:"cleared"`
-	BySeverity  map[string]int     `json:"by_severity"`
-	Alarms      []aiopsAlarmItem   `json:"alarms"`
+	PeriodHours int              `json:"period_hours"`
+	TotalFired  int              `json:"total_fired"`
+	StillActive int              `json:"still_active"`
+	Cleared     int              `json:"cleared"`
+	BySeverity  map[string]int   `json:"by_severity"`
+	Alarms      []aiopsAlarmItem `json:"alarms"`
 }
 
 // --- Helper: parse and clamp int query param ---
@@ -331,8 +331,8 @@ func (h *AIopsHandler) GetTagAnomalies(c *gin.Context) {
 		return
 	}
 
-	windowHours   := parseIntParam(c, "window_hours",   168, 1,  720)
-	baselineDays  := parseIntParam(c, "baseline_days",   30, 7,  365)
+	windowHours := parseIntParam(c, "window_hours", 168, 1, 720)
+	baselineDays := parseIntParam(c, "baseline_days", 30, 7, 365)
 
 	orgFilter := middleware.GetOrgFilterForQuery(c)
 
@@ -361,11 +361,11 @@ func (h *AIopsHandler) GetTagAnomalies(c *gin.Context) {
 	}
 
 	// --- Baseline stats (excludes the current window) ---
-	var baselineMeanPtr  *float64
+	var baselineMeanPtr *float64
 	var baselineStdDevPtr *float64
 
-	baselineDaysStr  := strconv.Itoa(baselineDays)
-	windowHoursStr   := strconv.Itoa(windowHours)
+	baselineDaysStr := strconv.Itoa(baselineDays)
+	windowHoursStr := strconv.Itoa(windowHours)
 
 	h.db.QueryRowContext(ctx, `
 		SELECT

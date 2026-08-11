@@ -122,9 +122,9 @@ type ImportDevice struct {
 }
 
 type ImportField struct {
-	Name      string `json:"name"`       // field name in payload, e.g. "temperature"
-	Alias     string `json:"alias"`      // human-readable tag name
-	DataType  string `json:"data_type"`  // REAL | INT | BOOL | STRING
+	Name      string `json:"name"`      // field name in payload, e.g. "temperature"
+	Alias     string `json:"alias"`     // human-readable tag name
+	DataType  string `json:"data_type"` // REAL | INT | BOOL | STRING
 	Historize bool   `json:"historize"`
 }
 

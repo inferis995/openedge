@@ -38,24 +38,24 @@ func NewDiagnosticsHandler(db *sql.DB, r *redis.Client) *DiagnosticsHandler {
 // optional — failures inside the handler degrade gracefully so the page
 // still renders the parts that DID resolve.
 type DiagnosticsResponse struct {
-	GeneratedAt time.Time           `json:"generated_at"`
-	Host        HostInfo            `json:"host"`
-	CPU         CPUInfo             `json:"cpu,omitempty"`
-	Memory      MemoryInfo          `json:"memory,omitempty"`
-	Disk        []DiskInfo          `json:"disk,omitempty"`
-	Network     []NetworkIfInfo     `json:"network,omitempty"`
-	Services    map[string]Health   `json:"services"` // postgres / redis / api
+	GeneratedAt time.Time         `json:"generated_at"`
+	Host        HostInfo          `json:"host"`
+	CPU         CPUInfo           `json:"cpu,omitempty"`
+	Memory      MemoryInfo        `json:"memory,omitempty"`
+	Disk        []DiskInfo        `json:"disk,omitempty"`
+	Network     []NetworkIfInfo   `json:"network,omitempty"`
+	Services    map[string]Health `json:"services"` // postgres / redis / api
 }
 
 type HostInfo struct {
-	Hostname     string        `json:"hostname"`
-	OS           string        `json:"os"`
-	Kernel       string        `json:"kernel,omitempty"`
-	Arch         string        `json:"arch"`
-	UptimeSec    int64         `json:"uptime_sec,omitempty"`     // host uptime when available
-	APIUptimeSec int64         `json:"api_uptime_sec"`           // this process
-	LoadAverage  []float64     `json:"load_average,omitempty"`   // 1/5/15 min
-	NowUTC       time.Time     `json:"now_utc"`
+	Hostname     string    `json:"hostname"`
+	OS           string    `json:"os"`
+	Kernel       string    `json:"kernel,omitempty"`
+	Arch         string    `json:"arch"`
+	UptimeSec    int64     `json:"uptime_sec,omitempty"`   // host uptime when available
+	APIUptimeSec int64     `json:"api_uptime_sec"`         // this process
+	LoadAverage  []float64 `json:"load_average,omitempty"` // 1/5/15 min
+	NowUTC       time.Time `json:"now_utc"`
 }
 
 type CPUInfo struct {
@@ -71,26 +71,26 @@ type MemoryInfo struct {
 }
 
 type DiskInfo struct {
-	Path          string  `json:"path"`
-	Filesystem    string  `json:"filesystem,omitempty"`
-	TotalBytes    uint64  `json:"total_bytes"`
-	UsedBytes     uint64  `json:"used_bytes"`
-	UsedPct       float64 `json:"used_pct"`
+	Path       string  `json:"path"`
+	Filesystem string  `json:"filesystem,omitempty"`
+	TotalBytes uint64  `json:"total_bytes"`
+	UsedBytes  uint64  `json:"used_bytes"`
+	UsedPct    float64 `json:"used_pct"`
 }
 
 type NetworkIfInfo struct {
-	Name       string `json:"name"`
-	LinkUp     bool   `json:"link_up"`
-	RxBytes    uint64 `json:"rx_bytes"`
-	TxBytes    uint64 `json:"tx_bytes"`
-	RxErrors   uint64 `json:"rx_errors"`
-	TxErrors   uint64 `json:"tx_errors"`
+	Name     string `json:"name"`
+	LinkUp   bool   `json:"link_up"`
+	RxBytes  uint64 `json:"rx_bytes"`
+	TxBytes  uint64 `json:"tx_bytes"`
+	RxErrors uint64 `json:"rx_errors"`
+	TxErrors uint64 `json:"tx_errors"`
 }
 
 type Health struct {
-	OK       bool   `json:"ok"`
-	Message  string `json:"message,omitempty"`
-	LatencyMs int64 `json:"latency_ms,omitempty"`
+	OK        bool   `json:"ok"`
+	Message   string `json:"message,omitempty"`
+	LatencyMs int64  `json:"latency_ms,omitempty"`
 }
 
 // Get returns a single diagnostics snapshot. Cheap — under 100 µs of

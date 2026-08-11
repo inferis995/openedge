@@ -66,7 +66,6 @@ func computeSecurityScore(b ScoreBreakdown) int {
 	return score
 }
 
-
 type ScoreBreakdown struct {
 	AuditLogging         bool `json:"audit_logging"`
 	RBACEnabled          bool `json:"rbac_enabled"`

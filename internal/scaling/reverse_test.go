@@ -11,7 +11,7 @@ import (
 // The defect this file pins down.
 //
 // Apply runs on the read path and its result replaces the raw value everywhere
-// downstream, so a synoptic shows engineering units. Writes travelled the other
+// downstream, so a synoptic shows engineering units. Writes traveled the other
 // way with no conversion at all: the number an operator typed reached the
 // device register verbatim.
 //
@@ -19,7 +19,7 @@ import (
 // existed, writing the value a gauge was displaying produced a completely
 // different reading a moment later.
 
-// A pressure transmitter: 0..27648 raw (the S7 analogue range) to 0..100 bar.
+// A pressure transmitter: 0..27648 raw (the S7 analog range) to 0..100 bar.
 var pressure = scaling.Config{
 	Enabled: true,
 	RawMin:  0, RawMax: 27648,

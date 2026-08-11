@@ -68,14 +68,14 @@ type OTAsset struct {
 }
 
 type CVEMatch struct {
-	ID          int       `json:"id"`
-	AssetID     int       `json:"asset_id"`
-	CVEID       string    `json:"cve_id"`
-	Severity    string    `json:"severity"`
-	CVSSScore   *float64  `json:"cvss_score"`
-	Description *string   `json:"description"`
+	ID          int        `json:"id"`
+	AssetID     int        `json:"asset_id"`
+	CVEID       string     `json:"cve_id"`
+	Severity    string     `json:"severity"`
+	CVSSScore   *float64   `json:"cvss_score"`
+	Description *string    `json:"description"`
 	Published   *time.Time `json:"published"`
-	CreatedAt   time.Time `json:"created_at"`
+	CreatedAt   time.Time  `json:"created_at"`
 }
 
 type ComplianceFramework struct {
@@ -86,15 +86,15 @@ type ComplianceFramework struct {
 }
 
 type ComplianceRequirementWithStatus struct {
-	ID          int     `json:"id"`
-	ReqCode     string  `json:"req_code"`
-	Category    *string `json:"category"`
-	Title       string  `json:"title"`
-	Description *string `json:"description"`
-	Weight      int     `json:"weight"`
-	Status      string  `json:"status"`
-	Evidence    *string `json:"evidence"`
-	Notes       *string `json:"notes"`
+	ID          int        `json:"id"`
+	ReqCode     string     `json:"req_code"`
+	Category    *string    `json:"category"`
+	Title       string     `json:"title"`
+	Description *string    `json:"description"`
+	Weight      int        `json:"weight"`
+	Status      string     `json:"status"`
+	Evidence    *string    `json:"evidence"`
+	Notes       *string    `json:"notes"`
 	AssessedAt  *time.Time `json:"assessed_at"`
 }
 
@@ -240,19 +240,19 @@ func (h *ComplianceHandler) CreateAsset(c *gin.Context) {
 	}
 
 	var body struct {
-		GatewayID   *int     `json:"gateway_id"`
-		IPAddress   *string  `json:"ip_address"`
-		MACAddress  *string  `json:"mac_address"`
-		Hostname    *string  `json:"hostname"`
-		Vendor      *string  `json:"vendor"`
-		DeviceType  *string  `json:"device_type"`
-		Model       *string  `json:"model"`
-		FirmwareVer *string  `json:"firmware_ver"`
-		Protocol    *string  `json:"protocol"`
-		OSInfo      *string  `json:"os_info"`
-		IsAuthorized *bool   `json:"is_authorized"`
-		RiskScore   *float64 `json:"risk_score"`
-		Notes       *string  `json:"notes"`
+		GatewayID    *int     `json:"gateway_id"`
+		IPAddress    *string  `json:"ip_address"`
+		MACAddress   *string  `json:"mac_address"`
+		Hostname     *string  `json:"hostname"`
+		Vendor       *string  `json:"vendor"`
+		DeviceType   *string  `json:"device_type"`
+		Model        *string  `json:"model"`
+		FirmwareVer  *string  `json:"firmware_ver"`
+		Protocol     *string  `json:"protocol"`
+		OSInfo       *string  `json:"os_info"`
+		IsAuthorized *bool    `json:"is_authorized"`
+		RiskScore    *float64 `json:"risk_score"`
+		Notes        *string  `json:"notes"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -305,19 +305,19 @@ func (h *ComplianceHandler) UpdateAsset(c *gin.Context) {
 	orgID, hasOrg := h.resolveOrgID(c)
 
 	var body struct {
-		GatewayID   *int     `json:"gateway_id"`
-		IPAddress   *string  `json:"ip_address"`
-		MACAddress  *string  `json:"mac_address"`
-		Hostname    *string  `json:"hostname"`
-		Vendor      *string  `json:"vendor"`
-		DeviceType  *string  `json:"device_type"`
-		Model       *string  `json:"model"`
-		FirmwareVer *string  `json:"firmware_ver"`
-		Protocol    *string  `json:"protocol"`
-		OSInfo      *string  `json:"os_info"`
-		IsAuthorized *bool   `json:"is_authorized"`
-		RiskScore   *float64 `json:"risk_score"`
-		Notes       *string  `json:"notes"`
+		GatewayID    *int     `json:"gateway_id"`
+		IPAddress    *string  `json:"ip_address"`
+		MACAddress   *string  `json:"mac_address"`
+		Hostname     *string  `json:"hostname"`
+		Vendor       *string  `json:"vendor"`
+		DeviceType   *string  `json:"device_type"`
+		Model        *string  `json:"model"`
+		FirmwareVer  *string  `json:"firmware_ver"`
+		Protocol     *string  `json:"protocol"`
+		OSInfo       *string  `json:"os_info"`
+		IsAuthorized *bool    `json:"is_authorized"`
+		RiskScore    *float64 `json:"risk_score"`
+		Notes        *string  `json:"notes"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -438,10 +438,10 @@ func (h *ComplianceHandler) AddCVE(c *gin.Context) {
 	}
 
 	var body struct {
-		CVEID       string   `json:"cve_id" binding:"required"`
-		Severity    string   `json:"severity" binding:"required"`
-		CVSSScore   *float64 `json:"cvss_score"`
-		Description *string  `json:"description"`
+		CVEID       string     `json:"cve_id" binding:"required"`
+		Severity    string     `json:"severity" binding:"required"`
+		CVSSScore   *float64   `json:"cvss_score"`
+		Description *string    `json:"description"`
 		Published   *time.Time `json:"published"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -643,13 +643,13 @@ type ByTypeRow struct {
 }
 
 type RiskPostureResponse struct {
-	TotalAssets        int         `json:"total_assets"`
-	AvgRiskScore       float64     `json:"avg_risk_score"`
-	CriticalCVEs       int         `json:"critical_cves"`
-	HighCVEs           int         `json:"high_cves"`
-	UnauthorizedDevices int        `json:"unauthorized_devices"`
-	ByType             []ByTypeRow `json:"by_type"`
-	TopRisky           []OTAsset   `json:"top_risky"`
+	TotalAssets         int         `json:"total_assets"`
+	AvgRiskScore        float64     `json:"avg_risk_score"`
+	CriticalCVEs        int         `json:"critical_cves"`
+	HighCVEs            int         `json:"high_cves"`
+	UnauthorizedDevices int         `json:"unauthorized_devices"`
+	ByType              []ByTypeRow `json:"by_type"`
+	TopRisky            []OTAsset   `json:"top_risky"`
 }
 
 // RiskPosture returns a risk summary for the org.

@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -965,7 +966,14 @@ func (h *TagsHandler) Write(c *gin.Context) {
 	// for, which is the case that hurts somebody.
 	deviceValue, scaleErr := toDeviceValue(c.Request.Context(), h.db, tag.ID, req.Value)
 	if scaleErr != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": scaleErr.Error()})
+		// A value the range cannot express is the operator's to correct; an
+		// unreadable configuration is ours, and must not be reported as if they
+		// had typed something wrong.
+		status := http.StatusBadRequest
+		if errors.Is(scaleErr, ErrScalingUnknown) {
+			status = http.StatusServiceUnavailable
+		}
+		c.JSON(status, gin.H{"error": scaleErr.Error()})
 		return
 	}
 

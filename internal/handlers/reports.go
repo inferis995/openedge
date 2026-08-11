@@ -181,15 +181,15 @@ func (h *ReportsHandler) AlarmsCSV(c *gin.Context) {
 
 	for rows.Next() {
 		var (
-			id           int64
-			trig         time.Time
-			clear        sql.NullTime
-			status       string
-			severity     string
-			alarmType    string
-			msg          string
-			alias, code  string
-			val          sql.NullFloat64
+			id          int64
+			trig        time.Time
+			clear       sql.NullTime
+			status      string
+			severity    string
+			alarmType   string
+			msg         string
+			alias, code string
+			val         sql.NullFloat64
 		)
 		if err := rows.Scan(&id, &trig, &clear, &status, &severity, &alarmType, &msg, &alias, &code, &val); err != nil {
 			_ = w.Write([]string{"ERROR", err.Error()})
@@ -253,15 +253,15 @@ func (h *ReportsHandler) AuditCSV(c *gin.Context) {
 
 	for rows.Next() {
 		var (
-			id        int64
-			uid       int
-			uname     string
-			action    string
-			ip        string
-			ua        string
-			details   string
-			success   bool
-			created   time.Time
+			id      int64
+			uid     int
+			uname   string
+			action  string
+			ip      string
+			ua      string
+			details string
+			success bool
+			created time.Time
 		)
 		if err := rows.Scan(&id, &uid, &uname, &action, &ip, &ua, &details, &success, &created); err != nil {
 			_ = w.Write([]string{"ERROR", err.Error()})

@@ -47,12 +47,12 @@ type Shift struct {
 // ShiftAssignment associa un operatore (user) a un turno per un periodo.
 // ValidTo null = a tempo indeterminato.
 type ShiftAssignment struct {
-	ID        int       `json:"id"`
-	ShiftID   int       `json:"shift_id"`
-	UserID    int       `json:"user_id"`
-	Username  string    `json:"username,omitempty"`
-	FullName  string    `json:"full_name,omitempty"`
-	ValidFrom time.Time `json:"valid_from"`
+	ID        int        `json:"id"`
+	ShiftID   int        `json:"shift_id"`
+	UserID    int        `json:"user_id"`
+	Username  string     `json:"username,omitempty"`
+	FullName  string     `json:"full_name,omitempty"`
+	ValidFrom time.Time  `json:"valid_from"`
 	ValidTo   *time.Time `json:"valid_to,omitempty"`
 }
 
@@ -60,11 +60,11 @@ type ShiftAssignment struct {
 // lista degli operatori assegnati al turno per oggi (valid_from <= today
 // <= valid_to OR valid_to NULL). Vuota = "nessun operatore designato".
 type CurrentShift struct {
-	Shift          *Shift             `json:"shift"`
-	StartedAt      *time.Time         `json:"started_at,omitempty"`
-	EndsAt         *time.Time         `json:"ends_at,omitempty"`
-	TimeLeftMin    int                `json:"time_left_min"`
-	Operators      []ShiftAssignment  `json:"operators"`
+	Shift       *Shift            `json:"shift"`
+	StartedAt   *time.Time        `json:"started_at,omitempty"`
+	EndsAt      *time.Time        `json:"ends_at,omitempty"`
+	TimeLeftMin int               `json:"time_left_min"`
+	Operators   []ShiftAssignment `json:"operators"`
 }
 
 // CreateShiftRequest è il body di POST /api/shifts. Anche per PUT lo
@@ -308,8 +308,8 @@ func (h *ShiftsHandler) DeleteAssignment(c *gin.Context) {
 // ritorna anche gli operatori designati per oggi.
 func (h *ShiftsHandler) Current(c *gin.Context) {
 	now := time.Now().UTC()
-	weekday := int(now.Weekday())                  // 0=Sun..6=Sat
-	prevWeekday := (weekday + 6) % 7                // weekday di "ieri"
+	weekday := int(now.Weekday())    // 0=Sun..6=Sat
+	prevWeekday := (weekday + 6) % 7 // weekday di "ieri"
 	nowMin := now.Hour()*60 + now.Minute()
 
 	rows, err := h.db.Query(`

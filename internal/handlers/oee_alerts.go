@@ -219,12 +219,12 @@ func validateAlertRule(r AlertRuleRequest) error {
 
 // EvaluateAlertRules è il worker che valuta tutte le regole abilitate
 // contro oee_history. Per ogni regola:
-//   1. Determina N = ceil(sustained_minutes / 60) ore da esaminare
-//   2. Legge le ultime N righe di oee_history per profile_id (o NULL=rollup)
-//   3. Se TUTTE violano la condizione → "violating"
-//   4. Se "violating" E (last_state != 'violating' OR last_notified > 2h fa)
-//      → invia notifica + aggiorna stato
-//   5. Se "normal" E last_state == 'violating' → registra clear (no notif)
+//  1. Determina N = ceil(sustained_minutes / 60) ore da esaminare
+//  2. Legge le ultime N righe di oee_history per profile_id (o NULL=rollup)
+//  3. Se TUTTE violano la condizione → "violating"
+//  4. Se "violating" E (last_state != 'violating' OR last_notified > 2h fa)
+//     → invia notifica + aggiorna stato
+//  5. Se "normal" E last_state == 'violating' → registra clear (no notif)
 //
 // Anti-spam: ogni regola può notificare al massimo ogni 2h finché la
 // condizione resta violata (in pratica: una sola notifica quando si
@@ -243,11 +243,11 @@ func EvaluateAlertRules(db *sql.DB, dispatcher *notifications.Dispatcher, now ti
 	defer rows.Close()
 
 	type ruleEval struct {
-		id, sustainedMin int
-		profileID        *int
+		id, sustainedMin                      int
+		profileID                             *int
 		name, metric, op, severity, lastState string
-		threshold        float64
-		lastNotified     *time.Time
+		threshold                             float64
+		lastNotified                          *time.Time
 	}
 	var rules []ruleEval
 	for rows.Next() {

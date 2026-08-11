@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -787,6 +788,11 @@ func (h *I3XHandler) WritePropertyValue(c *gin.Context) {
 	// conversion the synoptic does.
 	deviceValue, scaleErr := toDeviceValue(c.Request.Context(), h.db, tagID, req.Value)
 	if scaleErr != nil {
+		if errors.Is(scaleErr, ErrScalingUnknown) {
+			c.JSON(http.StatusServiceUnavailable,
+				gin.H{"code": "SCALING_UNAVAILABLE", "message": scaleErr.Error()})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"code": "OUT_OF_RANGE", "message": scaleErr.Error()})
 		return
 	}

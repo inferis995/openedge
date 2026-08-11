@@ -57,13 +57,13 @@ func (h *UpdatesHandler) ListReleases(c *gin.Context) {
 	defer func() { _ = rows.Close() }()
 
 	type releaseRow struct {
-		ID           int    `json:"id"`
-		Version      string `json:"version"`
-		ReleaseNotes string `json:"release_notes"`
-		ArtifactURL  string `json:"artifact_url"`
-		SHA256       string `json:"sha256_checksum"`
-		PublishedAt  time.Time `json:"published_at"`
-		IsStable     bool   `json:"is_stable"`
+		ID              int       `json:"id"`
+		Version         string    `json:"version"`
+		ReleaseNotes    string    `json:"release_notes"`
+		ArtifactURL     string    `json:"artifact_url"`
+		SHA256          string    `json:"sha256_checksum"`
+		PublishedAt     time.Time `json:"published_at"`
+		IsStable        bool      `json:"is_stable"`
 		OrgStatusCounts struct {
 			Pending  int `json:"pending"`
 			Approved int `json:"approved"`

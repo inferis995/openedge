@@ -39,12 +39,12 @@ type EdgeMQTTCreds struct {
 
 // EdgeGateway is a minimal gateway descriptor for the edge manager.
 type EdgeGateway struct {
-	ID               int                    `json:"id"`
-	Name             string                 `json:"name"`
-	DriverType       string                 `json:"driver_type"`
+	ID               int                     `json:"id"`
+	Name             string                  `json:"name"`
+	DriverType       string                  `json:"driver_type"`
 	ConnectionConfig models.ConnectionConfig `json:"connection_config"`
-	ScanRateMs       int                    `json:"scan_rate_ms"`
-	Enabled          bool                   `json:"enabled"`
+	ScanRateMs       int                     `json:"scan_rate_ms"`
+	Enabled          bool                    `json:"enabled"`
 }
 
 // Get returns the edge configuration for the org identified by the API key.

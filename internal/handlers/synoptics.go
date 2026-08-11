@@ -205,7 +205,7 @@ func (h *SynopticsHandler) Update(c *gin.Context) {
 	// loaded; if the row has moved on since, the save is refused and the
 	// operator is told to reload rather than losing the other person's work.
 	//
-	// Clients that send no expected_updated_at keep the previous behaviour, so
+	// Clients that send no expected_updated_at keep the previous behavior, so
 	// an older UI build against a newer API still saves.
 	var res sql.Result
 	if req.ExpectedUpdatedAt != nil {

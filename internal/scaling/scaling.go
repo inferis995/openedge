@@ -108,7 +108,7 @@ func (e ErrOutOfRange) Error() string {
 // the raw value for Redis, the WebSocket broadcast, the historian and the tag
 // shadow — so every number a synoptic displays is in engineering units. Writes
 // went the other way untouched: the number an operator typed into a setpoint
-// travelled through the API, the broker and the driver, and landed in the
+// traveled through the API, the broker and the driver, and landed in the
 // device register verbatim.
 //
 // On a tag scaled 0..27648 raw to 0..100 bar, that turned a 50 bar setpoint
