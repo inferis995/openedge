@@ -45,6 +45,18 @@ func NewWithOptions(baseURL, token string, orgID int, insecure bool) *Client {
 	}
 }
 
+// WithToken returns a copy of the client that authenticates as somebody else.
+//
+// The underlying *http.Client is shared on purpose: over the HTTP transport a
+// fresh caller arrives on every request, and giving each one its own client
+// would throw away the connection pool to the core API.
+func (c *Client) WithToken(token string, orgID int) *Client {
+	clone := *c
+	clone.token = token
+	clone.orgID = orgID
+	return &clone
+}
+
 // Request executes an HTTP request, setting auth headers.
 // body may be nil. If result is non-nil the response JSON is decoded into it.
 func (c *Client) Request(method, path string, body, result interface{}) error {

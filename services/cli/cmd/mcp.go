@@ -17,13 +17,15 @@ import (
 
 var mcpCmd = &cobra.Command{
 	Use:   "mcp",
-	Short: "Start MCP server for AI agent integration (JSON-RPC 2.0 over stdio)",
-	Long: `Start an MCP (Model Context Protocol) server over stdio.
+	Short: "Start MCP server for AI agent integration (stdio, or Streamable HTTP with --http)",
+	Long: `Start an MCP (Model Context Protocol) server.
 
-The server reads JSON-RPC 2.0 messages from stdin (Content-Length framed)
-and writes responses to stdout. All logging goes to stderr.
+Two transports, same tools.
 
-Configure in Claude Code or Cursor:
+STDIO (default) — a local process, one identity, taken from the environment.
+The server reads JSON-RPC 2.0 messages from stdin (Content-Length framed) and
+writes responses to stdout. All logging goes to stderr.
+
   {
     "mcpServers": {
       "openedge": {
@@ -36,7 +38,18 @@ Configure in Claude Code or Cursor:
         }
       }
     }
-  }`,
+  }
+
+HTTP (--http) — a shared server, one identity per request, taken from the
+caller's bearer token. This is the transport a remote MCP client needs.
+
+  openedge mcp --http 127.0.0.1:9090 --url https://app.yourdomain.com
+
+  claude mcp add --transport http openedge http://127.0.0.1:9090/mcp \
+    --header "Authorization: Bearer eyJ..."
+
+Add --auth-server to advertise an OAuth authorization server instead, so
+clients sign in rather than carrying a token you pasted for them.`,
 	Run: runMCPServer,
 }
 
@@ -116,6 +129,11 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 	log.SetOutput(os.Stderr)
 	log.SetFlags(log.Ltime | log.Lmsgprefix)
 	log.SetPrefix("[openedge-mcp] ")
+
+	if flagMCPHTTP != "" {
+		runMCPOverHTTP(flagMCPHTTP)
+		return
+	}
 
 	client := getMCPClient()
 
@@ -278,9 +296,17 @@ func (s *mcpServer) handle(req *jsonRPCRequest) *jsonRPCResponse {
 	switch req.Method {
 	case "initialize":
 		return s.handleInitialize(req)
-	case "initialized":
-		// Notification, no response needed — but we still return a response to avoid blocking
+	case "initialized", "notifications/initialized":
+		// A notification carries no id and deserves no reply. Over stdio we
+		// answer anyway, because a client that framed it as a request would
+		// otherwise block; the HTTP transport drops the reply itself, where
+		// the rule is enforced by the status code.
 		s.initialized = true
+		return s.okResponse(req.ID, map[string]interface{}{})
+	// The MCP spec spells this method with two l's; it is a wire constant, not
+	// our prose, so the linter's preference does not apply.
+	case "notifications/cancelled": //nolint:misspell
+		// Tool calls run to completion here, so there is nothing to cancel.
 		return s.okResponse(req.ID, map[string]interface{}{})
 	case "tools/list":
 		return s.handleToolsList(req)
@@ -294,10 +320,33 @@ func (s *mcpServer) handle(req *jsonRPCRequest) *jsonRPCResponse {
 	}
 }
 
+// supportedProtocolVersions lists the MCP revisions this server speaks, newest
+// first. The HTTP transport was introduced in 2025-03-26, so a server that only
+// ever answered "2024-11-05" would tell a modern client to expect stdio.
+var supportedProtocolVersions = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
+
+// negotiateProtocol echoes the client's requested revision when we speak it,
+// and otherwise names the newest one we do — which is what the client needs in
+// order to decide whether it can continue.
+func negotiateProtocol(params json.RawMessage) string {
+	var p struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	if len(params) > 0 {
+		_ = json.Unmarshal(params, &p)
+	}
+	for _, v := range supportedProtocolVersions {
+		if p.ProtocolVersion == v {
+			return v
+		}
+	}
+	return supportedProtocolVersions[0]
+}
+
 func (s *mcpServer) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 	s.initialized = true
 	return s.okResponse(req.ID, mcpInitResult{
-		ProtocolVersion: "2024-11-05",
+		ProtocolVersion: negotiateProtocol(req.Params),
 		Capabilities: mcpCapabilities{
 			Tools: map[string]interface{}{},
 		},
