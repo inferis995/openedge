@@ -415,14 +415,22 @@ func main() {
 	// Some clients probe the OpenID Connect path instead; the document is the
 	// same one, and answering is cheaper than the support ticket.
 	router.GET("/.well-known/openid-configuration", oauthHandler.Metadata)
+
 	oauth := router.Group("/oauth")
+	oauth.Use(middleware.GlobalRateLimit())
 	{
 		// Registration is open by specification. The login limiter caps how
 		// fast a stranger can fill the table.
 		oauth.POST("/register", middleware.LoginRateLimit(), oauthHandler.Register)
 		oauth.GET("/authorize", oauthHandler.Authorize)
+		// This one takes a password, so it is a login and is limited like one.
 		oauth.POST("/authorize", middleware.LoginRateLimit(), oauthHandler.Decision)
-		oauth.POST("/token", middleware.LoginRateLimit(), oauthHandler.Token)
+		// These two do not. What they check are 256-bit values we generated,
+		// which nobody guesses, and every connected client comes back here
+		// each hour to refresh. Limiting them at login speed would offer no
+		// protection and would break a site whose clients share one NAT
+		// address — so they get the ordinary API limit instead.
+		oauth.POST("/token", oauthHandler.Token)
 		oauth.POST("/revoke", oauthHandler.Revoke)
 	}
 

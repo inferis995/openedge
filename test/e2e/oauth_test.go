@@ -62,9 +62,22 @@ func registerClient(t *testing.T, redirectURI, scope string) registeredClient {
 		"token_endpoint_auth_method": "none",
 		"scope":                      scope,
 	})
-	resp, err := oauthHTTP().Post(apiBase()+"/oauth/register", "application/json", strings.NewReader(string(body)))
-	if err != nil {
-		t.Fatalf("register: %v", err)
+	// Registration shares the login limiter with the consent form, and the
+	// whole suite arrives from one address. Back off rather than loosen it.
+	var resp *http.Response
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		var err error
+		resp, err = oauthHTTP().Post(apiBase()+"/oauth/register", "application/json",
+			strings.NewReader(string(body)))
+		if err != nil {
+			t.Fatalf("register: %v", err)
+		}
+		if resp.StatusCode != http.StatusTooManyRequests || time.Now().After(deadline) {
+			break
+		}
+		_ = resp.Body.Close()
+		time.Sleep(3 * time.Second)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
