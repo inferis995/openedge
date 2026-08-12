@@ -1117,6 +1117,7 @@ func main() {
 	// re-applied on every start so a changed setting actually takes effect.
 	db.EnsureRetentionPolicies(database, retentionDays)
 	db.StartHistorianRetentionWorker(database, retentionDays)
+	db.StartOAuthCleanupWorker(database)
 
 	// Start OT asset sync worker (syncs gateways → ot_assets every hour for NIS2 compliance).
 	otSync.StartAssetSyncWorker(database)

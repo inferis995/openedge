@@ -510,7 +510,7 @@ func (h *OAuthHandler) tokenFromCode(c *gin.Context) {
 		return
 	}
 
-	h.issueTokens(c, clientID, userID, orgID, scope)
+	h.issueTokens(c, clientID, userID, scope)
 }
 
 func (h *OAuthHandler) tokenFromRefresh(c *gin.Context) {
@@ -581,18 +581,25 @@ func (h *OAuthHandler) tokenFromRefresh(c *gin.Context) {
 		return
 	}
 
-	h.issueTokens(c, clientID, userID, orgID, scope)
+	h.issueTokens(c, clientID, userID, scope)
 }
 
 // issueTokens mints the access token and a fresh refresh token.
-func (h *OAuthHandler) issueTokens(c *gin.Context, clientID string, userID int, orgID sql.NullInt64, scope string) {
+//
+// The role and the organization are read from the user NOW, not taken from the
+// row that authorized this grant. A refresh token can be a month old; over that
+// month somebody may have been moved to another tenant or demoted, and a token
+// minted from a stale copy would carry an authority the platform no longer
+// believes in.
+func (h *OAuthHandler) issueTokens(c *gin.Context, clientID string, userID int, scope string) {
 	ctx := c.Request.Context()
 
 	var username, role string
 	var tokenVersion int
+	var orgID sql.NullInt64
 	if err := h.db.QueryRowContext(ctx,
-		`SELECT username, role, COALESCE(token_version,0) FROM users WHERE id=$1`, userID).
-		Scan(&username, &role, &tokenVersion); err != nil {
+		`SELECT username, role, org_id, COALESCE(token_version,0) FROM users WHERE id=$1`, userID).
+		Scan(&username, &role, &orgID, &tokenVersion); err != nil {
 		log.Printf("[OAUTH] user lookup: %v", err)
 		oauthError(c, http.StatusBadRequest, "invalid_grant", "the user no longer exists")
 		return

@@ -1632,6 +1632,41 @@ func StartHistorianRetentionWorker(db *sql.DB, retentionDays int) {
 	}()
 }
 
+// StartOAuthCleanupWorker prunes spent OAuth rows.
+//
+// Codes live two minutes and refresh tokens thirty days, but neither table
+// deletes anything on its own: a consumed code is kept so a replay stays
+// detectable, and a revoked refresh token is kept for the same reason. Without
+// this, both grow for the life of the installation.
+//
+// The delay is generous — a replay arrives within seconds, not days — and the
+// point is only that these tables stop growing, not that they stay small.
+func StartOAuthCleanupWorker(db *sql.DB) {
+	go func() {
+		time.Sleep(10 * time.Minute)
+		for {
+			runOAuthCleanup(db)
+			time.Sleep(6 * time.Hour)
+		}
+	}()
+}
+
+func runOAuthCleanup(db *sql.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	for _, stmt := range []string{
+		`DELETE FROM oauth_authorization_codes WHERE expires_at < NOW() - INTERVAL '1 day'`,
+		`DELETE FROM oauth_refresh_tokens
+		  WHERE expires_at < NOW() - INTERVAL '7 days'
+		     OR (revoked_at IS NOT NULL AND revoked_at < NOW() - INTERVAL '7 days')`,
+	} {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			log.Printf("[OAUTH] cleanup: %v", err)
+		}
+	}
+}
+
 func runHistorianCleanup(db *sql.DB, retentionDays int) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
