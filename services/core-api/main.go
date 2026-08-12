@@ -403,6 +403,29 @@ func main() {
 	// Create audit handler
 	auditHandler := handlers.NewAuditHandler(database)
 
+	// OAuth 2.1 authorization server. It sits outside /api because these paths
+	// are fixed by the specs — a client discovers them, it does not read our
+	// documentation — and because the browser reaches them directly.
+	//
+	// OPENEDGE_PUBLIC_URL is what goes into the metadata and the redirects.
+	// Leaving it unset derives it from the request, which works behind a
+	// well-configured proxy and produces confusing URLs behind a bad one.
+	oauthHandler := handlers.NewOAuthHandler(database, authService, os.Getenv("OPENEDGE_PUBLIC_URL"))
+	router.GET("/.well-known/oauth-authorization-server", oauthHandler.Metadata)
+	// Some clients probe the OpenID Connect path instead; the document is the
+	// same one, and answering is cheaper than the support ticket.
+	router.GET("/.well-known/openid-configuration", oauthHandler.Metadata)
+	oauth := router.Group("/oauth")
+	{
+		// Registration is open by specification. The login limiter caps how
+		// fast a stranger can fill the table.
+		oauth.POST("/register", middleware.LoginRateLimit(), oauthHandler.Register)
+		oauth.GET("/authorize", oauthHandler.Authorize)
+		oauth.POST("/authorize", middleware.LoginRateLimit(), oauthHandler.Decision)
+		oauth.POST("/token", middleware.LoginRateLimit(), oauthHandler.Token)
+		oauth.POST("/revoke", oauthHandler.Revoke)
+	}
+
 	// Register routes
 	api := router.Group("/api")
 	api.Use(middleware.GlobalRateLimit())

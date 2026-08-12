@@ -832,6 +832,59 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: OAuth 2.1 authorization server.
+	//
+	// This is what lets a remote client — an MCP client, a connector — obtain a
+	// token by sending the user to sign in here, instead of the user pasting a
+	// long-lived JWT into somebody else's configuration file.
+	//
+	// Codes and refresh tokens are stored as SHA-256 hashes, never in the
+	// clear: a database dump is a serious event, and it should not also be a
+	// bag of live credentials.
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS oauth_clients (
+			id                 SERIAL PRIMARY KEY,
+			client_id          TEXT UNIQUE NOT NULL,
+			client_secret_hash TEXT,
+			client_name        TEXT NOT NULL,
+			redirect_uris      TEXT NOT NULL,
+			scope              TEXT NOT NULL DEFAULT 'openedge:read openedge:write',
+			created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		// consumed_at is kept rather than deleting the row: a code presented
+		// twice means it leaked, and the second attempt has to be detectable.
+		`CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+			code_hash             TEXT PRIMARY KEY,
+			client_id             TEXT NOT NULL,
+			user_id               INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			org_id                INT,
+			redirect_uri          TEXT NOT NULL,
+			scope                 TEXT NOT NULL,
+			code_challenge        TEXT NOT NULL,
+			code_challenge_method TEXT NOT NULL,
+			resource              TEXT,
+			expires_at            TIMESTAMPTZ NOT NULL,
+			consumed_at           TIMESTAMPTZ,
+			created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+			token_hash TEXT PRIMARY KEY,
+			client_id  TEXT NOT NULL,
+			user_id    INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			org_id     INT,
+			scope      TEXT NOT NULL,
+			expires_at TIMESTAMPTZ NOT NULL,
+			revoked_at TIMESTAMPTZ,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_oauth_codes_expiry ON oauth_authorization_codes (expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_oauth_refresh_user ON oauth_refresh_tokens (client_id, user_id)`,
+	} {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: OAuth migration (%s…): %v", stmt[:intMinDB(52, len(stmt))], err)
+		}
+	}
+
 	// Migration: synoptics — SCADA mimic pages. Org-scoped canvas with a
 	// background and a JSONB array of freely positioned widgets that bind to
 	// tags. The whole layout is saved atomically (no per-widget sub-CRUD).

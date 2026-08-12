@@ -53,9 +53,47 @@ func RequireAuth(c *gin.Context) {
 		return
 	}
 
+	// A token minted by the OAuth flow carries the scope the user consented to.
+	// A password login carries none, and stays unrestricted — so existing
+	// sessions behave exactly as before and only delegated access is narrowed.
+	if !scopeAllowsRequest(claims, c.Request.Method) {
+		c.Header("WWW-Authenticate",
+			`Bearer error="insufficient_scope", scope="`+scopeWrite+`"`)
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"error": "Forbidden: this token was granted read-only access",
+		})
+		return
+	}
+
 	// Add user info to context
 	c.Set(UserKey, claims)
 	c.Next()
+}
+
+// The write scope. Declared here rather than imported from handlers because
+// this package is what enforces it, and the enforcement must not depend on the
+// package being enforced.
+const scopeWrite = "openedge:write"
+
+// scopeAllowsRequest reports whether a scoped token may perform this request.
+// Only the write scope is checked: a token that reached this point has already
+// proven who it belongs to, and what that person may read is decided by the
+// org scoping and permission checks further down.
+func scopeAllowsRequest(claims jwt.MapClaims, method string) bool {
+	scope, ok := claims["scope"].(string)
+	if !ok {
+		return true // not a delegated token
+	}
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	for _, s := range strings.Fields(scope) {
+		if s == scopeWrite {
+			return true
+		}
+	}
+	return false
 }
 
 // HasI3xWrite returns true if the caller is allowed to write via the i3X API.
