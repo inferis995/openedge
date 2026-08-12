@@ -196,8 +196,8 @@ vps-status:
 	$(COMPOSE_VPS) ps
 	@echo ""
 	@DOMAIN=$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'localhost'); \
-	 echo "  Checking https://$$DOMAIN/api/health ..."; \
-	 curl -fsSLo /dev/null -w "  HTTP %%{http_code}  %%{time_total}s\n" "https://$$DOMAIN/api/health" 2>/dev/null || \
+	 echo "  Checking https://$$DOMAIN/health ..."; \
+	 curl -fsSLo /dev/null -w "  HTTP %%{http_code}  %%{time_total}s\n" "https://$$DOMAIN/health" 2>/dev/null || \
 	 echo "  Not reachable yet (TLS cert may still be issuing)"
 
 # ── Coolify deployment (recommended for cloud) ────────────────────────────────

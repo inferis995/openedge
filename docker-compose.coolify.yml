@@ -112,6 +112,10 @@ services:
       BACKUP_PATH: /backups
       JWT_SECRET: ${JWT_SECRET}
       ALLOWED_ORIGINS: https://${PUBLIC_HOST}
+      # Where OAuth sends the user to sign in, and what the discovery document
+      # advertises. Derived from the request otherwise, which is one proxy
+      # change away from publishing an unreachable URL.
+      OPENEDGE_PUBLIC_URL: https://${PUBLIC_HOST}
       LOG_FORMAT: json
       SWAGGER_ENABLED: "false"
       # Encrypts the MQTT/cloud credentials kept in global_settings. Required

@@ -2,10 +2,10 @@
 # cloud-init.sh — Bootstrap OpenEdge on a fresh VPS in one command.
 #
 # Usage (run as root or with sudo):
-#   curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/openedge/master/deploy/cloud-init.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/inferis995/openedge/master/deploy/cloud-init.sh | bash
 #
 # Or interactively:
-#   git clone https://github.com/YOUR_ORG/openedge /opt/openedge
+#   git clone https://github.com/inferis995/openedge /opt/openedge
 #   cd /opt/openedge && sudo bash deploy/cloud-init.sh
 #
 # Tested on: Ubuntu 22.04 LTS, Debian 12, Hetzner CX32 (€6/mo)
@@ -69,7 +69,7 @@ if [ ! -d "$INSTALL_DIR" ]; then
   if ! command -v git &>/dev/null; then
     apt-get install -y git
   fi
-  git clone https://github.com/YOUR_ORG/openedge "$INSTALL_DIR"
+  git clone https://github.com/inferis995/openedge "$INSTALL_DIR"
   info "Repository cloned to $INSTALL_DIR"
 fi
 
@@ -137,7 +137,7 @@ fi
 
 # ── 7. Install systemd service ────────────────────────────────────────────────
 step "Installing systemd service"
-COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.cloud.yml"
+COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.vps.yml"
 cat > /etc/systemd/system/openedge-cloud.service << EOF
 [Unit]
 Description=OpenEdge Cloud Stack
@@ -164,24 +164,26 @@ info "Systemd service openedge-cloud installed and enabled"
 
 # ── 8. Build and start ────────────────────────────────────────────────────────
 step "Building and starting OpenEdge"
-docker compose -f docker-compose.yml -f docker-compose.build.yml build
-docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
+# The base compose carries the build definitions; docker-compose.build.yml was
+# merged into it and no longer exists.
+$COMPOSE_CMD build
+$COMPOSE_CMD up -d
 
 # ── 9. Health check ───────────────────────────────────────────────────────────
 step "Waiting for services to be healthy"
 sleep 10
 ATTEMPTS=0
-until curl -fsSL "https://${PUBLIC_HOST}/api/health" &>/dev/null || [ $ATTEMPTS -ge 30 ]; do
+until curl -fsSL "https://${PUBLIC_HOST}/health" &>/dev/null || [ $ATTEMPTS -ge 30 ]; do
   sleep 3
   ATTEMPTS=$((ATTEMPTS+1))
   echo -n "."
 done
 echo ""
 
-if curl -fsSL "https://${PUBLIC_HOST}/api/health" &>/dev/null; then
+if curl -fsSL "https://${PUBLIC_HOST}/health" &>/dev/null; then
   info "Health check passed"
 else
-  warn "Health check failed — check logs: docker compose -f docker-compose.yml -f docker-compose.cloud.yml logs"
+  warn "Health check failed — check logs: docker compose -f docker-compose.yml -f docker-compose.vps.yml logs"
 fi
 
 # ── Done ──────────────────────────────────────────────────────────────────────
@@ -198,4 +200,4 @@ echo "  2. Create your first organization"
 echo "  3. Click 'Infrastructure' → 'Download Edge Package'"
 echo "  4. Deploy the ZIP on the customer's machine: bash install.sh"
 echo ""
-echo "  Manage with: make cloud-logs | make cloud-down | make cloud-up"
+echo "  Manage with: make vps-logs | make vps-down | make vps-up"

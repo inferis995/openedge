@@ -78,7 +78,7 @@ sudo make install-service   # systemd service (auto-start at boot)
 
 ### SaaS / Cloud
 ```bash
-make cloud-up           # docker-compose.cloud.yml (Traefik + Let's Encrypt)
+make vps-up             # docker-compose.vps.yml (Traefik + Let's Encrypt)
 # Or: Coolify → New Resource → Docker Compose → paste docker-compose.coolify.yml
 ```
 

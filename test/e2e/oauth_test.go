@@ -608,3 +608,96 @@ func TestOAuthCannotEscalateScopeAtAuthorize(t *testing.T) {
 		t.Fatalf("want error=invalid_scope, got %q", loc.Query().Get("error"))
 	}
 }
+
+// ── Through the proxy ───────────────────────────────────────────────────────
+
+// webUIBase is the address the browser and every OAuth client actually use.
+//
+// Everything above talks to core-api directly, which is how the API is reached
+// inside the compose network and NOT how anyone reaches it from outside. In
+// every deployment that matters — VPS behind Traefik, Coolify — the public
+// domain lands on the web-ui container, and nginx there decides what reaches
+// the API. A test suite that only ever bypasses that proxy proves the
+// authorization server works somewhere nobody can get to.
+func webUIBase() string { return env("E2E_WEB_URL", "http://127.0.0.1:3000") }
+
+func getThroughProxy(t *testing.T, path string) (int, string, string) {
+	t.Helper()
+	resp, err := oauthHTTP().Get(webUIBase() + path)
+	if err != nil {
+		t.Fatalf("GET %s through the web UI: %v", path, err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, resp.Header.Get("Content-Type"), string(raw)
+}
+
+// The discovery document is the first thing an OAuth client fetches. If nginx
+// serves the single-page app for it, the client reads HTML where it expected
+// JSON and reports the server as broken — which it is, from outside.
+func TestOAuthDiscoveryIsReachableThroughTheProxy(t *testing.T) {
+	status, ctype, body := getThroughProxy(t, "/.well-known/oauth-authorization-server")
+
+	if status != http.StatusOK {
+		t.Fatalf("status %d — %s", status, truncate([]byte(body)))
+	}
+	if strings.Contains(ctype, "text/html") || strings.Contains(body, "<!doctype html") ||
+		strings.Contains(body, "<!DOCTYPE html") {
+		t.Fatalf("the proxy served the web app instead of the metadata (content-type %q)", ctype)
+	}
+	var meta struct {
+		Issuer        string `json:"issuer"`
+		TokenEndpoint string `json:"token_endpoint"`
+	}
+	if err := json.Unmarshal([]byte(body), &meta); err != nil {
+		t.Fatalf("not JSON: %v — %s", err, truncate([]byte(body)))
+	}
+	if meta.Issuer == "" || meta.TokenEndpoint == "" {
+		t.Fatalf("metadata reached us empty: %s", truncate([]byte(body)))
+	}
+}
+
+// The sign-in page is served by the API, at a path the SPA also claims. If
+// nginx keeps it, the user sees an empty React shell where the consent form
+// should be, and no amount of correct OAuth behind it helps.
+func TestConsentPageIsReachableThroughTheProxy(t *testing.T) {
+	_, challenge := pkcePair(t)
+	cl := registerClient(t, testRedirect, "openedge:read")
+
+	status, _, body := getThroughProxy(t, "/oauth/authorize?"+url.Values{
+		"client_id":             {cl.ClientID},
+		"redirect_uri":          {testRedirect},
+		"response_type":         {"code"},
+		"scope":                 {"openedge:read"},
+		"code_challenge":        {challenge},
+		"code_challenge_method": {"S256"},
+	}.Encode())
+
+	if status != http.StatusOK {
+		t.Fatalf("status %d — %s", status, truncate([]byte(body)))
+	}
+	if !strings.Contains(body, "e2e test client") {
+		t.Fatalf("the consent form did not come through the proxy; got %s", truncate([]byte(body)))
+	}
+	if !strings.Contains(body, `name="password"`) {
+		t.Fatal("the page reached us without its login form")
+	}
+}
+
+// A deployment health check has to say something about the API. /nginx-health
+// answers while core-api is dead, so the public /health must not be the SPA
+// either — an installer checking it would report a healthy deployment with no
+// backend behind it.
+func TestPublicHealthReachesTheAPI(t *testing.T) {
+	status, _, body := getThroughProxy(t, "/health")
+
+	if status != http.StatusOK {
+		t.Fatalf("status %d — %s", status, truncate([]byte(body)))
+	}
+	if strings.Contains(body, "<!doctype html") || strings.Contains(body, "<!DOCTYPE html") {
+		t.Fatal("/health served the web app: a health check on it would pass with the API down")
+	}
+	if !strings.Contains(body, "ok") {
+		t.Fatalf("unexpected health body: %s", truncate([]byte(body)))
+	}
+}

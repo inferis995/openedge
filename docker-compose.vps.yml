@@ -83,6 +83,11 @@ services:
     ports: []
     environment:
       ALLOWED_ORIGINS: "https://${PUBLIC_HOST}"
+      # The base URL an OAuth client is sent to. Without it the API derives one
+      # from X-Forwarded-Proto/Host, which Traefik does set — so it would work,
+      # by accident, until somebody changes the proxy. The domain is already
+      # known here; saying it is cheaper than depending on that.
+      OPENEDGE_PUBLIC_URL: "https://${PUBLIC_HOST}"
 
   # ── PostgreSQL — never exposed to internet ───────────────────────────────────
   postgres:
