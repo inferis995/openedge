@@ -20,6 +20,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/ralph/industrial-edge-middleware/internal/auth"
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
@@ -674,6 +675,95 @@ func (h *OAuthHandler) Revoke(c *gin.Context) {
 	// The spec requires 200 even for an unknown token, so that revocation
 	// cannot be used to probe which tokens exist.
 	c.Status(http.StatusOK)
+}
+
+// ---- what the user can see and take back ----------------------------------------
+
+// ListAuthorizations answers "which applications can reach my plant?".
+//
+// Without this the only record of a delegated grant is a row in a table, and
+// the only way to end one is a SQL statement. A consent screen that can be
+// answered but never revisited is a decision the user makes once and then
+// cannot review.
+func (h *OAuthHandler) ListAuthorizations(c *gin.Context) {
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	rows, err := h.db.QueryContext(c.Request.Context(), `
+		SELECT r.client_id, COALESCE(c.client_name, '(client rimosso)'),
+		       MAX(r.scope), MIN(r.created_at), MAX(r.created_at), MAX(r.expires_at)
+		  FROM oauth_refresh_tokens r
+		  LEFT JOIN oauth_clients c ON c.client_id = r.client_id
+		 WHERE r.user_id = $1 AND r.revoked_at IS NULL AND r.expires_at > NOW()
+		 GROUP BY r.client_id, c.client_name
+		 ORDER BY MAX(r.created_at) DESC`, userID)
+	if err != nil {
+		log.Printf("[OAUTH] list authorizations: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list authorizations"})
+		return
+	}
+	defer func() { _ = rows.Close() }()
+
+	items := []gin.H{}
+	for rows.Next() {
+		var clientID, name, scope string
+		var firstAt, lastAt, expiresAt time.Time
+		if err := rows.Scan(&clientID, &name, &scope, &firstAt, &lastAt, &expiresAt); err != nil {
+			log.Printf("[OAUTH] scan authorization: %v", err)
+			continue
+		}
+		items = append(items, gin.H{
+			"client_id":      clientID,
+			"client_name":    name,
+			"scope":          scope,
+			"authorized_at":  firstAt,
+			"last_issued_at": lastAt,
+			"expires_at":     expiresAt,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[OAUTH] list authorizations: %v", err)
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items)})
+}
+
+// RevokeAuthorization ends every grant this user gave one client.
+//
+// It is honest about what it cannot do: an access token already issued is a
+// signed JWT that nothing consults a database about, so it keeps working until
+// it expires. The response says so rather than implying the access stopped at
+// the moment of the click.
+func (h *OAuthHandler) RevokeAuthorization(c *gin.Context) {
+	userID, ok := middleware.GetUserID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+	clientID := c.Param("client_id")
+	if clientID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "client_id is required"})
+		return
+	}
+
+	res, err := h.db.ExecContext(c.Request.Context(),
+		`UPDATE oauth_refresh_tokens SET revoked_at=NOW()
+		  WHERE client_id=$1 AND user_id=$2 AND revoked_at IS NULL`, clientID, userID)
+	if err != nil {
+		log.Printf("[OAUTH] revoke authorization: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke"})
+		return
+	}
+	n, _ := res.RowsAffected()
+
+	c.JSON(http.StatusOK, gin.H{
+		"revoked": n,
+		"note": "Un access token già emesso resta valido fino alla scadenza, " +
+			"al massimo un'ora: è un JWT autoconsistente e non può essere richiamato.",
+		"access_token_ttl_seconds": int(accessTokenTTL.Seconds()),
+	})
 }
 
 func (h *OAuthHandler) revokeFamily(ctx context.Context, clientID string, userID int) {

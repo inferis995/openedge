@@ -443,6 +443,15 @@ func main() {
 		{
 			auth.POST("/login", middleware.LoginRateLimit(), authHandler.Login)
 		}
+		// Which applications the signed-in user has granted access to, and how
+		// to take it back. A consent screen that can be answered but never
+		// revisited is a decision made once and then unreviewable.
+		oauthMe := api.Group("/oauth", middleware.RequireAuth)
+		{
+			oauthMe.GET("/authorizations", oauthHandler.ListAuthorizations)
+			oauthMe.DELETE("/authorizations/:client_id", oauthHandler.RevokeAuthorization)
+		}
+
 		// Authenticated user self-service
 		authMe := api.Group("/auth")
 		authMe.Use(middleware.RequireAuth)

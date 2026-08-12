@@ -43,6 +43,7 @@ import {
     AlertTriangle,
     Boxes,
     Layers,
+    Plug,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -88,6 +89,7 @@ const Sidebar = () => {
         { name: 'Tipi (UDT)', path: '/udt/types', icon: Boxes },
         { name: 'Istanze', path: '/udt/instances', icon: Layers },
         { name: 'Sinottici', path: '/synoptics', icon: LayoutTemplate },
+        { name: 'App collegate', path: '/connected-apps', icon: Plug },
     ];
 
     // OT Compliance section — visible to all authenticated users

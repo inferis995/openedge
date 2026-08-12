@@ -35,6 +35,7 @@ import AuditPage from '@/pages/AuditPage';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import ResetPasswordPage from '@/pages/ResetPasswordPage';
 import ProfilePage from '@/pages/ProfilePage';
+import ConnectedAppsPage from '@/pages/ConnectedAppsPage';
 import FleetPage from '@/pages/FleetPage';
 import SecurityPage from '@/pages/SecurityPage';
 import InfrastructurePage from '@/pages/InfrastructurePage';
@@ -161,6 +162,7 @@ function App() {
                     <Route path="/synoptics/:id/edit" element={<SynopticEditorPage mode="edit" />} />
                     <Route path="/users" element={<UsersPage />} />
                     <Route path="/profile" element={<ProfilePage />} />
+                    <Route path="/connected-apps" element={<ConnectedAppsPage />} />
                     <Route path="/compliance/assets" element={<AssetDiscoveryPage />} />
                     <Route path="/compliance/risk" element={<RiskPosturePage />} />
                     <Route path="/compliance/threats" element={<ThreatMonitorPage />} />
