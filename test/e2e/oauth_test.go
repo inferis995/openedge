@@ -94,6 +94,35 @@ func registerClient(t *testing.T, redirectURI, scope string) registeredClient {
 	return out
 }
 
+// postAuthorize submits the consent form, backing off while the login limiter
+// says no.
+//
+// Every test that posts to /oauth/authorize must go through here. The endpoint
+// takes a password, so it shares the login limiter — 10 a minute per address —
+// and the whole suite arrives from one address. Four tests posted the form
+// directly and read a 429 as the server's opinion of their request: one
+// reported "want 400, got 429", another "want error=access_denied, got """,
+// which is what an empty Location header looks like after a rate-limited reply.
+// The limiter is doing its job; the tests were not going through the door.
+func postAuthorize(t *testing.T, form url.Values) *http.Response {
+	t.Helper()
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		resp, err := oauthHTTP().PostForm(apiBase()+"/oauth/authorize", form)
+		if err != nil {
+			t.Fatalf("authorize: %v", err)
+		}
+		if resp.StatusCode != http.StatusTooManyRequests {
+			return resp
+		}
+		_ = resp.Body.Close()
+		if time.Now().After(deadline) {
+			t.Fatalf("authorize: still rate limited after 90s")
+		}
+		time.Sleep(3 * time.Second)
+	}
+}
+
 // approve submits the consent form and returns the authorization code from the
 // redirect. It is the step a human performs in a browser.
 func approve(t *testing.T, cl registeredClient, redirectURI, challenge, state, scope string) string {
@@ -113,22 +142,7 @@ func approve(t *testing.T, cl registeredClient, redirectURI, challenge, state, s
 		"password":              {pass},
 	}
 
-	// The decision endpoint shares the login rate limiter, and the whole suite
-	// arrives from one address. Back off rather than weakening the limiter.
-	var resp *http.Response
-	deadline := time.Now().Add(60 * time.Second)
-	for {
-		var err error
-		resp, err = oauthHTTP().PostForm(apiBase()+"/oauth/authorize", form)
-		if err != nil {
-			t.Fatalf("authorize: %v", err)
-		}
-		if resp.StatusCode != http.StatusTooManyRequests || time.Now().After(deadline) {
-			break
-		}
-		_ = resp.Body.Close()
-		time.Sleep(3 * time.Second)
-	}
+	resp := postAuthorize(t, form)
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusFound {
@@ -216,7 +230,14 @@ func TestOAuthAuthorizationCodeFlow(t *testing.T) {
 
 	// The token has to work on the real API, through the same middleware as
 	// every other request.
-	client := &apiClient{t: t, token: tok.AccessToken}
+	//
+	// The organization header is not incidental. The bootstrap admin is a
+	// GLOBAL admin — org_id is NULL — so nothing in the token says which tenant
+	// a request is about, and OrganizationContext refuses rather than guess.
+	// That is the platform's existing rule, not something OAuth introduced, and
+	// an OAuth client for a global admin has to name the tenant the same way
+	// every other caller does.
+	client := &apiClient{t: t, token: tok.AccessToken, orgID: "1"}
 	client.mustDo(http.MethodGet, "/api/gateways", nil, http.StatusOK)
 }
 
@@ -366,7 +387,7 @@ func TestOAuthReadOnlyTokenCannotWrite(t *testing.T) {
 		t.Fatalf("a client registered read-only received %q", tok.Scope)
 	}
 
-	client := &apiClient{t: t, token: tok.AccessToken}
+	client := &apiClient{t: t, token: tok.AccessToken, orgID: "1"}
 	// Reading is what it asked for.
 	client.mustDo(http.MethodGet, "/api/gateways", nil, http.StatusOK)
 
@@ -386,7 +407,7 @@ func TestOAuthRejectsUnregisteredRedirect(t *testing.T) {
 	cl := registerClient(t, testRedirect, "openedge:read")
 	user, pass := adminCredentials()
 
-	resp, err := oauthHTTP().PostForm(apiBase()+"/oauth/authorize", url.Values{
+	resp := postAuthorize(t, url.Values{
 		"client_id":             {cl.ClientID},
 		"redirect_uri":          {"http://127.0.0.1:33418/callback.evil.example.com"},
 		"response_type":         {"code"},
@@ -397,9 +418,6 @@ func TestOAuthRejectsUnregisteredRedirect(t *testing.T) {
 		"username":              {user},
 		"password":              {pass},
 	})
-	if err != nil {
-		t.Fatalf("authorize: %v", err)
-	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusFound {
@@ -497,7 +515,7 @@ func TestOAuthDenyReturnsNoCode(t *testing.T) {
 	_, challenge := pkcePair(t)
 	cl := registerClient(t, testRedirect, "openedge:read")
 
-	resp, err := oauthHTTP().PostForm(apiBase()+"/oauth/authorize", url.Values{
+	resp := postAuthorize(t, url.Values{
 		"client_id":             {cl.ClientID},
 		"redirect_uri":          {testRedirect},
 		"response_type":         {"code"},
@@ -506,9 +524,6 @@ func TestOAuthDenyReturnsNoCode(t *testing.T) {
 		"code_challenge_method": {"S256"},
 		"action":                {"deny"},
 	})
-	if err != nil {
-		t.Fatalf("authorize: %v", err)
-	}
 	defer func() { _ = resp.Body.Close() }()
 
 	loc, _ := url.Parse(resp.Header.Get("Location"))
@@ -527,7 +542,7 @@ func TestOAuthWrongPasswordProducesNoCode(t *testing.T) {
 	cl := registerClient(t, testRedirect, "openedge:read")
 	user, _ := adminCredentials()
 
-	resp, err := oauthHTTP().PostForm(apiBase()+"/oauth/authorize", url.Values{
+	resp := postAuthorize(t, url.Values{
 		"client_id":             {cl.ClientID},
 		"redirect_uri":          {testRedirect},
 		"response_type":         {"code"},
@@ -538,9 +553,6 @@ func TestOAuthWrongPasswordProducesNoCode(t *testing.T) {
 		"username":              {user},
 		"password":              {"definitely-not-the-password"},
 	})
-	if err != nil {
-		t.Fatalf("authorize: %v", err)
-	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusFound {

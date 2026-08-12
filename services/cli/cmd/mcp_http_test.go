@@ -196,6 +196,34 @@ func TestMCPHTTPForwardsOrganizationHeader(t *testing.T) {
 	}
 }
 
+// A global admin's token names no organization, and most of the API refuses to
+// guess which tenant a request is about. An MCP client has no reason to know
+// about the header, so the server it is connected to supplies its own default.
+func TestMCPHTTPFallsBackToTheConfiguredOrganization(t *testing.T) {
+	core := newFakeCore(t)
+	h := newTestMCP(t, core, "")
+	h.defaultOrg = 3
+
+	call := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_gateways","arguments":{}}}`
+
+	post(t, h, call, withToken("tok"))
+	if core.lastOrg != "3" {
+		t.Fatalf("no header sent: core API saw org %q, want the configured 3", core.lastOrg)
+	}
+
+	// An explicit header still wins — the default is a fallback, not a ceiling.
+	post(t, h, call, map[string]string{"Authorization": "Bearer tok", "X-Organization-ID": "9"})
+	if core.lastOrg != "9" {
+		t.Fatalf("the caller's header was overridden by the default: %q", core.lastOrg)
+	}
+
+	// And a malformed one falls back rather than being sent on as garbage.
+	post(t, h, call, map[string]string{"Authorization": "Bearer tok", "X-Organization-ID": "not-a-number"})
+	if core.lastOrg != "3" {
+		t.Fatalf("a malformed header produced org %q", core.lastOrg)
+	}
+}
+
 // A JSON-RPC notification carries no id and must not be answered. Returning a
 // body here would be a protocol violation the client reports as an error.
 func TestMCPHTTPNotificationGetsNoBody(t *testing.T) {

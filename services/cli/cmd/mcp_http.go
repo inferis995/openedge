@@ -72,6 +72,13 @@ type mcpHTTPServer struct {
 	authServer     string
 	publicURL      string
 	allowedOrigins map[string]bool
+
+	// The organization to assume when a caller names none. A global admin's
+	// token carries no org, and most of the API refuses to guess which tenant a
+	// request is about — so without this an operator running one MCP server for
+	// one plant would have to make every client send a header it has no reason
+	// to know about.
+	defaultOrg int
 }
 
 func runMCPOverHTTP(addr string) {
@@ -80,8 +87,10 @@ func runMCPOverHTTP(addr string) {
 		origins[strings.TrimRight(o, "/")] = true
 	}
 
+	base, defaultOrg := getMCPClient()
 	h := &mcpHTTPServer{
-		base:           getMCPClient(),
+		base:           base,
+		defaultOrg:     defaultOrg,
 		authServer:     strings.TrimRight(flagMCPAuthServer, "/"),
 		publicURL:      strings.TrimRight(flagMCPPublicURL, "/"),
 		allowedOrigins: origins,
@@ -193,7 +202,7 @@ func (h *mcpHTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	// The caller's identity, not the process's.
 	srv := &mcpServer{
-		client:      h.base.WithToken(token, orgFromRequest(r)),
+		client:      h.base.WithToken(token, h.orgFor(r)),
 		initialized: true,
 	}
 
@@ -269,15 +278,17 @@ func bearerToken(r *http.Request) string {
 	return strings.TrimSpace(auth[len(prefix):])
 }
 
-// orgFromRequest reads the optional organization header. The core API decides
-// what the token is allowed to see regardless; this only lets a global admin
-// say which tenant they mean.
-func orgFromRequest(r *http.Request) int {
-	n, err := strconv.Atoi(r.Header.Get("X-Organization-ID"))
-	if err != nil || n < 0 {
-		return 0
+// orgFor decides which organization this request is about: the header if the
+// caller sent one, otherwise the server's configured default.
+//
+// The core API decides what the token is allowed to see regardless — a header
+// naming somebody else's tenant is refused there, not here. This only settles
+// which tenant a caller MEANS, which a global admin's token does not say.
+func (h *mcpHTTPServer) orgFor(r *http.Request) int {
+	if n, err := strconv.Atoi(r.Header.Get("X-Organization-ID")); err == nil && n > 0 {
+		return n
 	}
-	return n
+	return h.defaultOrg
 }
 
 func readLimited(r *http.Request, limit int64) ([]byte, error) {

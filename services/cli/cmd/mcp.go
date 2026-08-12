@@ -140,7 +140,7 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	client := getMCPClient()
+	client, _ := getMCPClient()
 
 	srv := &mcpServer{
 		client: client,
@@ -153,7 +153,9 @@ func runMCPServer(cmd *cobra.Command, args []string) {
 }
 
 // getMCPClient builds the API client for the MCP server, preferring env vars.
-func getMCPClient() *api.Client {
+// It also returns the configured organization, which the HTTP transport needs
+// separately: there it is only a default, applied when the caller names none.
+func getMCPClient() (*api.Client, int) {
 	cfg, _ := config.Load()
 
 	if v := os.Getenv("OPENEDGE_URL"); v != "" {
@@ -183,7 +185,7 @@ func getMCPClient() *api.Client {
 		log.Println("Warning: OPENEDGE_URL not set. Tool calls will fail.")
 	}
 
-	return api.New(cfg.URL, cfg.Token, cfg.OrgID)
+	return api.New(cfg.URL, cfg.Token, cfg.OrgID), cfg.OrgID
 }
 
 func (s *mcpServer) serve() {
