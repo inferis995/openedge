@@ -1,7 +1,7 @@
 ---
 name: openedge-ops
 description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), VPS con Traefik, Coolify, edge profile. Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), modellazione impianto con UDT (tipi riusabili con propagazione alle istanze), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security, NIS2/IEC62443 compliance automatica (asset sync da gateway, CSIRT Art.23 countdown, vendor risk Art.18, 30-item checklist auto-assessed), MFA TOTP con recovery codes e mfa_required per org.
-version: 7.0.0
+version: 8.0.0
 tags: [industrial, iot, udt, commissioning, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan, nis2, compliance, csirt, vendor-risk, iec62443, mfa, totp, 2fa, recovery-codes]
 requires: [docker, curl, git]
 ---
@@ -297,6 +297,12 @@ ACME_EMAIL=tua@email.com          # solo VPS/Coolify
 
 # Admin iniziale (default: admin123 — cambia dopo il primo login)
 OPENEDGE_INITIAL_ADMIN_PASSWORD=<password>
+
+# URL pubblico. Finisce nel documento di discovery OAuth e nei redirect del
+# login: se non è impostato viene ricavato dalla richiesta, che è giusto dietro
+# un proxy che imposta X-Forwarded-Proto/Host e produce link irraggiungibili
+# dietro uno che non lo fa. Impostalo appena hai un dominio.
+OPENEDGE_PUBLIC_URL=https://app.tuazienda.com
 ```
 
 `make setup-env` genera JWT_SECRET, POSTGRES_PASSWORD e MQTT_ADMIN_PASSWORD automaticamente con `openssl rand`.
@@ -880,6 +886,78 @@ openedge tags list --gateway 2 --json | jq '.[].alias'
 
 Dopo il riavvio di Claude Code, i tool OpenEdge appaiono direttamente nella chat
 (`list_gateways`, `get_tag_value`, `list_active_alarms`, ecc.).
+
+### MCP server remoto (per client che non girano su questa macchina)
+
+La configurazione qui sopra lancia un processo locale che usa **il tuo** token.
+Per un server condiviso serve il trasporto HTTP, dove l'identità arriva con
+ogni richiesta:
+
+```bash
+# systemd unit, accanto al core API
+openedge mcp --http 127.0.0.1:9090 \
+  --url http://127.0.0.1:8081 \
+  --auth-server https://app.miazienda.com \
+  --public-url https://mcp.miazienda.com
+```
+
+Poi esponi `https://mcp.miazienda.com` col reverse proxy verso `127.0.0.1:9090`.
+Verifica prima di collegare qualsiasi client:
+
+```bash
+curl -s https://mcp.miazienda.com/healthz
+curl -s https://mcp.miazienda.com/.well-known/oauth-protected-resource | jq .
+curl -si -X POST https://mcp.miazienda.com/mcp -d '{}' | grep -i www-authenticate
+```
+
+L'ultimo comando deve rispondere `401` con un header `WWW-Authenticate` che
+punta al `resource_metadata`. Se manca, `--auth-server` non è impostato e i
+client dovranno portarsi dietro un token statico.
+
+**Cosa questo NON fa**: un server MCP dà a un agente degli *strumenti*. Non
+mostra i sinottici né l'interfaccia dentro il client. La schermata di login
+OAuth, invece, è la tua.
+
+### OAuth — dare accesso a un client senza dargli un token
+
+`OPENEDGE_PUBLIC_URL` deve essere impostato: finisce nel documento di discovery
+e nei redirect del login.
+
+```bash
+curl -s https://app.miazienda.com/.well-known/oauth-authorization-server | jq .
+```
+
+- Scope `openedge:read` / `openedge:write`. Un token read-only viene rifiutato
+  con 403 su ogni POST/PUT/PATCH/DELETE.
+- Access token 1 ora, refresh 30 giorni con rotazione.
+- La registrazione dei client è aperta (RFC 7591) e passa dal rate limiter del
+  login. Un client registrato senza un utente che lo approva non accede a nulla.
+- Per vedere chi ha autorizzato cosa:
+
+```sql
+SELECT c.client_name, u.username, r.scope, r.created_at, r.revoked_at
+  FROM oauth_refresh_tokens r
+  JOIN oauth_clients c ON c.client_id = r.client_id
+  JOIN users u ON u.id = r.user_id
+ ORDER BY r.created_at DESC LIMIT 20;
+```
+
+Per togliere l'accesso a un client:
+
+```sql
+UPDATE oauth_refresh_tokens SET revoked_at = NOW()
+ WHERE client_id = '<client_id>' AND revoked_at IS NULL;
+```
+
+L'access token già emesso resta valido fino alla scadenza (max un'ora): è un
+JWT autoconsistente, verificato solo sulla firma e sulla scadenza, e non c'è
+modo di richiamarlo prima. Se serve una revoca immediata l'unica leva è
+cambiare `JWT_SECRET` e riavviare — che invalida **tutte** le sessioni di
+tutti, non solo quel client.
+
+> `users.token_version` esiste ed è nei claim, ma `middleware.RequireAuth` non
+> lo confronta con la colonna: oggi non revoca nulla. Vedi il TODO in
+> `internal/auth/auth.go`.
 
 ---
 

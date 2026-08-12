@@ -19,6 +19,8 @@ type fakeCore struct {
 	lastAuth string
 	lastOrg  string
 	lastPath string
+	// When set, every call is answered with this status instead of a result.
+	status int
 }
 
 func newFakeCore(t *testing.T) *fakeCore {
@@ -29,6 +31,11 @@ func newFakeCore(t *testing.T) *fakeCore {
 		f.lastOrg = r.Header.Get("X-Organization-ID")
 		f.lastPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
+		if f.status != 0 {
+			w.WriteHeader(f.status)
+			_, _ = w.Write([]byte(`{"error":"Unauthorized: invalid token"}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"items":[]}`))
 	}))
 	t.Cleanup(f.Close)
@@ -341,6 +348,46 @@ func TestMCPHTTPMalformedJSON(t *testing.T) {
 	}
 	if resp := decodeOne(t, rec); resp.Error == nil || resp.Error.Code != -32700 {
 		t.Fatalf("want a JSON-RPC parse error (-32700), got %+v", resp.Error)
+	}
+}
+
+// An access token expires — after an hour on the OAuth path. If that came back
+// as a tool error the client would retry a call that can never succeed; as a
+// 401 with the challenge, it refreshes and carries on.
+func TestMCPHTTPTranslatesUpstream401(t *testing.T) {
+	core := newFakeCore(t)
+	core.status = http.StatusUnauthorized
+	h := newTestMCP(t, core, "https://app.example.com")
+
+	rec := post(t, h,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_gateways","arguments":{}}}`,
+		withToken("expired"))
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("an expired token produced %d; the client has no way to know to refresh", rec.Code)
+	}
+	if !strings.Contains(rec.Header().Get("WWW-Authenticate"), "resource_metadata") {
+		t.Fatalf("no discovery challenge on the 401: %q", rec.Header().Get("WWW-Authenticate"))
+	}
+}
+
+// Only 401 means "refresh". A 403 is a decision the API made about a valid
+// token, and reporting it as an authentication failure would send the client
+// into a refresh loop that changes nothing.
+func TestMCPHTTPLeavesOtherUpstreamErrorsAsToolResults(t *testing.T) {
+	core := newFakeCore(t)
+	core.status = http.StatusForbidden
+	h := newTestMCP(t, core, "https://app.example.com")
+
+	rec := post(t, h,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_gateways","arguments":{}}}`,
+		withToken("read-only"))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("a 403 from the API became HTTP %d instead of a tool result", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "403") {
+		t.Fatalf("the reply does not carry the reason: %q", rec.Body.String())
 	}
 }
 

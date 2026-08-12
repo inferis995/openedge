@@ -122,6 +122,11 @@ type mcpServer struct {
 	reader      *bufio.Reader
 	writer      *bufio.Writer
 	initialized bool
+
+	// Set when the core API refused the caller's token. Over stdio this is
+	// nothing but a failed call; over HTTP it is the one failure the client can
+	// act on, by refreshing its token, so the transport turns it into a 401.
+	upstreamUnauthorized bool
 }
 
 func runMCPServer(cmd *cobra.Command, args []string) {
@@ -715,6 +720,9 @@ func (s *mcpServer) handleToolsCall(req *jsonRPCRequest) *jsonRPCResponse {
 
 	result, err := s.executeTool(params.Name, params.Arguments)
 	if err != nil {
+		if api.Unauthorized(err) {
+			s.upstreamUnauthorized = true
+		}
 		log.Printf("tool error: %s: %v", params.Name, err)
 		return s.okResponse(req.ID, mcpCallResult{
 			Content: []mcpContent{{

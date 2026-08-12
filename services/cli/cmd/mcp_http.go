@@ -215,6 +215,15 @@ func (h *mcpHTTPServer) handleMCP(w http.ResponseWriter, r *http.Request) {
 		responses = append(responses, resp)
 	}
 
+	// An access token expires — after an hour, on the OAuth path. Reporting
+	// that as a tool error would leave the client retrying a call that can
+	// never succeed; reporting it as a 401 with the challenge is what makes it
+	// refresh and carry on.
+	if srv.upstreamUnauthorized {
+		h.unauthorized(w, "the token was refused by the OpenEdge API")
+		return
+	}
+
 	if len(responses) == 0 {
 		w.WriteHeader(http.StatusAccepted)
 		return

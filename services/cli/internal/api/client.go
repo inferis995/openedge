@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -43,6 +44,27 @@ func NewWithOptions(baseURL, token string, orgID int, insecure bool) *Client {
 			Transport: transport,
 		},
 	}
+}
+
+// StatusError is a non-2xx answer from the API, carrying the status code.
+//
+// The code matters to one caller in particular: the MCP server over HTTP has to
+// tell "your token is no longer valid" apart from every other failure, because
+// the first is something the client can fix by refreshing and the rest are not.
+// A formatted string could not be asked that question.
+type StatusError struct {
+	Code int
+	Body string
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("API error %d: %s", e.Code, e.Body)
+}
+
+// Unauthorized reports whether err came back as 401.
+func Unauthorized(err error) bool {
+	var se *StatusError
+	return errors.As(err, &se) && se.Code == http.StatusUnauthorized
 }
 
 // WithToken returns a copy of the client that authenticates as somebody else.
@@ -93,14 +115,15 @@ func (c *Client) Request(method, path string, body, result interface{}) error {
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// Try to extract error message from JSON
+		// Prefer the API's own message when it sent one.
+		body := string(respData)
 		var errBody map[string]interface{}
 		if json.Unmarshal(respData, &errBody) == nil {
 			if msg, ok := errBody["error"].(string); ok {
-				return fmt.Errorf("API error %d: %s", resp.StatusCode, msg)
+				body = msg
 			}
 		}
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(respData))
+		return &StatusError{Code: resp.StatusCode, Body: body}
 	}
 
 	if result != nil && len(respData) > 0 {
@@ -148,7 +171,7 @@ func (c *Client) RawGet(path string) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(data))
+		return nil, &StatusError{Code: resp.StatusCode, Body: string(data)}
 	}
 	return data, nil
 }
@@ -183,7 +206,7 @@ func (c *Client) RawPost(path string, body interface{}) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(data))
+		return nil, &StatusError{Code: resp.StatusCode, Body: string(data)}
 	}
 	return data, nil
 }
@@ -320,7 +343,7 @@ func (c *Client) RawDelete(path string) ([]byte, error) {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(data))
+		return nil, &StatusError{Code: resp.StatusCode, Body: string(data)}
 	}
 	return data, nil
 }

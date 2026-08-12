@@ -1,7 +1,7 @@
 ---
 name: openedge
 description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, OEE via REST + i3X. Multi-tenant SaaS. UDT (tipi definiti dall'utente) con propagazione alle istanze. CLI (openedge) con MCP server mode: 39 tool, l'agente costruisce l'impianto oltre a leggerlo. LoRaWAN auto-discovery + tag import + downlink. Tag Shadows (digital twin). Fleet OTA. SSO/OIDC. RBAC granulare. Slack/Teams/PagerDuty. InfluxDB connector. Usa openedge-ops per deploy/configurazione.
-version: 6.0.0
+version: 7.0.0
 tags: [industrial, iot, udt, provisioning, alarms, historian, timeseries, scada, i3x, cesmii, monitoring, multi-tenant, saas, oee, webhooks, security, nis2, infrastructure, health, ota, fleet, lorawan, shadows, sso, oidc, rbac, cli, mcp, influxdb, slack, teams, pagerduty]
 ---
 
@@ -990,9 +990,9 @@ openedge diagnostics
 
 ## 21. MCP Server per AI Agent Integration
 
-Il comando `openedge mcp` avvia un server MCP (Model Context Protocol) su stdio.
-Permette a Claude Code, Cursor, e altri AI agent di controllare OpenEdge direttamente
-come se fossero tool nativi.
+Il comando `openedge mcp` avvia un server MCP (Model Context Protocol) — su
+stdio per un agente locale (Claude Code, Cursor), o su HTTP con `--http` per un
+client remoto. Gli stessi 39 tool su entrambi i trasporti.
 
 ### Configurazione in Claude Code
 
@@ -1076,17 +1076,88 @@ l'interfaccia.
 
 ### Protocollo
 
-- JSON-RPC 2.0 su stdio con framing `Content-Length`
-- Supporta anche bare newline-delimited JSON (per debug/test)
-- Log su stderr, risposte su stdout
-- Protocol version: `2024-11-05`
+- JSON-RPC 2.0, su **stdio** (default) o su **HTTP** (`--http`)
+- stdio: framing `Content-Length`; accetta anche bare newline-delimited JSON
+  (per debug). Log su stderr, risposte su stdout.
+- Protocol version negoziata: `2025-06-18`, `2025-03-26`, `2024-11-05`
+
+### Server MCP remoto (`--http`)
+
+Su stdio il server è un processo locale e prende l'identità di chi lo ha
+avviato: un token, letto una volta dall'ambiente. Su HTTP il server è
+condiviso e **l'identità arriva con ogni richiesta** — il bearer token del
+chiamante costruisce il client verso il core API, quindi org scoping e
+permessi continuano a valere per ciascun chiamante.
+
+```bash
+openedge mcp --http 127.0.0.1:9090 --url https://app.yourdomain.com
+
+# Token statico (Claude Code, Cursor, uno script):
+claude mcp add --transport http openedge http://127.0.0.1:9090/mcp \
+  --header "Authorization: Bearer eyJ..."
+```
+
+Con OAuth, invece di incollare un token:
+
+```bash
+openedge mcp --http 0.0.0.0:9090 \
+  --url https://app.yourdomain.com \
+  --auth-server https://app.yourdomain.com \
+  --public-url https://mcp.yourdomain.com
+```
+
+| Endpoint | Cosa fa |
+|----------|---------|
+| `POST /mcp` | Le chiamate JSON-RPC. 401 senza bearer, 202 per le notifiche |
+| `GET /mcp` | 405 — questo server non apre stream lato server |
+| `DELETE /mcp` | 204 — non ci sono sessioni da chiudere |
+| `GET /healthz` | Liveness |
+| `GET /.well-known/oauth-protected-resource` | RFC 9728, solo con `--auth-server` |
+
+Dettagli che contano:
+
+- Un 401 dal core API (token scaduto) diventa un **401 dell'endpoint MCP** con
+  `WWW-Authenticate`, così il client rinnova invece di ritentare all'infinito.
+  Un 403 resta un risultato del tool: è una decisione presa su un token valido.
+- L'header `Origin` è rifiutato per default (`--allow-origin` per aprirlo).
+  I client non-browser non lo inviano, quindi non ne risentono.
+- `X-Organization-ID` passa al core API, ma è il JWT a decidere cosa si vede.
 
 ### Test manuale del server MCP
 
 ```bash
+# stdio
 OPENEDGE_URL=http://localhost:8081 OPENEDGE_TOKEN=eyJ... openedge mcp &
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | openedge mcp
+
+# HTTP
+openedge mcp --http 127.0.0.1:9090 --url http://localhost:8081 &
+curl -s -X POST http://127.0.0.1:9090/mcp -H "Authorization: Bearer $TOKEN" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools | length'
 ```
+
+### OAuth 2.1 — dare accesso senza dare un token
+
+Il core API è anche un authorization server. Un client remoto si registra da
+solo, manda l'utente a fare login su OpenEdge, e riceve un token limitato a
+quello che l'utente ha approvato.
+
+| Endpoint | RFC |
+|----------|-----|
+| `GET /.well-known/oauth-authorization-server` | 8414 (discovery) |
+| `POST /oauth/register` | 7591 (dynamic client registration) |
+| `GET \| POST /oauth/authorize` | login + consenso, PKCE S256 obbligatorio |
+| `POST /oauth/token` | `authorization_code` e `refresh_token` |
+| `POST /oauth/revoke` | 7009 |
+
+- Scope: `openedge:read` e `openedge:write`. Il **write è applicato** in
+  `middleware.RequireAuth`: un token read-only prende 403 su POST/PUT/PATCH/DELETE.
+- I token da login con password non hanno lo scope claim e restano illimitati —
+  niente di esistente cambia comportamento.
+- Access token 1 ora, refresh token 30 giorni con **rotazione**. Un codice o un
+  refresh token riusato revoca tutti i token di quel client per quell'utente.
+- `OPENEDGE_PUBLIC_URL` va impostato in produzione: finisce nel documento di
+  discovery e nei redirect.
 
 ---
 
