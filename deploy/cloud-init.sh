@@ -83,14 +83,36 @@ if [ ! -f .env ]; then
   info "Created .env from .env.cloud.example"
 fi
 
-# Auto-generate secrets if still placeholders
+# Auto-generate secrets if still placeholders.
+#
+# ENCRYPTION_KEY must be EXACTLY 32 bytes: at any other length core-api ignores
+# it and stores every tenant's broker password in cleartext, saying so once in a
+# log line. It was missing from this loop and from .env.cloud.example, so every
+# install made here came up that way.
+#
+# GRAFANA_ADMIN_PASSWORD was missing too, and its compose entry only refuses an
+# EMPTY value — so the placeholder satisfied it, and Grafana went onto the
+# public internet with a password published in this repository.
 for VAR in JWT_SECRET POSTGRES_PASSWORD MQTT_ADMIN_PASSWORD; do
-  if grep -q "^${VAR}=CHANGE_ME" .env; then
-    SECRET=$(openssl rand -hex 32)
-    sed -i "s|^${VAR}=.*|${VAR}=${SECRET}|" .env
+  if ! grep -q "^${VAR}=" .env || grep -q "^${VAR}=CHANGE_ME" .env; then
+    sed -i "s|^${VAR}=.*|${VAR}=$(openssl rand -hex 32)|" .env
     info "Auto-generated $VAR"
   fi
 done
+
+if ! grep -q "^ENCRYPTION_KEY=" .env || grep -q "^ENCRYPTION_KEY=CHANGE_ME" .env; then
+  ENC_KEY=$(openssl rand -hex 16)   # 32 hex characters = 32 bytes
+  grep -v "^ENCRYPTION_KEY=" .env > .env.tmp && mv .env.tmp .env
+  printf 'ENCRYPTION_KEY=%s\n' "$ENC_KEY" >> .env
+  info "Auto-generated ENCRYPTION_KEY (AES-256, exactly 32 bytes)"
+fi
+
+if ! grep -q "^GRAFANA_ADMIN_PASSWORD=" .env || grep -q "^GRAFANA_ADMIN_PASSWORD=CHANGE_ME" .env; then
+  GF_PASS=$(openssl rand -base64 24 | tr -d '/+=')
+  grep -v "^GRAFANA_ADMIN_PASSWORD=" .env > .env.tmp && mv .env.tmp .env
+  printf 'GRAFANA_ADMIN_PASSWORD=%s\n' "$GF_PASS" >> .env
+  info "Auto-generated GRAFANA_ADMIN_PASSWORD (Grafana is internet-facing here)"
+fi
 
 # Prompt for domain and email if not set
 PUBLIC_HOST=$(grep "^PUBLIC_HOST=" .env | cut -d= -f2 || true)
@@ -135,6 +157,16 @@ else
   [[ "$CONT" =~ ^[Yy]$ ]] || error "Aborted — fix DNS first"
 fi
 
+# Grafana is published at grafana.$PUBLIC_HOST by this overlay, and needs its
+# own A record. Without one Let's Encrypt cannot validate that hostname and
+# Traefik retries into the rate limit, which delays the certificate for the main
+# domain too — a Grafana nobody asked for taking the site down with it.
+GF_IP=$(dig +short "grafana.${PUBLIC_HOST}" 2>/dev/null | tail -1 || true)
+if [ "$GF_IP" != "$SERVER_IP" ]; then
+  warn "grafana.${PUBLIC_HOST} does not resolve here (${GF_IP:-<not found>})."
+  warn "  Add an A record for it, or Traefik will keep failing to get its certificate."
+fi
+
 # ── 7. Install systemd service ────────────────────────────────────────────────
 step "Installing systemd service"
 COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.vps.yml"
@@ -161,6 +193,12 @@ EOF
 systemctl daemon-reload
 systemctl enable openedge-cloud
 info "Systemd service openedge-cloud installed and enabled"
+
+# ── 7b. Preflight ─────────────────────────────────────────────────────────────
+step "Checking the configuration is fit for production"
+if ! bash scripts/preflight.sh .env; then
+  error "Fix the problems above and run this script again."
+fi
 
 # ── 8. Build and start ────────────────────────────────────────────────────────
 step "Building and starting OpenEdge"

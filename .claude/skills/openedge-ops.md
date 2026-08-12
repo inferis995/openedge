@@ -186,6 +186,18 @@ Get-Service OpenEdge   # Status: Running
 
 **Prerequisiti**: VPS con IP pubblico, dominio puntato all'IP, porte 80/443/8883 aperte
 
+> **Prima di avviare qualsiasi cosa in produzione**: `make preflight`.
+> Rifiuta l'avvio se un segreto è ancora il segnaposto del repository, se
+> `ENCRYPTION_KEY` non è esattamente 32 byte (a qualsiasi altra lunghezza viene
+> ignorata e le credenziali dei broker finiscono in chiaro nel database), se
+> `BACKUP_SCHEDULE` non è quotato (il backup non parte mai) o se `PUBLIC_HOST`
+> è ancora quello d'esempio. `make vps-up` lo esegue da solo.
+>
+> **DNS**: servono DUE record A — `PUBLIC_HOST` e `grafana.PUBLIC_HOST`.
+> Grafana è pubblicato su internet da questo overlay, e senza il suo record
+> Let's Encrypt fallisce e Traefik ritenta fino al rate limit, ritardando anche
+> il certificato del dominio principale.
+
 ```bash
 # Opzione 1 — Script automatico (raccomandato)
 git clone https://github.com/inferis995/openedge.git

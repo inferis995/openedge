@@ -1,8 +1,8 @@
 # Cloud / SaaS deployment overlay.
 #
 # Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.cloud.yml up -d
-#   (or: make cloud-up)
+#   docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d
+#   (or: make vps-up, which runs scripts/preflight.sh first)
 #
 # Requires in .env (copy .env.cloud.example → .env and fill in):
 #   PUBLIC_HOST   your domain, e.g. app.openedge.io
@@ -13,12 +13,20 @@
 #   - Removes all host port bindings from internal services
 #   - Only ports 80, 443, 8883 are exposed to the internet
 #   - Adds HSTS, X-Frame-Options and other security headers
+#
+# DNS: PUBLIC_HOST needs an A record here. So does grafana.PUBLIC_HOST — the
+# monitoring stack below is published through Traefik, and without its own
+# record Let's Encrypt cannot validate it and Traefik retries into the rate
+# limit, which also delays the certificate for the main domain.
 
 services:
 
   # ── Traefik v3 — reverse proxy + automatic TLS ──────────────────────────────
   traefik:
     image: traefik:v3.1
+    mem_limit: ${TRAEFIK_MEM_LIMIT:-256m}
+    cpus: ${TRAEFIK_CPUS:-1.0}
+    pids_limit: 256
     # Every other service in this overlay is a patch on docker-compose.yml, which
     # already sets security_opt. Compose CONCATENATES list values across overlay
     # files, so repeating it there would produce duplicate entries.
@@ -162,6 +170,9 @@ services:
   # ── Monitoring — always on in VPS/cloud ──────────────────────────────────────
   prometheus:
     image: prom/prometheus:v3.4.0
+    mem_limit: ${PROMETHEUS_MEM_LIMIT:-1g}
+    cpus: ${PROMETHEUS_CPUS:-1.0}
+    pids_limit: 256
     container_name: openedge-prometheus
     volumes:
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -177,6 +188,9 @@ services:
 
   grafana:
     image: grafana/grafana:12.0.2
+    mem_limit: ${GRAFANA_MEM_LIMIT:-512m}
+    cpus: ${GRAFANA_CPUS:-1.0}
+    pids_limit: 256
     container_name: openedge-grafana
     environment:
       # Fail fast: this Grafana is published on the public internet via Traefik
@@ -199,6 +213,9 @@ services:
 
   alertmanager:
     image: prom/alertmanager:v0.28.1
+    mem_limit: ${ALERTMANAGER_MEM_LIMIT:-256m}
+    cpus: 0.5
+    pids_limit: 128
     container_name: openedge-alertmanager
     volumes:
       - ./monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
@@ -212,6 +229,9 @@ services:
 
   loki:
     image: grafana/loki:3.5.0
+    mem_limit: ${LOKI_MEM_LIMIT:-512m}
+    cpus: ${LOKI_CPUS:-1.0}
+    pids_limit: 256
     container_name: openedge-loki
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
@@ -222,6 +242,9 @@ services:
 
   promtail:
     image: grafana/promtail:3.5.0
+    mem_limit: ${PROMTAIL_MEM_LIMIT:-256m}
+    cpus: 0.5
+    pids_limit: 128
     container_name: openedge-promtail
     volumes:
       - /var/log:/var/log:ro
@@ -236,6 +259,9 @@ services:
 
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.16.0
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
     container_name: openedge-postgres-exporter
     environment:
       DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-industrial_user}:${POSTGRES_PASSWORD:-}@postgres:5432/${POSTGRES_DB:-industrial_edge}?sslmode=disable"
@@ -245,6 +271,9 @@ services:
 
   redis-exporter:
     image: oliver006/redis_exporter:v1.67.0
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
     container_name: openedge-redis-exporter
     environment:
       REDIS_ADDR: redis:6379
@@ -254,6 +283,9 @@ services:
 
   node-exporter:
     image: prom/node-exporter:v1.9.1
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
     container_name: openedge-node-exporter
     volumes:
       - /proc:/host/proc:ro
@@ -270,6 +302,9 @@ services:
 
   mosquitto-exporter:
     image: sapcc/mosquitto-exporter:0.8.0
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
     container_name: openedge-mosquitto-exporter
     environment:
       BROKER_ENDPOINT: "tcp://mosquitto:1883"

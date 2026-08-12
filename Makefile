@@ -165,8 +165,12 @@ kiosk-linux:
 vps-init: setup-env
 	bash deploy/cloud-init.sh
 
+## Refuse to start production with placeholder or missing secrets
+preflight:
+	@bash scripts/preflight.sh
+
 ## Start the VPS stack (Traefik + Let's Encrypt + all services)
-vps-up: setup-env
+vps-up: setup-env preflight
 	$(COMPOSE_VPS) build
 	$(COMPOSE_VPS) up -d
 	@echo ""
@@ -175,7 +179,7 @@ vps-up: setup-env
 	@echo "  MQTT:   mqtts://$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'your-domain'):8883"
 
 ## Start the VPS stack + edge (driver-manager on the same VPS — all-in-one cloud)
-vps-up-edge: setup-env
+vps-up-edge: setup-env preflight
 	$(COMPOSE_VPS_EDGE) build
 	$(COMPOSE_VPS_EDGE) up -d
 	@echo ""

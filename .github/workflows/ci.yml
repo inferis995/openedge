@@ -57,7 +57,10 @@ jobs:
         run: go vet ./...
 
       - name: Run tests with race detector
-        run: go test -race ./internal/... ./services/...
+        # ./test/... carries the deployment-configuration checks. They need no
+        # stack, so running them here rather than in the e2e job reports a
+        # broken production template in seconds instead of ten minutes.
+        run: go test -race ./internal/... ./services/... ./test/...
 
   # ── Go: known vulnerabilities ────────────────────────────────────────────────
   # Checks the dependency tree against the official Go vulnerability database.
