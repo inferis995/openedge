@@ -4,10 +4,11 @@
 # Why this exists: every value below has a default, a placeholder, or a warning
 # somewhere, and none of them stop a deployment. ENCRYPTION_KEY defaults to
 # empty and core-api logs a line about storing tenant credentials in cleartext,
-# then serves traffic. GRAFANA_ADMIN_PASSWORD only has to be non-empty, so the
-# placeholder from this repository satisfies it — on a Grafana published to the
-# internet. A cron expression with unquoted spaces aborts backup.sh before it
-# dumps anything, silently, forever.
+# then serves traffic. A cron expression with unquoted spaces aborts backup.sh
+# before it dumps anything, silently, forever. GRAFANA_ADMIN_PASSWORD only has
+# to be non-empty, so the placeholder from this repository satisfies it — which
+# matters only once the monitoring profile is on and Grafana is published, and
+# is why that check waits for --with-monitoring.
 #
 # Each of those is survivable in development and none of them should reach a
 # customer. This script turns them into a failed start, which is the only
