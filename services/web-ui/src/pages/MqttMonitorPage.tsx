@@ -418,7 +418,7 @@ const MqttMonitorPage = () => {
     return (
         <div className="space-y-4 h-full flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                     <Radio className={`h-6 w-6 ${isConnected ? 'text-green-500 animate-pulse' : 'text-red-500'}`} />
                     <div>

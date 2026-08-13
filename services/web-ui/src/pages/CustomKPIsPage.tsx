@@ -106,7 +106,7 @@ const CustomKPIsPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
                         <Target size={22} /> KPI di Produzione
@@ -211,7 +211,7 @@ const CustomKPIsPage = () => {
                                 ))}
                             </select>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="grid gap-1">
                                 <Label htmlFor="ck-agg">Aggregazione</Label>
                                 <select id="ck-agg" value={aggregation} onChange={(e) => setAggregation(e.target.value as AggregationType)}
@@ -231,7 +231,7 @@ const CustomKPIsPage = () => {
                                 </select>
                             </div>
                         </div>
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                             <div className="grid gap-1">
                                 <Label htmlFor="ck-unit">Unità</Label>
                                 <Input id="ck-unit" value={unit} onChange={(e) => setUnit(e.target.value)}

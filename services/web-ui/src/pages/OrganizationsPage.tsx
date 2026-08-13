@@ -104,7 +104,7 @@ const OrganizationsPage = () => {
     return (
         <div className="space-y-6">
             {/* Tenant stats banner */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="rounded-lg border bg-card p-4 text-center">
                     <div className="text-3xl font-bold text-primary">{organizations.length}</div>
                     <div className="text-sm text-muted-foreground mt-1">Tenant totali</div>
@@ -125,7 +125,7 @@ const OrganizationsPage = () => {
             </div>
 
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">Organizations</h2>
                     <p className="text-muted-foreground text-sm">

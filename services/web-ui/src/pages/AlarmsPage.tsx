@@ -387,7 +387,7 @@ export default function AlarmsPage() {
                 onCancel={() => setConfirmBulkAck(false)}
             />
 
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight">Allarmi e Notifiche</h1>
                     <p className="text-muted-foreground mt-1">Monitora gli allarmi in corso e lo storico degli eventi.</p>

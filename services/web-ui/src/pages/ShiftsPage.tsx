@@ -106,7 +106,7 @@ const ShiftsPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
                         <Clock size={22} /> Turni & Operatori
@@ -193,7 +193,7 @@ const ShiftsPage = () => {
                             <Input id="sh-name" value={name} onChange={(e) => setName(e.target.value)}
                                 placeholder="es. Mattina" />
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="grid gap-1">
                                 <Label htmlFor="sh-start">Inizio</Label>
                                 <Input id="sh-start" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
@@ -308,7 +308,7 @@ const AssignmentsDialog = ({ shift, onClose }: { shift: Shift | null; onClose: (
                     <div className="flex items-center gap-2 text-sm font-semibold">
                         <UserPlus size={14} /> Aggiungi operatore
                     </div>
-                    <div className="grid grid-cols-3 gap-2 items-end">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 items-end">
                         <div className="grid gap-1">
                             <Label htmlFor="asg-user" className="text-xs">Utente</Label>
                             <select

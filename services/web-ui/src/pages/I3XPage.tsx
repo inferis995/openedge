@@ -553,7 +553,7 @@ export default function I3XPage() {
     return (
         <div className="space-y-6">
             {/* ── Header ── */}
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="space-y-1">
                     <div className="flex items-center gap-3">
                         <div className="p-2 clip-hex bg-primary/10">
@@ -579,7 +579,7 @@ export default function I3XPage() {
             </div>
 
             {/* ── Stats bar ── */}
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card className="clip-chamfer-sm">
                     <CardContent className="p-4 flex items-center gap-3">
                         <div className="p-2 clip-hex bg-blue-500/10">
@@ -650,7 +650,7 @@ export default function I3XPage() {
 
                 {/* ── Equipment Browser ── */}
                 <TabsContent value="browser" className="mt-4">
-                    <div className="grid grid-cols-5 gap-4">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
                         {/* Tree navigator */}
                         <Card className="col-span-2 clip-chamfer-sm">
                             <CardHeader className="pb-2 border-b">
@@ -1045,7 +1045,7 @@ export default function I3XPage() {
                         </CardContent>
                     </Card>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         {/* ID mapping */}
                         <Card className="clip-chamfer-sm">
                             <CardHeader className="pb-3 border-b">

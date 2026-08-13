@@ -216,7 +216,7 @@ export default function RiskPosturePage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">Postura di Rischio</h2>
                     <p className="text-muted-foreground">Valutazione baseline e conformità NIS2 / IEC 62443</p>
@@ -253,7 +253,7 @@ export default function RiskPosturePage() {
                                 <div className="flex-1 space-y-1">
                                     <p className="text-xs text-muted-foreground uppercase tracking-wider">Score medio di rischio</p>
                                     <ProgressBar value={avgScore} max={10} />
-                                    <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2 text-xs">
                                         <div>
                                             <span className="text-muted-foreground">Asset totali: </span>
                                             <span className="font-bold">{posture?.total_assets ?? 0}</span>
@@ -357,7 +357,7 @@ export default function RiskPosturePage() {
                                         </div>
                                     </div>
                                     {score?.nis2 && (
-                                        <div className="grid grid-cols-4 gap-2 text-center">
+                                        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-center">
                                             <div className="p-2 bg-green-500/10 rounded">
                                                 <p className="text-lg font-bold text-green-500">{score.nis2.compliant}</p>
                                                 <p className="text-xs text-muted-foreground">Conformi</p>
@@ -389,7 +389,7 @@ export default function RiskPosturePage() {
                                         </div>
                                     </div>
                                     {score?.iec62443 && (
-                                        <div className="grid grid-cols-4 gap-2 text-center">
+                                        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 text-center">
                                             <div className="p-2 bg-green-500/10 rounded">
                                                 <p className="text-lg font-bold text-green-500">{score.iec62443.compliant}</p>
                                                 <p className="text-xs text-muted-foreground">Conformi</p>

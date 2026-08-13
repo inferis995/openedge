@@ -111,7 +111,7 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
 
                     {/* Stats row */}
                     {pen.stats && (
-                        <div className="grid grid-cols-4 gap-0.5 pl-5">
+                        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-0.5 pl-5">
                             {[
                                 { label: 'Lst', value: pen.stats.last },
                                 { label: 'Min', value: pen.stats.min },

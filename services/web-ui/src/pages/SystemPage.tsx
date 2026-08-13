@@ -524,7 +524,7 @@ const SystemPage = () => {
                                         {mqttBrokerMode === 'external' && (
                                             <div className="space-y-4 pt-3 border-t border-border">
                                                 {/* Connection Settings */}
-                                                <div className="grid grid-cols-2 gap-3">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                     <div className="space-y-2">
                                                         <Label className="text-xs text-muted-foreground flex items-center gap-1">
                                                             <Network className="h-3 w-3" />
@@ -555,7 +555,7 @@ const SystemPage = () => {
                                                         <Key className="h-3.5 w-3.5" />
                                                         Autenticazione (opzionale)
                                                     </div>
-                                                    <div className="grid grid-cols-2 gap-3">
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                         <div className="space-y-2">
                                                             <Label className="text-xs text-muted-foreground flex items-center gap-1">
                                                                 <User className="h-3 w-3" />
@@ -1337,7 +1337,7 @@ const SystemPage = () => {
                                         <p className="text-sm font-semibold">
                                             {ssoEdit.id ? 'Edit' : 'Add'} SSO Provider
                                         </p>
-                                        <div className="grid grid-cols-2 gap-3">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                             <div className="space-y-1">
                                                 <Label className="text-xs">Provider</Label>
                                                 <select
@@ -1504,7 +1504,7 @@ const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSa
                 </div>
 
                 <div className="grid gap-3 opacity-100">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
                             <Label className="text-xs">InfluxDB URL</Label>
                             <Input
@@ -1523,7 +1523,7 @@ const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSa
                             />
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
                             <Label className="text-xs">Organization</Label>
                             <Input
@@ -1541,7 +1541,7 @@ const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSa
                             />
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
                             <Label className="text-xs">Batch size (points)</Label>
                             <Input

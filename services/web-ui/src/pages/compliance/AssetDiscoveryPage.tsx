@@ -191,7 +191,7 @@ export default function AssetDiscoveryPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between gap-4 flex-wrap">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">Inventario Asset OT</h2>
                     <p className="text-muted-foreground">Scopri e gestisci tutti i dispositivi industriali</p>
@@ -240,7 +240,7 @@ export default function AssetDiscoveryPage() {
             </div>
 
             {/* Search */}
-            <div className="relative w-72">
+            <div className="relative w-full sm:w-72">
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                 <Input
                     className="pl-8 h-8 text-sm"
@@ -439,7 +439,7 @@ export default function AssetDiscoveryPage() {
                         <DialogTitle>Aggiungi Asset OT</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-2">
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="grid gap-2">
                                 <Label>Indirizzo IP</Label>
                                 <Input
@@ -457,7 +457,7 @@ export default function AssetDiscoveryPage() {
                                 />
                             </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="grid gap-2">
                                 <Label>Vendor</Label>
                                 <Input
@@ -475,7 +475,7 @@ export default function AssetDiscoveryPage() {
                                 />
                             </div>
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="grid gap-2">
                                 <Label>Tipo dispositivo</Label>
                                 <Select
@@ -547,7 +547,7 @@ export default function AssetDiscoveryPage() {
                                 placeholder="CVE-2024-12345"
                             />
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="grid gap-2">
                                 <Label>Severity</Label>
                                 <Select

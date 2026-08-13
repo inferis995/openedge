@@ -96,7 +96,7 @@ export default function AuditPage() {
     return (
         <div className="p-6 space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
                         <Shield className="h-5 w-5 text-primary" />
@@ -113,7 +113,7 @@ export default function AuditPage() {
             </div>
 
             {/* Summary cards */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="rounded-xl border bg-card p-4">
                     <p className="text-sm text-muted-foreground">Total events</p>
                     <p className="text-3xl font-bold mt-1">{logs.length}</p>

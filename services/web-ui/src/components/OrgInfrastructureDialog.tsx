@@ -212,7 +212,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                 </DialogHeader>
 
                 <Tabs defaultValue="edge" className="mt-2">
-                    <TabsList className="grid w-full grid-cols-5">
+                    <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
                         <TabsTrigger value="edge">Edge</TabsTrigger>
                         <TabsTrigger value="apikeys">API Keys</TabsTrigger>
                         <TabsTrigger value="invites">Invite Users</TabsTrigger>
@@ -475,7 +475,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                             </div>
                             <div className="space-y-1.5">
                                 <Label className="text-xs">Events to listen for</Label>
-                                <div className="grid grid-cols-2 gap-1.5">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                                     {WEBHOOK_EVENTS.map(ev => (
                                         <label key={ev.value} className="flex items-center gap-2 text-sm cursor-pointer">
                                             <input

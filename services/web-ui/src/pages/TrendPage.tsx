@@ -219,7 +219,7 @@ export default function TrendPage() {
             {/* ── TOOLBAR ────────────────────────────────────────────── */}
             <div className="flex-shrink-0 bg-card border-b px-3 py-2 space-y-2">
                 {/* Row 1: title + actions */}
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div className="flex items-center gap-2">
                         <Button variant="ghost" size="icon" className="h-7 w-7"
                             onClick={() => setSidebarOpen(o => !o)}>

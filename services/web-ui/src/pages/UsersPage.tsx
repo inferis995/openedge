@@ -384,7 +384,7 @@ const UsersPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">User Management</h2>
                     <p className="text-muted-foreground">
@@ -402,7 +402,7 @@ const UsersPage = () => {
                             <DialogTitle>Create User</DialogTitle>
                         </DialogHeader>
                         <div className="grid gap-4 py-4">
-                            <div className="grid grid-cols-4 items-center gap-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
                                 <Label htmlFor="username" className="text-right">Username</Label>
                                 <Input
                                     id="username"
@@ -412,7 +412,7 @@ const UsersPage = () => {
                                     placeholder="e.g. john.doe"
                                 />
                             </div>
-                            <div className="grid grid-cols-4 items-center gap-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
                                 <Label htmlFor="password" className="text-right">Password</Label>
                                 <Input
                                     id="password"
@@ -423,7 +423,7 @@ const UsersPage = () => {
                                     placeholder="Min. 6 characters"
                                 />
                             </div>
-                            <div className="grid grid-cols-4 items-center gap-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
                                 <Label htmlFor="role" className="text-right">Role</Label>
                                 <Select value={newRole} onValueChange={(v) => setNewRole(v as 'admin' | 'user')}>
                                     <SelectTrigger className="col-span-3">
@@ -435,7 +435,7 @@ const UsersPage = () => {
                                     </SelectContent>
                                 </Select>
                             </div>
-                            <div className="grid grid-cols-4 items-center gap-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
                                 <Label htmlFor="fullname" className="text-right">Full Name</Label>
                                 <Input
                                     id="fullname"
@@ -445,7 +445,7 @@ const UsersPage = () => {
                                     placeholder="e.g. John Doe"
                                 />
                             </div>
-                            <div className="grid grid-cols-4 items-center gap-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
                                 <Label htmlFor="org" className="text-right">Organization</Label>
                                 <Select
                                     value={newOrgId?.toString() || 'global'}
@@ -477,7 +477,7 @@ const UsersPage = () => {
                             )}
 
                             {newRole !== 'admin' && (
-                                <div className="grid grid-cols-4 items-center gap-4">
+                                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
                                     <Label className="text-right flex items-center justify-end gap-1">
                                         <Network size={13} className="text-muted-foreground" />
                                         Permessi scrittura
@@ -671,7 +671,7 @@ const UsersPage = () => {
                         <DialogTitle>Edit User: {selectedUser?.username}</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-4 items-center gap-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
                             <Label htmlFor="edit-password" className="text-right">New Password</Label>
                             <Input
                                 id="edit-password"
@@ -682,7 +682,7 @@ const UsersPage = () => {
                                 placeholder="Leave empty to keep current"
                             />
                         </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
                             <Label htmlFor="edit-role" className="text-right">Role</Label>
                             <Select value={editRole} onValueChange={(v) => setEditRole(v as 'admin' | 'user')}>
                                 <SelectTrigger className="col-span-3">
@@ -694,7 +694,7 @@ const UsersPage = () => {
                                 </SelectContent>
             </Select>
                         </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
                             <Label htmlFor="edit-fullname" className="text-right">Full Name</Label>
                             <Input
                                 id="edit-fullname"
@@ -703,7 +703,7 @@ const UsersPage = () => {
                                 className="col-span-3"
                             />
                         </div>
-                        <div className="grid grid-cols-4 items-center gap-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
                             <Label htmlFor="edit-org" className="text-right">Organization</Label>
                             <Select
                                 value={editOrgId?.toString() || 'global'}
@@ -735,7 +735,7 @@ const UsersPage = () => {
                         )}
 
                         {editRole !== 'admin' && (
-                            <div className="grid grid-cols-4 items-center gap-4">
+                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
                                 <Label className="text-right flex items-center justify-end gap-1">
                                     <Network size={13} className="text-muted-foreground" />
                                     Permessi scrittura

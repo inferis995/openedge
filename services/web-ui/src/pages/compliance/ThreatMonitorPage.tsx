@@ -122,7 +122,7 @@ export default function ThreatMonitorPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">Monitoraggio Minacce</h2>
                     <p className="text-muted-foreground">Rilevamento anomalie e accessi non autorizzati in tempo reale</p>
@@ -262,7 +262,7 @@ export default function ThreatMonitorPage() {
                         <DialogTitle>Aggiungi Evento di Minaccia</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-2">
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="grid gap-2">
                                 <Label>Tipo Evento</Label>
                                 <Select
@@ -311,7 +311,7 @@ export default function ThreatMonitorPage() {
                                 placeholder="Dettagli dell'evento..."
                             />
                         </div>
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="grid gap-2">
                                 <Label>Indirizzo IP</Label>
                                 <Input

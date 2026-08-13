@@ -689,7 +689,7 @@ const HistoryTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                     value={selected === null ? 'rollup' : String(selected)}
                     onValueChange={(v) => setSelected(v === 'rollup' ? null : parseInt(v, 10))}
                 >
-                    <SelectTrigger className="w-72"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-full sm:w-72"><SelectValue /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="rollup">
                             <span className="font-medium">OEE Overall</span>
@@ -736,7 +736,7 @@ const ByShiftTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                     value={selected === null ? 'rollup' : String(selected)}
                     onValueChange={(v) => setSelected(v === 'rollup' ? null : parseInt(v, 10))}
                 >
-                    <SelectTrigger className="w-72"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-full sm:w-72"><SelectValue /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="rollup">
                             <span className="font-medium">OEE Overall</span>
@@ -796,7 +796,7 @@ const LossesTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                     value={selected !== null ? String(selected) : ''}
                     onValueChange={(v) => setSelected(parseInt(v, 10))}
                 >
-                    <SelectTrigger className="w-72"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-full sm:w-72"><SelectValue /></SelectTrigger>
                     <SelectContent>
                         {profiles.map((p) => (
                             <SelectItem key={p.id} value={String(p.id)}>

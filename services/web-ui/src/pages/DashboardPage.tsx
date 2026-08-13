@@ -242,7 +242,7 @@ const AlarmsCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard
                 <span className="text-xs text-muted-foreground">{a.last_24h_fired} fired 24h</span>
             </CardHeader>
             <CardContent className="space-y-3">
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                     {(['critical', 'high', 'medium', 'low'] as const).map((sev) => {
                         const n = a.active_by_level[sev] ?? 0;
                         return (

@@ -359,7 +359,7 @@ const GatewaysPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">Gateways</h2>
                     <p className="text-muted-foreground">
@@ -381,7 +381,7 @@ const GatewaysPage = () => {
                                 <DialogTitle>{updatingGatewayId ? 'Edit Gateway' : 'Create Gateway'}</DialogTitle>
                             </DialogHeader>
                             <div className="grid gap-4 py-4">
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div className="grid gap-2">
                                         <Label htmlFor="area">Area</Label>
                                         <Select
@@ -432,7 +432,7 @@ const GatewaysPage = () => {
                                 </div>
 
                                 {formData.driver_type !== 'MQTT' && formData.driver_type !== 'OPC_UA' && formData.driver_type !== 'LORAWAN' && (
-                                    <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div className="grid gap-2">
                                             <Label htmlFor="ip">IP Address</Label>
                                             <Input
@@ -455,7 +455,7 @@ const GatewaysPage = () => {
                                 )}
 
                                 {formData.driver_type === 'S7' && (
-                                    <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-md border">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 bg-muted/50 rounded-md border">
                                         <div className="grid gap-2">
                                             <Label htmlFor="rack">Rack</Label>
                                             <Input
@@ -479,7 +479,7 @@ const GatewaysPage = () => {
 
                                 {formData.driver_type === 'MODBUS_TCP' && (
                                     <>
-                                        <div className="grid grid-cols-2 gap-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                             <div className="grid gap-2">
                                                 <Label htmlFor="port">Port</Label>
                                                 <Input
@@ -560,7 +560,7 @@ const GatewaysPage = () => {
                                                     Leave the host empty to use OpenEdge's internal broker (the PLC publishes straight to us). Set host/port when the PLCs publish to <strong>their own</strong> broker and OpenEdge should connect to it.
                                                 </p>
                                             </div>
-                                            <div className="grid grid-cols-3 gap-3">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                                 <div className="col-span-2 grid gap-1">
                                                     <Label htmlFor="broker_host" className="text-xs">Broker host (IP or hostname)</Label>
                                                     <Input id="broker_host" value={formData.broker_host || ''}
@@ -573,7 +573,7 @@ const GatewaysPage = () => {
                                                         onChange={(e) => handleInputChange('broker_port', parseInt(e.target.value) || 1883)} />
                                                 </div>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-3">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                 <div className="grid gap-1">
                                                     <Label htmlFor="broker_username" className="text-xs">Username (optional)</Label>
                                                     <Input id="broker_username" value={formData.broker_username || ''}
@@ -585,7 +585,7 @@ const GatewaysPage = () => {
                                                         onChange={(e) => handleInputChange('broker_password', e.target.value)} autoComplete="new-password" />
                                                 </div>
                                             </div>
-                                            <div className="grid grid-cols-2 gap-3 items-end">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                                                 <div className="grid gap-1">
                                                     <Label htmlFor="broker_client_id" className="text-xs">Client ID (optional)</Label>
                                                     <Input id="broker_client_id" value={formData.broker_client_id || ''}
@@ -638,7 +638,7 @@ const GatewaysPage = () => {
                                         </div>
 
                                         {/* Server host + port */}
-                                        <div className="grid grid-cols-3 gap-3">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                             <div className="col-span-2 grid gap-1">
                                                 <Label htmlFor="lora_host" className="text-xs">Server Host (MQTT)</Label>
                                                 <Input id="lora_host" value={formData.lora_server_host || ''}
@@ -656,7 +656,7 @@ const GatewaysPage = () => {
                                         </div>
 
                                         {/* Credentials */}
-                                        <div className="grid grid-cols-2 gap-3">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                             <div className="grid gap-1">
                                                 <Label htmlFor="lora_user" className="text-xs">
                                                     {formData.lora_server_type === 'chirpstack' ? 'MQTT Username' : 'Username (app-id@ttn)'}
@@ -724,7 +724,7 @@ const GatewaysPage = () => {
                                         </div>
 
                                         {formData.auth_mode === 'Username' && (
-                                            <div className="grid grid-cols-2 gap-4">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                 <div className="grid gap-2">
                                                     <Label htmlFor="username">Username</Label>
                                                     <Input
@@ -820,7 +820,7 @@ const GatewaysPage = () => {
                         <strong className="text-red-500">{offlineCount}</strong> offline
                     </span>
                 )}
-                <div className="ml-auto relative w-64">
+                <div className="relative w-full sm:ml-auto sm:w-64">
                     <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                     <Input
                         className="pl-8 h-8 text-sm"

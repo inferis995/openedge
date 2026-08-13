@@ -1,6 +1,6 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, Building2, Factory, MapPin, X } from 'lucide-react';
+import { ChevronRight, Building2, Factory, MapPin, X, Menu } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useMqttStore } from '@/stores/useMqttStore';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -10,7 +10,13 @@ import { sitesApi } from '@/api/sites';
 import { areasApi } from '@/api/areas';
 import { useEffect } from 'react';
 
-const Header = () => {
+interface HeaderProps {
+    /** Opens the navigation drawer. Only rendered under md, where the sidebar
+     *  is not on screen and there would otherwise be no way to navigate. */
+    onMenuClick?: () => void;
+}
+
+const Header = ({ onMenuClick }: HeaderProps) => {
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -61,16 +67,29 @@ const Header = () => {
     const breadcrumbs = getBreadcrumbs();
 
     return (
-        <header className="h-16 border-b bg-background px-6 flex items-center justify-between">
-            <div className="flex items-center gap-6">
-                {/* Standard Breadcrumbs */}
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mr-4">
+        <header className="h-16 shrink-0 border-b bg-background px-3 md:px-6 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-3 md:gap-6 min-w-0">
+                <button
+                    type="button"
+                    onClick={onMenuClick}
+                    aria-label="Apri il menu"
+                    className="md:hidden -ml-1 p-2 text-muted-foreground hover:text-foreground shrink-0"
+                >
+                    <Menu size={22} />
+                </button>
+
+                {/* Breadcrumbs. The full trail needs room it does not have on a
+                    phone, so only the last one — where you are — survives there. */}
+                <div className="flex items-center gap-2 text-sm text-muted-foreground md:mr-4 min-w-0">
                     {breadcrumbs.map((crumb, index) => (
-                        <div key={crumb.path} className="flex items-center gap-2">
-                            {index > 0 && <ChevronRight size={14} />}
+                        <div key={crumb.path} className={cn(
+                            "items-center gap-2",
+                            index === breadcrumbs.length - 1 ? "flex min-w-0" : "hidden md:flex"
+                        )}>
+                            {index > 0 && <ChevronRight size={14} className="hidden md:block shrink-0" />}
                             <span
                                 className={cn(
-                                    "cursor-pointer hover:text-foreground transition-colors",
+                                    "cursor-pointer hover:text-foreground transition-colors truncate",
                                     index === breadcrumbs.length - 1 && "font-semibold text-foreground"
                                 )}
                                 onClick={() => navigate(crumb.path)}
@@ -129,19 +148,26 @@ const Header = () => {
                 )}
             </div>
 
-            <div className="flex items-center gap-4">
-                {/* MQTT Connection Status */}
-                <div className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 clip-chamfer-sm text-[10px] font-bold uppercase tracking-wider border",
-                    isMqttConnected
-                        ? "bg-[#10B981]/10 text-[#10B981] border-[#10B981]/20"
-                        : "bg-destructive/10 text-destructive border-destructive/20"
-                )}>
+            <div className="flex items-center gap-4 shrink-0">
+                {/* MQTT Connection Status.
+                    On a phone the label costs more room than the header has —
+                    it ran off the right edge — so only the light stays there,
+                    with the words in its tooltip. */}
+                <div
+                    title={isMqttConnected ? 'MQTT Connected' : 'MQTT Disconnected'}
+                    className={cn(
+                        "flex items-center gap-2 px-2 md:px-3 py-1.5 clip-chamfer-sm text-[10px] font-bold uppercase tracking-wider border",
+                        isMqttConnected
+                            ? "bg-[#10B981]/10 text-[#10B981] border-[#10B981]/20"
+                            : "bg-destructive/10 text-destructive border-destructive/20"
+                    )}>
                     <span className={cn(
-                        "w-2 h-2 clip-hex",
+                        "w-2 h-2 clip-hex shrink-0",
                         isMqttConnected ? "bg-[#10B981] animate-pulse" : "bg-destructive"
                     )}></span>
-                    {isMqttConnected ? 'MQTT Connected' : 'MQTT Disconnected'}
+                    <span className="hidden sm:inline">
+                        {isMqttConnected ? 'MQTT Connected' : 'MQTT Disconnected'}
+                    </span>
                 </div>
             </div>
         </header>

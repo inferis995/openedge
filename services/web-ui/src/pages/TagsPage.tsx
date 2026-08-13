@@ -789,7 +789,7 @@ const TagsPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">Tags</h2>
                     <p className="text-muted-foreground">
@@ -967,12 +967,12 @@ const TagsPage = () => {
                                         </TabsList>
                                         <TabsContent value="general">
                                             <div className="grid gap-6 py-4">
-                                                <div className="grid grid-cols-2 gap-4">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                     {/* Modbus Address Builder */}
                                                     {selectedGatewayDriverType === 'MODBUS_TCP' && (
                                                         <div className="col-span-2 space-y-4 p-4 bg-muted/50 rounded-md border">
                                                             <h3 className="text-sm font-medium">Modbus Address Builder</h3>
-                                                            <div className="grid grid-cols-2 gap-4">
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                                 <div className="grid gap-2">
                                                                     <Label htmlFor="mb-type">Register Type</Label>
                                                                     <Select
@@ -1076,7 +1076,7 @@ const TagsPage = () => {
                                                     </Select>
                                                 </div>
 
-                                                <div className="grid grid-cols-2 gap-6 border-t pt-4">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 border-t pt-4">
                                                     <div className="space-y-4">
                                                         <div className="flex items-center space-x-2">
                                                             <Switch
@@ -1167,7 +1167,7 @@ const TagsPage = () => {
                                                                 {/* Raw range */}
                                                                 <div className="space-y-3">
                                                                     <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Intervallo Raw (segnale fisico)</h4>
-                                                                    <div className="grid grid-cols-2 gap-4">
+                                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                                         <div className="grid gap-2">
                                                                             <Label htmlFor="sc-raw-min">Raw Min</Label>
                                                                             <Input
@@ -1198,7 +1198,7 @@ const TagsPage = () => {
                                                                 {/* EU range */}
                                                                 <div className="space-y-3">
                                                                     <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Intervallo EU (unità ingegneristiche)</h4>
-                                                                    <div className="grid grid-cols-2 gap-4">
+                                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                                         <div className="grid gap-2">
                                                                             <Label htmlFor="sc-eu-min">EU Min</Label>
                                                                             <Input
@@ -1225,7 +1225,7 @@ const TagsPage = () => {
                                                                 </div>
 
                                                                 {/* Unit + decimals */}
-                                                                <div className="grid grid-cols-2 gap-4">
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                                     <div className="grid gap-2">
                                                                         <Label htmlFor="sc-unit">Unità (EU)</Label>
                                                                         <Input

@@ -266,7 +266,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                 </div>
 
                 <Tabs defaultValue="hierarchy" className="flex-1 flex flex-col min-h-0">
-                    <TabsList className="mx-3 mt-2 grid w-[calc(100%-24px)] grid-cols-2 h-8 flex-shrink-0">
+                    <TabsList className="mx-3 mt-2 grid w-[calc(100%-24px)] grid-cols-1 sm:grid-cols-2 h-8 flex-shrink-0">
                         <TabsTrigger value="hierarchy" className="text-xs">Hierarchy</TabsTrigger>
                         <TabsTrigger value="favorites" className="text-xs">
                             Favorites

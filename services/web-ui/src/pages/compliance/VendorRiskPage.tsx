@@ -148,7 +148,7 @@ function VendorDialog({ open, onClose, vendor }: VendorDialogProps) {
                 </DialogHeader>
                 <div className="grid gap-4 py-2">
                     {/* Base info */}
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label>Nome <span className="text-destructive">*</span></Label>
                             <Input value={form.name} onChange={txt('name')} placeholder="Siemens AG" />
@@ -158,7 +158,7 @@ function VendorDialog({ open, onClose, vendor }: VendorDialogProps) {
                             <Input value={form.country ?? ''} onChange={txt('country')} placeholder="DE" />
                         </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="grid gap-2">
                             <Label>Sito web</Label>
                             <Input value={form.website ?? ''} onChange={txt('website')} placeholder="https://siemens.com" />
@@ -179,7 +179,7 @@ function VendorDialog({ open, onClose, vendor }: VendorDialogProps) {
                     </div>
 
                     {/* Certifications & access */}
-                    <div className="grid grid-cols-2 gap-6">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                         <div className="space-y-2">
                             <Label className="text-xs uppercase tracking-wider text-muted-foreground">Certificazioni</Label>
                             {[
@@ -235,7 +235,7 @@ function VendorDialog({ open, onClose, vendor }: VendorDialogProps) {
                     </div>
 
                     {/* Dates */}
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                         <div className="grid gap-2">
                             <Label>Ultimo audit</Label>
                             <Input type="date" value={form.last_audit_date ?? ''} onChange={txt('last_audit_date')} />
@@ -322,7 +322,7 @@ export default function VendorRiskPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between flex-wrap gap-3">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
                         <Building2 size={22} className="text-blue-500" />

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
@@ -44,16 +44,33 @@ import {
     Boxes,
     Layers,
     Plug,
+    X,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useThemeStore } from '@/stores/useThemeStore';
 
-const Sidebar = () => {
+interface SidebarProps {
+    /** Open state of the mobile drawer. Ignored from md upwards, where the
+     *  sidebar is part of the layout rather than laid over it. */
+    mobileOpen?: boolean;
+    onMobileClose?: () => void;
+}
+
+const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
     const location = useLocation();
     const navigate = useNavigate();
     const { t } = useTranslation();
+    // Collapsing is a desktop affordance: on a phone the sidebar is either
+    // over the page or out of the way, and a 20px-wide rail is neither.
     const [collapsed, setCollapsed] = useState(false);
+
+    // Close the drawer when the route changes. Without this, tapping a link
+    // navigates underneath a panel that stays open over the page you asked for.
+    useEffect(() => {
+        onMobileClose?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.pathname]);
     const { user, logout, isAdmin, isGlobalAdmin, isOrgScoped } = useAuthStore();
     const { theme, toggleTheme } = useThemeStore();
 
@@ -122,12 +139,41 @@ const Sidebar = () => {
     ];
 
     return (
-        <div
-            className={cn(
-                "h-screen bg-[hsl(var(--sidebar-bg))] text-[hsl(var(--sidebar-fg))] flex flex-col border-r border-[hsl(var(--sidebar-border))] transition-all duration-300 ease-in-out relative z-20",
-                collapsed ? "w-20" : "w-64"
-            )}
-        >
+        <>
+            {/* Backdrop. Only under md, and only while the drawer is open —
+                otherwise it would swallow every tap on the desktop layout. */}
+            <div
+                aria-hidden={!mobileOpen}
+                onClick={onMobileClose}
+                className={cn(
+                    "fixed inset-0 z-[55] bg-black/60 md:hidden transition-opacity duration-300",
+                    mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"
+                )}
+            />
+            <div
+                className={cn(
+                    "h-screen bg-[hsl(var(--sidebar-bg))] text-[hsl(var(--sidebar-fg))] flex flex-col border-r border-[hsl(var(--sidebar-border))] transition-transform duration-300 ease-in-out",
+                    // Phone: a panel laid over the page, off-screen until asked for.
+                    // z-[60]: above the cookie banner (z-50), which otherwise covers
+                    // the drawer's footer and puts logout and language out of reach
+                    // on a first visit.
+                    "fixed inset-y-0 left-0 z-[60] w-72 max-w-[85vw]",
+                    mobileOpen ? "translate-x-0" : "-translate-x-full",
+                    // Desktop: part of the layout again, and it may collapse.
+                    "md:static md:z-20 md:translate-x-0 md:max-w-none md:transition-all",
+                    collapsed ? "md:w-20" : "md:w-64"
+                )}
+            >
+                {/* Closing the drawer needs a target on the drawer itself: the
+                    backdrop is not discoverable, and the hamburger is behind it. */}
+                <button
+                    type="button"
+                    onClick={onMobileClose}
+                    aria-label="Chiudi il menu"
+                    className="md:hidden absolute right-3 top-4 p-2 text-[hsl(var(--sidebar-muted))] hover:text-[hsl(var(--sidebar-fg))]"
+                >
+                    <X size={20} />
+                </button>
             {/* Header / Logo */}
             <div className={cn(
                 "p-4 border-b border-[hsl(var(--sidebar-border))] flex items-center h-16 transition-all",
@@ -347,7 +393,8 @@ const Sidebar = () => {
                     {!collapsed && <span>{t('nav.logout')}</span>}
                 </Button>
             </div>
-        </div>
+            </div>
+        </>
     );
 };
 

@@ -188,7 +188,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                 </div>
 
                                 {/* Line style */}
-                                <div className="grid grid-cols-2 gap-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     <div>
                                         <p className="text-[10px] text-muted-foreground mb-1">Line style</p>
                                         <div className="flex gap-1">

@@ -147,7 +147,7 @@ export const TagStatsPanel: React.FC<TagStatsPanelProps> = ({
                 {!isBool ? (
                     <>
                         {/* Min / Avg / Max */}
-                        <div className="grid grid-cols-3 gap-0 mb-1.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-0 mb-1.5">
                             {([
                                 { label: 'Min', value: stats.min_value, color: '#ef4444' },
                                 { label: 'Avg', value: stats.avg_value, color: tagColor },

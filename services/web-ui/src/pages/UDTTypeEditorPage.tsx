@@ -118,7 +118,7 @@ const UDTTypeEditorPage = () => {
 
     return (
         <div className="p-6 space-y-6 max-w-5xl">
-            <div className="flex items-start justify-between gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="flex items-start gap-3">
                     <Button variant="ghost" size="icon" onClick={() => navigate('/udt/types')}>
                         <ArrowLeft size={18} />
@@ -149,7 +149,7 @@ const UDTTypeEditorPage = () => {
                 </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                     <Label>Nome</Label>
                     <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -225,7 +225,7 @@ const UDTTypeEditorPage = () => {
                                 <span className="text-sm">Scalatura in unità ingegneristiche</span>
                             </div>
                             {m.scaling_enabled && (
-                                <div className="grid grid-cols-5 gap-3">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                                     <div>
                                         <Label className="text-xs">Grezzo min</Label>
                                         <Input type="number" value={m.scaling_raw_min}

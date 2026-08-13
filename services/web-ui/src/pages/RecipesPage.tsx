@@ -172,7 +172,7 @@ const RecipesPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
                         <ChefHat size={22} /> Recipes
@@ -261,7 +261,7 @@ const RecipesPage = () => {
                             should be written to when the recipe is loaded.
                         </DialogDescription>
                     </DialogHeader>
-                    <div className="grid grid-cols-2 gap-6 py-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 py-2">
                         {/* Left: header + selected values */}
                         <div className="space-y-3">
                             <div className="grid gap-1">

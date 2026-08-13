@@ -103,7 +103,7 @@ const FleetPage = () => {
 
     return (
         <div className="space-y-6 p-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight">Fleet Management</h1>
                     <p className="text-sm text-muted-foreground mt-1">
@@ -117,7 +117,7 @@ const FleetPage = () => {
             </div>
 
             {/* Summary cards */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="rounded-lg border bg-card p-4">
                     <div className="text-sm text-muted-foreground uppercase tracking-wider font-semibold mb-1">Total Orgs</div>
                     <div className="text-3xl font-bold">{fleet.length}</div>

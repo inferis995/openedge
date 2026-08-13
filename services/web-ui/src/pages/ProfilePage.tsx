@@ -101,7 +101,7 @@ export default function ProfilePage() {
             {/* Profile info */}
             <div className="rounded-xl border bg-card p-6 space-y-4">
                 <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Account</h2>
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                     <div>
                         <p className="text-muted-foreground mb-0.5">Username</p>
                         <p className="font-medium">{profile?.username}</p>

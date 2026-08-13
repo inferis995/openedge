@@ -179,7 +179,7 @@ const SynopticsPage = () => {
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">Sinottici</h2>
                     <p className="text-muted-foreground">Mimici SCADA organizzati per impianto, sito e linea.</p>
@@ -296,7 +296,7 @@ const SynopticsPage = () => {
                             <Label htmlFor="syn-desc">Descrizione</Label>
                             <Input id="syn-desc" value={description} onChange={e => setDescription(e.target.value)} placeholder="opzionale" />
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="grid gap-2">
                                 <Label className="text-xs">Sito</Label>
                                 <Select value={formSiteId} onValueChange={(v) => { setFormSiteId(v); setFormAreaId('none'); }}>

@@ -104,7 +104,7 @@ const MaintenancePage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
                         <Wrench size={22} /> Finestre di Manutenzione
@@ -206,7 +206,7 @@ const MaintenancePage = () => {
                             <Input id="mw-title" value={title} onChange={(e) => setTitle(e.target.value)}
                                 placeholder="es. Sostituzione cuscinetto motore linea 2" />
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="grid gap-1">
                                 <Label htmlFor="mw-start">Dal</Label>
                                 <Input id="mw-start" type="datetime-local" value={startAt} onChange={(e) => setStartAt(e.target.value)} />
