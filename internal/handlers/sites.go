@@ -138,7 +138,9 @@ func (h *SitesHandler) List(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var sites []models.Site
+	// Empty (non-nil) slice: a nil slice serializes as JSON `null`, which
+	// crashes frontend pages that map over the response (SitesPage).
+	sites := []models.Site{}
 	for rows.Next() {
 		var site models.Site
 		if err := rows.Scan(&site.ID, &site.OrgID, &site.Name, &site.CreatedAt); err != nil {

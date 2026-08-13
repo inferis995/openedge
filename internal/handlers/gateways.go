@@ -325,7 +325,11 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var gatewaysWithHealth []GatewayWithHealth
+	// Empty (non-nil) slice: with zero rows a nil slice would serialize as
+	// JSON `null`, and the frontend maps over this response directly
+	// (e.g. UDTInstancesPage gateways.map) — "Cannot read properties of
+	// null (reading 'map')" on a fresh install.
+	gatewaysWithHealth := []GatewayWithHealth{}
 	for rows.Next() {
 		var gateway models.Gateway
 		if err := rows.Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt); err != nil {
