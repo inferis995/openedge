@@ -23,7 +23,7 @@ services:
 
   # ── Traefik v3 — reverse proxy + automatic TLS ──────────────────────────────
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.7
     mem_limit: ${TRAEFIK_MEM_LIMIT:-256m}
     cpus: ${TRAEFIK_CPUS:-1.0}
     pids_limit: 256
@@ -92,6 +92,15 @@ services:
     # !override replaces the value instead of merging it. Requires Compose
     # v2.24 or later; `docker compose version` on the server, once.
     ports: !override []   # Traefik handles external access
+    healthcheck:
+      # Override: `localhost` resolves to ::1 (IPv6) but rootless nginx only
+      # listens on IPv4 → healthcheck would never pass → Traefik filters the
+      # container. Force IPv4 explicitly.
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:80/nginx-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     labels:
       - "traefik.enable=true"
       # HTTPS route
