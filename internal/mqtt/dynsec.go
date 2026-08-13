@@ -12,12 +12,36 @@ import (
 
 // DynsecClient manages MQTT broker Dynamic Security plugin users via the control API.
 // Commands are published to $CONTROL/dynamic-security/v1 and responses arrive on
-// $CONTROL/dynamic-security/v1/response.  All operations are serialized through a
-// mutex so only one command is in-flight at a time.
+// $CONTROL/dynamic-security/v1/response.
+//
+// There are TWO locks here, and the difference is the whole reason this worked
+// for nobody. cmdMu serializes commands and IS held across the wait for a
+// reply. mu guards responseCh alone and is NEVER held while waiting — the
+// subscription callback needs it to hand the reply over, and one lock doing
+// both jobs meant the reply could not be delivered until the wait it was
+// supposed to end had already timed out.
+// dynsecPublisher is the one thing send() needs from the MQTT client.
+//
+// It is an interface so the locking can be tested: the defect this file exists
+// to remember is a deadlock between send() and the subscription callback, and
+// a test that cannot run send() can only imitate it — which is exactly how the
+// first attempt at a regression test passed while the bug was back in place.
+type dynsecPublisher interface {
+	Publish(topic string, payload interface{}) error
+}
+
 type DynsecClient struct {
-	client     *Client
+	client dynsecPublisher
+
+	// Held for a whole command/response exchange: one in flight at a time.
+	cmdMu sync.Mutex
+
+	// Guards responseCh only. Taken for the length of a pointer read.
 	mu         sync.Mutex
 	responseCh chan dynsecResponse
+	// The exchange this channel belongs to, so a reply that arrives after its
+	// own command gave up cannot be handed to the next one.
+	correlationID string
 }
 
 type dynsecCmd struct {
@@ -43,21 +67,34 @@ func NewDynsecClient(c *Client) *DynsecClient {
 			return
 		}
 		d.mu.Lock()
-		ch := d.responseCh
+		ch, want := d.responseCh, d.correlationID
 		d.mu.Unlock()
-		if ch != nil {
-			select {
-			case ch <- resp:
-			default:
+		if ch == nil {
+			return
+		}
+		// Every response in a batch carries the correlationData of the command
+		// it answers. A reply for an exchange that already gave up must be
+		// dropped, not delivered to whoever is waiting now.
+		for _, r := range resp.Responses {
+			if r.CorrelationData != "" && r.CorrelationData != want {
+				return
 			}
+		}
+		select {
+		case ch <- resp:
+		default:
 		}
 	})
 	return d
 }
 
+// dynsecTimeout bounds one command/response exchange with the broker.
+const dynsecTimeout = 5 * time.Second
+
 // send publishes a batch of commands and waits for the response.
-// correlationData is used to identify our response in concurrent environments
-// (only one goroutine can call send at a time due to the outer lock).
+//
+// The caller holds cmdMu. This function must NOT hold mu while waiting: the
+// subscription callback takes mu to deliver the very response being waited for.
 func (d *DynsecClient) send(commands []map[string]interface{}, correlationID string) error {
 	// Attach correlationData to every command
 	for _, cmd := range commands {
@@ -65,30 +102,47 @@ func (d *DynsecClient) send(commands []map[string]interface{}, correlationID str
 	}
 
 	ch := make(chan dynsecResponse, 1)
-	d.responseCh = ch
+	d.mu.Lock()
+	d.responseCh, d.correlationID = ch, correlationID
+	d.mu.Unlock()
+
+	// Cleared under the same lock the callback reads it under, and always —
+	// every path out of this function goes through here.
+	defer func() {
+		d.mu.Lock()
+		d.responseCh, d.correlationID = nil, ""
+		d.mu.Unlock()
+	}()
 
 	data, err := json.Marshal(dynsecCmd{Commands: commands})
 	if err != nil {
-		d.responseCh = nil
 		return err
 	}
 
 	if err := d.client.Publish("$CONTROL/dynamic-security/v1", data); err != nil {
-		d.responseCh = nil
 		return fmt.Errorf("dynsec publish: %w", err)
 	}
 
 	select {
 	case resp := <-ch:
-		d.responseCh = nil
 		for _, r := range resp.Responses {
-			if r.Error != "" {
-				return fmt.Errorf("dynsec %s: %s", r.Command, r.Error)
+			if r.Error == "" {
+				continue
 			}
+			// "already exists" is the state we were asking for.
+			//
+			// This matters most on the installations that ran the broken
+			// version: the broker executed every command it was sent, so their
+			// roles and clients are already there, while the API recorded the
+			// exchange as failed. Treating that as an error would turn a silent
+			// failure into a loud one at the moment it started working.
+			if strings.Contains(strings.ToLower(r.Error), "already exists") {
+				continue
+			}
+			return fmt.Errorf("dynsec %s: %s", r.Command, r.Error)
 		}
 		return nil
-	case <-time.After(5 * time.Second):
-		d.responseCh = nil
+	case <-time.After(dynsecTimeout):
 		return fmt.Errorf("dynsec command timed out (correlationData=%s)", correlationID)
 	}
 }
@@ -380,8 +434,8 @@ func orgRoleACLs(orgID int, orgName string, siteNames []string) []map[string]int
 // siteNames is optional; supplying the org's sites pins the Sparkplug group level
 // exactly instead of falling back to the narrowed per-message-type grant.
 func (d *DynsecClient) CreateOrgUser(orgID int, orgName, username, password string, siteNames ...string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
 
 	corrID := newCorrID()
 	roleName := fmt.Sprintf("org-%d-role", orgID)
@@ -403,8 +457,8 @@ func (d *DynsecClient) CreateOrgUser(orgID int, orgName, username, password stri
 
 // DeleteOrgUser removes an MQTT user and their dedicated role.
 func (d *DynsecClient) DeleteOrgUser(orgID int, username string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
 
 	corrID := newCorrID()
 	roleName := fmt.Sprintf("org-%d-role", orgID)
@@ -419,8 +473,8 @@ func (d *DynsecClient) DeleteOrgUser(orgID int, username string) error {
 // the org's site list changes).  Passing the org's site names pins the Sparkplug
 // group level exactly — see orgRoleACLs.
 func (d *DynsecClient) UpdateOrgRole(orgID int, newOrgName string, siteNames ...string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
 
 	corrID := newCorrID()
 	roleName := fmt.Sprintf("org-%d-role", orgID)
