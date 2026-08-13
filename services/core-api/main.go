@@ -846,6 +846,10 @@ func main() {
 		history.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
 			history.GET("", historyHandler.Query)
+			// The trend chart draws several tags on one axis, so it asks for
+			// them together. It has always called this path; until now nothing
+			// answered, and selecting a tag produced a 404 and an empty graph.
+			history.POST("/batch", historyHandler.BatchQuery)
 			history.GET("/stats", historyHandler.GetTagStats)
 			history.GET("/events", historyHandler.QueryEvents)
 			history.GET("/data-range", historyHandler.GetDataRange)

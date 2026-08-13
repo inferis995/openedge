@@ -290,31 +290,9 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 	log.Printf("[HISTORY] Querying tag_id=%d, type=%s, start=%s, end=%s, agg=%s, interval=%s, source=%s",
 		tagID, dataType, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339), agg, interval, aggLevel.Source)
 
-	var dataPoints []HistoryDataPoint
-	var source string
-	var autoIntvl bool = (interval == "")
+	autoIntvl := interval == ""
 
-	// Query based on source level
-	switch aggLevel.Source {
-	case "1m":
-		dataPoints, err = h.query1mAggregate(tagID, startTime, endTime, aggFunc)
-		source = "1m"
-	case "1h":
-		dataPoints, err = h.query1hAggregate(tagID, startTime, endTime, aggFunc)
-		source = "1h"
-	case "1d":
-		dataPoints, err = h.query1dAggregate(tagID, startTime, endTime, aggFunc)
-		source = "1d"
-	default:
-		// Raw query with optional downsampling
-		if interval != "" {
-			dataPoints, err = h.queryRawWithInterval(tagID, startTime, endTime, aggFunc, interval)
-		} else {
-			dataPoints, err = h.queryRaw(tagID, startTime, endTime)
-		}
-		source = "raw"
-	}
-
+	dataPoints, source, err := h.seriesForTag(tagID, startTime, endTime, aggFunc, interval, aggLevel.Source)
 	if err != nil {
 		log.Printf("[HISTORY] Query failed for tag %d: %v", tagID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query history"})
@@ -322,25 +300,6 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 	}
 
 	log.Printf("[HISTORY] Query successful: returned %d data points for tag_id=%d from source=%s", len(dataPoints), tagID, source)
-
-	if dataPoints == nil {
-		dataPoints = []HistoryDataPoint{}
-	}
-
-	// ── SEED pattern ──────────────────────────────────────────────────────
-	// For on-change (RBE) drivers like Sparkplug B, Modbus, OPC-UA, etc.
-	// the tag may not publish during the query range if its value hasn't
-	// changed.  Prepend the last known GOOD value before range start so the
-	// chart always has an initial state.
-	startMs := startTime.UnixMilli()
-	needSeed := len(dataPoints) == 0 || (dataPoints[0].Value != nil && dataPoints[0].Timestamp > startMs+500)
-	if needSeed {
-		seed, seedErr := h.getSeedValue(tagID, startTime)
-		if seedErr == nil && seed != nil {
-			dataPoints = append([]HistoryDataPoint{*seed}, dataPoints...)
-			log.Printf("[HISTORY] SEED injected for tag_id=%d at ts=%d", tagID, seed.Timestamp)
-		}
-	}
 
 	// NOTE: fill-to-end is handled by the frontend with real-time quality
 	// awareness (BAD quality = don't extend, GOOD = extend to range end).
@@ -372,6 +331,161 @@ func (h *HistoryHandler) Query(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// seriesForTag is one tag's series, from picking the aggregate level through to
+// the seed point. Both the single-tag query and the batch query go through it.
+//
+// It exists because the trend chart draws several tags on one axis: if the
+// batch path built its series even slightly differently — a different
+// aggregate, no seed — the same tag would render one way alone and another way
+// beside its neighbors, and the difference would look like the plant.
+func (h *HistoryHandler) seriesForTag(
+	tagID int, start, end time.Time, aggFunc, interval, level string,
+) ([]HistoryDataPoint, string, error) {
+	var points []HistoryDataPoint
+	var err error
+	source := level
+
+	switch level {
+	case "1m":
+		points, err = h.query1mAggregate(tagID, start, end, aggFunc)
+	case "1h":
+		points, err = h.query1hAggregate(tagID, start, end, aggFunc)
+	case "1d":
+		points, err = h.query1dAggregate(tagID, start, end, aggFunc)
+	default:
+		// Raw query with optional downsampling
+		if interval != "" {
+			points, err = h.queryRawWithInterval(tagID, start, end, aggFunc, interval)
+		} else {
+			points, err = h.queryRaw(tagID, start, end)
+		}
+		source = "raw"
+	}
+	if err != nil {
+		return nil, source, err
+	}
+	if points == nil {
+		points = []HistoryDataPoint{}
+	}
+
+	// ── SEED pattern ──────────────────────────────────────────────────────
+	// For on-change (RBE) drivers like Sparkplug B, Modbus, OPC-UA, etc.
+	// the tag may not publish during the query range if its value hasn't
+	// changed. Prepend the last known GOOD value before range start so the
+	// chart always has an initial state.
+	startMs := start.UnixMilli()
+	if len(points) == 0 || (points[0].Value != nil && points[0].Timestamp > startMs+500) {
+		if seed, seedErr := h.getSeedValue(tagID, start); seedErr == nil && seed != nil {
+			points = append([]HistoryDataPoint{*seed}, points...)
+			log.Printf("[HISTORY] SEED injected for tag_id=%d at ts=%d", tagID, seed.Timestamp)
+		}
+	}
+	return points, source, nil
+}
+
+// BatchQueryRequest is what the trend chart asks for: several tags over one
+// window, so the series arrive together and share an axis.
+type BatchQueryRequest struct {
+	TagIDs   []int  `json:"tag_ids"`
+	Start    string `json:"start"`
+	End      string `json:"end"`
+	Agg      string `json:"agg"`
+	Interval string `json:"interval"`
+}
+
+// maxBatchTags bounds one request. The chart draws a handful of pens; a caller
+// asking for thousands is either confused or probing, and either way it should
+// not turn into thousands of queries.
+const maxBatchTags = 50
+
+// BatchQuery answers POST /api/history/batch.
+//
+// The trend page has always called this endpoint and it has never existed:
+// selecting a tag to chart produced a 404 and an empty graph. Nothing failed
+// loudly, because a chart with no data looks like a plant with no data.
+//
+// Ownership is checked per tag, not once for the request. A batch is not a
+// reason to trust a list of ids: one id from another tenant among twenty of
+// your own must be refused like any other.
+func (h *HistoryHandler) BatchQuery(c *gin.Context) {
+	var req BatchQueryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+		return
+	}
+	if len(req.TagIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tag_ids is required"})
+		return
+	}
+	if len(req.TagIDs) > maxBatchTags {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("too many tags: %d requested, %d is the maximum", len(req.TagIDs), maxBatchTags)})
+		return
+	}
+
+	startTime, err := time.Parse(time.RFC3339, req.Start)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid start, use ISO 8601 (e.g. 2024-01-01T00:00:00Z)"})
+		return
+	}
+	endTime, err := time.Parse(time.RFC3339, req.End)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid end, use ISO 8601 (e.g. 2024-01-01T23:59:59Z)"})
+		return
+	}
+	if !endTime.After(startTime) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "end time must be after start time"})
+		return
+	}
+
+	// The same whitelist as the single-tag query: aggFunc reaches SQL through
+	// fmt.Sprintf, so anything unlisted has to be refused here.
+	validAgg := map[string]string{
+		"max": "max", "min": "min", "last": "last",
+		"mean": "avg", "avg": "avg", "": "avg",
+	}
+	aggFunc, ok := validAgg[req.Agg]
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid agg parameter: allowed values are avg, mean, min, max, last"})
+		return
+	}
+
+	isGlobalAdmin := middleware.IsGlobalAdmin(c)
+	orgID, hasOrg := middleware.GetOrganizationID(c)
+	if !isGlobalAdmin && !hasOrg {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+		return
+	}
+
+	level := determineAggregationLevel(startTime, endTime).Source
+
+	// Keyed by tag id, which is what the chart indexes by. Always an object,
+	// never null: the frontend reads it directly.
+	out := make(map[string][]HistoryDataPoint, len(req.TagIDs))
+	for _, tagID := range req.TagIDs {
+		if isGlobalAdmin {
+			if _, err := h.getTagDetailsNoOrg(tagID); err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": fmt.Sprintf("tag %d not found", tagID)})
+				return
+			}
+		} else if _, err := h.getTagDetails(tagID, orgID); err != nil {
+			log.Printf("[HISTORY] batch: tag %d not found or denied for org %d: %v", tagID, orgID, err)
+			c.JSON(http.StatusForbidden, gin.H{"error": fmt.Sprintf("tag %d not found or access denied", tagID)})
+			return
+		}
+
+		points, _, err := h.seriesForTag(tagID, startTime, endTime, aggFunc, req.Interval, level)
+		if err != nil {
+			log.Printf("[HISTORY] batch: query failed for tag %d: %v", tagID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query history"})
+			return
+		}
+		out[strconv.Itoa(tagID)] = points
+	}
+
+	c.JSON(http.StatusOK, out)
 }
 
 // queryRaw returns all data points within the time range.

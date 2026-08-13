@@ -84,12 +84,6 @@ export const tagsApi = {
         await api.put('/tags/reorder', { tag_ids: tagIds });
     },
 
-    // Batch get current values for multiple tags
-    getBatchCurrentValues: async (tagIds: number[]): Promise<{ [tagId: number]: { value: any; timestamp: number; quality: number } }> => {
-        const response = await api.post('/tags/batch-current', { tag_ids: tagIds });
-        return response.data;
-    },
-
     // Tag shadow — last-known value even when edge is offline.
     // source: "live" (edge online) | "historic" (edge offline, value from DB)
     getShadow: async (tagId: number): Promise<{ tag_id: number; value: any; quality: number; ts: number; source: 'live' | 'historic' | 'unknown' }> => {
