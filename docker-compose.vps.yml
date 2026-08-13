@@ -14,10 +14,10 @@
 #   - Only ports 80, 443, 8883 are exposed to the internet
 #   - Adds HSTS, X-Frame-Options and other security headers
 #
-# DNS: PUBLIC_HOST needs an A record here. So does grafana.PUBLIC_HOST — the
-# monitoring stack below is published through Traefik, and without its own
-# record Let's Encrypt cannot validate it and Traefik retries into the rate
-# limit, which also delays the certificate for the main domain.
+# DNS: PUBLIC_HOST needs an A record here. grafana.PUBLIC_HOST needs one too,
+# but ONLY if you enable the monitoring profile — those services are opt-in
+# (make vps-up-monitoring). With the profile on and the record missing, Traefik
+# retries into the Let's Encrypt rate limit and delays the main certificate too.
 
 services:
 
@@ -167,7 +167,15 @@ services:
     networks:
       - openedge-net
 
-  # ── Monitoring — always on in VPS/cloud ──────────────────────────────────────
+  # ── Monitoring — OPT-IN, not on by default ───────────────────────────────────
+  #
+  # These services inherit profiles: ["monitoring"] from the base compose, so
+  # `make vps-up` does not start them and Grafana is NOT on the internet. The
+  # comment here used to claim the opposite, which mattered: it made the
+  # Grafana password look like something every deployment had to get right, and
+  # made a Grafana nobody was running look like an exposure.
+  #
+  #   make vps-up-monitoring     (adds --profile monitoring, checks the extras)
   prometheus:
     image: prom/prometheus:v3.4.0
     mem_limit: ${PROMETHEUS_MEM_LIMIT:-1g}

@@ -100,7 +100,7 @@ func TestPreflightRefusesThePlaceholderTemplate(t *testing.T) {
 		t.Fatalf("preflight accepted the unfilled template:\n%s", out)
 	}
 	// It has to name what is wrong, not merely refuse.
-	for _, want := range []string{"ENCRYPTION_KEY", "GRAFANA_ADMIN_PASSWORD", "PUBLIC_HOST"} {
+	for _, want := range []string{"ENCRYPTION_KEY", "PUBLIC_HOST"} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("preflight did not mention %s:\n%s", want, out)
 		}
@@ -161,7 +161,7 @@ func TestPreflightCatchesEachDefectClass(t *testing.T) {
 		{"a short JWT secret", "JWT_SECRET", strings.Repeat("a", 20), "at least 32"},
 		{"an unquoted cron expression", "BACKUP_SCHEDULE", "0 3 * * *", "BACKUP_SCHEDULE"},
 		{"the example domain", "PUBLIC_HOST", "app.yourcompany.com", "PUBLIC_HOST"},
-		{"a placeholder secret", "GRAFANA_ADMIN_PASSWORD", "CHANGE_ME_STRONG", "GRAFANA_ADMIN_PASSWORD"},
+		{"a placeholder secret", "JWT_SECRET", "CHANGE_ME_GENERATE", "JWT_SECRET"},
 		{"a short admin password", "OPENEDGE_INITIAL_ADMIN_PASSWORD", "short", "global"},
 	}
 
@@ -189,5 +189,47 @@ func TestPreflightCatchesEachDefectClass(t *testing.T) {
 				t.Fatalf("the refusal does not explain %s (expected %q):\n%s", tc.name, tc.wantIn, out)
 			}
 		})
+	}
+}
+
+// Grafana runs only with the monitoring profile, which is off by default.
+// Demanding its password from every deployment would be a check that cries
+// wolf — and those get ignored, including on the deployment where it matters.
+func TestPreflightAsksForTheGrafanaPasswordOnlyWithMonitoring(t *testing.T) {
+	root := repoRoot(t)
+	script := filepath.Join(root, "scripts", "preflight.sh")
+
+	env := strings.Join([]string{
+		"PUBLIC_HOST=app.example.com", "ACME_EMAIL=ops@example.com",
+		"ALLOWED_ORIGINS=https://app.example.com",
+		"JWT_SECRET=" + strings.Repeat("a", 64),
+		"POSTGRES_PASSWORD=" + strings.Repeat("b", 32),
+		"MQTT_ADMIN_PASSWORD=" + strings.Repeat("c", 32),
+		"ENCRYPTION_KEY=" + strings.Repeat("d", 32),
+		"OPENEDGE_INITIAL_ADMIN_PASSWORD=" + strings.Repeat("f", 20),
+		"GRAFANA_ADMIN_PASSWORD=CHANGE_ME_STRONG",
+		"SWAGGER_ENABLED=false", `BACKUP_SCHEDULE="0 3 * * *"`, "",
+	}, "\n")
+
+	path := filepath.Join(t.TempDir(), "prod.env")
+	if err := os.WriteFile(path, []byte(env), 0o600); err != nil {
+		t.Fatalf("writing env: %v", err)
+	}
+
+	// Monitoring off: the placeholder is harmless, and must not block a deploy.
+	out, err := exec.Command("bash", script, path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("preflight blocked a deployment over a Grafana that will not run:\n%s", out)
+	}
+	// It should still say something, so turning monitoring on later is not a surprise.
+	if !strings.Contains(string(out), "GRAFANA_ADMIN_PASSWORD") {
+		t.Errorf("no warning about the placeholder at all:\n%s", out)
+	}
+
+	// Monitoring on: the same value now publishes a Grafana whose password is
+	// in a public repository.
+	out, err = exec.Command("bash", script, path, "--with-monitoring").CombinedOutput()
+	if err == nil {
+		t.Fatalf("preflight --with-monitoring accepted the placeholder Grafana password:\n%s", out)
 	}
 }

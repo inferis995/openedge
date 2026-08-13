@@ -20,6 +20,13 @@
 set -uo pipefail
 
 ENV_FILE="${1:-.env}"
+# Grafana only exists when the monitoring profile is enabled. Demanding its
+# password from every deployment would be a check that cries wolf, and those
+# get ignored — including on the deployment where it does matter.
+WITH_MONITORING=0
+for arg in "$@"; do
+    [ "$arg" = "--with-monitoring" ] && WITH_MONITORING=1
+done
 PROBLEMS=()
 NOTES=()
 
@@ -50,8 +57,11 @@ get() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -1 | sed 's/^"\(.*\)"$/\1/; s/^'\'
 # The check is on the VALUE, not on whether the key exists: a key present with
 # the repository's placeholder is worse than a missing one, because every other
 # check treats it as configured.
-for var in JWT_SECRET POSTGRES_PASSWORD MQTT_ADMIN_PASSWORD ENCRYPTION_KEY \
-           GRAFANA_ADMIN_PASSWORD OPENEDGE_INITIAL_ADMIN_PASSWORD; do
+REQUIRED=(JWT_SECRET POSTGRES_PASSWORD MQTT_ADMIN_PASSWORD ENCRYPTION_KEY
+          OPENEDGE_INITIAL_ADMIN_PASSWORD)
+[ "$WITH_MONITORING" = "1" ] && REQUIRED+=(GRAFANA_ADMIN_PASSWORD)
+
+for var in "${REQUIRED[@]}"; do
     value=$(get "$var")
     if [ -z "$value" ]; then
         fail "$var is empty or missing."
@@ -109,6 +119,15 @@ if [ -n "$SCHEDULE" ] && [[ "$SCHEDULE" != \"* ]] && [[ "$SCHEDULE" != \'* ]] &&
     fail "BACKUP_SCHEDULE is not quoted. Sourced by backup.sh under 'set -e', \
 '0 3 * * *' reads as the command '0' with arguments — the script exits before pg_dump runs, \
 and no backup is ever written."
+fi
+
+if [ "$WITH_MONITORING" = "0" ] && [[ "$(get GRAFANA_ADMIN_PASSWORD)" == *CHANGE_ME* ]]; then
+    note "GRAFANA_ADMIN_PASSWORD is still the placeholder. Harmless while the monitoring \
+profile is off, and a public Grafana with a published password the moment you turn it on."
+fi
+
+if [ "$WITH_MONITORING" = "1" ]; then
+    note "Grafana will be published at grafana.$(get PUBLIC_HOST) — it needs its own DNS A record."
 fi
 
 if [ -z "$(get REDIS_PASSWORD)" ]; then

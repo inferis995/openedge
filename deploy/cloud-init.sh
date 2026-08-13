@@ -157,16 +157,6 @@ else
   [[ "$CONT" =~ ^[Yy]$ ]] || error "Aborted — fix DNS first"
 fi
 
-# Grafana is published at grafana.$PUBLIC_HOST by this overlay, and needs its
-# own A record. Without one Let's Encrypt cannot validate that hostname and
-# Traefik retries into the rate limit, which delays the certificate for the main
-# domain too — a Grafana nobody asked for taking the site down with it.
-GF_IP=$(dig +short "grafana.${PUBLIC_HOST}" 2>/dev/null | tail -1 || true)
-if [ "$GF_IP" != "$SERVER_IP" ]; then
-  warn "grafana.${PUBLIC_HOST} does not resolve here (${GF_IP:-<not found>})."
-  warn "  Add an A record for it, or Traefik will keep failing to get its certificate."
-fi
-
 # ── 7. Install systemd service ────────────────────────────────────────────────
 step "Installing systemd service"
 COMPOSE_CMD="docker compose -f docker-compose.yml -f docker-compose.vps.yml"

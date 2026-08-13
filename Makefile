@@ -4,6 +4,7 @@ COMPOSE         = docker compose
 COMPOSE_TLS     = docker compose --profile tls
 COMPOSE_VPS          = docker compose -f docker-compose.yml -f docker-compose.vps.yml
 COMPOSE_VPS_EDGE     = docker compose -f docker-compose.yml -f docker-compose.vps.yml --profile edge
+COMPOSE_VPS_MON      = docker compose -f docker-compose.yml -f docker-compose.vps.yml --profile monitoring
 COMPOSE_COOLIFY = docker compose -f docker-compose.coolify.yml
 COMPOSE_MONITORING = docker compose --profile monitoring
 
@@ -169,6 +170,10 @@ vps-init: setup-env
 preflight:
 	@bash scripts/preflight.sh
 
+## Same check, plus what only matters when Grafana is published
+preflight-monitoring:
+	@bash scripts/preflight.sh .env --with-monitoring
+
 ## Start the VPS stack (Traefik + Let's Encrypt + all services)
 vps-up: setup-env preflight
 	$(COMPOSE_VPS) build
@@ -177,6 +182,16 @@ vps-up: setup-env preflight
 	@echo "OpenEdge VPS stack started."
 	@echo "  Web UI: https://$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'your-domain')"
 	@echo "  MQTT:   mqtts://$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'your-domain'):8883"
+
+## Start the VPS stack WITH monitoring (Prometheus + Grafana + Loki + exporters).
+## Grafana is published at grafana.$$PUBLIC_HOST, so it needs its own DNS A
+## record and a real password — which is why this has its own preflight.
+vps-up-monitoring: setup-env preflight-monitoring
+	$(COMPOSE_VPS_MON) build
+	$(COMPOSE_VPS_MON) up -d
+	@echo ""
+	@echo "OpenEdge VPS stack + monitoring started."
+	@echo "  Grafana: https://grafana.$$(grep ^PUBLIC_HOST .env 2>/dev/null | cut -d= -f2 || echo 'your-domain')"
 
 ## Start the VPS stack + edge (driver-manager on the same VPS — all-in-one cloud)
 vps-up-edge: setup-env preflight

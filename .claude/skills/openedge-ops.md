@@ -193,10 +193,11 @@ Get-Service OpenEdge   # Status: Running
 > `BACKUP_SCHEDULE` non è quotato (il backup non parte mai) o se `PUBLIC_HOST`
 > è ancora quello d'esempio. `make vps-up` lo esegue da solo.
 >
-> **DNS**: servono DUE record A — `PUBLIC_HOST` e `grafana.PUBLIC_HOST`.
-> Grafana è pubblicato su internet da questo overlay, e senza il suo record
-> Let's Encrypt fallisce e Traefik ritenta fino al rate limit, ritardando anche
-> il certificato del dominio principale.
+> **DNS**: un record A per `PUBLIC_HOST`. Il monitoring (Prometheus, Grafana,
+> Loki, exporter) **non parte per default** — sta dietro `profiles: ["monitoring"]`.
+> Se lo attivi con `make vps-up-monitoring` serve un secondo record A per
+> `grafana.PUBLIC_HOST`, altrimenti Traefik ritenta fino al rate limit di
+> Let's Encrypt e ritarda anche il certificato del dominio principale.
 
 ```bash
 # Opzione 1 — Script automatico (raccomandato)
