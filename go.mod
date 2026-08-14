@@ -2,9 +2,12 @@ module github.com/ralph/industrial-edge-middleware
 
 go 1.25.0
 
-// Pinned to a toolchain that carries the fixes for the currently-known stdlib advisories
-// (net/mail, crypto/x509, crypto/tls). govulncheck in CI enforces this.
-toolchain go1.25.12
+// Pinned to a toolchain that carries the fixes for the currently-known stdlib
+// advisories. The nightly scan is what moves this: on 2026-08-14 it reported six
+// call-reachable ones at once — GO-2026-5026, -5972, -6089, -6090, -6091, -6218,
+// in net/http, net/url and their neighbours — all fixed in go1.25.13, none of
+// them caused by a change here. govulncheck in CI enforces the pin.
+toolchain go1.25.13
 
 require (
 	github.com/docker/docker v28.5.2+incompatible
