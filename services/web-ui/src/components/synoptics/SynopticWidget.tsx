@@ -55,6 +55,29 @@ const resolveBinaryColor = (
     return cfg?.colorOff ?? '#475569';
 };
 
+/**
+ * The largest font size at which `text` still fits the box.
+ *
+ * Widgets used to take fontSize at its word. The clock did it with no guard at
+ * all and ran its digits outside the widget; the value readout clipped instead,
+ * which on a plant screen is worse than small — a reading cut from 12345 to
+ * 1234 is not obviously wrong, it is just wrong.
+ *
+ * charRatio is the advance width of a character as a fraction of the em: 0.62
+ * for the monospace stacks browsers pick, less for proportional text.
+ */
+const fitFontSize = (
+    text: string,
+    boxW: number,
+    boxH: number,
+    requested: number,
+    charRatio = 0.62,
+    minSize = 8,
+): number => {
+    const chars = Math.max(1, text.length);
+    return Math.max(minSize, Math.min(requested, boxW / (chars * charRatio), boxH));
+};
+
 // ── Industrial SVG symbols ──────────────────────────────────────────────────
 
 function TankSymbol({ pct, color, horizontal }: { pct: number; color: string; horizontal?: boolean }) {
@@ -343,24 +366,51 @@ function ButtonWidget({ widget, active, color, live, onWrite, onNavigate }: {
     );
 }
 
-function ClockWidget({ cfg }: { cfg: SynopticWidget['config'] }) {
+function ClockWidget({ widget }: { widget: SynopticWidget }) {
+    const cfg = widget.config ?? {};
     const [now, setNow] = useState(new Date());
     useEffect(() => {
         const id = setInterval(() => setNow(new Date()), 1000);
         return () => clearInterval(id);
     }, []);
-    const use12h = cfg?.clockFormat === '12h';
+    const use12h = cfg.clockFormat === '12h';
     const timeStr = now.toLocaleTimeString(use12h ? 'en-US' : 'it-IT', {
         hour: '2-digit', minute: '2-digit', second: '2-digit',
         hour12: use12h,
     });
     const dateStr = now.toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' });
-    const showDate = cfg?.showDate !== false;
-    const textColor = cfg?.color || '#e2e8f0';
+    const showDate = cfg.showDate !== false;
+    const textColor = cfg.color || '#e2e8f0';
+
+    // Fit the text to the box instead of assuming it fits.
+    //
+    // The default was a fixed 22px in a 130x56 widget. "14:32:05" is eight
+    // monospace characters — about 106px — so it just fitted; switch to 12-hour
+    // and it becomes "02:32:05 PM", eleven characters and 145px, which ran
+    // straight out of the widget. Raising fontSize did the same at any format.
+    //
+    // 0.62em is the advance width of a digit in the monospace stacks browsers
+    // pick, and the height budget leaves room for the date line underneath.
+    const padding = 16;
+    const usableW = Math.max(24, widget.w - padding);
+    const usableH = Math.max(16, widget.h - (showDate ? 18 : 8));
+    const timeSize = fitFontSize(timeStr, usableW, usableH * (showDate ? 0.62 : 0.9),
+        (cfg.fontSize as number) ?? 22);
+    const dateSize = fitFontSize(dateStr, usableW, timeSize * 0.5,
+        Math.round(timeSize * 0.5), 0.58);
+
     return (
-        <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900/80 border border-slate-700 rounded-md px-2">
-            <span style={{ fontSize: cfg?.fontSize ?? 22, color: textColor, fontFamily: 'monospace', fontWeight: 700, lineHeight: 1.1 }}>{timeStr}</span>
-            {showDate && <span style={{ fontSize: cfg?.fontSize ? Math.max(9, Math.round((cfg.fontSize as number) * 0.5)) : 11, color: '#94a3b8', marginTop: 2 }}>{dateStr}</span>}
+        <div className="w-full h-full flex flex-col items-center justify-center overflow-hidden
+                        bg-slate-900/80 border border-slate-700 rounded-md px-2">
+            <span style={{
+                fontSize: timeSize, color: textColor, fontFamily: 'monospace',
+                fontWeight: 700, lineHeight: 1.1, whiteSpace: 'nowrap',
+            }}>{timeStr}</span>
+            {showDate && (
+                <span style={{
+                    fontSize: dateSize, color: '#94a3b8', marginTop: 2, whiteSpace: 'nowrap',
+                }}>{dateStr}</span>
+            )}
         </div>
     );
 }
@@ -497,7 +547,19 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
                 <div className={cn('w-full h-full flex flex-col items-center justify-center rounded-md border border-slate-700 px-2 overflow-hidden', blinkClass)}
                     style={{ background: bgColor ?? 'rgba(15,23,42,0.8)', borderColor }}>
                     {widget.label && <span className="text-[10px] text-slate-400 truncate w-full text-center leading-tight">{widget.label}</span>}
-                    <span className="font-mono font-bold tabular-nums leading-none" style={{ color, fontSize: cfg.fontSize ?? 22 }}>
+                    <span className="font-mono font-bold tabular-nums leading-none whitespace-nowrap"
+                        style={{
+                            color,
+                            // Shrink rather than clip: overflow-hidden on the box
+                            // meant a long reading lost its leading digits, which
+                            // reads as a smaller number rather than as an error.
+                            fontSize: fitFontSize(
+                                `${prefix ?? ''}${txt}${cfg.unit ?? ''}`,
+                                widget.w - 16,
+                                (widget.h - (widget.label ? 14 : 4)) * 0.8,
+                                cfg.fontSize ?? 22,
+                            ),
+                        }}>
                         {prefix ? <span className="text-slate-400 text-[0.6em] mr-0.5">{prefix}</span> : null}
                         {txt}{cfg.unit ? <span className="text-slate-400 text-[0.6em] ml-0.5">{cfg.unit}</span> : null}
                     </span>
@@ -672,7 +734,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
             return <ButtonWidget widget={widget} active={on} color={color} live={live} onWrite={onWrite} onNavigate={onNavigate} />;
         }
         case 'clock':
-            return <ClockWidget cfg={cfg} />;
+            return <ClockWidget widget={widget} />;
         case 'setpoint':
             return <SetpointWidget widget={widget} live={live} onWrite={onWrite} />;
         case 'image':

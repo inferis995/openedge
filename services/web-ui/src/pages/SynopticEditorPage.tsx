@@ -240,17 +240,38 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         })();
     }, [id]);
 
-    // Fit-to-width scaling so large canvases stay usable on any screen.
+    // Fit the canvas to the space there actually is — both directions.
+    //
+    // Fitting width alone is right on a desktop, where height is plentiful, and
+    // wrong everywhere else: in landscape on a phone the width fits at a scale
+    // the height cannot hold, so the diagram runs under the fold and you scroll
+    // a fixed drawing. Fitting the box keeps the whole page visible at once,
+    // which is the point of a mimic.
+    //
+    // The viewer may also grow past 1:1 when the screen is bigger than the
+    // canvas — a 600px page on a desktop was rendered at a sixth of the
+    // available area for no reason. The editor stays capped at 1:1, because
+    // drawing is done in canvas coordinates and a magnified grid makes every
+    // placement land somewhere other than where it looked.
     useEffect(() => {
         const recompute = () => {
             if (!canvasWrapRef.current || !synoptic) return;
-            const avail = canvasWrapRef.current.clientWidth - 4;
-            setScale(Math.min(1, avail / synoptic.canvas_w));
+            const box = canvasWrapRef.current;
+            const availW = box.clientWidth - 4;
+            // What is left of the viewport under the canvas's own top edge,
+            // with room for the toolbar and page padding.
+            const availH = Math.max(240, window.innerHeight - box.getBoundingClientRect().top - 24);
+            const fit = Math.min(availW / synoptic.canvas_w, availH / synoptic.canvas_h);
+            setScale(Math.min(isEdit ? 1 : 2.5, fit));
         };
         recompute();
         window.addEventListener('resize', recompute);
-        return () => window.removeEventListener('resize', recompute);
-    }, [synoptic]);
+        window.addEventListener('orientationchange', recompute);
+        return () => {
+            window.removeEventListener('resize', recompute);
+            window.removeEventListener('orientationchange', recompute);
+        };
+    }, [synoptic, isEdit, mobileList]);
 
     // Pinch-to-zoom for the viewer on mobile/tablet (view mode only).
     useEffect(() => {
