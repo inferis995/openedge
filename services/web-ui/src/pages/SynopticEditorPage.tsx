@@ -5,7 +5,7 @@ import {
     Lock, Unlock, AlignLeft, AlignCenterHorizontal, AlignRight,
     AlignStartVertical, AlignCenterVertical, AlignEndVertical,
     AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
-    Maximize2, ChevronsUpDown,
+    Maximize2, ChevronsUpDown, LayoutTemplate, List as ListIcon,
 } from 'lucide-react';
 import { synopticsApi, Synoptic, SynopticWidget } from '@/api/synoptics';
 import { tagsApi } from '@/api/tags';
@@ -128,6 +128,12 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     // user acts on it, while the ok/error toasts auto-dismiss.
     const [conflictMsg, setConflictMsg] = useState<string | null>(null);
     const [loadError, setLoadError] = useState<string | null>(null);
+    // On a phone a 1280px canvas fits at about 0.27x, which means a 14px
+    // readout renders at four pixels. It is on screen and it is unreadable, so
+    // the viewer offers the same data as a list — which is what somebody
+    // checking a plant from their phone actually needs. The diagram is one tap
+    // away, and pinch-zoom still works there.
+    const [mobileList, setMobileList] = useState(false);
     const [scale, setScale] = useState(1);
     const scaleRef = useRef(scale);
 
@@ -611,12 +617,16 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     return (
         <div className="space-y-4">
             {/* Toolbar */}
-            <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                    <Button variant="ghost" size="icon" onClick={() => navigate('/synoptics')}><ArrowLeft size={18} /></Button>
+            {/* Wraps below sm: five controls and a title do not fit across 390px,
+                and the title was the thing squeezed out — on the page whose
+                whole purpose is telling you which plant you are looking at. */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <Button variant="ghost" size="icon" className="shrink-0"
+                        onClick={() => navigate('/synoptics')}><ArrowLeft size={18} /></Button>
                     <div className="min-w-0">
                         <h2 className="text-xl font-bold tracking-tight truncate">{synoptic.name}</h2>
-                        <p className="text-xs text-muted-foreground">{isEdit ? 'Designer' : 'Runtime — valori live'}</p>
+                        <p className="hidden sm:block text-xs text-muted-foreground">{isEdit ? 'Designer' : 'Runtime — valori live'}</p>
                     </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -656,6 +666,12 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 <span className={cn('w-1.5 h-1.5 rounded-full', wsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400')} />
                                 {wsConnected ? 'LIVE' : 'OFFLINE'}
                             </span>
+                            <Button variant="outline" size="sm"
+                                className="sm:hidden gap-1"
+                                onClick={() => setMobileList(v => !v)}>
+                                {mobileList ? <LayoutTemplate size={14} /> : <ListIcon size={14} />}
+                                {mobileList ? 'Schema' : 'Valori'}
+                            </Button>
                             <Button variant="outline" size="icon" className="h-10 sm:h-8 w-10 sm:w-8"
                                 title="Schermo intero"
                                 onClick={() => {
@@ -677,12 +693,14 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                 </div>
             </div>
 
-            <div className={cn('grid gap-4', isEdit ? 'grid-cols-[160px_1fr_280px]' : 'grid-cols-1')}>
+            <div className={cn('grid gap-4',
+                isEdit ? 'grid-cols-1 lg:grid-cols-[160px_1fr_280px]' : 'grid-cols-1')}>
                 {/* Palette (edit only) */}
                 {isEdit && (
-                    <div className="space-y-2">
+                    <div className="order-2 lg:order-none space-y-2">
                         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Componenti</p>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="flex gap-2 overflow-x-auto pb-1 lg:grid lg:grid-cols-2 lg:overflow-visible
+                                        [&>button]:shrink-0 [&>button]:w-20 lg:[&>button]:w-auto">
                             {WIDGET_CATALOG.map(c => (
                                 <button key={c.type} onClick={() => addWidget(c.type)}
                                     className="flex flex-col items-center justify-center gap-1 p-2 rounded-md border bg-card hover:bg-muted/50 hover:border-primary/40 transition-colors h-16">
@@ -696,8 +714,45 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                     </div>
                 )}
 
-                {/* Canvas */}
-                <div ref={canvasWrapRef} className="overflow-auto rounded-md border bg-muted/20 p-0.5">
+                {/* The same page as a list of readings, for a phone. Only the
+                    widgets bound to a tag appear: pipes, labels and decoration
+                    carry no value and would be noise in a list. */}
+                {!isEdit && mobileList && (
+                    <div className="sm:hidden space-y-2">
+                        {widgets.filter(w => w.tagId).length === 0 && (
+                            <p className="text-sm text-muted-foreground py-8 text-center">
+                                Nessun componente di questa pagina è legato a un tag.
+                            </p>
+                        )}
+                        {widgets.filter(w => w.tagId).map(w => {
+                            const live = tagValue(w.tagId);
+                            const unit = w.config?.unit ?? '';
+                            const dec = w.config?.decimals ?? 1;
+                            const v = live?.value;
+                            const text = v === undefined || v === null
+                                ? '—'
+                                : typeof v === 'number' ? v.toFixed(dec) : String(v);
+                            return (
+                                <div key={w.id}
+                                    className="flex items-center justify-between gap-3 rounded-lg border bg-card px-3 py-3">
+                                    <span className="text-sm text-muted-foreground truncate">
+                                        {w.label || tags.find(t => t.id === w.tagId)?.alias || `Tag ${w.tagId}`}
+                                    </span>
+                                    <span className={cn('text-lg font-semibold tabular-nums shrink-0',
+                                        live?.quality === 0 ? '' : 'text-muted-foreground')}>
+                                        {text}{unit && <span className="text-xs font-normal ml-1">{unit}</span>}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+
+                {/* Canvas. order-first below lg: with the palette above it, the
+                    thing being edited started off-screen. */}
+                <div ref={canvasWrapRef}
+                    className={cn('order-first lg:order-none overflow-auto rounded-md border bg-muted/20 p-0.5',
+                        !isEdit && mobileList && 'hidden sm:block')}>
                     <div
                         className="relative mx-auto"
                         style={{
@@ -792,7 +847,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
 
                 {/* Properties panel (edit only) */}
                 {isEdit && (
-                    <div className="space-y-3">
+                    <div className="order-3 lg:order-none space-y-3">
                         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Proprietà</p>
                         {selectedIds.length > 1 ? (
                             <div className="space-y-3">
