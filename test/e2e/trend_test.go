@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -39,22 +40,45 @@ func TestTrendBatchReturnsTheSeries(t *testing.T) {
 	org := &apiClient{t: t, token: admin.token, orgID: fmt.Sprintf("%d", fx.org.ID)}
 
 	mqtt := mqttConnect(t, "e2e-trend-"+uniqueSuffix())
+	// The payload shape the historian actually reads. Sending {value, quality,
+	// timestamp} instead produced an empty series and looked like a broken
+	// endpoint; see TestPublishedValueIsHistorised, which is the shape of
+	// record here.
+	want := 42.5
 	publish(t, mqtt, fx.dataTopic, map[string]interface{}{
-		"value": 42.5, "quality": 0, "timestamp": time.Now().UnixMilli(),
+		"tag_id": fx.tagID,
+		"org_id": fx.org.ID,
+		"v":      want,
+		"ts":     time.Now().UnixMilli(),
+		"q":      0,
 	})
-	// Give the historian time to persist it.
-	time.Sleep(3 * time.Second)
 
-	status, raw := batchQuery(t, org, map[string]interface{}{
+	// Under an hour on purpose: determineAggregationLevel sends anything longer
+	// to the 1-minute continuous aggregate, which materialises on its own
+	// schedule and would report a fresh point as missing. The batch endpoint has
+	// no raw=true, so the window is what selects raw.
+	body := map[string]interface{}{
 		"tag_ids": []int{fx.tagID},
-		// Under an hour on purpose: determineAggregationLevel sends anything
-		// longer to the 1-minute continuous aggregate, which has not refreshed
-		// for a value published three seconds ago — the series comes back with
-		// the right buckets and null in every one of them.
-		"start": time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339),
-		"end":   time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339),
-		"agg":   "avg",
-	})
+		"start":   time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339),
+		"end":     time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339),
+		"agg":     "avg",
+	}
+
+	// Poll rather than sleep: the historian persists on its own schedule, and a
+	// fixed wait is either flaky or slow.
+	var status int
+	var raw []byte
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		status, raw = batchQuery(t, org, body)
+		if status == http.StatusOK && strings.Contains(string(raw), "42.5") {
+			break
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(time.Second)
+	}
 	if status != http.StatusOK {
 		t.Fatalf("the endpoint the trend page calls answered %d — %s", status, truncate(raw))
 	}
