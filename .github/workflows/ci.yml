@@ -33,7 +33,10 @@ jobs:
         uses: golangci/golangci-lint-action@v7
         with:
           version: v2.5.0
-          args: --timeout=5m --new-from-rev=origin/master ./internal/...
+          # ./test/... too: those packages carry the deployment-configuration
+          # and route-coverage checks, and lint that skips them lets style
+          # drift into the files whose whole job is catching drift.
+          args: --timeout=5m --new-from-rev=origin/master ./internal/... ./test/...
 
   # ── Go: test ─────────────────────────────────────────────────────────────────
   go-test:

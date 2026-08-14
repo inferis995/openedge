@@ -23,14 +23,14 @@ import (
 // frontend itself, so a call added tomorrow is checked tomorrow.
 
 var (
-	// api.get('/x'), api.post(`/x/${id}`), api.delete("/x")
+	// Matches api.get('/x'), api.post(`/x/${id}`), api.delete("/x").
 	callRe = regexp.MustCompile(
 		"\\bapi\\.(get|post|put|patch|delete)\\s*\\(\\s*[`'\"]([^`'\"]+)[`'\"]")
-	// someGroup := parent.Group("/prefix")
+	// Matches someGroup := parent.Group("/prefix").
 	groupRe = regexp.MustCompile(`(\w+)\s*:?=\s*(\w+)\.Group\(\s*"([^"]*)"`)
-	// group.GET("/path", handler)
+	// Matches group.GET("/path", handler).
 	routeRe = regexp.MustCompile(`(\w+)\.(GET|POST|PUT|PATCH|DELETE|Any)\(\s*"([^"]*)"`)
-	// ${...} in a template literal, and :id / *filepath in a Gin route
+	// Matches ${...} in a template literal, and :id / *filepath in a Gin route.
 	interpRe = regexp.MustCompile(`\$\{[^}]*\}`)
 	paramRe  = regexp.MustCompile(`:[A-Za-z_][A-Za-z0-9_]*`)
 )
