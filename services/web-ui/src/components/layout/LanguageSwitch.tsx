@@ -19,7 +19,7 @@ const LanguageSwitch = () => {
             aria-label={t('language.label')}
             value={i18n.resolvedLanguage ?? 'en'}
             onChange={(e) => void i18n.changeLanguage(e.target.value)}
-            className="bg-transparent border border-input rounded-md text-xs px-2 py-1"
+            className="bg-transparent border border-input rounded-md text-xs px-2 py-2 sm:py-1"
         >
             {LANGS.map((l) => (
                 <option key={l.code} value={l.code}>{l.label}</option>

@@ -460,7 +460,7 @@ export default function VendorRiskPage() {
                                         <TableCell className="text-right">
                                             <div className="flex items-center justify-end gap-1">
                                                 {v.contact_email && (
-                                                    <Button variant="ghost" size="icon" className="h-7 w-7" asChild>
+                                                    <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7" asChild>
                                                         <a href={`mailto:${v.contact_email}`} title={v.contact_email}>
                                                             <Mail size={13} />
                                                         </a>
@@ -469,7 +469,7 @@ export default function VendorRiskPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="h-7 w-7"
+                                                    className="h-9 sm:h-7 w-9 sm:w-7"
                                                     onClick={() => openEdit(v)}
                                                 >
                                                     <Pencil size={13} />
@@ -477,7 +477,7 @@ export default function VendorRiskPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                    className="h-9 sm:h-7 w-9 sm:w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
                                                     onClick={() => {
                                                         if (confirm(`Eliminare il fornitore "${v.name}"?`)) deleteVendor.mutate(v.id);
                                                     }}

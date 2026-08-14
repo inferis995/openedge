@@ -71,7 +71,7 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7"
+                        className="h-9 sm:h-7 w-9 sm:w-7"
                         onClick={toggleSidebar}
                     >
                         <PanelLeft className={`w-4 h-4 ${sidebarOpen ? 'text-primary' : 'text-muted-foreground'}`} />
@@ -96,7 +96,7 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                 <div className="flex items-center gap-1.5">
                     {/* Aggregation */}
                     <Select value={aggregation} onValueChange={(v) => setAggregation(v as AggregationType)}>
-                        <SelectTrigger className="w-28 h-7 text-xs">
+                        <SelectTrigger className="w-28 h-9 sm:h-7 text-xs">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -113,7 +113,7 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                         onClick={() => setLiveMode(!liveMode)}
                         variant={liveMode ? 'default' : 'outline'}
                         size="sm"
-                        className="gap-1 h-7 text-xs"
+                        className="gap-1 h-9 sm:h-7 text-xs"
                         disabled={!isLiveCapable}
                     >
                         {liveMode ? (
@@ -134,7 +134,7 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                         onClick={onRefresh}
                         variant="outline"
                         size="icon"
-                        className="h-7 w-7"
+                        className="h-9 sm:h-7 w-9 sm:w-7"
                         disabled={isLoading}
                     >
                         <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
@@ -145,7 +145,7 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                         onClick={onAddChart}
                         variant="outline"
                         size="sm"
-                        className="gap-1 h-7 text-xs"
+                        className="gap-1 h-9 sm:h-7 text-xs"
                     >
                         <Plus className="w-3 h-3" />
                         Chart
@@ -156,7 +156,7 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                         onClick={toggleDataTable}
                         variant={dataTableOpen ? 'default' : 'outline'}
                         size="icon"
-                        className="h-7 w-7"
+                        className="h-9 sm:h-7 w-9 sm:w-7"
                     >
                         <Table className="w-3 h-3" />
                     </Button>
@@ -166,7 +166,7 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                         onClick={onExportCSV}
                         variant="outline"
                         size="sm"
-                        className="gap-1 h-7 text-xs"
+                        className="gap-1 h-9 sm:h-7 text-xs"
                         disabled={dataPointsCount === 0}
                     >
                         <Download className="w-3 h-3" />

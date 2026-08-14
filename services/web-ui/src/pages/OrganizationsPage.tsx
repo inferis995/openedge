@@ -213,7 +213,7 @@ const OrganizationsPage = () => {
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                className="gap-1.5 text-xs h-8"
+                                                className="gap-1.5 text-xs h-10 sm:h-8"
                                                 onClick={(e) => { e.stopPropagation(); setInfraOrg(org); }}
                                             >
                                                 <Server size={13} />
@@ -224,7 +224,7 @@ const OrganizationsPage = () => {
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                                className="h-10 sm:h-8 w-10 sm:w-8 text-muted-foreground hover:text-foreground"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     setEditingOrg({ id: org.id, name: org.name });
@@ -238,7 +238,7 @@ const OrganizationsPage = () => {
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                                                className="h-10 sm:h-8 w-10 sm:w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
                                                 onClick={(e) => handleDelete(e, org.id)}
                                             >
                                                 <Trash2 size={14} />
@@ -250,7 +250,7 @@ const OrganizationsPage = () => {
                                     <Button
                                         variant="default"
                                         size="sm"
-                                        className="gap-1.5 text-xs h-8"
+                                        className="gap-1.5 text-xs h-10 sm:h-8"
                                         onClick={() => handleSelect(org.id)}
                                     >
                                         Enter

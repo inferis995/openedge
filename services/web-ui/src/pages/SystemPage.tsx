@@ -715,7 +715,7 @@ const SystemPage = () => {
                                                 variant="ghost"
                                                 size="sm"
                                                 onClick={() => setCloudMqttTopic('')}
-                                                className="h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                                                className="h-9 sm:h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
                                             >
                                                 <Trash2 className="h-2.5 w-2.5 mr-1" />
                                                 Nessun Prefisso
@@ -814,7 +814,7 @@ const SystemPage = () => {
                                                             type="button"
                                                             variant={heartbeat === 0 ? 'default' : 'outline'}
                                                             size="sm"
-                                                            className="h-7 min-w-[44px] text-xs"
+                                                            className="h-9 sm:h-7 min-w-[44px] text-xs"
                                                             onClick={() => setHeartbeat(0)}
                                                         >
                                                             Real-Time
@@ -823,7 +823,7 @@ const SystemPage = () => {
                                                             type="button"
                                                             variant={heartbeat === -1 ? 'default' : 'outline'}
                                                             size="sm"
-                                                            className="h-7 min-w-[44px] text-xs"
+                                                            className="h-9 sm:h-7 min-w-[44px] text-xs"
                                                             onClick={() => setHeartbeat(-1)}
                                                         >
                                                             Solo cambio
@@ -834,7 +834,7 @@ const SystemPage = () => {
                                                                 type="button"
                                                                 variant={heartbeat === val ? 'default' : 'outline'}
                                                                 size="sm"
-                                                                className="h-7 min-w-[44px] text-xs"
+                                                                className="h-9 sm:h-7 min-w-[44px] text-xs"
                                                                 onClick={() => setHeartbeat(val)}
                                                             >
                                                                 {val < 60 ? `${val}s` : `${val / 60}m`}
@@ -1052,7 +1052,7 @@ const SystemPage = () => {
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                className="h-8 w-8 p-0"
+                                                className="h-10 sm:h-8 w-10 sm:w-8 p-0"
                                                 onClick={() => handleDownloadBackup(backup.filename)}
                                             >
                                                 <Download className="h-4 w-4 text-muted-foreground" />
@@ -1060,7 +1060,7 @@ const SystemPage = () => {
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                className="h-8 w-8 p-0"
+                                                className="h-10 sm:h-8 w-10 sm:w-8 p-0"
                                                 onClick={() => handleDeleteBackup(backup.filename)}
                                             >
                                                 <Trash2 className="h-4 w-4 text-destructive" />
@@ -1109,7 +1109,7 @@ const SystemPage = () => {
                                         <CardTitle className="text-base text-foreground">Database Statistics</CardTitle>
                                         <CardDescription className="text-xs mt-0.5">Live PostgreSQL stats — refreshed every 60s</CardDescription>
                                     </div>
-                                    <Button variant="ghost" size="icon" className="ml-auto h-8 w-8" onClick={loadDBStats} disabled={dbStatsLoading}>
+                                    <Button variant="ghost" size="icon" className="ml-auto h-10 sm:h-8 w-10 sm:w-8" onClick={loadDBStats} disabled={dbStatsLoading}>
                                         <RefreshCw className={`h-4 w-4 ${dbStatsLoading ? 'animate-spin' : ''}`} />
                                     </Button>
                                 </div>
@@ -1296,7 +1296,7 @@ const SystemPage = () => {
                                             <div key={p} className="flex items-center gap-2">
                                                 <span className="text-xs text-muted-foreground w-14 capitalize">{p}:</span>
                                                 <code className="text-xs flex-1 truncate text-foreground">{url}</code>
-                                                <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => navigator.clipboard.writeText(url)}>
+                                                <Button size="sm" variant="ghost" className="h-9 sm:h-6 w-9 sm:w-6 p-0" onClick={() => navigator.clipboard.writeText(url)}>
                                                     <Copy className="h-3 w-3" />
                                                 </Button>
                                             </div>
@@ -1352,7 +1352,7 @@ const SystemPage = () => {
                                             </div>
                                             <div className="space-y-1">
                                                 <Label className="text-xs">Enabled</Label>
-                                                <div className="flex items-center h-8">
+                                                <div className="flex items-center h-10 sm:h-8">
                                                     <Switch
                                                         checked={ssoEdit.enabled}
                                                         onCheckedChange={v => setSsoEdit(s => s ? { ...s, enabled: v } : s)}
@@ -1365,7 +1365,7 @@ const SystemPage = () => {
                                                     value={ssoEdit.client_id}
                                                     onChange={e => setSsoEdit(s => s ? { ...s, client_id: e.target.value } : s)}
                                                     placeholder="OAuth2 client ID"
-                                                    className="h-8 text-sm"
+                                                    className="h-10 sm:h-8 text-sm"
                                                 />
                                             </div>
                                             <div className="space-y-1">
@@ -1375,7 +1375,7 @@ const SystemPage = () => {
                                                     value={ssoEdit.client_secret ?? ''}
                                                     onChange={e => setSsoEdit(s => s ? { ...s, client_secret: e.target.value } : s)}
                                                     placeholder={ssoEdit.id ? '(unchanged)' : 'OAuth2 client secret'}
-                                                    className="h-8 text-sm"
+                                                    className="h-10 sm:h-8 text-sm"
                                                 />
                                             </div>
                                             {ssoEdit.provider === 'azure' && (
@@ -1385,7 +1385,7 @@ const SystemPage = () => {
                                                         value={ssoEdit.tenant_id ?? ''}
                                                         onChange={e => setSsoEdit(s => s ? { ...s, tenant_id: e.target.value } : s)}
                                                         placeholder="common (or specific tenant UUID)"
-                                                        className="h-8 text-sm"
+                                                        className="h-10 sm:h-8 text-sm"
                                                     />
                                                 </div>
                                             )}
@@ -1395,7 +1395,7 @@ const SystemPage = () => {
                                                     value={ssoEdit.domain_hint ?? ''}
                                                     onChange={e => setSsoEdit(s => s ? { ...s, domain_hint: e.target.value } : s)}
                                                     placeholder="company.com (auto-assign org)"
-                                                    className="h-8 text-sm"
+                                                    className="h-10 sm:h-8 text-sm"
                                                 />
                                             </div>
                                         </div>

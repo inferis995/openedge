@@ -105,7 +105,10 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                     <button
                         key={p.label}
                         onClick={() => applyPreset(p.ms, p.label)}
-                        className={`px-2 py-1 text-xs font-medium rounded transition-all ${
+                        // px-2 py-1 measured 29x24 on a phone: the time presets
+                        // are the control this page is used through, and that is
+                        // a mis-tap. Roomier below sm, unchanged above it.
+                        className={`px-3 py-2.5 sm:px-2 sm:py-1 text-xs font-medium rounded transition-all ${
                             isPresetActive(p.label)
                                 ? 'bg-background text-primary shadow-sm'
                                 : 'text-muted-foreground hover:text-foreground'
@@ -140,7 +143,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                     <Button
                         variant={value.preset === 'custom' ? 'default' : 'outline'}
                         size="sm"
-                        className="h-7 text-xs gap-1.5 px-2.5"
+                        className="h-9 sm:h-7 text-xs gap-1.5 px-2.5"
                     >
                         <Calendar className="w-3 h-3" />
                         {value.preset === 'custom'
@@ -175,7 +178,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                                 type="time"
                                 value={startTime}
                                 onChange={e => setStartTime(e.target.value)}
-                                className="h-7 text-xs"
+                                className="h-9 sm:h-7 text-xs"
                             />
                         </div>
                         <div className="flex-1 space-y-1">
@@ -184,13 +187,13 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                                 type="time"
                                 value={endTime}
                                 onChange={e => setEndTime(e.target.value)}
-                                className="h-7 text-xs"
+                                className="h-9 sm:h-7 text-xs"
                             />
                         </div>
                     </div>
                     <Button
                         size="sm"
-                        className="w-full mt-2 h-8 text-xs"
+                        className="w-full mt-2 h-10 sm:h-8 text-xs"
                         disabled={!calRange?.from}
                         onClick={applyCalRange}
                     >
@@ -203,7 +206,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                className="h-9 sm:h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
                 onClick={jumpToLastData}
                 disabled={jumping}
                 title="Jump to most recent data"

@@ -135,7 +135,7 @@ const SecurityPage = () => {
         <div className="p-6 space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
-                    <Shield className="h-8 w-8 text-primary" />
+                    <Shield className="h-10 sm:h-8 w-10 sm:w-8 text-primary" />
                     <div>
                         <h1 className="text-2xl font-bold">Security Center</h1>
                         <p className="text-muted-foreground text-sm">Monitoraggio sicurezza e conformità NIS2</p>

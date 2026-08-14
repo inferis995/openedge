@@ -221,7 +221,7 @@ export default function TrendPage() {
                 {/* Row 1: title + actions */}
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="icon" className="h-7 w-7"
+                        <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7"
                             onClick={() => setSidebarOpen(o => !o)}>
                             <PanelLeft className={`w-4 h-4 ${sidebarOpen ? 'text-primary' : 'text-muted-foreground'}`} />
                         </Button>
@@ -246,7 +246,7 @@ export default function TrendPage() {
                     <div className="flex items-center gap-1.5">
                         {/* Aggregation */}
                         <Select value={aggregation} onValueChange={v => setAggregation(v as AggregationType)}>
-                            <SelectTrigger className="h-7 w-24 text-xs">
+                            <SelectTrigger className="h-9 sm:h-7 w-24 text-xs">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -260,7 +260,7 @@ export default function TrendPage() {
                         <Button
                             size="sm"
                             variant={liveMode ? 'default' : 'outline'}
-                            className="h-7 text-xs gap-1"
+                            className="h-9 sm:h-7 text-xs gap-1"
                             onClick={() => setLiveMode(m => !m)}
                             disabled={timeRange.preset === 'custom'}
                         >
@@ -269,7 +269,7 @@ export default function TrendPage() {
 
                         {/* Reset zoom */}
                         {zoomStack.length > 0 && (
-                            <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+                            <Button size="sm" variant="outline" className="h-9 sm:h-7 text-xs gap-1"
                                 onClick={handleZoomOut} title="Zoom out">
                                 <ZoomOut className="w-3 h-3" />
                                 {zoomStack.length > 1 ? `Undo (${zoomStack.length})` : 'Reset zoom'}
@@ -277,13 +277,13 @@ export default function TrendPage() {
                         )}
 
                         {/* Refresh */}
-                        <Button size="icon" variant="outline" className="h-7 w-7"
+                        <Button size="icon" variant="outline" className="h-9 sm:h-7 w-9 sm:w-7"
                             onClick={() => refetch()} disabled={isFetching || penIds.length === 0}>
                             <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
                         </Button>
 
                         {/* Export CSV */}
-                        <Button size="sm" variant="outline" className="h-7 text-xs gap-1"
+                        <Button size="sm" variant="outline" className="h-9 sm:h-7 text-xs gap-1"
                             onClick={() => {
                                 if (timestamps.length === 0) { toast.info('No data to export'); return; }
                                 exportCSV(pens, timestamps, values);
@@ -295,7 +295,7 @@ export default function TrendPage() {
                         </Button>
 
                         {/* Pen panel toggle */}
-                        <Button variant="ghost" size="icon" className="h-7 w-7"
+                        <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7"
                             onClick={() => setPenPanelOpen(o => !o)}>
                             <PanelRight className={`w-4 h-4 ${penPanelOpen ? 'text-primary' : 'text-muted-foreground'}`} />
                         </Button>

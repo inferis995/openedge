@@ -130,7 +130,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-6 w-6"
+                                    className="h-9 sm:h-6 w-9 sm:w-6"
                                     title={isVisible ? 'Hide series' : 'Show series'}
                                     onClick={() => onUpdate(s.tagId, { visible: !isVisible })}
                                 >
@@ -139,7 +139,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-6 w-6 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                    className="h-9 sm:h-6 w-9 sm:w-6 text-red-500 hover:text-red-600 hover:bg-red-50"
                                     title="Remove from chart"
                                     onClick={() => onRemoveTag(s.tagId)}
                                 >
@@ -269,7 +269,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                         <Input
                                             type="number"
                                             placeholder="Min"
-                                            className="h-6 text-[10px] w-16"
+                                            className="h-9 sm:h-6 text-[10px] w-16"
                                             value={si.min}
                                             onChange={(e) =>
                                                 setScaleInputs((prev) => ({
@@ -282,7 +282,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                         <Input
                                             type="number"
                                             placeholder="Max"
-                                            className="h-6 text-[10px] w-16"
+                                            className="h-9 sm:h-6 text-[10px] w-16"
                                             value={si.max}
                                             onChange={(e) =>
                                                 setScaleInputs((prev) => ({
@@ -294,7 +294,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                         <Button
                                             variant="outline"
                                             size="icon"
-                                            className="h-6 w-6"
+                                            className="h-9 sm:h-6 w-9 sm:w-6"
                                             onClick={() => handleScaleApply(s.tagId)}
                                         >
                                             <Check className="w-3 h-3" />

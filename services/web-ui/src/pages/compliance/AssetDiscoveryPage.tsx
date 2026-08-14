@@ -243,7 +243,7 @@ export default function AssetDiscoveryPage() {
             <div className="relative w-full sm:w-72">
                 <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                 <Input
-                    className="pl-8 h-8 text-sm"
+                    className="pl-8 h-10 sm:h-8 text-sm"
                     placeholder="Cerca IP, hostname, vendor..."
                     value={search}
                     onChange={e => setSearch(e.target.value)}
@@ -332,7 +332,7 @@ export default function AssetDiscoveryPage() {
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
-                                                    className="h-7 text-xs"
+                                                    className="h-9 sm:h-7 text-xs"
                                                     onClick={() => {
                                                         setCveAssetId(asset.id);
                                                         setCveForm({ cve_id: '', severity: 'MEDIUM', cvss_score: undefined, description: '' });
@@ -344,7 +344,7 @@ export default function AssetDiscoveryPage() {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                    className="h-9 sm:h-7 w-9 sm:w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
                                                     onClick={() => {
                                                         if (confirm('Eliminare questo asset?')) deleteAsset.mutate(asset.id);
                                                     }}
@@ -374,7 +374,7 @@ export default function AssetDiscoveryPage() {
                                                                     <Button
                                                                         variant="ghost"
                                                                         size="icon"
-                                                                        className="h-6 w-6 text-destructive"
+                                                                        className="h-9 sm:h-6 w-9 sm:w-6 text-destructive"
                                                                         onClick={() => removeCVE.mutate({ assetId: asset.id, cveId: cve.cve_id })}
                                                                     >
                                                                         <Trash2 size={12} />

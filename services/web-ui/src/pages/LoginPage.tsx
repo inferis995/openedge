@@ -108,7 +108,7 @@ const LoginPage = () => {
                     <div className="text-center">
                         <div className="flex justify-center mb-4">
                             <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                                <ShieldCheck className="h-8 w-8 text-primary" />
+                                <ShieldCheck className="h-10 sm:h-8 w-10 sm:w-8 text-primary" />
                             </div>
                         </div>
                         <h2 className="text-lg font-semibold">Autenticazione a due fattori</h2>

@@ -289,7 +289,7 @@ function PropertyHistoryPanel({ property }: { property: I3XProperty }) {
                 </div>
                 <div className="flex items-center gap-2">
                     <Select value={String(range)} onValueChange={v => setRange(Number(v))}>
-                        <SelectTrigger className="h-7 text-xs w-20 clip-chamfer-sm">
+                        <SelectTrigger className="h-9 sm:h-7 text-xs w-20 clip-chamfer-sm">
                             <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -300,7 +300,7 @@ function PropertyHistoryPanel({ property }: { property: I3XProperty }) {
                             ))}
                         </SelectContent>
                     </Select>
-                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={load} disabled={loading}>
+                    <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7" onClick={load} disabled={loading}>
                         <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
                     </Button>
                 </div>
@@ -664,7 +664,7 @@ export default function I3XPage() {
                                 {loadingEquipment ? (
                                     <div className="space-y-1 p-2">
                                         {[1, 2, 3, 4, 5].map(i => (
-                                            <div key={i} className="h-8 bg-muted animate-pulse rounded" />
+                                            <div key={i} className="h-10 sm:h-8 bg-muted animate-pulse rounded" />
                                         ))}
                                     </div>
                                 ) : allEquipment.length === 0 ? (
@@ -726,7 +726,7 @@ export default function I3XPage() {
                                                 placeholder="Cerca property..."
                                                 value={propSearch}
                                                 onChange={e => setPropSearch(e.target.value)}
-                                                className="pl-7 h-8 text-xs clip-chamfer-sm"
+                                                className="pl-7 h-10 sm:h-8 text-xs clip-chamfer-sm"
                                             />
                                         </div>
                                     </CardHeader>
@@ -799,19 +799,19 @@ export default function I3XPage() {
                                                                                             : prop.dataType === 'Int32' ? '0'
                                                                                             : 'testo'
                                                                                         }
-                                                                                        className="h-7 text-xs font-mono w-28 clip-chamfer-sm"
+                                                                                        className="h-9 sm:h-7 text-xs font-mono w-28 clip-chamfer-sm"
                                                                                         disabled={writing}
                                                                                     />
                                                                                     <Button
                                                                                         size="icon" variant="ghost"
-                                                                                        className="h-7 w-7 text-green-600 hover:bg-green-500/10"
+                                                                                        className="h-9 sm:h-7 w-9 sm:w-7 text-green-600 hover:bg-green-500/10"
                                                                                         onClick={() => confirmWrite(prop)} disabled={writing}
                                                                                     >
                                                                                         {writing ? <Send size={12} className="animate-pulse" /> : <Check size={12} />}
                                                                                     </Button>
                                                                                     <Button
                                                                                         size="icon" variant="ghost"
-                                                                                        className="h-7 w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                                                                        className="h-9 sm:h-7 w-9 sm:w-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                                                                                         onClick={cancelEdit} disabled={writing}
                                                                                     >
                                                                                         <X size={12} />
@@ -844,7 +844,7 @@ export default function I3XPage() {
                                                                                 {writeAllowed && !isEditing && (
                                                                                     <Button
                                                                                         size="icon" variant="ghost"
-                                                                                        className="h-7 w-7 text-muted-foreground hover:bg-primary/10 hover:text-primary"
+                                                                                        className="h-9 sm:h-7 w-9 sm:w-7 text-muted-foreground hover:bg-primary/10 hover:text-primary"
                                                                                         onClick={() => startEdit(prop)}
                                                                                         title={`Scrivi su ${prop.name}`}
                                                                                     >
@@ -930,7 +930,7 @@ export default function I3XPage() {
                                                             <Button
                                                                 variant="outline"
                                                                 size="sm"
-                                                                className="h-7 text-xs clip-chamfer-sm"
+                                                                className="h-9 sm:h-7 text-xs clip-chamfer-sm"
                                                                 onClick={() => acknowledgeAlarm(alarm)}
                                                                 disabled={ackingId === alarm.id}
                                                             >

@@ -237,7 +237,7 @@ export default function AlarmsPage() {
                     <TableRow>
                         <TableCell colSpan={9} className="text-center py-12">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                                <BellOff className="w-8 h-8 opacity-30" />
+                                <BellOff className="w-10 sm:w-8 h-10 sm:h-8 opacity-30" />
                                 <p className="font-medium">Nessun allarme attivo</p>
                                 <p className="text-xs">Il sistema è in stato normale</p>
                             </div>
@@ -271,7 +271,7 @@ export default function AlarmsPage() {
                             <TableCell>{formatTime(event.trigger_time)}</TableCell>
                             <TableCell className="text-right">
                                 {isAckable && (
-                                    <Button size="sm" variant="outline" onClick={() => handleAcknowledge(event.id)} className="h-8 gap-1">
+                                    <Button size="sm" variant="outline" onClick={() => handleAcknowledge(event.id)} className="h-10 sm:h-8 gap-1">
                                         <CheckCircle2 size={14} /> Ack
                                     </Button>
                                 )}
@@ -306,7 +306,7 @@ export default function AlarmsPage() {
                     <TableRow>
                         <TableCell colSpan={10} className="text-center py-12">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                                <Info className="w-8 h-8 opacity-30" />
+                                <Info className="w-10 sm:w-8 h-10 sm:h-8 opacity-30" />
                                 <p className="font-medium">Nessun evento nello storico</p>
                                 {(searchQuery || dateFrom || dateTo) && (
                                     <p className="text-xs">Prova a modificare i filtri di ricerca</p>
@@ -343,7 +343,7 @@ export default function AlarmsPage() {
                                     <Button
                                         size="sm" variant="outline"
                                         onClick={() => setConfirmDelete(event.id)}
-                                        className="h-8 w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                        className="h-10 sm:h-8 w-10 sm:w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
                                         title="Elimina"
                                     >
                                         <Trash2 size={14} />
@@ -429,10 +429,10 @@ export default function AlarmsPage() {
                             {selectedIds.size > 0 && (
                                 <div className="flex items-center gap-3 px-4 py-2 bg-primary/5 border-b">
                                     <span className="text-sm font-medium">{selectedIds.size} selezionati</span>
-                                    <Button size="sm" className="h-8 gap-1.5" onClick={() => setConfirmBulkAck(true)}>
+                                    <Button size="sm" className="h-10 sm:h-8 gap-1.5" onClick={() => setConfirmBulkAck(true)}>
                                         <CheckCircle2 size={14} /> Riconosci selezionati
                                     </Button>
-                                    <Button size="sm" variant="ghost" className="h-8" onClick={() => setSelectedIds(new Set())}>
+                                    <Button size="sm" variant="ghost" className="h-10 sm:h-8" onClick={() => setSelectedIds(new Set())}>
                                         Deseleziona
                                     </Button>
                                 </div>

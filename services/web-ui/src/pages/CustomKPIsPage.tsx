@@ -166,12 +166,12 @@ const CustomKPIsPage = () => {
                                     <TableCell className="text-right">
                                         <div className="flex items-center justify-end gap-2">
                                             <Button variant="ghost" size="icon" title="Modifica"
-                                                className="h-8 w-8 text-blue-500"
+                                                className="h-10 sm:h-8 w-10 sm:w-8 text-blue-500"
                                                 onClick={() => openEdit(k)}>
                                                 <Pencil size={16} />
                                             </Button>
                                             <Button variant="ghost" size="icon" title="Elimina"
-                                                className="h-8 w-8 text-red-500"
+                                                className="h-10 sm:h-8 w-10 sm:w-8 text-red-500"
                                                 onClick={() => { if (confirm(`Eliminare KPI "${k.name}"?`)) deleteMutation.mutate(k.id); }}>
                                                 <Trash2 size={16} />
                                             </Button>

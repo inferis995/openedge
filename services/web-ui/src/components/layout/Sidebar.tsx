@@ -180,10 +180,10 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
                 collapsed ? "justify-center" : "justify-between"
             )}>
                 {collapsed ? (
-                    <img src="/avatar.png" alt="OpenEdge" className="h-8 w-8 rounded-lg object-cover" />
+                    <img src="/avatar.png" alt="OpenEdge" className="h-10 sm:h-8 w-10 sm:w-8 rounded-lg object-cover" />
                 ) : (
                     <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap">
-                        <img src="/avatar.png" alt="OpenEdge" className="h-8 w-8 rounded-lg object-cover" />
+                        <img src="/avatar.png" alt="OpenEdge" className="h-10 sm:h-8 w-10 sm:w-8 rounded-lg object-cover" />
                         <span className="text-lg font-black tracking-tight text-[#CCFF00]" style={{ WebkitTextStroke: '1px #000', paintOrder: 'stroke fill' }}>OpenEdge</span>
                     </div>
                 )}
@@ -193,7 +193,7 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
             <Button
                 variant="ghost"
                 size="icon"
-                className="absolute -right-3 top-20 h-6 w-6 clip-hex bg-[hsl(var(--sidebar-accent))] border border-[hsl(var(--sidebar-border))] text-[hsl(var(--sidebar-muted))] hover:text-[hsl(var(--sidebar-fg))] hover:bg-[hsl(var(--sidebar-accent))]/80 shadow-md z-30 hidden md:flex items-center justify-center p-0"
+                className="absolute -right-3 top-20 h-9 sm:h-6 w-9 sm:w-6 clip-hex bg-[hsl(var(--sidebar-accent))] border border-[hsl(var(--sidebar-border))] text-[hsl(var(--sidebar-muted))] hover:text-[hsl(var(--sidebar-fg))] hover:bg-[hsl(var(--sidebar-accent))]/80 shadow-md z-30 hidden md:flex items-center justify-center p-0"
                 onClick={() => setCollapsed(!collapsed)}
             >
                 {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
@@ -367,12 +367,14 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
                     )}
                 </Link>
 
-                {/* Support link */}
+                {/* Support links. 15px tall was their measured height, which is a
+                    mis-tap on a phone; the vertical padding is what makes them
+                    reachable, and the text stays the size it was. */}
                 {!collapsed && (
-                    <div className="px-1 pb-1 flex gap-3 text-[10px] text-[hsl(var(--sidebar-muted))]">
-                        <a href="mailto:support@openedge.io" className="hover:underline">Supporto</a>
-                        <Link to="/privacy" className="hover:underline">Privacy</Link>
-                        <Link to="/terms" className="hover:underline">Termini</Link>
+                    <div className="px-1 flex gap-3 text-[10px] text-[hsl(var(--sidebar-muted))]">
+                        <a href="mailto:support@openedge.io" className="hover:underline py-2 md:py-0">Supporto</a>
+                        <Link to="/privacy" className="hover:underline py-2 md:py-0">Privacy</Link>
+                        <Link to="/terms" className="hover:underline py-2 md:py-0">Termini</Link>
                     </div>
                 )}
 

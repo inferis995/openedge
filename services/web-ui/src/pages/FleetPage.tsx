@@ -147,7 +147,7 @@ const FleetPage = () => {
                         {loading ? (
                             <TableRow>
                                 <TableCell colSpan={5} className="text-center py-8">
-                                    <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+                                    <Loader2 className="h-9 sm:h-6 w-9 sm:w-6 animate-spin mx-auto text-muted-foreground" />
                                 </TableCell>
                             </TableRow>
                         ) : fleet.length === 0 ? (

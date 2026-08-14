@@ -348,7 +348,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                                                        className="h-9 sm:h-7 w-9 sm:w-7 text-red-500 hover:text-red-600 hover:bg-red-500/10"
                                                         onClick={() => {
                                                             if (confirm('Revoke this API key? Edge managers using it will lose access.')) {
                                                                 revokeKeyMutation.mutate(k.id);
@@ -535,7 +535,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                                 ) : '—'}
                                             </TableCell>
                                             <TableCell>
-                                                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                                                <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7 text-destructive hover:text-destructive"
                                                     onClick={() => deleteWebhookMutation.mutate(wh.id)}>
                                                     <Trash2 size={13} />
                                                 </Button>
@@ -590,12 +590,12 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                                 </TableCell>
                                                 <TableCell>
                                                     <div className="flex gap-1">
-                                                        <Button variant="ghost" size="icon" className="h-7 w-7"
+                                                        <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7"
                                                             onClick={() => startEditSSO(p)}>
                                                             <Key size={13} />
                                                         </Button>
                                                         <Button variant="ghost" size="icon"
-                                                            className="h-7 w-7 text-destructive hover:text-destructive"
+                                                            className="h-9 sm:h-7 w-9 sm:w-7 text-destructive hover:text-destructive"
                                                             onClick={() => {
                                                                 if (confirm(`Remove ${p.provider} SSO?`)) {
                                                                     deleteSSOMutation.mutate(p.provider);

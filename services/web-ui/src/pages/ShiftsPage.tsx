@@ -155,17 +155,17 @@ const ShiftsPage = () => {
                                 <TableCell className="text-right">
                                     <div className="flex items-center justify-end gap-2">
                                         <Button variant="ghost" size="icon" title="Operatori"
-                                            className="h-8 w-8 text-cyan-500 hover:bg-cyan-500/10"
+                                            className="h-10 sm:h-8 w-10 sm:w-8 text-cyan-500 hover:bg-cyan-500/10"
                                             onClick={() => setAssignShift(s)}>
                                             <Users size={16} />
                                         </Button>
                                         <Button variant="ghost" size="icon" title="Modifica"
-                                            className="h-8 w-8 text-blue-500 hover:bg-blue-500/10"
+                                            className="h-10 sm:h-8 w-10 sm:w-8 text-blue-500 hover:bg-blue-500/10"
                                             onClick={() => openEdit(s)}>
                                             <Pencil size={16} />
                                         </Button>
                                         <Button variant="ghost" size="icon" title="Elimina"
-                                            className="h-8 w-8 text-red-500 hover:bg-red-500/10"
+                                            className="h-10 sm:h-8 w-10 sm:w-8 text-red-500 hover:bg-red-500/10"
                                             onClick={() => handleDelete(s)}>
                                             <Trash2 size={16} />
                                         </Button>
@@ -364,7 +364,7 @@ const AssignmentsDialog = ({ shift, onClose }: { shift: Shift | null; onClose: (
                                     <TableCell className="font-mono text-xs">{a.valid_to ? a.valid_to.slice(0, 10) : '—'}</TableCell>
                                     <TableCell className="text-right">
                                         <Button variant="ghost" size="icon"
-                                            className="h-8 w-8 text-red-500"
+                                            className="h-10 sm:h-8 w-10 sm:w-8 text-red-500"
                                             onClick={() => removeMutation.mutate(a.id)}>
                                             <Trash2 size={14} />
                                         </Button>

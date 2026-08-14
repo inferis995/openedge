@@ -1356,7 +1356,7 @@ const TagsPage = () => {
                     <strong className="text-amber-500">{tagsList.filter(t => alarmDefsCount[t.id] > 0).length}</strong> with alarms
                 </span>
                 {(tagsList.length !== tags.length || filterDriverType !== 'all') && (
-                    <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => { setSearchInput(''); setSelectedGatewayId('all'); setFilterDriverType('all'); }}>
+                    <Button variant="ghost" size="sm" className="h-9 sm:h-6 text-xs" onClick={() => { setSearchInput(''); setSelectedGatewayId('all'); setFilterDriverType('all'); }}>
                         Clear filters
                     </Button>
                 )}
@@ -1368,7 +1368,7 @@ const TagsPage = () => {
                         <TableRow>
                             {isAdmin() && (
                                 <TableHead className="w-[40px]">
-                                    <Button variant="ghost" size="sm" className="p-0 h-6 w-6" onClick={handleSelectAll}>
+                                    <Button variant="ghost" size="sm" className="p-0 h-9 sm:h-6 w-9 sm:w-6" onClick={handleSelectAll}>
                                         {selectedTagIds.length === tagsList.length && tagsList.length > 0 ? (
                                             <CheckSquare size={16} className="text-[#4a5500] dark:text-[#c8e600]" />
                                         ) : (
@@ -1411,7 +1411,7 @@ const TagsPage = () => {
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
-                                                        className="p-0 h-6 w-6"
+                                                        className="p-0 h-9 sm:h-6 w-9 sm:w-6"
                                                         onClick={(e) => { e.stopPropagation(); toggleSelect(tag.id); }}
                                                     >
                                                         {selectedTagIds.includes(tag.id) ? (
@@ -1533,7 +1533,7 @@ const TagsPage = () => {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="h-6 w-6 shrink-0"
+                                                        className="h-9 sm:h-6 w-9 sm:w-6 shrink-0"
                                                         title="Write value"
                                                         onClick={() => {
                                                             const cv = currentValues.get(tag.id);
@@ -1584,7 +1584,7 @@ const TagsPage = () => {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="h-8 w-8 text-muted-foreground hover:text-[#4a5500] dark:hover:text-[#c8e600] hover:bg-[#c8e600]/10"
+                                                        className="h-10 sm:h-8 w-10 sm:w-8 text-muted-foreground hover:text-[#4a5500] dark:hover:text-[#c8e600] hover:bg-[#c8e600]/10"
                                                         onClick={() => handleEdit(tag)}
                                                     >
                                                         <Edit2 size={16} />
@@ -1592,7 +1592,7 @@ const TagsPage = () => {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                                                        className="h-10 sm:h-8 w-10 sm:w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
                                                         onClick={(e) => handleDelete(e, tag.id)}
                                                     >
                                                         <Trash2 size={16} />
@@ -1645,7 +1645,7 @@ const TagsPage = () => {
                     <div className="flex-1 overflow-auto border rounded-md min-h-[300px]">
                         {isBrowsing ? (
                             <div className="flex items-center justify-center h-full text-muted-foreground">
-                                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600 mr-2"></div>
+                                <div className="animate-spin rounded-full h-9 sm:h-6 w-9 sm:w-6 border-b-2 border-indigo-600 mr-2"></div>
                                 Browsing nodes...
                             </div>
                         ) : browseNodes.length === 0 ? (

@@ -260,13 +260,13 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                             placeholder="Search tags..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="h-8 pl-7 text-xs"
+                            className="h-10 sm:h-8 pl-7 text-xs"
                         />
                     </div>
                 </div>
 
                 <Tabs defaultValue="hierarchy" className="flex-1 flex flex-col min-h-0">
-                    <TabsList className="mx-3 mt-2 grid w-[calc(100%-24px)] grid-cols-1 sm:grid-cols-2 h-8 flex-shrink-0">
+                    <TabsList className="mx-3 mt-2 grid w-[calc(100%-24px)] grid-cols-1 sm:grid-cols-2 h-10 sm:h-8 flex-shrink-0">
                         <TabsTrigger value="hierarchy" className="text-xs">Hierarchy</TabsTrigger>
                         <TabsTrigger value="favorites" className="text-xs">
                             Favorites
@@ -310,7 +310,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                         <ScrollArea className="h-full">
                             {favoriteTags.length === 0 ? (
                                 <div className="text-center py-8 text-muted-foreground text-xs">
-                                    <Star className="w-6 h-6 mx-auto mb-2 text-muted" />
+                                    <Star className="w-9 sm:w-6 h-9 sm:h-6 mx-auto mb-2 text-muted" />
                                     <p>No favorite tags yet</p>
                                     <p className="text-[10px] mt-1">Star tags to add them here</p>
                                 </div>

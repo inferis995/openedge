@@ -201,7 +201,7 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="absolute top-2 right-2 h-6 w-6 text-red-500 hover:bg-red-50"
+                                    className="absolute top-2 right-2 h-9 sm:h-6 w-9 sm:w-6 text-red-500 hover:bg-red-50"
                                     onClick={() => removeAlarm(idx)}
                                 >
                                     <Trash2 size={14} />

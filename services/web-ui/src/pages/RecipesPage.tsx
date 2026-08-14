@@ -218,25 +218,25 @@ const RecipesPage = () => {
                                     <TableCell className="text-right">
                                         <div className="flex items-center justify-end gap-2">
                                             <Button variant="ghost" size="icon" title="Load this recipe"
-                                                className="h-8 w-8 text-cyan-500 hover:bg-cyan-500/10"
+                                                className="h-10 sm:h-8 w-10 sm:w-8 text-cyan-500 hover:bg-cyan-500/10"
                                                 disabled={r.value_count === 0}
                                                 onClick={() => beginLoad(r)}>
                                                 <PlayCircle size={16} />
                                             </Button>
                                             <Button variant="ghost" size="icon" title="View history"
-                                                className="h-8 w-8 text-amber-500 hover:bg-amber-500/10"
+                                                className="h-10 sm:h-8 w-10 sm:w-8 text-amber-500 hover:bg-amber-500/10"
                                                 onClick={() => openRuns(r)}>
                                                 <HistoryIcon size={16} />
                                             </Button>
                                             {isAdmin() && (
                                                 <>
                                                     <Button variant="ghost" size="icon" title="Edit"
-                                                        className="h-8 w-8 text-blue-500 hover:bg-blue-500/10"
+                                                        className="h-10 sm:h-8 w-10 sm:w-8 text-blue-500 hover:bg-blue-500/10"
                                                         onClick={() => openEdit(r)}>
                                                         <Pencil size={16} />
                                                     </Button>
                                                     <Button variant="ghost" size="icon" title="Delete"
-                                                        className="h-8 w-8 text-red-500 hover:bg-red-500/10"
+                                                        className="h-10 sm:h-8 w-10 sm:w-8 text-red-500 hover:bg-red-500/10"
                                                         onClick={() => handleDelete(r)}>
                                                         <Trash2 size={16} />
                                                     </Button>
@@ -298,7 +298,7 @@ const RecipesPage = () => {
                                                         <Input value={row.value} onChange={(e) => updateValue(row.tag_id, e.target.value)} />
                                                     </TableCell>
                                                     <TableCell>
-                                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-red-500"
+                                                        <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7 text-red-500"
                                                             onClick={() => removeTag(row.tag_id)}>
                                                             <Trash2 size={14} />
                                                         </Button>

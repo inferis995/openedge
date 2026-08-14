@@ -255,7 +255,7 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
                                     <Input
                                       value={fs.alias}
                                       onChange={e => updateField(dev.device_id, field, 'alias', e.target.value)}
-                                      className="h-6 text-xs mt-0.5"
+                                      className="h-9 sm:h-6 text-xs mt-0.5"
                                       disabled={!fs.selected || alreadyTag}
                                     />
                                   </div>
@@ -263,7 +263,7 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
                                     value={fs.data_type}
                                     onValueChange={v => updateField(dev.device_id, field, 'data_type', v as 'REAL')}
                                     disabled={!fs.selected || alreadyTag}>
-                                    <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectTrigger className="h-9 sm:h-7 text-xs"><SelectValue /></SelectTrigger>
                                     <SelectContent>
                                       <SelectItem value="REAL">REAL</SelectItem>
                                       <SelectItem value="INT">INT</SelectItem>
@@ -293,7 +293,7 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
                             <Button
                               variant="outline"
                               size="sm"
-                              className="h-7 text-xs gap-1"
+                              className="h-9 sm:h-7 text-xs gap-1"
                               onClick={() => setDownlinkDevice(dev)}>
                               <Send size={11} />
                               Invia Downlink

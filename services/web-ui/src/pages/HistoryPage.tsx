@@ -198,7 +198,7 @@ const HistoryPage = () => {
                                     <TableRow>
                                         <TableCell colSpan={3} className="text-center py-12">
                                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                                                <Activity className="w-8 h-8 opacity-30" />
+                                                <Activity className="w-10 sm:w-8 h-10 sm:h-8 opacity-30" />
                                                 <p className="font-medium">Nessun evento PLC trovato</p>
                                                 <p className="text-xs">per il giorno selezionato</p>
                                             </div>
@@ -280,7 +280,7 @@ const HistoryPage = () => {
                                     <TableRow>
                                         <TableCell colSpan={5} className="text-center py-12">
                                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                                                <Users className="w-8 h-8 opacity-30" />
+                                                <Users className="w-10 sm:w-8 h-10 sm:h-8 opacity-30" />
                                                 <p className="font-medium">Nessuna attività utente trovata</p>
                                                 <p className="text-xs">per il giorno selezionato</p>
                                             </div>

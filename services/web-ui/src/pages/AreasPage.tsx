@@ -256,7 +256,7 @@ const AreasPage = () => {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                        className="h-10 sm:h-8 w-10 sm:w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                                                         onClick={(e) => handleDelete(e, area.id)}
                                                     >
                                                         <Trash2 size={16} />

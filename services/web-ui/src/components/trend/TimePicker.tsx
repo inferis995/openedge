@@ -153,7 +153,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                 value={INDUSTRIAL_PRESETS.some(p => p.value === value.preset) ? value.preset : ''}
                 onValueChange={(v) => v && handlePresetClick(v as TimePreset)}
             >
-                <SelectTrigger className="w-36 h-7 text-xs">
+                <SelectTrigger className="w-36 h-9 sm:h-7 text-xs">
                     <Clock className="w-3 h-3 mr-1" />
                     <SelectValue placeholder="Shift/Day" />
                 </SelectTrigger>
@@ -173,7 +173,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
             <Button
                 variant="outline"
                 size="sm"
-                className="h-7 text-xs gap-1"
+                className="h-9 sm:h-7 text-xs gap-1"
                 onClick={handleGoToLastData}
                 disabled={isLoadingLastData}
                 title="Jump to the most recent data in the database"
@@ -192,7 +192,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                     <Button
                         variant={isCustom ? 'default' : 'outline'}
                         size="sm"
-                        className="h-7 text-xs gap-1"
+                        className="h-9 sm:h-7 text-xs gap-1"
                     >
                         <Calendar className="w-3 h-3" />
                         Custom
@@ -211,13 +211,13 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                                     type="date"
                                     value={customStart}
                                     onChange={(e) => setCustomStart(e.target.value)}
-                                    className="h-8 text-xs flex-1"
+                                    className="h-10 sm:h-8 text-xs flex-1"
                                 />
                                 <Input
                                     type="time"
                                     value={customStartTime}
                                     onChange={(e) => setCustomStartTime(e.target.value)}
-                                    className="h-8 text-xs w-24"
+                                    className="h-10 sm:h-8 text-xs w-24"
                                 />
                             </div>
                         </div>
@@ -230,13 +230,13 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                                     type="date"
                                     value={customEnd}
                                     onChange={(e) => setCustomEnd(e.target.value)}
-                                    className="h-8 text-xs flex-1"
+                                    className="h-10 sm:h-8 text-xs flex-1"
                                 />
                                 <Input
                                     type="time"
                                     value={customEndTime}
                                     onChange={(e) => setCustomEndTime(e.target.value)}
-                                    className="h-8 text-xs w-24"
+                                    className="h-10 sm:h-8 text-xs w-24"
                                 />
                             </div>
                         </div>
@@ -246,7 +246,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-6 text-[10px]"
+                                className="h-9 sm:h-6 text-[10px]"
                                 onClick={() => {
                                     const now = new Date();
                                     const hourAgo = new Date(now.getTime() - 60 * 60 * 1000);
@@ -261,7 +261,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-6 text-[10px]"
+                                className="h-9 sm:h-6 text-[10px]"
                                 onClick={() => {
                                     const now = new Date();
                                     const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
@@ -276,7 +276,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-6 text-[10px]"
+                                className="h-9 sm:h-6 text-[10px]"
                                 onClick={() => {
                                     const now = new Date();
                                     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -291,7 +291,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                             <Button
                                 variant="outline"
                                 size="sm"
-                                className="h-6 text-[10px]"
+                                className="h-9 sm:h-6 text-[10px]"
                                 onClick={() => {
                                     const now = new Date();
                                     const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -308,7 +308,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                         <Button
                             onClick={handleCustomApply}
                             size="sm"
-                            className="w-full h-8 text-xs"
+                            className="w-full h-10 sm:h-8 text-xs"
                             disabled={!customStart || !customEnd}
                         >
                             Apply Custom Range

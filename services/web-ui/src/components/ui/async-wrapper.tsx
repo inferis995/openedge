@@ -59,7 +59,7 @@ export function AsyncWrapper({
         return (
             <div className="flex items-center justify-center py-12">
                 <div className="text-center">
-                    <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-3" />
+                    <Loader2 className="h-10 sm:h-8 w-10 sm:w-8 animate-spin text-primary mx-auto mb-3" />
                     <p className="text-sm text-muted-foreground">Loading...</p>
                 </div>
             </div>
@@ -83,7 +83,7 @@ export function AsyncWrapper({
             <div className="flex flex-col items-center justify-center py-12 text-center">
                 {emptyIcon || (
                     <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                        <AlertCircle className="h-8 w-8 text-muted-foreground" />
+                        <AlertCircle className="h-10 sm:h-8 w-10 sm:w-8 text-muted-foreground" />
                     </div>
                 )}
                 <p className="text-muted-foreground">{emptyMessage}</p>

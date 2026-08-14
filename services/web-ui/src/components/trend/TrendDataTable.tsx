@@ -272,7 +272,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                         onClick={handleExportCSV}
                         variant="outline"
                         size="sm"
-                        className="h-6 text-xs gap-1"
+                        className="h-9 sm:h-6 text-xs gap-1"
                         disabled={tableData.length === 0}
                     >
                         <Download className="w-3 h-3" />
@@ -283,7 +283,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                             onClick={onClose}
                             variant="ghost"
                             size="icon"
-                            className="h-6 w-6"
+                            className="h-9 sm:h-6 w-9 sm:w-6"
                         >
                             <X className="w-3 h-3" />
                         </Button>

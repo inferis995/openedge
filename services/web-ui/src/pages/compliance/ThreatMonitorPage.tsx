@@ -160,7 +160,7 @@ export default function ThreatMonitorPage() {
             {/* Filter Bar */}
             <div className="flex flex-wrap items-center gap-3">
                 <Select value={severityFilter} onValueChange={setSeverityFilter}>
-                    <SelectTrigger className="w-36 h-8 text-sm">
+                    <SelectTrigger className="w-36 h-10 sm:h-8 text-sm">
                         <SelectValue placeholder="Severity" />
                     </SelectTrigger>
                     <SelectContent>
@@ -174,7 +174,7 @@ export default function ThreatMonitorPage() {
                 </Select>
 
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-36 h-8 text-sm">
+                    <SelectTrigger className="w-36 h-10 sm:h-8 text-sm">
                         <SelectValue placeholder="Stato" />
                     </SelectTrigger>
                     <SelectContent>
@@ -186,7 +186,7 @@ export default function ThreatMonitorPage() {
 
                 <div className="relative flex-1 max-w-sm">
                     <Input
-                        className="h-8 text-sm"
+                        className="h-10 sm:h-8 text-sm"
                         placeholder="Cerca per titolo, IP..."
                         value={search}
                         onChange={e => setSearch(e.target.value)}
@@ -232,7 +232,7 @@ export default function ThreatMonitorPage() {
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                className="h-7 text-xs"
+                                                className="h-9 sm:h-7 text-xs"
                                                 onClick={() => resolveEvent.mutate(event.id)}
                                                 disabled={resolveEvent.isPending}
                                             >

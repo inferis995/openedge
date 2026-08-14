@@ -112,7 +112,7 @@ const ReleasesPage = () => {
             {/* Header */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
-                    <PackageOpen className="h-7 w-7 text-primary" />
+                    <PackageOpen className="h-9 sm:h-7 w-9 sm:w-7 text-primary" />
                     <div>
                         <h1 className="text-2xl font-bold">Edge Releases</h1>
                         <p className="text-sm text-muted-foreground">Manage OTA edge software releases</p>

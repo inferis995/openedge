@@ -433,11 +433,11 @@ function SetpointWidget({ widget, live, onWrite }: {
                     min={cfg.spMin as number | undefined}
                     max={cfg.spMax as number | undefined}
                     onKeyDown={e => { if (e.key === 'Enter') void handleSend(); }}
-                    className="flex-1 h-6 bg-slate-800 border border-slate-600 rounded text-xs text-center text-white px-1 min-w-0"
+                    className="flex-1 h-9 sm:h-6 bg-slate-800 border border-slate-600 rounded text-xs text-center text-white px-1 min-w-0"
                     placeholder={cfg.unit ? String(cfg.unit) : 'SP'} />
                 <button type="button" onClick={() => void handleSend()}
                     disabled={isPreview || sending || input === ''}
-                    className="h-6 px-2 text-xs rounded bg-primary text-primary-foreground disabled:opacity-40 shrink-0">
+                    className="h-9 sm:h-6 px-2 text-xs rounded bg-primary text-primary-foreground disabled:opacity-40 shrink-0">
                     {feedback === 'ok' ? '✓' : feedback === 'err' ? '✗' : sending ? '…' : '↵'}
                 </button>
             </div>

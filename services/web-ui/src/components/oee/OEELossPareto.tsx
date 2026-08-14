@@ -73,7 +73,7 @@ export const OEELossPareto = ({ profileId, profileName }: Props) => {
                             size="sm"
                             variant={r === range ? 'default' : 'outline'}
                             onClick={() => setRange(r)}
-                            className="h-7 px-2 text-xs"
+                            className="h-9 sm:h-7 px-2 text-xs"
                         >
                             {RANGE_CFG[r].label}
                         </Button>

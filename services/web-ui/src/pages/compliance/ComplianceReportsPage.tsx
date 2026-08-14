@@ -247,7 +247,7 @@ export default function ComplianceReportsPage() {
                                             <Button
                                                 variant="outline"
                                                 size="sm"
-                                                className="h-7 text-xs gap-1"
+                                                className="h-9 sm:h-7 text-xs gap-1"
                                                 onClick={() => downloadReport(report)}
                                             >
                                                 <Download size={12} /> Scarica JSON
@@ -256,7 +256,7 @@ export default function ComplianceReportsPage() {
                                         <Button
                                             variant="ghost"
                                             size="icon"
-                                            className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                            className="h-9 sm:h-7 w-9 sm:w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
                                             onClick={() => {
                                                 if (confirm('Eliminare questo report?')) deleteReport.mutate(report.id);
                                             }}

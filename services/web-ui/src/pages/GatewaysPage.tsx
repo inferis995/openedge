@@ -823,7 +823,7 @@ const GatewaysPage = () => {
                 <div className="relative w-full sm:ml-auto sm:w-64">
                     <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                     <Input
-                        className="pl-8 h-8 text-sm"
+                        className="pl-8 h-10 sm:h-8 text-sm"
                         placeholder="Cerca per nome, driver, IP..."
                         value={searchInput}
                         onChange={e => setSearchInput(e.target.value)}
@@ -911,7 +911,7 @@ const GatewaysPage = () => {
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
-                                                    className="h-8 text-xs gap-1"
+                                                    className="h-10 sm:h-8 text-xs gap-1"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         handleEditOpen(gw);
@@ -923,7 +923,7 @@ const GatewaysPage = () => {
                                                 <Button
                                                     variant="secondary"
                                                     size="sm"
-                                                    className="h-8 text-xs gap-1"
+                                                    className="h-10 sm:h-8 text-xs gap-1"
                                                     onClick={(e) => handleTest(e, gw.id)}
                                                 >
                                                     <Wifi size={12} />
@@ -933,7 +933,7 @@ const GatewaysPage = () => {
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
-                                                        className="h-8 text-xs gap-1 text-violet-600 border-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                                                        className="h-10 sm:h-8 text-xs gap-1 text-violet-600 border-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             setLorawanPanel({ id: gw.id, name: gw.name });
@@ -946,7 +946,7 @@ const GatewaysPage = () => {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                    className="h-10 sm:h-8 w-10 sm:w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
                                                     onClick={(e) => handleDelete(e, gw.id)}
                                                 >
                                                     <Trash2 size={16} />

@@ -238,7 +238,7 @@ const SitesPage = () => {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                                                        className="h-10 sm:h-8 w-10 sm:w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
                                                         onClick={(e) => handleDelete(e, site.id)}
                                                     >
                                                         <Trash2 size={16} />

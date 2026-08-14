@@ -43,7 +43,7 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
     if (pens.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2 p-4">
-                <TrendingUp className="w-8 h-8 opacity-30" />
+                <TrendingUp className="w-10 sm:w-8 h-10 sm:h-8 opacity-30" />
                 <p className="text-xs text-center">Select tags from the browser to add pens</p>
             </div>
         );

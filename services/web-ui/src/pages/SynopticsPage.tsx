@@ -235,7 +235,7 @@ const SynopticsPage = () => {
                         <span className="font-medium text-foreground">{scopeTitle()}</span>
                         <span>· {visibleItems.length} pagine</span>
                         {isAdmin() && (
-                            <Button variant="ghost" size="sm" className="ml-auto h-7 gap-1 text-xs" onClick={openCreate}>
+                            <Button variant="ghost" size="sm" className="ml-auto h-9 sm:h-7 gap-1 text-xs" onClick={openCreate}>
                                 <Plus size={14} /> Aggiungi qui
                             </Button>
                         )}
@@ -261,15 +261,15 @@ const SynopticsPage = () => {
                                             <p className="text-xs text-muted-foreground truncate">{s.description || `${(s.layout || []).length} widget`}</p>
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0">
-                                            <Button variant="ghost" size="icon" className="h-8 w-8" title="Visualizza" onClick={(e) => { e.stopPropagation(); navigate(`/synoptics/${s.id}`); }}>
+                                            <Button variant="ghost" size="icon" className="h-10 sm:h-8 w-10 sm:w-8" title="Visualizza" onClick={(e) => { e.stopPropagation(); navigate(`/synoptics/${s.id}`); }}>
                                                 <Monitor size={16} />
                                             </Button>
                                             {isAdmin() && (
                                                 <>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Modifica" onClick={(e) => { e.stopPropagation(); navigate(`/synoptics/${s.id}/edit`); }}>
+                                                    <Button variant="ghost" size="icon" className="h-10 sm:h-8 w-10 sm:w-8" title="Modifica" onClick={(e) => { e.stopPropagation(); navigate(`/synoptics/${s.id}/edit`); }}>
                                                         <Pencil size={16} />
                                                     </Button>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10" title="Elimina" onClick={(e) => handleDelete(e, s.id)}>
+                                                    <Button variant="ghost" size="icon" className="h-10 sm:h-8 w-10 sm:w-8 text-destructive hover:text-destructive hover:bg-destructive/10" title="Elimina" onClick={(e) => handleDelete(e, s.id)}>
                                                         <Trash2 size={16} />
                                                     </Button>
                                                 </>

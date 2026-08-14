@@ -591,7 +591,7 @@ const UsersPage = () => {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="h-8 w-8 text-amber-500 hover:text-amber-700"
+                                                    className="h-10 sm:h-8 w-10 sm:w-8 text-amber-500 hover:text-amber-700"
                                                     onClick={() => openPermsDialog(user)}
                                                     title="Manage Permissions"
                                                 >
@@ -601,7 +601,7 @@ const UsersPage = () => {
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="h-8 w-8 text-slate-500 hover:text-slate-700"
+                                                className="h-10 sm:h-8 w-10 sm:w-8 text-slate-500 hover:text-slate-700"
                                                 onClick={() => openEditDialog(user)}
                                             >
                                                 <Pencil size={16} />
@@ -609,7 +609,7 @@ const UsersPage = () => {
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                                className="h-10 sm:h-8 w-10 sm:w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
                                                 onClick={() => handleDelete(user)}
                                                 disabled={user.id === currentUser?.id}
                                             >

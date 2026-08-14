@@ -82,7 +82,7 @@ export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear 
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-6 text-xs"
+                                    className="h-9 sm:h-6 text-xs"
                                     onClick={handleSelectAll}
                                     disabled={filteredTags.length === 0}
                                 >
@@ -93,7 +93,7 @@ export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear 
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-6 text-xs text-red-500 hover:text-red-600"
+                                    className="h-9 sm:h-6 text-xs text-red-500 hover:text-red-600"
                                     onClick={() => {
                                         onClear();
                                         setOpen(false);

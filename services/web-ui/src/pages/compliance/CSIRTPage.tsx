@@ -105,7 +105,7 @@ function DeadlineRow({ icon, label, sentAt, remainingH, overdue, canAct, onAct, 
                 <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 text-xs shrink-0"
+                    className="h-9 sm:h-7 text-xs shrink-0"
                     onClick={onAct}
                     disabled={isPending}
                 >
@@ -221,7 +221,7 @@ function IncidentCard({ incident, onClose }: IncidentCardProps) {
                     <Button
                         variant="outline"
                         size="sm"
-                        className="h-7 text-xs gap-1 text-destructive border-destructive/40 hover:bg-destructive/10"
+                        className="h-9 sm:h-7 text-xs gap-1 text-destructive border-destructive/40 hover:bg-destructive/10"
                         onClick={onClose}
                     >
                         <XCircle size={12} /> Chiudi Incidente

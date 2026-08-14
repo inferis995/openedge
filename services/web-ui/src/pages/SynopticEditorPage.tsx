@@ -45,14 +45,14 @@ function TagCombobox({
     return (
         <Popover open={open} onOpenChange={setOpen}>
             <PopoverTrigger asChild>
-                <Button variant="outline" role="combobox" className="h-8 text-xs w-full justify-between font-normal">
+                <Button variant="outline" role="combobox" className="h-10 sm:h-8 text-xs w-full justify-between font-normal">
                     <span className="truncate">{label}</span>
                     <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
             <PopoverContent className="w-64 p-0" align="start">
                 <Command>
-                    <CommandInput placeholder="Cerca tag…" className="h-8 text-xs" />
+                    <CommandInput placeholder="Cerca tag…" className="h-10 sm:h-8 text-xs" />
                     <CommandList>
                         <CommandEmpty className="text-xs">Nessun tag trovato.</CommandEmpty>
                         <CommandGroup>
@@ -656,7 +656,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 <span className={cn('w-1.5 h-1.5 rounded-full', wsConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400')} />
                                 {wsConnected ? 'LIVE' : 'OFFLINE'}
                             </span>
-                            <Button variant="outline" size="icon" className="h-8 w-8"
+                            <Button variant="outline" size="icon" className="h-10 sm:h-8 w-10 sm:w-8"
                                 title="Schermo intero"
                                 onClick={() => {
                                     if (!document.fullscreenElement) {
@@ -686,7 +686,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                             {WIDGET_CATALOG.map(c => (
                                 <button key={c.type} onClick={() => addWidget(c.type)}
                                     className="flex flex-col items-center justify-center gap-1 p-2 rounded-md border bg-card hover:bg-muted/50 hover:border-primary/40 transition-colors h-16">
-                                    <div className="w-7 h-7 flex items-center justify-center">
+                                    <div className="w-9 sm:w-7 h-9 sm:h-7 flex items-center justify-center">
                                         <SynopticWidgetView widget={{ id: 'preview', type: c.type, x: 0, y: 0, w: 28, h: 28, config: { min: 0, max: 100 } }} />
                                     </div>
                                     <span className="text-[10px]">{c.label}</span>
@@ -809,7 +809,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             { icon: <AlignCenterVertical size={13}/>, title: 'Centro V', align: (ws: SynopticWidget[]) => { const cy = (Math.min(...ws.map(w => w.y)) + Math.max(...ws.map(w => w.y + w.h))) / 2; return ws.map(w => ({ ...w, y: Math.round(cy - w.h / 2) })); } },
                                             { icon: <AlignEndVertical size={13}/>, title: 'Basso', align: (ws: SynopticWidget[]) => { const max = Math.max(...ws.map(w => w.y + w.h)); return ws.map(w => ({ ...w, y: max - w.h })); } },
                                         ].map(({ icon, title, align }) => (
-                                            <Button key={title} variant="outline" size="icon" className="h-7 w-full" title={title}
+                                            <Button key={title} variant="outline" size="icon" className="h-9 sm:h-7 w-full" title={title}
                                                 onClick={() => {
                                                     const sel = widgets.filter(w => selectedIds.includes(w.id));
                                                     const aligned = align(sel);
@@ -843,7 +843,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                                 return sorted.map(w => { const r = { ...w, y: Math.round(cur) }; cur += w.h + gap; return r; });
                                             }},
                                         ].map(({ icon, title, distribute }) => (
-                                            <Button key={title} variant="outline" size="sm" className="h-7 text-xs gap-1 w-full" title={title}
+                                            <Button key={title} variant="outline" size="sm" className="h-9 sm:h-7 text-xs gap-1 w-full" title={title}
                                                 disabled={selectedIds.length < 3}
                                                 onClick={() => {
                                                     const sel = widgets.filter(w => selectedIds.includes(w.id));
@@ -871,14 +871,14 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 <p className="text-xs text-muted-foreground">Seleziona un componente, oppure configura la pagina:</p>
                                 <div className="grid gap-2">
                                     <Label className="text-xs">Nome pagina</Label>
-                                    <Input className="h-8 text-xs" value={synoptic.name}
+                                    <Input className="h-10 sm:h-8 text-xs" value={synoptic.name}
                                         onChange={e => setSynoptic({ ...synoptic, name: e.target.value })} />
                                 </div>
                                 <div className="grid gap-2">
                                     <Label className="text-xs">Sfondo</Label>
                                     <input type="color" value={synoptic.background_color}
                                         onChange={e => setSynoptic({ ...synoptic, background_color: e.target.value })}
-                                        className="h-8 w-full rounded border bg-transparent" />
+                                        className="h-10 sm:h-8 w-full rounded border bg-transparent" />
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     <div className="grid gap-1">
@@ -896,7 +896,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 <div className="flex items-center justify-between">
                                     <span className="text-sm font-medium capitalize">{selected.type}</span>
                                     <div className="flex gap-0.5">
-                                        <Button variant="ghost" size="icon" className="h-7 w-7" title="Duplica (Ctrl+D)"
+                                        <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7" title="Duplica (Ctrl+D)"
                                             onClick={() => {
                                                 const copy = { ...selected, id: uid(), x: selected.x + SNAP * 2, y: selected.y + SNAP * 2 };
                                                 setWidgets(prev => {
@@ -906,7 +906,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                                 });
                                                 setSelectedIds([copy.id]);
                                             }}><Copy size={13} /></Button>
-                                        <Button variant="ghost" size="icon" className="h-7 w-7"
+                                        <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7"
                                             title={selected.locked ? 'Sblocca widget' : 'Blocca widget'}
                                             onClick={() => {
                                                 setWidgets(prev => {
@@ -917,7 +917,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             }}>
                                             {selected.locked ? <Unlock size={13} /> : <Lock size={13} />}
                                         </Button>
-                                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => removeWidget(selected.id)}><Trash2 size={15} /></Button>
+                                        <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7 text-destructive" onClick={() => removeWidget(selected.id)}><Trash2 size={15} /></Button>
                                     </div>
                                 </div>
 
@@ -934,18 +934,18 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
 
                                 <div className="grid gap-1">
                                     <Label className="text-xs">Etichetta</Label>
-                                    <Input className="h-8 text-xs" value={selected.label || ''} onChange={e => patchWidget(selected.id, { label: e.target.value })} />
+                                    <Input className="h-10 sm:h-8 text-xs" value={selected.label || ''} onChange={e => patchWidget(selected.id, { label: e.target.value })} />
                                 </div>
 
                                 {(selected.type === 'value') && (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Unità</Label>
-                                            <Input className="h-8 text-xs" value={String(selected.config?.unit ?? '')} onChange={e => patchConfig(selected.id, { unit: e.target.value })} />
+                                            <Input className="h-10 sm:h-8 text-xs" value={String(selected.config?.unit ?? '')} onChange={e => patchConfig(selected.id, { unit: e.target.value })} />
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Decimali</Label>
-                                            <Input className="h-8 text-xs" type="number" value={selected.config?.decimals ?? 1} onChange={e => patchConfig(selected.id, { decimals: parseInt(e.target.value) || 0 })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.decimals ?? 1} onChange={e => patchConfig(selected.id, { decimals: parseInt(e.target.value) || 0 })} />
                                         </div>
                                     </div>
                                 )}
@@ -953,7 +953,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 {selected.type === 'value' && (
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Dim. testo (px)</Label>
-                                        <Input className="h-8 text-xs" type="number" value={selected.config?.fontSize ?? 22}
+                                        <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.fontSize ?? 22}
                                             onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 22 })} />
                                     </div>
                                 )}
@@ -962,11 +962,11 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Min</Label>
-                                            <Input className="h-8 text-xs" type="number" value={selected.config?.min ?? 0} onChange={e => patchConfig(selected.id, { min: parseFloat(e.target.value) || 0 })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.min ?? 0} onChange={e => patchConfig(selected.id, { min: parseFloat(e.target.value) || 0 })} />
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Max</Label>
-                                            <Input className="h-8 text-xs" type="number" value={selected.config?.max ?? 100} onChange={e => patchConfig(selected.id, { max: parseFloat(e.target.value) || 100 })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.max ?? 100} onChange={e => patchConfig(selected.id, { max: parseFloat(e.target.value) || 100 })} />
                                         </div>
                                     </div>
                                 )}
@@ -984,7 +984,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <Label className="text-xs">Forma</Label>
                                         <Select value={String(selected.config?.pipeShape ?? 'straight')}
                                             onValueChange={v => patchConfig(selected.id, { pipeShape: v })}>
-                                            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                            <SelectTrigger className="h-10 sm:h-8 text-xs"><SelectValue /></SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="straight">Dritto</SelectItem>
                                                 <SelectItem value="corner">Curva (L)</SelectItem>
@@ -999,11 +999,11 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Valore ON</Label>
-                                            <Input className="h-8 text-xs" type="number" value={selected.config?.writeValue ?? 1} onChange={e => patchConfig(selected.id, { writeValue: parseFloat(e.target.value) })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.writeValue ?? 1} onChange={e => patchConfig(selected.id, { writeValue: parseFloat(e.target.value) })} />
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Valore OFF</Label>
-                                            <Input className="h-8 text-xs" type="number" value={selected.config?.writeOffValue ?? 0} onChange={e => patchConfig(selected.id, { writeOffValue: parseFloat(e.target.value) })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.writeOffValue ?? 0} onChange={e => patchConfig(selected.id, { writeOffValue: parseFloat(e.target.value) })} />
                                         </div>
                                     </div>
                                 )}
@@ -1028,11 +1028,11 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Warn &gt;</Label>
-                                            <Input className="h-8 text-xs" type="number" value={selected.config?.warnAbove ?? ''} onChange={e => patchConfig(selected.id, { warnAbove: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.warnAbove ?? ''} onChange={e => patchConfig(selected.id, { warnAbove: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Crit &gt;</Label>
-                                            <Input className="h-8 text-xs" type="number" value={selected.config?.critAbove ?? ''} onChange={e => patchConfig(selected.id, { critAbove: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.critAbove ?? ''} onChange={e => patchConfig(selected.id, { critAbove: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
                                         </div>
                                     </div>
                                 )}
@@ -1040,21 +1040,21 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 {(selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor' || selected.type === 'button') && (
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Valore "attivo" (≥)</Label>
-                                        <Input className="h-8 text-xs" type="number" value={selected.config?.onValue ?? 1} onChange={e => patchConfig(selected.id, { onValue: parseFloat(e.target.value) || 0 })} />
+                                        <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.onValue ?? 1} onChange={e => patchConfig(selected.id, { onValue: parseFloat(e.target.value) || 0 })} />
                                     </div>
                                 )}
 
                                 {(selected.type === 'label' || selected.type === 'pipe' || selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor' || selected.type === 'button' || selected.type === 'bargraph') && (
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Colore</Label>
-                                        <input type="color" value={String(selected.config?.color ?? '#10b981')} onChange={e => patchConfig(selected.id, { color: e.target.value })} className="h-8 w-full rounded border bg-transparent" />
+                                        <input type="color" value={String(selected.config?.color ?? '#10b981')} onChange={e => patchConfig(selected.id, { color: e.target.value })} className="h-10 sm:h-8 w-full rounded border bg-transparent" />
                                     </div>
                                 )}
 
                                 {selected.type === 'label' && (
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Dimensione testo</Label>
-                                        <Input className="h-8 text-xs" type="number" value={selected.config?.fontSize ?? 16} onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 16 })} />
+                                        <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.fontSize ?? 16} onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 16 })} />
                                     </div>
                                 )}
 
@@ -1063,11 +1063,11 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t">
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Colore ON</Label>
-                                            <input type="color" value={String(selected.config?.colorOn ?? '#10b981')} onChange={e => patchConfig(selected.id, { colorOn: e.target.value })} className="h-8 w-full rounded border bg-transparent" />
+                                            <input type="color" value={String(selected.config?.colorOn ?? '#10b981')} onChange={e => patchConfig(selected.id, { colorOn: e.target.value })} className="h-10 sm:h-8 w-full rounded border bg-transparent" />
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Colore OFF</Label>
-                                            <input type="color" value={String(selected.config?.colorOff ?? '#475569')} onChange={e => patchConfig(selected.id, { colorOff: e.target.value })} className="h-8 w-full rounded border bg-transparent" />
+                                            <input type="color" value={String(selected.config?.colorOff ?? '#475569')} onChange={e => patchConfig(selected.id, { colorOff: e.target.value })} className="h-10 sm:h-8 w-full rounded border bg-transparent" />
                                         </div>
                                     </div>
                                 )}
@@ -1077,7 +1077,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     <div className="space-y-1 pt-1 border-t">
                                         <div className="flex items-center justify-between">
                                             <Label className="text-xs">Bande colore</Label>
-                                            <Button variant="ghost" size="sm" className="h-6 px-1 text-xs"
+                                            <Button variant="ghost" size="sm" className="h-9 sm:h-6 px-1 text-xs"
                                                 onClick={() => {
                                                     const bands = [...((selected.config?.colorBands as Array<{above:number;color:string}>) ?? []), { above: 0, color: '#10b981' }];
                                                     patchConfig(selected.id, { colorBands: bands });
@@ -1086,20 +1086,20 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <p className="text-[10px] text-muted-foreground">Rosso riservato agli allarmi</p>
                                         {((selected.config?.colorBands as Array<{above:number;color:string}>) ?? []).map((band, i) => (
                                             <div key={i} className="flex items-center gap-1">
-                                                <input type="color" value={band.color} className="h-6 w-8 rounded cursor-pointer border"
+                                                <input type="color" value={band.color} className="h-9 sm:h-6 w-8 rounded cursor-pointer border"
                                                     onChange={e => {
                                                         const bands = [...((selected.config?.colorBands as Array<{above:number;color:string}>) ?? [])];
                                                         bands[i] = { ...bands[i], color: e.target.value };
                                                         patchConfig(selected.id, { colorBands: bands });
                                                     }} />
                                                 <span className="text-[10px] text-muted-foreground">≥</span>
-                                                <Input type="number" className="h-6 text-xs flex-1" value={band.above}
+                                                <Input type="number" className="h-9 sm:h-6 text-xs flex-1" value={band.above}
                                                     onChange={e => {
                                                         const bands = [...((selected.config?.colorBands as Array<{above:number;color:string}>) ?? [])];
                                                         bands[i] = { ...bands[i], above: parseFloat(e.target.value) || 0 };
                                                         patchConfig(selected.id, { colorBands: bands });
                                                     }} />
-                                                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive"
+                                                <Button variant="ghost" size="icon" className="h-9 sm:h-6 w-9 sm:w-6 text-destructive"
                                                     onClick={() => {
                                                         const bands = ((selected.config?.colorBands as Array<{above:number;color:string}>) ?? []).filter((_, j) => j !== i);
                                                         patchConfig(selected.id, { colorBands: bands });
@@ -1115,16 +1115,16 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                             <div className="grid gap-1">
                                                 <Label className="text-xs">Prefisso</Label>
-                                                <Input className="h-8 text-xs" value={String(selected.config?.prefix ?? '')} onChange={e => patchConfig(selected.id, { prefix: e.target.value || undefined })} />
+                                                <Input className="h-10 sm:h-8 text-xs" value={String(selected.config?.prefix ?? '')} onChange={e => patchConfig(selected.id, { prefix: e.target.value || undefined })} />
                                             </div>
                                             <div className="grid gap-1">
                                                 <Label className="text-xs">Testo no-dato</Label>
-                                                <Input className="h-8 text-xs" value={String(selected.config?.noDataText ?? '')} placeholder="—" onChange={e => patchConfig(selected.id, { noDataText: e.target.value || undefined })} />
+                                                <Input className="h-10 sm:h-8 text-xs" value={String(selected.config?.noDataText ?? '')} placeholder="—" onChange={e => patchConfig(selected.id, { noDataText: e.target.value || undefined })} />
                                             </div>
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Sfondo</Label>
-                                            <input type="color" value={String(selected.config?.bgColor ?? '#0f172a')} onChange={e => patchConfig(selected.id, { bgColor: e.target.value })} className="h-8 w-full rounded border bg-transparent" />
+                                            <input type="color" value={String(selected.config?.bgColor ?? '#0f172a')} onChange={e => patchConfig(selected.id, { bgColor: e.target.value })} className="h-10 sm:h-8 w-full rounded border bg-transparent" />
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <input type="checkbox" id="show-ts" checked={!!selected.config?.showTimestamp} onChange={e => patchConfig(selected.id, { showTimestamp: e.target.checked })} />
@@ -1146,7 +1146,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     <div className="space-y-2 pt-1 border-t">
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Spessore arco</Label>
-                                            <Input className="h-8 text-xs" type="number" value={selected.config?.arcWidth ?? 9} onChange={e => patchConfig(selected.id, { arcWidth: parseInt(e.target.value) || 9 })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.arcWidth ?? 9} onChange={e => patchConfig(selected.id, { arcWidth: parseInt(e.target.value) || 9 })} />
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <input type="checkbox" id="show-ticks" checked={!!selected.config?.showTicks} onChange={e => patchConfig(selected.id, { showTicks: e.target.checked })} />
@@ -1169,7 +1169,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Orientamento</Label>
                                             <Select value={String(selected.config?.tankOrientation ?? 'vertical')} onValueChange={v => patchConfig(selected.id, { tankOrientation: v })}>
-                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectTrigger className="h-10 sm:h-8 text-xs"><SelectValue /></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="vertical">Verticale</SelectItem>
                                                     <SelectItem value="horizontal">Orizzontale</SelectItem>
@@ -1198,7 +1198,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             <div className="grid gap-1">
                                                 <Label className="text-xs">Velocità animazione</Label>
                                                 <Select value={String(selected.config?.spinSpeed ?? 'normal')} onValueChange={v => patchConfig(selected.id, { spinSpeed: v })}>
-                                                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                    <SelectTrigger className="h-10 sm:h-8 text-xs"><SelectValue /></SelectTrigger>
                                                     <SelectContent>
                                                         <SelectItem value="slow">Lenta</SelectItem>
                                                         <SelectItem value="normal">Normale</SelectItem>
@@ -1216,7 +1216,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Tipo valvola</Label>
                                             <Select value={String(selected.config?.valveType ?? 'butterfly')} onValueChange={v => patchConfig(selected.id, { valveType: v })}>
-                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectTrigger className="h-10 sm:h-8 text-xs"><SelectValue /></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="butterfly">Farfalla</SelectItem>
                                                     <SelectItem value="gate">Saracinesca</SelectItem>
@@ -1251,7 +1251,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Forma</Label>
                                             <Select value={String(selected.config?.buttonShape ?? 'rounded')} onValueChange={v => patchConfig(selected.id, { buttonShape: v })}>
-                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectTrigger className="h-10 sm:h-8 text-xs"><SelectValue /></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="rounded">Arrotondato</SelectItem>
                                                     <SelectItem value="rect">Rettangolare</SelectItem>
@@ -1262,7 +1262,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Icona</Label>
                                             <Select value={String(selected.config?.buttonIcon ?? '')} onValueChange={v => patchConfig(selected.id, { buttonIcon: v || undefined })}>
-                                                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Nessuna" /></SelectTrigger>
+                                                <SelectTrigger className="h-10 sm:h-8 text-xs"><SelectValue placeholder="Nessuna" /></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="">Nessuna</SelectItem>
                                                     <SelectItem value="play">▶ Play</SelectItem>
@@ -1274,13 +1274,13 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Testo conferma</Label>
-                                            <Input className="h-8 text-xs" value={String(selected.config?.confirmText ?? '')} placeholder="Confermare?" onChange={e => patchConfig(selected.id, { confirmText: e.target.value || undefined })} />
+                                            <Input className="h-10 sm:h-8 text-xs" value={String(selected.config?.confirmText ?? '')} placeholder="Confermare?" onChange={e => patchConfig(selected.id, { confirmText: e.target.value || undefined })} />
                                         </div>
                                         <div className="grid gap-1 pt-1 border-t">
                                             <Label className="text-xs">Naviga a sinottico</Label>
                                             <Select value={String(selected.config?.navigateSynopticId ?? 'none')}
                                                 onValueChange={v => patchConfig(selected.id, { navigateSynopticId: v === 'none' ? undefined : Number(v) })}>
-                                                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Nessuno (scrivi tag)" /></SelectTrigger>
+                                                <SelectTrigger className="h-10 sm:h-8 text-xs"><SelectValue placeholder="Nessuno (scrivi tag)" /></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="none">Nessuno (scrivi tag)</SelectItem>
                                                     {synopticList.filter(s => s.id !== Number(id)).map(s => (
@@ -1298,7 +1298,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Allineamento</Label>
                                             <Select value={String(selected.config?.textAlign ?? 'center')} onValueChange={v => patchConfig(selected.id, { textAlign: v })}>
-                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectTrigger className="h-10 sm:h-8 text-xs"><SelectValue /></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="left">Sinistra</SelectItem>
                                                     <SelectItem value="center">Centro</SelectItem>
@@ -1318,7 +1318,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Sfondo</Label>
-                                            <input type="color" value={String(selected.config?.labelBgColor ?? '#00000000')} onChange={e => patchConfig(selected.id, { labelBgColor: e.target.value })} className="h-8 w-full rounded border bg-transparent" />
+                                            <input type="color" value={String(selected.config?.labelBgColor ?? '#00000000')} onChange={e => patchConfig(selected.id, { labelBgColor: e.target.value })} className="h-10 sm:h-8 w-full rounded border bg-transparent" />
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Tag per {'{{value}}'}</Label>
@@ -1343,7 +1343,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                                 <div className="grid gap-1">
                                                     <Label className="text-xs">Direzione</Label>
                                                     <Select value={String(selected.config?.flowDirection ?? 'right')} onValueChange={v => patchConfig(selected.id, { flowDirection: v })}>
-                                                        <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                        <SelectTrigger className="h-10 sm:h-8 text-xs"><SelectValue /></SelectTrigger>
                                                         <SelectContent>
                                                             <SelectItem value="right">→ Destra</SelectItem>
                                                             <SelectItem value="left">← Sinistra</SelectItem>
@@ -1354,13 +1354,13 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                                 </div>
                                                 <div className="grid gap-1">
                                                     <Label className="text-xs">Colore flusso</Label>
-                                                    <input type="color" value={String(selected.config?.flowColor ?? '#ffffff')} onChange={e => patchConfig(selected.id, { flowColor: e.target.value })} className="h-8 w-full rounded border bg-transparent" />
+                                                    <input type="color" value={String(selected.config?.flowColor ?? '#ffffff')} onChange={e => patchConfig(selected.id, { flowColor: e.target.value })} className="h-10 sm:h-8 w-full rounded border bg-transparent" />
                                                 </div>
                                             </>
                                         )}
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Spessore tubo (px)</Label>
-                                            <Input className="h-8 text-xs" type="number" value={selected.config?.strokeWidth ?? 20} onChange={e => patchConfig(selected.id, { strokeWidth: parseInt(e.target.value) || 20 })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.strokeWidth ?? 20} onChange={e => patchConfig(selected.id, { strokeWidth: parseInt(e.target.value) || 20 })} />
                                         </div>
                                     </div>
                                 )}
@@ -1382,12 +1382,12 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">URL immagine</Label>
-                                            <Input className="h-8 text-xs" placeholder="https://..." value={String(selected.config?.imageUrl ?? '')} onChange={e => patchConfig(selected.id, { imageUrl: e.target.value || undefined })} />
+                                            <Input className="h-10 sm:h-8 text-xs" placeholder="https://..." value={String(selected.config?.imageUrl ?? '')} onChange={e => patchConfig(selected.id, { imageUrl: e.target.value || undefined })} />
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Adattamento</Label>
                                             <Select value={String(selected.config?.imageObjectFit ?? 'fill')} onValueChange={v => patchConfig(selected.id, { imageObjectFit: v })}>
-                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectTrigger className="h-10 sm:h-8 text-xs"><SelectValue /></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="fill">Riempi</SelectItem>
                                                     <SelectItem value="contain">Contieni</SelectItem>
@@ -1397,7 +1397,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Opacità (%)</Label>
-                                            <Input className="h-8 text-xs" type="number" min={0} max={100} value={selected.config?.opacity ?? 100} onChange={e => patchConfig(selected.id, { opacity: parseInt(e.target.value) || 100 })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" min={0} max={100} value={selected.config?.opacity ?? 100} onChange={e => patchConfig(selected.id, { opacity: parseInt(e.target.value) || 100 })} />
                                         </div>
                                     </div>
                                 )}
@@ -1407,12 +1407,12 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     <div className="grid gap-2">
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Dim. testo (px)</Label>
-                                            <Input className="h-8 text-xs" type="number" value={selected.config?.fontSize ?? 22} onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 22 })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.fontSize ?? 22} onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 22 })} />
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Formato ora</Label>
                                             <Select value={selected.config?.clockFormat ?? '24h'} onValueChange={v => patchConfig(selected.id, { clockFormat: v })}>
-                                                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                                                <SelectTrigger className="h-10 sm:h-8 text-xs"><SelectValue /></SelectTrigger>
                                                 <SelectContent>
                                                     <SelectItem value="24h">24 ore</SelectItem>
                                                     <SelectItem value="12h">12 ore (AM/PM)</SelectItem>
@@ -1426,8 +1426,8 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Colore testo</Label>
                                             <div className="flex gap-2 items-center">
-                                                <input type="color" value={selected.config?.color ?? '#e2e8f0'} onChange={e => patchConfig(selected.id, { color: e.target.value })} className="h-8 w-10 rounded border border-input cursor-pointer" />
-                                                <Input className="h-8 text-xs flex-1" value={selected.config?.color ?? '#e2e8f0'} onChange={e => patchConfig(selected.id, { color: e.target.value })} />
+                                                <input type="color" value={selected.config?.color ?? '#e2e8f0'} onChange={e => patchConfig(selected.id, { color: e.target.value })} className="h-10 sm:h-8 w-10 rounded border border-input cursor-pointer" />
+                                                <Input className="h-10 sm:h-8 text-xs flex-1" value={selected.config?.color ?? '#e2e8f0'} onChange={e => patchConfig(selected.id, { color: e.target.value })} />
                                             </div>
                                         </div>
                                     </div>
@@ -1438,29 +1438,29 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     <div className="grid gap-2">
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Dim. testo (px)</Label>
-                                            <Input className="h-8 text-xs" type="number" value={selected.config?.fontSize ?? 22} onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 22 })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.fontSize ?? 22} onChange={e => patchConfig(selected.id, { fontSize: parseInt(e.target.value) || 22 })} />
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Unità di misura</Label>
-                                            <Input className="h-8 text-xs" placeholder="es. °C, bar, %" value={selected.config?.unit ?? ''} onChange={e => patchConfig(selected.id, { unit: e.target.value })} />
+                                            <Input className="h-10 sm:h-8 text-xs" placeholder="es. °C, bar, %" value={selected.config?.unit ?? ''} onChange={e => patchConfig(selected.id, { unit: e.target.value })} />
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Decimali</Label>
-                                            <Input className="h-8 text-xs" type="number" min={0} max={6} value={selected.config?.decimals ?? 2} onChange={e => patchConfig(selected.id, { decimals: parseInt(e.target.value) ?? 2 })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" min={0} max={6} value={selected.config?.decimals ?? 2} onChange={e => patchConfig(selected.id, { decimals: parseInt(e.target.value) ?? 2 })} />
                                         </div>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                             <div className="grid gap-1">
                                                 <Label className="text-xs">Min</Label>
-                                                <Input className="h-8 text-xs" type="number" placeholder="—" value={selected.config?.spMin ?? ''} onChange={e => patchConfig(selected.id, { spMin: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
+                                                <Input className="h-10 sm:h-8 text-xs" type="number" placeholder="—" value={selected.config?.spMin ?? ''} onChange={e => patchConfig(selected.id, { spMin: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
                                             </div>
                                             <div className="grid gap-1">
                                                 <Label className="text-xs">Max</Label>
-                                                <Input className="h-8 text-xs" type="number" placeholder="—" value={selected.config?.spMax ?? ''} onChange={e => patchConfig(selected.id, { spMax: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
+                                                <Input className="h-10 sm:h-8 text-xs" type="number" placeholder="—" value={selected.config?.spMax ?? ''} onChange={e => patchConfig(selected.id, { spMax: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
                                             </div>
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Step (incremento)</Label>
-                                            <Input className="h-8 text-xs" type="number" min={0} step="any" placeholder="1" value={selected.config?.spStep ?? ''} onChange={e => patchConfig(selected.id, { spStep: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" min={0} step="any" placeholder="1" value={selected.config?.spStep ?? ''} onChange={e => patchConfig(selected.id, { spStep: e.target.value === '' ? undefined : parseFloat(e.target.value) })} />
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <input type="checkbox" id="sp-confirm-write" checked={!!selected.config?.confirmWrite} onChange={e => patchConfig(selected.id, { confirmWrite: e.target.checked })} />
@@ -1479,7 +1479,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
 
                                 {/* Z-order */}
                                 <div className="flex gap-1 pt-1 border-t">
-                                    <Button variant="outline" size="sm" className="flex-1 h-7 text-xs"
+                                    <Button variant="outline" size="sm" className="flex-1 h-9 sm:h-7 text-xs"
                                         onClick={() => setWidgets(prev => {
                                             const idx = prev.findIndex(w => w.id === selected.id);
                                             if (idx <= 0) return prev;
@@ -1487,7 +1487,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
                                             return next;
                                         })}>↓ Indietro</Button>
-                                    <Button variant="outline" size="sm" className="flex-1 h-7 text-xs"
+                                    <Button variant="outline" size="sm" className="flex-1 h-9 sm:h-7 text-xs"
                                         onClick={() => setWidgets(prev => {
                                             const idx = prev.findIndex(w => w.id === selected.id);
                                             if (idx >= prev.length - 1) return prev;
@@ -1500,23 +1500,23 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Larghezza</Label>
-                                        <Input className="h-8 text-xs" type="number" value={selected.w} onChange={e => patchWidget(selected.id, { w: parseInt(e.target.value) || 20 })} />
+                                        <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.w} onChange={e => patchWidget(selected.id, { w: parseInt(e.target.value) || 20 })} />
                                     </div>
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Altezza</Label>
-                                        <Input className="h-8 text-xs" type="number" value={selected.h} onChange={e => patchWidget(selected.id, { h: parseInt(e.target.value) || 20 })} />
+                                        <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.h} onChange={e => patchWidget(selected.id, { h: parseInt(e.target.value) || 20 })} />
                                     </div>
                                     <div className="grid gap-1">
                                         <Label className="text-xs">X</Label>
-                                        <Input className="h-8 text-xs" type="number" value={selected.x} onChange={e => patchWidget(selected.id, { x: parseInt(e.target.value) || 0 })} />
+                                        <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.x} onChange={e => patchWidget(selected.id, { x: parseInt(e.target.value) || 0 })} />
                                     </div>
                                     <div className="grid gap-1">
                                         <Label className="text-xs">Y</Label>
-                                        <Input className="h-8 text-xs" type="number" value={selected.y} onChange={e => patchWidget(selected.id, { y: parseInt(e.target.value) || 0 })} />
+                                        <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.y} onChange={e => patchWidget(selected.id, { y: parseInt(e.target.value) || 0 })} />
                                     </div>
                                     <div className="grid gap-1 col-span-2">
                                         <Label className="text-xs">Rotazione (°)</Label>
-                                        <Input className="h-8 text-xs" type="number" value={selected.rotation ?? 0} onChange={e => patchWidget(selected.id, { rotation: parseInt(e.target.value) || 0 })} />
+                                        <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.rotation ?? 0} onChange={e => patchWidget(selected.id, { rotation: parseInt(e.target.value) || 0 })} />
                                     </div>
                                 </div>
                             </div>

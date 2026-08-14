@@ -65,7 +65,7 @@ const InfrastructurePage = () => {
     return (
         <div className="p-6 space-y-6">
             <div className="flex items-center gap-3">
-                <Server className="h-8 w-8 text-primary" />
+                <Server className="h-10 sm:h-8 w-10 sm:w-8 text-primary" />
                 <div>
                     <h1 className="text-2xl font-bold">Infrastruttura</h1>
                     <p className="text-muted-foreground text-sm">Gateway e dispositivi edge</p>

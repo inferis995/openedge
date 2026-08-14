@@ -156,7 +156,7 @@ function RequirementChecklist({
                         <Button
                             variant="outline"
                             size="sm"
-                            className="h-7 text-xs shrink-0"
+                            className="h-9 sm:h-7 text-xs shrink-0"
                             onClick={() => {
                                 setSelectedReq(req);
                                 setDialogOpen(true);
