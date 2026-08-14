@@ -12,7 +12,12 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground",
+      // Tab strips are wider than a phone — the last tab was cut off with no
+      // sign it existed. Scroll the strip rather than the page, and keep the
+      // triggers from being squeezed to nothing.
+      "inline-flex h-auto min-h-9 max-w-full items-center justify-start sm:justify-center",
+      "overflow-x-auto rounded-lg bg-muted p-1 text-muted-foreground",
+      "[&>*]:shrink-0",
       className
     )}
     {...props}

@@ -1,18 +1,64 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
+/**
+ * A table that becomes a list of cards on a phone.
+ *
+ * With real data these tables are 750–1100px wide inside a 390px screen. They
+ * scrolled sideways, which is technically fine and unusable in practice: you
+ * see the first two columns of each row and have to drag to read the rest.
+ *
+ * Each cell is stamped with the text of its column header, and CSS below sm
+ * turns every row into a card of label/value pairs. The stamping is done from
+ * the DOM rather than through a column-definition API because that way all
+ * twenty-one existing tables get it without being rewritten — and a table
+ * whose header changes stays correct without anyone remembering to update a
+ * parallel list.
+ */
 const Table = React.forwardRef<
     HTMLTableElement,
     React.HTMLAttributes<HTMLTableElement>
->(({ className, ...props }, ref) => (
-    <div className="relative w-full overflow-auto">
-        <table
-            ref={ref}
-            className={cn("w-full caption-bottom text-sm", className)}
-            {...props}
-        />
-    </div>
-))
+>(({ className, ...props }, ref) => {
+    const inner = React.useRef<HTMLTableElement | null>(null)
+
+    React.useEffect(() => {
+        const table = inner.current
+        if (!table) return
+
+        const stamp = () => {
+            const heads = Array.from(table.querySelectorAll("thead th"))
+                .map(th => (th.textContent || "").trim())
+            table.querySelectorAll("tbody tr").forEach(row => {
+                Array.from(row.children).forEach((cell, i) => {
+                    // An empty label is the signal for "no prefix": checkbox and
+                    // action columns have no header text and want none shown.
+                    cell.setAttribute("data-label", heads[i] ?? "")
+                })
+            })
+        }
+        stamp()
+
+        // Rows arrive after the first render, and change on every filter,
+        // sort and page. Restamping on mutation keeps the labels honest.
+        const observer = new MutationObserver(stamp)
+        observer.observe(table, { childList: true, subtree: true })
+        return () => observer.disconnect()
+    })
+
+    return (
+        <div className="relative w-full overflow-auto">
+            <table
+                ref={node => {
+                    inner.current = node
+                    if (typeof ref === "function") ref(node)
+                    else if (ref) ref.current = node
+                }}
+                className={cn("responsive-table w-full caption-bottom text-sm", className)}
+                {...props}
+            />
+        </div>
+    )
+})
 Table.displayName = "Table"
 
 const TableHeader = React.forwardRef<

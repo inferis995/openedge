@@ -147,3 +147,72 @@
     color: hsl(var(--accent-foreground));
   }
 }
+
+/* Tables as cards on a phone.
+ *
+ * With real data these tables run 750–1100px wide inside a 390px screen, so a
+ * row showed its first two columns and the rest lived off to the right. Below
+ * sm every row becomes a card of label/value pairs; the label comes from the
+ * column header, stamped onto each cell by the Table component.
+ *
+ * From sm upwards none of this applies and the table is a table again. */
+@media (max-width: 639px) {
+    table.responsive-table,
+    table.responsive-table tbody,
+    table.responsive-table tr,
+    table.responsive-table td {
+        display: block;
+        width: 100%;
+    }
+
+    table.responsive-table thead {
+        display: none;
+    }
+
+    table.responsive-table tbody tr {
+        border: 1px solid hsl(var(--border));
+        border-radius: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        margin-bottom: 0.625rem;
+        background: hsl(var(--card));
+    }
+
+    table.responsive-table tbody td {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.375rem 0;
+        border: 0;
+        text-align: right;
+        min-height: 2.25rem;
+    }
+
+    table.responsive-table tbody td::before {
+        content: attr(data-label);
+        flex: 0 0 auto;
+        margin-right: auto;
+        font-weight: 500;
+        color: hsl(var(--muted-foreground));
+        text-align: left;
+        white-space: nowrap;
+    }
+
+    /* Columns with no header — checkboxes, row actions — carry no prefix and
+       take the full width, so the buttons stay where a thumb expects them. */
+    table.responsive-table tbody td[data-label=""] {
+        justify-content: flex-end;
+    }
+    table.responsive-table tbody td[data-label=""]::before {
+        content: none;
+    }
+
+    /* An empty state spans every column and is a sentence, not a pair. */
+    table.responsive-table tbody td[colspan]::before {
+        content: none;
+    }
+    table.responsive-table tbody td[colspan] {
+        justify-content: center;
+        text-align: center;
+    }
+}
