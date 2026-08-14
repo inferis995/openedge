@@ -85,9 +85,35 @@ func (c *apiClient) do(method, path string, body interface{}) (int, []byte) {
 		req.Header.Set("X-Organization-ID", c.orgID)
 	}
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
-	if err != nil {
-		c.t.Fatalf("%s %s: %v", method, path, err)
+	// The whole suite arrives from one address, and every request counts
+	// against GlobalRateLimit — 300 a minute, burst 50, per IP. A suite that
+	// creates a fresh organization per test crosses it in bursts, and the 429
+	// that comes back has nothing to do with the code under test: the failures
+	// read "POST /api/organizations: status 429, want 201" across a dozen
+	// unrelated tests at once.
+	//
+	// Back off rather than loosen the limiter. No test here asserts a 429 from
+	// the API, so waiting is always the right move; the OAuth tests do the same
+	// for the login limiter, which they hit for the same reason.
+	client := &http.Client{Timeout: 15 * time.Second}
+	deadline := time.Now().Add(45 * time.Second)
+	var resp *http.Response
+	for {
+		var err error
+		resp, err = client.Do(req)
+		if err != nil {
+			c.t.Fatalf("%s %s: %v", method, path, err)
+		}
+		if resp.StatusCode != http.StatusTooManyRequests || time.Now().After(deadline) {
+			break
+		}
+		_ = resp.Body.Close()
+		time.Sleep(2 * time.Second)
+		// A request body is consumed by the attempt that sent it.
+		if rdr != nil {
+			b, _ := json.Marshal(body)
+			req.Body = io.NopCloser(bytes.NewReader(b))
+		}
 	}
 	defer func() { _ = resp.Body.Close() }()
 

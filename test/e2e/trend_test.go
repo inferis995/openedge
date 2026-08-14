@@ -47,9 +47,13 @@ func TestTrendBatchReturnsTheSeries(t *testing.T) {
 
 	status, raw := batchQuery(t, org, map[string]interface{}{
 		"tag_ids": []int{fx.tagID},
-		"start":   time.Now().Add(-time.Hour).UTC().Format(time.RFC3339),
-		"end":     time.Now().Add(time.Minute).UTC().Format(time.RFC3339),
-		"agg":     "avg",
+		// Under an hour on purpose: determineAggregationLevel sends anything
+		// longer to the 1-minute continuous aggregate, which has not refreshed
+		// for a value published three seconds ago — the series comes back with
+		// the right buckets and null in every one of them.
+		"start": time.Now().Add(-30 * time.Minute).UTC().Format(time.RFC3339),
+		"end":   time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339),
+		"agg":   "avg",
 	})
 	if status != http.StatusOK {
 		t.Fatalf("the endpoint the trend page calls answered %d — %s", status, truncate(raw))
