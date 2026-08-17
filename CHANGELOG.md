@@ -5,6 +5,46 @@ All notable changes to OpenEdge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **The cloud overlay published every internal service to the internet.**
+  `docker-compose.vps.yml` removed the host port bindings with `ports: []`,
+  which does nothing: Compose *concatenates* `ports` across overlay files, so an
+  empty list merges with the base one and leaves it intact. A VPS started with
+  `make vps-up` was therefore serving `0.0.0.0:3000` — the web UI's nginx, and
+  through it the whole API, in plaintext with none of Traefik's security
+  headers — plus `0.0.0.0:18830` and `0.0.0.0:9001`, unencrypted MQTT and
+  MQTT-over-WebSocket. PostgreSQL, Redis and core-api were spared only by the
+  `127.0.0.1` bind defaults in the base file. The `ufw` rules in
+  `deploy/cloud-init.sh` did not help: Docker's iptables rules are consulted
+  before ufw's. Fixed with `ports: !override []` (Compose 2.24+, checked by
+  `scripts/preflight.sh`), and asserted on every push by
+  `test/config/compose_overlay_test.go`, which reads the merged configuration
+  rather than either file.
+- **`preflight.sh` refused a correctly filled cloud configuration.** It compared
+  `ALLOWED_ORIGINS` against `PUBLIC_HOST` as raw text, so the template's own
+  `ALLOWED_ORIGINS=https://${PUBLIC_HOST}` — the line an operator is meant to
+  leave alone — failed the check that gates `make vps-up`, with a message
+  claiming CORS was broken when it was not.
+
+### Added
+
+- **CI runs the acceptance suite against the cloud deployment.** The existing
+  end-to-end job proves the application in the on-prem shape only: every service
+  published on the host. `docker-compose.vps.yml` — Traefik in front, host ports
+  removed, everything arriving through the proxy — had never been brought up by
+  anything. The new `e2e-vps` job assembles it, runs `scripts/preflight.sh`
+  against a `.env` built from `.env.cloud.example`, and runs the whole suite
+  through Traefik and the nginx behind it, plus assertions only that deployment
+  has: the redirect off port 80, the security headers, the OAuth issuer, MQTT
+  over TLS on 8883, and every internal port being shut. It does not prove
+  certificate issuance, which needs a public domain and a real CA.
+- `ACME_CA_SERVER` — point Traefik at the Let's Encrypt staging directory while
+  DNS is still moving, instead of burning the production failed-validation rate
+  limit on a domain that does not resolve yet.
+
 ## [2.1.0] - 2026-06-22
 
 ### Added

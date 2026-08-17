@@ -105,9 +105,41 @@ case "$MAIL" in
 esac
 
 ORIGINS=$(get ALLOWED_ORIGINS)
+# .env.cloud.example ships ALLOWED_ORIGINS=https://${PUBLIC_HOST}, and Compose
+# expands that when it reads the file. Comparing the raw text against the host
+# therefore failed on a correctly filled-in .env — the one case this check is
+# supposed to wave through — and told the operator their CORS was broken when
+# it was not. Expand the reference the same way Compose does before comparing.
+ORIGINS=${ORIGINS//\$\{PUBLIC_HOST\}/$HOST}
+ORIGINS=${ORIGINS//\$PUBLIC_HOST/$HOST}
 if [ -n "$HOST" ] && [ -n "$ORIGINS" ] && [[ "$ORIGINS" != *"$HOST"* ]]; then
     fail "ALLOWED_ORIGINS ($ORIGINS) does not mention PUBLIC_HOST ($HOST). The browser will \
 be refused by CORS on every API call."
+fi
+
+# ── The tool that will run this, not just the file it will read ──────────────
+#
+# docker-compose.vps.yml removes the host port bindings with `ports: !override
+# []`. It has to: a plain `ports: []` merges with the base list instead of
+# replacing it, which is how the web UI and the plaintext MQTT port spent this
+# project's whole history published on public VPS addresses while the file said
+# they were not. The tag needs Compose v2.24 (January 2024) or later. Older
+# versions fail on the unknown tag rather than quietly republishing the ports —
+# but a YAML parse error is a poor way to learn this, so say it here.
+if command -v docker >/dev/null 2>&1; then
+    CV=$(docker compose version --short 2>/dev/null | sed 's/^v//')
+    CV_MAJOR=${CV%%.*}
+    CV_REST=${CV#*.}
+    CV_MINOR=${CV_REST%%.*}
+    if [ -n "${CV_MAJOR:-}" ] && [ "$CV_MAJOR" -eq 2 ] 2>/dev/null && [ "${CV_MINOR:-0}" -lt 24 ] 2>/dev/null; then
+        fail "Docker Compose is $CV; the cloud overlay needs 2.24 or later for the \
+\`!override\` tag that takes the internal services off the host. Upgrade the plugin: \
+https://docs.docker.com/compose/install/linux/"
+    elif [ -n "${CV_MAJOR:-}" ] && [ "$CV_MAJOR" -lt 2 ] 2>/dev/null; then
+        fail "Docker Compose is $CV. This is the standalone v1 (docker-compose), which does \
+not support overlay files the way this deployment needs. Install the v2 plugin: \
+https://docs.docker.com/compose/install/linux/"
+    fi
 fi
 
 # ── Things that are wrong but not fatal ──────────────────────────────────────

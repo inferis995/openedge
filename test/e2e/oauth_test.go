@@ -28,12 +28,11 @@ import (
 // oauthHTTP is a client that does NOT follow redirects: the redirect back to
 // the client is the result under test, and following it would throw it away.
 func oauthHTTP() *http.Client {
-	return &http.Client{
-		Timeout: 15 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+	c := httpClient(15 * time.Second)
+	c.CheckRedirect = func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
 	}
+	return c
 }
 
 func pkcePair(t *testing.T) (verifier, challenge string) {

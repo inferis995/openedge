@@ -49,6 +49,14 @@ fi
 
 # ── 3. Firewall ───────────────────────────────────────────────────────────────
 step "Configuring firewall (ufw)"
+# Worth knowing what this does and does not do: Docker publishes ports by
+# writing its own iptables rules in the nat table, which are consulted BEFORE
+# ufw's. A container that publishes 0.0.0.0:3000 is reachable from the internet
+# with the rules below in place and ufw reporting the port as denied. So this is
+# defence for things running on the host, not for the stack — what keeps the
+# stack off the public interface is docker-compose.vps.yml publishing nothing
+# but Traefik, which test/config/compose_overlay_test.go asserts on every push
+# after an overlay that claimed to do it did not.
 if command -v ufw &>/dev/null; then
   ufw allow 22/tcp    comment "SSH"
   ufw allow 80/tcp    comment "HTTP (redirect to HTTPS)"

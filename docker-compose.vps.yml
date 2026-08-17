@@ -49,6 +49,16 @@ services:
       - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?Set ACME_EMAIL in .env}
       - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
       - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      # Which CA to ask. The default is the real one, so an unset variable
+      # behaves exactly as before. Point it at the Let's Encrypt STAGING
+      # directory while DNS is still moving — the production endpoint counts
+      # every failed validation against a rate limit that locks the domain out
+      # for a week, which is the expensive way to discover a wrong A record:
+      #   ACME_CA_SERVER=https://acme-staging-v02.api.letsencrypt.org/directory
+      # (staging issues an untrusted certificate; browsers will warn.)
+      # CI points it at an address nothing answers, so the overlay can be
+      # brought up and exercised without touching a public CA at all.
+      - --certificatesresolvers.letsencrypt.acme.caserver=${ACME_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
       # JSON access log (Loki / Datadog / CloudWatch compatible)
       - --accesslog=true
       - --accesslog.format=json
@@ -68,7 +78,20 @@ services:
 
   # ── Web UI — served via Traefik; its built-in nginx proxies /api → core-api ─
   web-ui:
-    ports: []   # Traefik handles external access
+    # !override, not "ports: []".
+    #
+    # Compose CONCATENATES ports across overlay files — an empty list here
+    # merges with the base one and changes nothing. This file claimed to remove
+    # every host binding and removed none: `docker compose config` on the merged
+    # pair published 0.0.0.0:3000 (this nginx, and through it the whole API, in
+    # plaintext with none of the headers below), 0.0.0.0:18830 and 0.0.0.0:9001
+    # (MQTT and MQTT-over-WebSocket, unencrypted, on a public IP). The other
+    # services were saved only by the 127.0.0.1 bind defaults in the base file,
+    # which is luck rather than design.
+    #
+    # !override replaces the value instead of merging it. Requires Compose
+    # v2.24 or later; `docker compose version` on the server, once.
+    ports: !override []   # Traefik handles external access
     labels:
       - "traefik.enable=true"
       # HTTPS route
@@ -88,7 +111,7 @@ services:
 
   # ── Core API — internal only; web-ui nginx proxies /api/* to it ─────────────
   core-api:
-    ports: []
+    ports: !override []
     environment:
       ALLOWED_ORIGINS: "https://${PUBLIC_HOST}"
       # The base URL an OAuth client is sent to. Without it the API derives one
@@ -99,17 +122,17 @@ services:
 
   # ── PostgreSQL — never exposed to internet ───────────────────────────────────
   postgres:
-    ports: []
+    ports: !override []
 
   # ── Redis — never exposed to internet ───────────────────────────────────────
   redis:
-    ports: []
+    ports: !override []
 
   # ── Mosquitto — MQTT/TLS via Traefik TCP proxy on port 8883 ─────────────────
   # Traefik terminates TLS (Let's Encrypt cert) and forwards plain MQTT to
   # mosquitto:1883 inside the Docker network.  No cert sharing required.
   mosquitto:
-    ports: []   # Traefik handles 8883 externally
+    ports: !override []   # Traefik handles 8883 externally
     environment:
       # Publish the public TLS endpoint to edge devices via the config API
       MQTT_PUBLIC_HOST: "${PUBLIC_HOST}"

@@ -263,6 +263,151 @@ jobs:
         if: always()
         run: docker compose down -v
 
+  # ── End-to-end against the CLOUD deployment ──────────────────────────────────
+  # The job above proves the application. It proves it in the ON-PREM shape:
+  # docker-compose.yml alone, every service published on the host, the API on
+  # 8081 and the broker on 18830.
+  #
+  # docker-compose.vps.yml is a different deployment — Traefik in front, host
+  # ports removed from everything else, the browser and every edge gateway
+  # arriving through the proxy and the nginx behind it. It was written,
+  # documented and recommended, and until this job nothing had ever brought it
+  # up: not CI, not a test, not a person. That is the same gap that produced the
+  # worst defects in this codebase — two halves that each look right, joined by
+  # an assumption nobody executed.
+  #
+  # So the whole suite runs again, through the overlay, plus the assertions in
+  # deployment_vps_test.go that only the overlay has: the redirect off port 80,
+  # the security headers, the OAuth issuer, MQTT over TLS, and every internal
+  # port being shut.
+  #
+  # What it does NOT prove: that Let's Encrypt issues a certificate. That needs
+  # a public domain resolving here and a real CA. ACME_CA_SERVER is pointed at
+  # an address nothing answers, so Traefik falls back to its own certificate and
+  # the suite is told to accept it — everything up to TLS termination is real,
+  # the certificate's provenance is not.
+  e2e-vps:
+    name: End-to-End (cloud overlay)
+    runs-on: ubuntu-latest
+    needs: [go-test]
+    env:
+      # RFC 2606 reserves .test: it can never resolve publicly, so a stray
+      # request from this job cannot reach a real host.
+      PUBLIC_HOST: openedge.ci.test
+      # Both files, for every docker compose call in this job and for anything
+      # the tests shell out to.
+      COMPOSE_FILE: docker-compose.yml:docker-compose.vps.yml
+      # Deterministic and worthless: this stack lives for one job on a runner
+      # that is destroyed afterwards. They exist to satisfy preflight.sh, which
+      # is the point — the production template has to pass its own gate.
+      VPS_ADMIN_PASSWORD: vps-e2e-admin-password
+      VPS_MQTT_PASSWORD: vps-e2e-mqtt-password
+      VPS_DB_PASSWORD: vps-e2e-db-password
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Resolve the public hostname to this runner
+        # Traefik routes on Host() and on TLS SNI, so the suite has to arrive
+        # under the name — connecting to 127.0.0.1 reaches no router at all.
+        run: echo "127.0.0.1 $PUBLIC_HOST" | sudo tee -a /etc/hosts
+
+      - name: Prepare a production .env
+        # From .env.cloud.example, the file an operator is told to copy — so a
+        # key added there and never filled in fails here rather than on a
+        # customer's server.
+        run: |
+          set -eu
+          cp .env.cloud.example .env
+          set_env() { sed -i "s|^$1=.*|$1=$2|" .env; }
+          set_env PUBLIC_HOST "$PUBLIC_HOST"
+          set_env ACME_EMAIL "ci@$PUBLIC_HOST"
+          # Nothing listens there: Traefik's ACME client fails immediately,
+          # locally, and serves its default certificate. Without this the
+          # overlay would hammer the real Let's Encrypt on every push and burn
+          # the failed-validation rate limit for a domain that cannot resolve.
+          set_env ACME_CA_SERVER "https://127.0.0.1:14000/directory"
+          set_env POSTGRES_PASSWORD "$VPS_DB_PASSWORD"
+          set_env MQTT_ADMIN_PASSWORD "$VPS_MQTT_PASSWORD"
+          set_env JWT_SECRET "${{ env.JWT_SECRET }}"
+          set_env ENCRYPTION_KEY "ci-vps-encryption-key-32bytes-ok"
+          set_env OPENEDGE_INITIAL_ADMIN_PASSWORD "$VPS_ADMIN_PASSWORD"
+
+      - name: Preflight
+        # The gate `make vps-up` runs before it starts anything. Running it here
+        # means the check that refuses a half-configured production start is
+        # itself exercised — against the real template, on every push.
+        run: bash scripts/preflight.sh .env
+
+      - name: Build images
+        run: docker compose build
+
+      - name: Start the cloud stack
+        run: |
+          set -o pipefail
+          docker compose up -d 2>&1 | tee /tmp/compose-vps-up.log || {
+            echo "=== compose up failed — container states ==="
+            docker compose ps -a
+            for c in $(docker compose ps -aq); do
+              name=$(docker inspect --format '{{.Name}}' "$c")
+              health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$c")
+              echo "--- $name : $health"
+              docker inspect --format '{{if .State.Health}}{{range .State.Health.Log}}{{.Output}}{{end}}{{end}}' "$c" | tail -5
+            done
+            exit 1
+          }
+
+      - name: Wait for the proxy
+        # Through Traefik and the web-ui nginx, not against core-api: if either
+        # of those is misrouted the wait fails here, with the proxy's own logs
+        # beside it, instead of as sixty test failures further down.
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsSk "https://$PUBLIC_HOST/health" >/dev/null 2>&1; then
+              echo "the stack answers through the proxy after ${i} attempts"; exit 0
+            fi
+            sleep 5
+          done
+          echo "=== nothing answered https://$PUBLIC_HOST/health ==="
+          echo "--- traefik router state ---"
+          docker compose logs traefik --tail=60
+          echo "--- what is published ---"
+          docker compose ps
+          exit 1
+
+      - name: Run acceptance tests through the proxy
+        env:
+          E2E_DEPLOYMENT: vps
+          # Traefik cannot obtain a certificate here (see the job comment), so
+          # it serves its own. Accepting it is what lets the suite reach the
+          # application; the TLS termination itself is real.
+          E2E_TLS_INSECURE: "1"
+          E2E_API_URL: https://openedge.ci.test
+          E2E_WEB_URL: https://openedge.ci.test
+          E2E_MQTT_HOST: openedge.ci.test
+          E2E_MQTT_PORT: "8883"
+          E2E_MQTT_TLS: "1"
+          E2E_ADMIN_PASSWORD: vps-e2e-admin-password
+          E2E_MQTT_USER: core-api
+          E2E_MQTT_PASSWORD: vps-e2e-mqtt-password
+          # scripts/backup.sh reaches into the containers and then into Postgres
+          # on the host, which this deployment does not publish. The direct job
+          # runs it; here the closed port is the property being asserted.
+          E2E_SKIP_DOCKER: "1"
+        run: go test -tags=e2e -v -timeout=15m ./test/e2e/...
+
+      - name: Dump container logs on failure
+        if: failure()
+        run: docker compose logs --tail=200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
+
   # ── Docker: build (no push) ──────────────────────────────────────────────────
   docker-build:
     name: Docker Build

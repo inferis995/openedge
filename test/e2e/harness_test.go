@@ -20,6 +20,7 @@ package e2e
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -42,6 +43,56 @@ func env(key, def string) string {
 func apiBase() string  { return env("E2E_API_URL", "http://127.0.0.1:8081") }
 func mqttHost() string { return env("E2E_MQTT_HOST", "127.0.0.1") }
 func mqttPort() string { return env("E2E_MQTT_PORT", "18830") }
+
+// ── The shape of the deployment under test ──────────────────────────────────
+//
+// The suite runs against two stacks that are the same application and a
+// different deployment. The on-prem one (docker-compose.yml alone) publishes
+// every service on the host. The cloud one (+ docker-compose.vps.yml) publishes
+// nothing but Traefik, and everything reaches the application through the proxy
+// and the web-ui nginx behind it — which is how every customer will reach it,
+// and which nothing exercised until there was a job for it.
+
+// proxiedDeployment reports whether the cloud overlay is in front of the stack.
+func proxiedDeployment() bool { return env("E2E_DEPLOYMENT", "direct") == "vps" }
+
+// requireDirectAccess skips a test that talks to a service the cloud overlay
+// deliberately does not publish — Postgres, or core-api's own /metrics.
+//
+// This is not coverage quietly dropped. Those tests assert properties of the
+// database and of core-api, and the direct job proves them against the very
+// same images on every push. What the overlay changes is what is REACHABLE,
+// and that is asserted head-on in deployment_vps_test.go — including that the
+// ports these tests would use are in fact closed.
+func requireDirectAccess(t *testing.T, what string) {
+	t.Helper()
+	if proxiedDeployment() {
+		t.Skipf("%s is not published by the cloud overlay — the direct job covers this test, "+
+			"and TestInternalPortsAreNotPublished asserts the port is shut", what)
+	}
+}
+
+// insecureTLS reports whether to accept the certificate the stack presents
+// without checking it.
+//
+// Deliberately a separate switch from E2E_DEPLOYMENT rather than implied by it.
+// In CI there is no public domain and no public CA, so Traefik's ACME resolver
+// cannot issue anything and serves its own default certificate; refusing it
+// would mean the suite never reaches the code under test. Against a real
+// deployment the certificate is part of what should be checked, and folding
+// this into "is it proxied" would silently stop checking it there.
+func insecureTLS() bool { return os.Getenv("E2E_TLS_INSECURE") == "1" }
+
+func httpClient(timeout time.Duration) *http.Client {
+	c := &http.Client{Timeout: timeout}
+	if insecureTLS() {
+		c.Transport = &http.Transport{
+			// #nosec G402 -- see insecureTLS: opt-in, for a stack with no public CA.
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		}
+	}
+	return c
+}
 
 // adminCredentials returns the bootstrap admin login. The password must match
 // OPENEDGE_INITIAL_ADMIN_PASSWORD in the compose environment used for the run.
@@ -95,7 +146,7 @@ func (c *apiClient) do(method, path string, body interface{}) (int, []byte) {
 	// Back off rather than loosen the limiter. No test here asserts a 429 from
 	// the API, so waiting is always the right move; the OAuth tests do the same
 	// for the login limiter, which they hit for the same reason.
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := httpClient(15 * time.Second)
 	deadline := time.Now().Add(45 * time.Second)
 	var resp *http.Response
 	for {
@@ -231,7 +282,7 @@ func TestMain(m *testing.M) {
 
 func waitForAPI(timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	client := &http.Client{Timeout: 3 * time.Second}
+	client := httpClient(3 * time.Second)
 	var lastErr error
 
 	for time.Now().Before(deadline) {

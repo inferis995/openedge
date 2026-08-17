@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -24,11 +25,28 @@ import (
 func mqttConnect(t *testing.T, clientID string) paho.Client {
 	t.Helper()
 
+	// The cloud overlay publishes the broker only on Traefik's 8883, which
+	// terminates TLS and routes by SNI: it is reachable under the public
+	// hostname and by no other name, which is exactly how an edge gateway in a
+	// factory reaches it. Plain TCP on 18830 is the on-prem shape.
+	scheme := "tcp"
+	if env("E2E_MQTT_TLS", "") == "1" {
+		scheme = "ssl"
+	}
+
 	opts := paho.NewClientOptions().
-		AddBroker(fmt.Sprintf("tcp://%s:%s", mqttHost(), mqttPort())).
+		AddBroker(fmt.Sprintf("%s://%s:%s", scheme, mqttHost(), mqttPort())).
 		SetClientID(clientID).
 		SetConnectTimeout(10 * time.Second).
 		SetCleanSession(true)
+
+	if scheme == "ssl" {
+		opts.SetTLSConfig(&tls.Config{
+			MinVersion: tls.VersionTLS12,
+			// #nosec G402 -- opt-in via E2E_TLS_INSECURE; see insecureTLS.
+			InsecureSkipVerify: insecureTLS(),
+		})
+	}
 
 	// The shipped broker sets allow_anonymous false, so credentials are needed.
 	if u := env("E2E_MQTT_USER", ""); u != "" {

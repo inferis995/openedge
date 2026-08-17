@@ -32,6 +32,12 @@ import (
 // sets one.
 func scrapeMetrics(t *testing.T) string {
 	t.Helper()
+	// /metrics is core-api's own port. The cloud overlay does not publish it
+	// and nginx does not proxy it, on purpose: a scrape endpoint on the public
+	// domain hands every request rate, route and tag count to anyone who asks.
+	// TestMetricsAreNotPublic asserts that; this asserts the metrics are real,
+	// which needs the port the on-prem deployment does publish.
+	requireDirectAccess(t, "core-api's /metrics port")
 
 	req, err := http.NewRequest(http.MethodGet, apiBase()+"/metrics", nil)
 	if err != nil {

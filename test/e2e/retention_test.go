@@ -31,6 +31,10 @@ import (
 
 func openDB(t *testing.T) *sql.DB {
 	t.Helper()
+	// The cloud overlay strips Postgres' host port — a database on the public
+	// internet is the thing that overlay exists to prevent — so these tests run
+	// in the direct job, against the same image and the same migrations.
+	requireDirectAccess(t, "Postgres")
 
 	dsn := os.Getenv("E2E_DB_DSN")
 	if dsn == "" {

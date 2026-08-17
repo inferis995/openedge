@@ -8,12 +8,14 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // repoRoot walks up from this package to the repository root.
@@ -133,6 +135,50 @@ func TestPreflightAcceptsAFilledConfiguration(t *testing.T) {
 	out, err := exec.Command("bash", filepath.Join(root, "scripts", "preflight.sh"), path).CombinedOutput()
 	if err != nil {
 		t.Fatalf("preflight refused a correctly filled configuration:\n%s", out)
+	}
+}
+
+// The template's own way of writing it, which is the way an operator will
+// leave it.
+//
+// .env.cloud.example ships ALLOWED_ORIGINS=https://${PUBLIC_HOST}, so filling
+// the file in as instructed means setting PUBLIC_HOST and touching that line
+// not at all. Compose expands the reference; preflight compared the raw text,
+// so it failed on exactly the configuration it is meant to pass — and since
+// `make vps-up` runs preflight before it starts anything, a correct cloud
+// deployment was refused with a message saying CORS was broken when it was not.
+//
+// The test above missed it by writing the host out in full: the only shape
+// nobody actually deploys.
+func TestPreflightAcceptsTheTemplatesOwnVariableReference(t *testing.T) {
+	root := repoRoot(t)
+
+	filled := strings.Join([]string{
+		"PUBLIC_HOST=app.example.com",
+		"ACME_EMAIL=ops@example.com",
+		"ALLOWED_ORIGINS=https://${PUBLIC_HOST}",
+		"MQTT_PUBLIC_HOST=${PUBLIC_HOST}",
+		"JWT_SECRET=" + strings.Repeat("a", 64),
+		"POSTGRES_PASSWORD=" + strings.Repeat("b", 32),
+		"MQTT_ADMIN_PASSWORD=" + strings.Repeat("c", 32),
+		"ENCRYPTION_KEY=" + strings.Repeat("d", 32),
+		"OPENEDGE_INITIAL_ADMIN_PASSWORD=" + strings.Repeat("f", 20),
+		"SWAGGER_ENABLED=false",
+		`BACKUP_SCHEDULE="0 3 * * *"`,
+		"",
+	}, "\n")
+
+	path := filepath.Join(t.TempDir(), "prod.env")
+	if err := os.WriteFile(path, []byte(filled), 0o600); err != nil {
+		t.Fatalf("writing env: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "bash",
+		filepath.Join(root, "scripts", "preflight.sh"), path).CombinedOutput()
+	if err != nil {
+		t.Fatalf("preflight refused the template's own ALLOWED_ORIGINS with PUBLIC_HOST set:\n%s", out)
 	}
 }
 

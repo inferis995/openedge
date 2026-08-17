@@ -368,8 +368,12 @@ Two options depending on whether the edge runs on the same server or on separate
 
 **Server only** (edge agents connect remotely via MQTT TLS):
 ```bash
-make vps-up          # Traefik + Let's Encrypt + monitoring always on
+make vps-up          # Traefik + Let's Encrypt; only 80, 443 and 8883 on the host
 ```
+
+Monitoring is **not** part of that: `make vps-up-monitoring` adds it and publishes
+Grafana at `grafana.$PUBLIC_HOST`, which needs its own DNS record and its own
+password. Needs Docker Compose 2.24 or later — `make vps-up` checks and says so.
 
 **All-in-one** (driver-manager on the same VPS — demos, small deployments):
 ```bash
