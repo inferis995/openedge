@@ -200,6 +200,36 @@ jobs:
             exit 1
           }
 
+      - name: Every container must report healthy
+        # web-ui reported "unhealthy" from the day the image was built: its probe
+        # asked `localhost`, which resolves to ::1 ahead of 127.0.0.1, while that
+        # nginx listens on IPv4 only. The site worked — the published port served
+        # the whole acceptance suite — so nothing here ever looked, and the cost
+        # landed on the deployments that have a proxy in front. Traefik skips
+        # unhealthy containers, so the cloud stack answered 404 to everything,
+        # and `make onprem-tls` never started Caddy, which waits for this
+        # container to be healthy.
+        #
+        # A stack is not up because one port answers.
+        run: |
+          for _ in $(seq 1 24); do
+            starting=$(docker compose ps -aq | xargs -r docker inspect \
+              --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' | grep -c starting || true)
+            if [ "$starting" = "0" ]; then break; fi
+            sleep 5
+          done
+          bad=0
+          for c in $(docker compose ps -aq); do
+            name=$(docker inspect --format '{{.Name}}' "$c")
+            health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$c")
+            echo "$name: $health"
+            if [ "$health" = "unhealthy" ] || [ "$health" = "starting" ]; then
+              bad=1
+              docker inspect --format '{{if .State.Health}}{{range .State.Health.Log}}exit={{.ExitCode}} {{.Output}}{{end}}{{end}}' "$c" | tail -3
+            fi
+          done
+          exit $bad
+
       - name: Broker diagnostics
         # The broker refused EVERY client — core-api, engine-historian and
         # driver-manager all logged "not authorised" — while the TCP healthcheck
@@ -361,6 +391,36 @@ jobs:
             exit 1
           }
 
+      - name: Every container must report healthy
+        # web-ui reported "unhealthy" from the day the image was built: its probe
+        # asked `localhost`, which resolves to ::1 ahead of 127.0.0.1, while that
+        # nginx listens on IPv4 only. The site worked — the published port served
+        # the whole acceptance suite — so nothing here ever looked, and the cost
+        # landed on the deployments that have a proxy in front. Traefik skips
+        # unhealthy containers, so the cloud stack answered 404 to everything,
+        # and `make onprem-tls` never started Caddy, which waits for this
+        # container to be healthy.
+        #
+        # A stack is not up because one port answers.
+        run: |
+          for _ in $(seq 1 24); do
+            starting=$(docker compose ps -aq | xargs -r docker inspect \
+              --format '{{if .State.Health}}{{.State.Health.Status}}{{end}}' | grep -c starting || true)
+            if [ "$starting" = "0" ]; then break; fi
+            sleep 5
+          done
+          bad=0
+          for c in $(docker compose ps -aq); do
+            name=$(docker inspect --format '{{.Name}}' "$c")
+            health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$c")
+            echo "$name: $health"
+            if [ "$health" = "unhealthy" ] || [ "$health" = "starting" ]; then
+              bad=1
+              docker inspect --format '{{if .State.Health}}{{range .State.Health.Log}}exit={{.ExitCode}} {{.Output}}{{end}}{{end}}' "$c" | tail -3
+            fi
+          done
+          exit $bad
+
       - name: Wait for the proxy
         # Through Traefik and the web-ui nginx, not against core-api: if either
         # of those is misrouted the wait fails here, with the proxy's own logs
@@ -373,10 +433,12 @@ jobs:
             sleep 5
           done
           echo "=== nothing answered https://$PUBLIC_HOST/health ==="
-          echo "--- traefik router state ---"
-          docker compose logs traefik --tail=60
-          echo "--- what is published ---"
+          echo "--- what is running, and what it publishes ---"
           docker compose ps
+          # Access logs are one line per probe and would bury the routing
+          # errors that explain a 404; those are the lines worth reading.
+          echo "--- traefik, minus its access log ---"
+          docker compose logs traefik --tail=200 | grep -v '"ClientAddr"' | tail -60
           exit 1
 
       - name: Run acceptance tests through the proxy

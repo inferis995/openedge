@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The web UI's health probe had never passed, and it cost the whole site
+  behind a proxy.** The container runs as `USER nginx`, so the base image's
+  `10-listen-on-ipv6-by-default.sh` cannot rewrite a config it does not own —
+  it says so at every start — and nginx listens on `0.0.0.0:80` only. The probe
+  asked `http://localhost/nginx-health`; `localhost` resolves to `::1` ahead of
+  `127.0.0.1`, so it was refused every time. nginx served perfectly throughout
+  and the only symptom was the word `(unhealthy)` in `docker ps`, which nothing
+  read. The bill came due on the deployments with a reverse proxy: **Traefik
+  skips unhealthy containers**, so `make vps-up` produced a site that answered
+  **404 to every request**, and `make onprem-tls` never started Caddy, which
+  waits for this container to be healthy. Fixed by probing `127.0.0.1`; both
+  end-to-end jobs now fail if any container reports unhealthy.
+
 - **The cloud overlay published every internal service to the internet.**
   `docker-compose.vps.yml` removed the host port bindings with `ports: []`,
   which does nothing: Compose *concatenates* `ports` across overlay files, so an

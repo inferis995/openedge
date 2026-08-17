@@ -23,7 +23,22 @@ USER nginx
 
 EXPOSE 80
 
+# 127.0.0.1, not localhost.
+#
+# This container runs as USER nginx, so the base image's
+# 10-listen-on-ipv6-by-default.sh cannot rewrite the config it does not own —
+# it says so at every start ("can not modify /etc/nginx/conf.d/default.conf")
+# and nginx ends up listening on 0.0.0.0:80 only. `localhost` resolves to both
+# 127.0.0.1 and ::1, and RFC 6724 ranks ::1 first, which is where busybox wget
+# went: connection refused, every time, for the life of this image.
+#
+# nginx served fine throughout — the published port worked, the acceptance
+# suite passed through it — so the only visible symptom was the word
+# "(unhealthy)" in `docker ps`. It cost the whole site on any deployment with a
+# proxy in front: Traefik skips unhealthy containers, so the cloud stack
+# answered 404 to everything, and `make onprem-tls` never started Caddy, which
+# waits for this container to be healthy.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:80/nginx-health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:80/nginx-health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

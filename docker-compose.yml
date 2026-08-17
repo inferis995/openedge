@@ -226,7 +226,11 @@ services:
       core-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/nginx-health"]
+      # 127.0.0.1 rather than localhost — see the HEALTHCHECK comment in
+      # services/web-ui/Dockerfile. nginx here listens on IPv4 only, localhost
+      # resolves to ::1 first, and this check failed on every deployment while
+      # the site itself worked.
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:80/nginx-health"]
       interval: 30s
       timeout: 10s
       retries: 3
