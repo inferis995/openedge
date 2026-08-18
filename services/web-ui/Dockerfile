@@ -1,5 +1,5 @@
 # Build stage
-FROM --platform=$BUILDPLATFORM node:22-alpine AS build
+FROM --platform=$BUILDPLATFORM node:26-alpine AS build
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ COPY services/web-ui/. .
 RUN npm run build
 
 # Production stage — rootless nginx
-FROM nginx:1.30-alpine
+FROM nginx:1.31-alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY services/web-ui/nginx.conf /etc/nginx/conf.d/default.conf

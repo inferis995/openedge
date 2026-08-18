@@ -1,4 +1,4 @@
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ COPY services/driver-redis/ services/driver-redis/
 WORKDIR /app/services/driver-redis
 RUN CGO_ENABLED=0 GOOS=linux go build -o /driver-redis
 
-FROM alpine:3.22
+FROM alpine:3.24
 
 WORKDIR /app
 COPY --from=builder /driver-redis .

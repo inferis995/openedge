@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -19,7 +19,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o driver-s7 ./services/driver-s7
 
 # Runtime stage
-FROM alpine:3.22
+FROM alpine:3.24
 
 WORKDIR /app
 

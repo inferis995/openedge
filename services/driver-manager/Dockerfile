@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /app
 
@@ -14,7 +14,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o driver-manager ./services/driver-manager/
 
 # Runtime stage
-FROM alpine:3.22
+FROM alpine:3.24
 
 # su-exec drops privileges without a setuid binary, so it still works under
 # `security_opt: [no-new-privileges:true]` (that flag blocks *gaining* privileges
