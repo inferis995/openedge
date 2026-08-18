@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
+	"github.com/ralph/industrial-edge-middleware/internal/auth"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"golang.org/x/crypto/bcrypt"
@@ -23,7 +24,7 @@ func NewUsersHandler(db *sql.DB) *UsersHandler {
 // CreateUserRequest represents the request body for creating a user
 type CreateUserRequest struct {
 	Username string          `json:"username" binding:"required"`
-	Password string          `json:"password" binding:"required,min=6"`
+	Password string          `json:"password" binding:"required"`
 	Role     models.UserRole `json:"role" binding:"required,oneof=admin user"`
 	FullName string          `json:"full_name"`
 	OrgID    *int            `json:"org_id"`
@@ -132,6 +133,10 @@ func (h *UsersHandler) List(c *gin.Context) {
 func (h *UsersHandler) Create(c *gin.Context) {
 	var req CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := auth.ValidatePassword(req.Password); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

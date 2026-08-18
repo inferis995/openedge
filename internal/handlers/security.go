@@ -105,7 +105,11 @@ func (h *SecurityHandler) Overview(c *gin.Context) {
 		RateLimiting:         true,
 		MFAAnyAdmin:          false,
 		AccountLockoutActive: true,
-		StrongPasswordPolicy: false,
+		// True since auth.MinPasswordLength went to 12 and every path that sets
+		// a password validates against it. It was hardcoded false because the
+		// minimum was six, which was honest and cost the deployment five points
+		// that nobody could act on.
+		StrongPasswordPolicy: true,
 		MQTTTLS:              false,
 	}
 

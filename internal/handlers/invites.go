@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/ralph/industrial-edge-middleware/internal/auth"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/notifications"
@@ -131,7 +132,7 @@ func (h *InvitesHandler) Create(c *gin.Context) {
 type AcceptInviteRequest struct {
 	Token    string `json:"token" binding:"required"`
 	Username string `json:"username" binding:"required,min=3"`
-	Password string `json:"password" binding:"required,min=6"`
+	Password string `json:"password" binding:"required"`
 	FullName string `json:"full_name"`
 }
 
@@ -144,29 +145,18 @@ func (h *InvitesHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 
+	// A public endpoint that creates a real account inside a customer's tenant.
+	// The binding used to say min=6.
+	if err := auth.ValidatePassword(req.Password); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
 	ctx := c.Request.Context()
 
-	// Load invite — reject if expired or already used.
-	var inv struct {
-		id    int
-		orgID int
-		role  string
-		email string
-	}
-	lookupQ := `
-		SELECT id, org_id, role, email
-		FROM user_invites
-		WHERE token = $1 AND accepted_at IS NULL AND expires_at > NOW()`
-	err := h.db.QueryRowContext(ctx, lookupQ, req.Token).Scan(&inv.id, &inv.orgID, &inv.role, &inv.email)
-	if err == sql.ErrNoRows {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invite token is invalid or has expired"})
-		return
-	}
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to validate token"})
-		return
-	}
-
+	// Hash before opening the transaction: bcrypt at the default cost is
+	// deliberately slow, and holding a row lock across it would serialize every
+	// concurrent acceptance behind the slowest one.
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
@@ -179,6 +169,39 @@ func (h *InvitesHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 	defer tx.Rollback() //nolint:errcheck
+
+	// Read the invite INSIDE the transaction, and lock it.
+	//
+	// This lookup used to run on h.db, before the transaction existed. Two
+	// requests carrying the same token both saw accepted_at IS NULL, both
+	// inserted a user — different usernames, so no unique constraint objected —
+	// and both marked the invite used. One invitation, two accounts inside the
+	// customer's tenant, and the second one appears in no invite record anybody
+	// can audit. The window is small and entirely reachable: an invite link
+	// opened twice, a double-submitted form, a retry.
+	//
+	// FOR UPDATE makes the second request wait for the first to commit, and the
+	// accepted_at IS NULL it then re-reads is the committed one.
+	var inv struct {
+		id    int
+		orgID int
+		role  string
+		email string
+	}
+	lookupQ := `
+		SELECT id, org_id, role, email
+		FROM user_invites
+		WHERE token = $1 AND accepted_at IS NULL AND expires_at > NOW()
+		FOR UPDATE`
+	err = tx.QueryRowContext(ctx, lookupQ, req.Token).Scan(&inv.id, &inv.orgID, &inv.role, &inv.email)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invite token is invalid or has expired"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to validate token"})
+		return
+	}
 
 	var userID int
 	createQ := `

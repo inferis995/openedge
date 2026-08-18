@@ -496,7 +496,7 @@ const UsersPage = () => {
                         </div>
                         <DialogFooter>
                             <Button variant="outline" onClick={() => setIsCreateOpen(false)}>Cancel</Button>
-                            <Button onClick={handleCreate} disabled={!newUsername || !newPassword || newPassword.length < 6}>
+                            <Button onClick={handleCreate} disabled={!newUsername || !newPassword || newPassword.length < 12}>
                                 Create
                             </Button>
                         </DialogFooter>

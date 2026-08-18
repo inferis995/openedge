@@ -28,8 +28,8 @@ export default function AcceptInvitePage() {
             setError('Passwords do not match.');
             return;
         }
-        if (form.password.length < 6) {
-            setError('Password must be at least 6 characters.');
+        if (form.password.length < 12) {
+            setError('Password must be at least 12 characters.');
             return;
         }
 
@@ -130,7 +130,7 @@ export default function AcceptInvitePage() {
                                 onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                                 autoComplete="new-password"
                                 required
-                                minLength={6}
+                                minLength={12}
                             />
                         </div>
 

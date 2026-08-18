@@ -39,7 +39,7 @@ export default function ProfilePage() {
         e.preventDefault();
         setPwError('');
         if (newPw !== confirmPw) { setPwError('New passwords do not match.'); return; }
-        if (newPw.length < 6) { setPwError('New password must be at least 6 characters.'); return; }
+        if (newPw.length < 12) { setPwError('New password must be at least 12 characters.'); return; }
         changePw.mutate();
     };
 
@@ -158,8 +158,8 @@ export default function ProfilePage() {
                                 value={newPw}
                                 onChange={e => setNewPw(e.target.value)}
                                 required
-                                minLength={6}
-                                placeholder="Min. 6 characters"
+                                minLength={12}
+                                placeholder="Min. 12 characters"
                             />
                             <button type="button" onClick={() => setShowNew(v => !v)}
                                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" tabIndex={-1}>

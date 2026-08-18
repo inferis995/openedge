@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A spent invite blamed the username.** `POST /api/auth/accept-invite` read
+  the invite on the pooled connection, decided it was unused, hashed the
+  password — bcrypt at the default cost, tens of milliseconds — and only then
+  opened the transaction that inserted the user and marked the invite consumed.
+  Two requests carrying the same token both passed that check and both drove on.
+  No duplicate account was ever created: both insert the invite's own email
+  address, so the unique index on `users(email)` refuses the second — the
+  database was holding the line the handler had let go. What the user got was
+  that constraint surfacing as `409 username already taken`. The username was
+  fine. Someone was told to pick another one, it failed again, and nothing in
+  the response or the logs pointed at the invite. The lookup now runs inside the
+  transaction with `FOR UPDATE`, so the loser waits for the winner to commit and
+  is told the truth: the invite is spent.
+- **A six-character password was enough to hold an account.** Every path that
+  sets a password — accepting an invite, creating a user, changing your own,
+  resetting by email — declared `binding:"required,min=6"` separately. Six
+  characters is a short offline guessing run against the bcrypt hash beside it,
+  and the invite endpoint is public. There is now one rule,
+  `auth.MinPasswordLength` = 12, matching what `scripts/preflight.sh` already
+  demanded of the initial admin, with a test that fails if any handler
+  reintroduces a minimum of its own. Existing sessions and logins are
+  unaffected: every path changed is one that STORES a password, never one that
+  checks an existing one. The security dashboard's `strong_password_policy`,
+  hardcoded `false` because the old minimum did not deserve better, is now true.
+
 ### Fixed
 
 - **The web UI's health probe had never passed, and it cost the whole site
