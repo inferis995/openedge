@@ -147,12 +147,20 @@ func TestConcurrentAcceptancesRefuseTheLoserForTheRightReason(t *testing.T) {
 
 	const racers = 3
 
+	// Rounds, not one shot. A race is only reproduced when the requests really
+	// overlap, and whether they do depends on scheduling and on how far away the
+	// server is: with the defect deliberately reintroduced, this caught it
+	// through the proxy and missed it on the direct path in the same CI run.
+	// One clean round is not evidence, so it demands three.
+	const rounds = 3
+	clean := 0
+
 	// Earlier tests drain the limiter's five tokens; it refills one every six
 	// seconds, and a round where anybody is throttled is a round that proves
 	// nothing. Wait for a full bucket before racing.
 	time.Sleep(20 * time.Second)
 
-	for attempt := 1; attempt <= 3; attempt++ {
+	for attempt := 1; attempt <= 8 && clean < rounds; attempt++ {
 		inv := createInvite(t, admin, org.ID)
 
 		var (
@@ -191,6 +199,7 @@ func TestConcurrentAcceptancesRefuseTheLoserForTheRightReason(t *testing.T) {
 			time.Sleep(25 * time.Second)
 			continue
 		}
+		clean++
 
 		if created != 1 {
 			t.Fatalf("%d of %d concurrent acceptances of ONE invite created an account "+
@@ -213,8 +222,14 @@ func TestConcurrentAcceptancesRefuseTheLoserForTheRightReason(t *testing.T) {
 				t.Errorf("a loser was refused with %d %q; want 400 naming the invite", s, bodies[i])
 			}
 		}
-		return
+		if t.Failed() {
+			return
+		}
+		time.Sleep(20 * time.Second) // let the bucket refill for the next round
 	}
-	t.Fatal("the login limiter throttled every attempt; the race never ran, and a test that " +
-		"never runs is not a passing test")
+
+	if clean < rounds {
+		t.Fatalf("only %d of %d rounds actually raced; the limiter throttled the rest, and a "+
+			"test that never runs is not a passing test", clean, rounds)
+	}
 }
