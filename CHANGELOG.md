@@ -5,9 +5,16 @@ All notable changes to OpenEdge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.2.0] - 2026-08-18
 
 ### Security
+
+> **One behaviour change for anything that calls the API.** `POST /api/users`,
+> `POST /api/auth/accept-invite`, `POST /api/auth/change-password` and
+> `POST /api/auth/reset-password` now refuse a password shorter than 12
+> characters with `400`. Scripts or integrations that create accounts with
+> shorter ones need updating. Nobody is locked out: existing passwords keep
+> working, and login is not affected.
 
 - **A spent invite blamed the username.** `POST /api/auth/accept-invite` read
   the invite on the pooled connection, decided it was unused, hashed the
