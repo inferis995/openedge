@@ -28,6 +28,25 @@ ACCEPTED=(
   "GO-2026-5668"  # docker cp: race allows creating empty files on the host via symlink swap
   "GO-2026-4887"  # Moby: AuthZ plugin bypass on oversized request bodies
   "GO-2026-4883"  # Moby: off-by-one in plugin privilege validation
+
+  # ── Withdrawn upstream, and REMOVE these once the database settles ─────────
+  #
+  # Five reports filed against github.com/lib/pq on 2026-08-18 and WITHDRAWN by
+  # the Go vulnerability database the same day, every one of them marked "false
+  # positive". They are not accepted-with-risk like the three above: there is no
+  # vulnerability to carry. They are here because the retraction is propagating
+  # unevenly — two CI runs minutes apart on identical go.mod files, one clean
+  # and one reporting all five — and a gate that flips a coin gets ignored,
+  # which is the failure this whole script exists to prevent.
+  #
+  # Delete this block once a few consecutive runs are clean without it. If any
+  # of these IDs is ever un-withdrawn, the gate must fail again — that is the
+  # reason this is a dated exception and not a permanent one.
+  "GO-2026-6166"  # withdrawn — lib/pq: alleged GSSAPI exchange not completed
+  "GO-2026-6168"  # withdrawn — CVE-2026-56869, lib/pq/scram: unbounded SCRAM iteration count
+  "GO-2026-6170"  # withdrawn — CVE-2026-56871, lib/pq: unchecked backend frame length
+  "GO-2026-6171"  # withdrawn — CVE-2026-56872, lib/pq: unvalidated RowDescription/DataRow
+  "GO-2026-6172"  # withdrawn — CVE-2026-56873, lib/pq: frame payload allocated before bound
 )
 
 echo "Running govulncheck…"
