@@ -361,7 +361,7 @@ func main() {
 
 	// Create handlers with MQTT client and Redis client
 	orgsHandler := handlers.NewOrganizationsHandler(database, mqttClient, dynsecClient)
-	sitesHandler := handlers.NewSitesHandler(database, mqttClient)
+	sitesHandler := handlers.NewSitesHandler(database, mqttClient, dynsecClient)
 	areasHandler := handlers.NewAreasHandler(database, mqttClient)
 	gatewaysHandler := handlers.NewGatewaysHandler(database, mqttClient, redisClient)
 	tagsHandler := handlers.NewTagsHandler(database, mqttClient, redisClient)

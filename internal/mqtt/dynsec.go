@@ -598,6 +598,25 @@ func (d *DynsecClient) EnsureOrgViewer(orgID int, orgName, username, password st
 	}, newCorrID())
 }
 
+// UpdateOrgViewerRole rebuilds the UI role's ACLs — after a rename, or when the
+// org's site list changes.
+//
+// Deliberately touches the ROLE and not the client: rotating the password here
+// would sign out every browser currently connected, and the reason to call this
+// is that the grant should get NARROWER, not that the secret went stale.
+func (d *DynsecClient) UpdateOrgViewerRole(orgID int, orgName string, siteNames ...string) error {
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
+
+	return d.send([]map[string]interface{}{
+		{
+			"command":  "modifyRole",
+			"rolename": fmt.Sprintf("org-%d-ui-role", orgID),
+			"acls":     uiViewerACLs(orgID, orgName, siteNames),
+		},
+	}, newCorrID())
+}
+
 // DeleteOrgViewer removes the UI identity and its role.
 func (d *DynsecClient) DeleteOrgViewer(orgID int, username string) error {
 	d.cmdMu.Lock()

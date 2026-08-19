@@ -25,13 +25,18 @@ type Site struct {
 type SitesHandler struct {
 	db         *sql.DB
 	mqttClient *mqtt.Client
+	// Needed because a site is half of a Sparkplug group id: the broker ACLs
+	// cannot be scoped to an organization until its sites are known, so every
+	// change here narrows them. See refreshOrgMQTTRoles.
+	dynsecClient *mqtt.DynsecClient
 }
 
 // NewSitesHandler creates a new sites handler
-func NewSitesHandler(db *sql.DB, mqttClient *mqtt.Client) *SitesHandler {
+func NewSitesHandler(db *sql.DB, mqttClient *mqtt.Client, dynsecClient *mqtt.DynsecClient) *SitesHandler {
 	return &SitesHandler{
-		db:         db,
-		mqttClient: mqttClient,
+		db:           db,
+		mqttClient:   mqttClient,
+		dynsecClient: dynsecClient,
 	}
 }
 
@@ -88,6 +93,10 @@ func (h *SitesHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create site"})
 		return
 	}
+
+	// A new site widens what this organization publishes on, and the broker
+	// grant has to follow it or the Sparkplug traffic for this site is refused.
+	refreshOrgMQTTRoles(c.Request.Context(), h.db, h.dynsecClient, orgID)
 
 	c.JSON(http.StatusCreated, site)
 }
@@ -317,6 +326,10 @@ func (h *SitesHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	// One site fewer: rebuild so the grant stops naming a group that no longer
+	// exists.
+	refreshOrgMQTTRoles(c.Request.Context(), h.db, h.dynsecClient, orgID)
+
 	c.Status(http.StatusNoContent)
 }
 
@@ -401,6 +414,11 @@ func (h *SitesHandler) Update(c *gin.Context) {
 			}
 		}
 	}
+
+	// A rename changes the site slug, and the slug is half the Sparkplug group
+	// id — so the old grant now names a group nothing publishes on, and the new
+	// one is not granted at all.
+	refreshOrgMQTTRoles(c.Request.Context(), h.db, h.dynsecClient, orgID)
 
 	c.JSON(http.StatusOK, site)
 }

@@ -109,3 +109,69 @@ func TestTheEdgeRoleStillPublishes(t *testing.T) {
 		t.Fatal("the org (edge) role can no longer publish — no gateway could report data")
 	}
 }
+
+// Supplying the sites is what closes the cross-tenant hole, in BOTH roles.
+//
+// Sparkplug puts the organization and the site in one topic level —
+// spBv1.0/{org-slug}-{site-slug}/... — and MQTT wildcards match whole levels, so
+// "+" cannot prefix-match "acme-*". Without the site list the grant has to use
+// that "+", and "+" is every other tenant's group too.
+//
+// Both roles were built once, at organization creation, when no site exists yet,
+// and never rebuilt — so every deployment ran on the wildcard. The comment in
+// orgRoleACLs said it would close "as soon as siteNames is supplied"; nothing
+// supplied it until refreshOrgMQTTRoles. This is the assertion that the promise
+// is real, and that it stays real.
+func TestSupplyingSitesRemovesTheCrossTenantWildcard(t *testing.T) {
+	for _, role := range []struct {
+		name  string
+		build func(sites []string) []map[string]interface{}
+	}{
+		{"web UI viewer", func(s []string) []map[string]interface{} { return uiViewerACLs(7, "Acme Corp", s) }},
+		{"edge", func(s []string) []map[string]interface{} { return orgRoleACLs(7, "Acme Corp", s) }},
+	} {
+		t.Run(role.name, func(t *testing.T) {
+			wildcards := func(acls []map[string]interface{}) []string {
+				var out []string
+				for _, acl := range acls {
+					topic, _ := acl["topic"].(string)
+					// The group level is the one right after the namespace.
+					if strings.HasPrefix(topic, sparkplugNamespace+"/+/") {
+						out = append(out, topic)
+					}
+				}
+				return out
+			}
+
+			// Without sites the wildcard is there — otherwise this test would be
+			// asserting the absence of something that never appears.
+			if got := wildcards(role.build(nil)); len(got) == 0 {
+				t.Fatal("no group-level wildcard even without sites; this test cannot detect " +
+					"the regression it exists for")
+			}
+
+			if got := wildcards(role.build([]string{"Plant A", "Plant B"})); len(got) > 0 {
+				t.Errorf("with the org's sites supplied the grant still wildcards the Sparkplug "+
+					"group level: %v. That level carries {org}-{site}, so a wildcard there is "+
+					"every other tenant's namespace", got)
+			}
+		})
+	}
+}
+
+// And the pinned form must actually name this org's groups, or "no wildcards"
+// could be satisfied by granting nothing.
+func TestPinnedSitesNameTheOrganizationsOwnGroups(t *testing.T) {
+	acls := uiViewerACLs(7, "Acme Corp", []string{"Plant A"})
+
+	found := false
+	for _, acl := range acls {
+		if topic, _ := acl["topic"].(string); strings.Contains(topic, "acme-corp-plant-a") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the grant names no group for org 'Acme Corp' site 'Plant A' — the viewer would " +
+			"see none of its own Sparkplug traffic")
+	}
+}

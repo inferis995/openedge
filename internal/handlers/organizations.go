@@ -265,12 +265,13 @@ func (h *OrganizationsHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// Update MQTT ACL topic prefix to match the new org name
-	if h.dynsecClient != nil {
-		if dynsecErr := h.dynsecClient.UpdateOrgRole(org.ID, org.Name); dynsecErr != nil {
-			fmt.Printf("[ORG] WARNING: failed to update MQTT role for org %d: %v\n", org.ID, dynsecErr)
-		}
-	}
+	// Update MQTT ACL topic prefix to match the new org name.
+	//
+	// Through refreshOrgMQTTRoles, so the org's sites are loaded and the
+	// Sparkplug group level stays pinned. Calling UpdateOrgRole directly — which
+	// is what this did — rebuilt the grant with no sites and quietly widened it
+	// back to the cross-tenant wildcard on every rename.
+	refreshOrgMQTTRoles(c.Request.Context(), h.db, h.dynsecClient, org.ID)
 
 	// Trigger reload for all gateways in this organization to update topic names
 	if h.mqttClient != nil {

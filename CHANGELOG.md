@@ -5,7 +5,7 @@ All notable changes to OpenEdge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.3.0] - 2026-08-19
 
 ### Security
 
@@ -38,6 +38,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `useSparkplugListener` and `MqttMonitorPage` — now go through one
   `connectAuthenticatedMqtt`, because a rule written in three places is one that
   gets missed in the fourth.
+
+- **One tenant could watch another tenant's Sparkplug data.** Sparkplug puts the
+  organization and the site in a single topic level
+  (`spBv1.0/{org-slug}-{site-slug}/…`) and MQTT wildcards match whole levels, so
+  `+` cannot prefix-match `acme-*`: an organization's namespace can only be
+  granted by naming each of its sites. Both broker roles were built once, at
+  organization creation, when no site exists yet — and never rebuilt. So every
+  deployment ran on the fallback grant, whose group level is a `+`, which is
+  every other tenant's group as well. The code said the hole "closes as soon as
+  siteNames is supplied"; nothing ever supplied them.
+
+  `refreshOrgMQTTRoles` now rebuilds both roles from the organization's actual
+  sites whenever a site is created, renamed or deleted, and when the
+  organization itself is renamed — which previously called `UpdateOrgRole` with
+  no sites and quietly widened the grant back on every rename. A test asserts
+  the wildcard is present without sites and gone with them, in both roles, so it
+  cannot pass by granting nothing.
 
 ## [2.2.0] - 2026-08-18
 
