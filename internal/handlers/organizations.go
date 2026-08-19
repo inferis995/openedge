@@ -87,12 +87,32 @@ func (h *OrganizationsHandler) Create(c *gin.Context) {
 			// Log but don't block org creation — MQTT creds can be re-provisioned later
 			fmt.Printf("[ORG] WARNING: failed to create MQTT user for org %d: %v\n", org.ID, dynsecErr)
 		} else {
+			// A SECOND identity, for the web UI, bound to a read-only role.
+			//
+			// The one above is an edge credential: its role may publish tag data,
+			// because a gateway has to. The browser must never be able to, so it
+			// gets its own client and its own role. Provisioned here so a new
+			// organization is complete on creation; GET /api/mqtt/ui-credentials
+			// provisions lazily for organizations that predate this.
+			uiUser := mqtt.OrgViewerUsername(org.ID)
+			uiPass, uiErr := mqtt.GeneratePassword()
+			if uiErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate MQTT credentials"})
+				return
+			}
+			if viewerErr := h.dynsecClient.EnsureOrgViewer(org.ID, org.Name, uiUser, uiPass); viewerErr != nil {
+				// Not fatal, same as above: the credentials endpoint repairs it.
+				fmt.Printf("[ORG] WARNING: failed to create MQTT UI user for org %d: %v\n", org.ID, viewerErr)
+				uiUser, uiPass = "", ""
+			}
+
 			// Store credentials so edge manager can pull them via the config API
 			if _, err := tx.ExecContext(c.Request.Context(),
-				`INSERT INTO org_mqtt_credentials (org_id, username, password)
-				 VALUES ($1, $2, $3)
-				 ON CONFLICT (org_id) DO UPDATE SET username = $2, password = $3`,
-				org.ID, mqttUser, mqttPass,
+				`INSERT INTO org_mqtt_credentials (org_id, username, password, ui_username, ui_password)
+				 VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''))
+				 ON CONFLICT (org_id) DO UPDATE SET username = $2, password = $3,
+				     ui_username = NULLIF($4,''), ui_password = NULLIF($5,'')`,
+				org.ID, mqttUser, mqttPass, uiUser, uiPass,
 			); err != nil {
 				fmt.Printf("[ORG] WARNING: failed to store MQTT credentials for org %d: %v\n", org.ID, err)
 			}

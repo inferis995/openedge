@@ -1,5 +1,6 @@
 import mqtt, { type MqttClient } from 'mqtt';
 import { toast } from 'sonner';
+import { mqttCredentialsApi } from '@/api/mqttCredentials';
 
 class MQTTClientService {
     private client: MqttClient | null = null;
@@ -10,16 +11,30 @@ class MQTTClientService {
 
     constructor() { }
 
-    connect(): Promise<void> {
+    /**
+     * Opens the connection, signing in first.
+     *
+     * This used to call mqtt.connect with no username or password. The broker's
+     * WebSocket listener allowed anonymous clients to make that work, which on
+     * the cloud deployment put the whole broker on the public internet — read
+     * every tenant's live values, and publish cmd/write/{gateway}, which the
+     * drivers act on. The credentials below are per organization and read-only
+     * on the broker; the API only issues them to an authenticated session.
+     */
+    async connect(): Promise<void> {
+        const creds = await mqttCredentialsApi.get();
+
         return new Promise((resolve, reject) => {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             // Connect through Nginx proxy (same host/port as the web UI)
-            const wsUrl = `${protocol}//${window.location.host}/mqtt`;
+            const wsUrl = `${protocol}//${window.location.host}${creds.path}`;
 
             console.log('Connecting to MQTT broker:', wsUrl.replace(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/, 'xxx.xxx.xxx.xxx'));
 
             this.client = mqtt.connect(wsUrl, {
                 clientId: `web-ui-${Date.now()}`,
+                username: creds.username,
+                password: creds.password,
                 clean: true,
                 connectTimeout: 10000,
                 reconnectPeriod: this.reconnectDelay,
@@ -70,6 +85,34 @@ class MQTTClientService {
     isConnected(): boolean {
         return this.client?.connected || false;
     }
+}
+
+/**
+ * The one way anything in this app opens an MQTT connection.
+ *
+ * There were three: this service, useSparkplugListener and MqttMonitorPage, each
+ * with its own copy of the URL and its own mqtt.connect — and all three
+ * connected anonymously. A rule written in three places is a rule that will be
+ * missed in the fourth, and the missed one here means an unauthenticated socket
+ * to the broker. Signing in happens once, here.
+ */
+export async function connectAuthenticatedMqtt(
+    clientIdPrefix: string,
+    options: { reconnectPeriod?: number } = {},
+): Promise<MqttClient> {
+    const creds = await mqttCredentialsApi.get();
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}${creds.path}`;
+
+    return mqtt.connect(wsUrl, {
+        clientId: `${clientIdPrefix}-${Date.now()}`,
+        username: creds.username,
+        password: creds.password,
+        clean: true,
+        connectTimeout: 10000,
+        reconnectPeriod: options.reconnectPeriod ?? 5000,
+        keepalive: 60,
+    });
 }
 
 // Singleton instance

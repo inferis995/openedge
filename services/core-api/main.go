@@ -465,6 +465,18 @@ func main() {
 			authMe.DELETE("/mfa/disable", authHandler.MFADisable)
 			authMe.POST("/mfa/recovery-codes", authHandler.MFARegenerateCodes)
 		}
+		// The browser's own MQTT identity.
+		//
+		// The web UI watches live values over a WebSocket straight to the broker
+		// and used to do it with no credentials at all — which, behind the cloud
+		// proxy, meant anyone on the internet could subscribe to every tenant's
+		// data and publish setpoint writes. The listener is authenticated again;
+		// this is where a signed-in session gets a read-only identity for its own
+		// organization.
+		mqttUICreds := handlers.NewMQTTUICredentialsHandler(database, dynsecClient)
+		api.GET("/mqtt/ui-credentials",
+			middleware.RequireAuth, middleware.OrganizationContext(), mqttUICreds.Get)
+
 		// Organizations endpoints
 		orgs := api.Group("/organizations")
 		orgs.Use(middleware.RequireAuth, middleware.OrganizationContext())

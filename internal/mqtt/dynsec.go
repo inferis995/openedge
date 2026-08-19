@@ -502,3 +502,112 @@ func newCorrID() string {
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
+
+// ── The identity a browser gets ──────────────────────────────────────────────
+
+// uiViewerACLs is the grant for the web UI's own MQTT connection.
+//
+// Read-only by construction: subscribePattern and publishClientReceive, and not
+// one publishClientSend anywhere in it. That is the whole point of it existing.
+//
+// The org role beside it is an EDGE identity — it may publish tag data, because
+// a gateway has to. Handing that role to a browser would let anyone signed in,
+// including a read-only user, publish values indistinguishable from a PLC's. So
+// the UI gets its own role, and the only thing it can do is watch.
+//
+// Delivery is the boundary, not the subscription. The UI subscribes with the
+// literal filters "spBv1.0/#" and "data/#" (useSparkplugListener,
+// MqttMonitorPage), and Mosquitto still evaluates publishClientReceive for every
+// message it is about to deliver — so the wide subscribePattern below grants
+// nothing on its own, exactly as in orgRoleACLs.
+func uiViewerACLs(orgID int, orgName string, siteNames []string) []map[string]interface{} {
+	a := newACLSet()
+	org := fmt.Sprintf("%d", orgID)
+
+	// Legacy tag data, this org only. Both spellings — see orgNameVariants.
+	for _, n := range orgNameVariants(orgName) {
+		a.receive("data/" + n + "/#")
+	}
+	a.subscribe("data/#")
+
+	// Sparkplug: edge-originated message types only. A viewer has no business
+	// seeing NCMD/DCMD — those carry setpoint writes, and reading them discloses
+	// what an operator is about to do to a machine.
+	groups := make([]string, 0, len(siteNames))
+	for _, site := range siteNames {
+		if strings.TrimSpace(site) == "" {
+			continue
+		}
+		groups = append(groups, fmt.Sprintf("%s-%s", slugifyTopic(orgName), slugifyTopic(site)))
+	}
+	if len(groups) > 0 {
+		for _, g := range groups {
+			for _, mt := range sparkplugEdgeOriginated {
+				a.receive(fmt.Sprintf("%s/%s/%s/#", sparkplugNamespace, g, mt))
+				// engine-historian re-emits with group and msgtype swapped.
+				a.receive(fmt.Sprintf("%s/%s/%s/#", sparkplugNamespace, mt, g))
+			}
+		}
+	} else {
+		// Same residual as orgRoleACLs, and for the same reason: no caller has
+		// the org's site list, so the {group} level cannot be pinned and a
+		// viewer can observe other tenants' DDATA. Narrowed to edge-originated
+		// types so at least the command traffic stays private. It closes the
+		// moment siteNames is supplied.
+		for _, mt := range sparkplugEdgeOriginated {
+			a.receive(fmt.Sprintf("%s/+/%s/#", sparkplugNamespace, mt))
+			a.receive(fmt.Sprintf("%s/%s/#", sparkplugNamespace, mt))
+		}
+	}
+	a.subscribe(sparkplugNamespace + "/#")
+
+	// Alarms are keyed by org id, so this one is exact.
+	a.receive("sys/alarms/" + org + "/#")
+	a.subscribe("sys/alarms/#")
+
+	return a.entries
+}
+
+// EnsureOrgViewer provisions — or repairs — the read-only MQTT identity the web
+// UI connects with, and is safe to call repeatedly.
+//
+// Idempotent on purpose, because it has two callers with different histories:
+// organization creation, where nothing exists yet, and the credentials endpoint,
+// which has to serve organizations created before this identity did. createRole
+// and createClient are no-ops when the object is already there ("already
+// exists" is treated as success in send), modifyRole brings stale ACLs up to
+// date, and setClientPassword makes the stored password the true one rather
+// than hoping they never diverged.
+func (d *DynsecClient) EnsureOrgViewer(orgID int, orgName, username, password string, siteNames ...string) error {
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
+
+	roleName := fmt.Sprintf("org-%d-ui-role", orgID)
+	acls := uiViewerACLs(orgID, orgName, siteNames)
+
+	return d.send([]map[string]interface{}{
+		{"command": "createRole", "rolename": roleName, "acls": acls},
+		{"command": "modifyRole", "rolename": roleName, "acls": acls},
+		{
+			"command":  "createClient",
+			"username": username,
+			"password": password,
+			"roles":    []map[string]interface{}{{"rolename": roleName}},
+		},
+		{"command": "setClientPassword", "username": username, "password": password},
+	}, newCorrID())
+}
+
+// DeleteOrgViewer removes the UI identity and its role.
+func (d *DynsecClient) DeleteOrgViewer(orgID int, username string) error {
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
+
+	return d.send([]map[string]interface{}{
+		{"command": "deleteClient", "username": username},
+		{"command": "deleteRole", "rolename": fmt.Sprintf("org-%d-ui-role", orgID)},
+	}, newCorrID())
+}
+
+// OrgViewerUsername is the MQTT username the web UI signs in with.
+func OrgViewerUsername(orgID int) string { return fmt.Sprintf("org-%d-ui", orgID) }

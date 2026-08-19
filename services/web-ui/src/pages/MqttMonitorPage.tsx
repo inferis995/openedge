@@ -28,7 +28,8 @@ import {
     Wifi,
     Zap
 } from 'lucide-react';
-import mqtt, { type MqttClient } from 'mqtt';
+import { type MqttClient } from 'mqtt';
+import { connectAuthenticatedMqtt } from '@/lib/mqtt-client';
 import { decodeSparkplugB, isProtobufData, convertSparkplugQuality } from '@/utils/sparkplugDecoder';
 
 type MessageFormat = 'all' | 'legacy' | 'sparkplug';
@@ -123,81 +124,123 @@ const MqttMonitorPage = () => {
     useEffect(() => {
         isMountedRef.current = true;
 
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/mqtt`;
+        console.log('[MQTT Monitor] Connecting...');
 
-        console.log('[MQTT Monitor] Connecting to:', wsUrl);
+        // The broker requires credentials, and fetching them is a round trip to
+        // the API, so the client arrives asynchronously — see wire() below.
+        // `disposed` guards the unmount-while-connecting case: without it the
+        // socket would open after cleanup and never be closed.
+        let disposed = false;
 
-        const client = mqtt.connect(wsUrl, {
-            clientId: `mqtt-monitor-${Date.now()}`,
-            clean: true,
-            connectTimeout: 10000,
-            reconnectPeriod: 3000,
-            keepalive: 60,
-        });
+        // Registered once the signed-in client exists.
+        const wire = (client: MqttClient) => {
+            client.on('connect', () => {
+                if (!isMountedRef.current) return;
+                setIsConnected(true);
+                console.log('[MQTT Monitor] Connected to MQTT broker');
 
-        clientRef.current = client;
+                // Subscribe to legacy data topics
+                client.subscribe('data/#', { qos: 0 }, (err) => {
+                    if (err) {
+                        console.error('[MQTT Monitor] Subscribe error (data/#):', err);
+                    } else {
+                        console.log('[MQTT Monitor] Subscribed to data/# (Legacy)');
+                    }
+                });
 
-        client.on('connect', () => {
-            if (!isMountedRef.current) return;
-            setIsConnected(true);
-            console.log('[MQTT Monitor] Connected to MQTT broker');
-
-            // Subscribe to legacy data topics
-            client.subscribe('data/#', { qos: 0 }, (err) => {
-                if (err) {
-                    console.error('[MQTT Monitor] Subscribe error (data/#):', err);
-                } else {
-                    console.log('[MQTT Monitor] Subscribed to data/# (Legacy)');
-                }
+                // Subscribe to Sparkplug B topics
+                client.subscribe('spBv1.0/#', { qos: 0 }, (err) => {
+                    if (err) {
+                        console.error('[MQTT Monitor] Subscribe error (spBv1.0/#):', err);
+                    } else {
+                        console.log('[MQTT Monitor] Subscribed to spBv1.0/# (Sparkplug B)');
+                    }
+                });
             });
 
-            // Subscribe to Sparkplug B topics
-            client.subscribe('spBv1.0/#', { qos: 0 }, (err) => {
-                if (err) {
-                    console.error('[MQTT Monitor] Subscribe error (spBv1.0/#):', err);
-                } else {
-                    console.log('[MQTT Monitor] Subscribed to spBv1.0/# (Sparkplug B)');
-                }
-            });
-        });
+            client.on('message', (topic: string, payload: Buffer) => {
+                if (!isMountedRef.current) return;
 
-        client.on('message', (topic: string, payload: Buffer) => {
-            if (!isMountedRef.current) return;
+                try {
+                    // Determine format based on topic
+                    const isSparkplug = topic.startsWith('spBv1.0/');
 
-            try {
-                // Determine format based on topic
-                const isSparkplug = topic.startsWith('spBv1.0/');
+                    if (isSparkplug) {
+                        // Try to decode as Protobuf first
+                        if (isProtobufData(payload)) {
+                            const decoded = decodeSparkplugB(payload);
+                            if (decoded && decoded.metrics.length > 0) {
+                                const topicParts = topic.split('/');
+                                const msgType = topicParts[2] || '';
+                                const nodeId = topicParts[3] || '';
+                                const deviceId = topicParts[4] || '';
 
-                if (isSparkplug) {
-                    // Try to decode as Protobuf first
-                    if (isProtobufData(payload)) {
-                        const decoded = decodeSparkplugB(payload);
-                        if (decoded && decoded.metrics.length > 0) {
+                                // Only show ONE message per payload (not one per metric)
+                                let tagAlias: string;
+                                let value: number | boolean | string;
+                                let quality: number;
+
+                                if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
+                                    tagAlias = `[${msgType}] ${deviceId || nodeId}`;
+                                    value = `${decoded.metrics.length} metrics`;
+                                    quality = 0;
+                                } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
+                                    tagAlias = `[${msgType}] ${deviceId || nodeId}`;
+                                    value = 'offline';
+                                    quality = 2;
+                                } else {
+                                    // DDATA / NDATA — just show first metric as sample
+                                    const metric = decoded.metrics[0];
+                                    tagAlias = metric.name || deviceId || extractAliasFromTopic(topic);
+                                    value = metric.value ?? '-';
+                                    quality = convertSparkplugQuality(metric.quality);
+                                }
+
+                                const msg: MqttMessage = {
+                                    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                                    topic: topic,
+                                    tagId: 0,
+                                    tagAlias,
+                                    value,
+                                    timestamp: decoded.timestamp || Date.now(),
+                                    quality,
+                                    receivedAt: new Date(),
+                                    format: 'sparkplug'
+                                };
+
+                                addMessage(msg, 'sparkplug');
+                                return;
+                            }
+                        }
+
+                        // Fallback: try JSON parse
+                        try {
+                            const data = JSON.parse(payload.toString());
                             const topicParts = topic.split('/');
                             const msgType = topicParts[2] || '';
                             const nodeId = topicParts[3] || '';
                             const deviceId = topicParts[4] || '';
+                            const metrics = data.Metrics || data.metrics || [];
+                            const metricCount = Array.isArray(metrics) ? metrics.length : 1;
 
-                            // Only show ONE message per payload (not one per metric)
                             let tagAlias: string;
                             let value: number | boolean | string;
                             let quality: number;
 
                             if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
                                 tagAlias = `[${msgType}] ${deviceId || nodeId}`;
-                                value = `${decoded.metrics.length} metrics`;
+                                value = `${metricCount} metric${metricCount !== 1 ? 's' : ''}`;
                                 quality = 0;
                             } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
                                 tagAlias = `[${msgType}] ${deviceId || nodeId}`;
                                 value = 'offline';
                                 quality = 2;
                             } else {
-                                // DDATA / NDATA — just show first metric as sample
-                                const metric = decoded.metrics[0];
-                                tagAlias = metric.name || deviceId || extractAliasFromTopic(topic);
-                                value = metric.value ?? '-';
-                                quality = convertSparkplugQuality(metric.quality);
+                                const metric = Array.isArray(metrics) ? metrics[0] : metrics;
+                                const sparkplugQuality = metric?.Quality ?? metric?.quality ?? 192;
+                                tagAlias = metric?.Name || metric?.name || extractAliasFromTopic(topic);
+                                value = metric?.Value ?? metric?.value ?? '-';
+                                quality = convertSparkplugQuality(sparkplugQuality);
                             }
 
                             const msg: MqttMessage = {
@@ -206,8 +249,24 @@ const MqttMonitorPage = () => {
                                 tagId: 0,
                                 tagAlias,
                                 value,
-                                timestamp: decoded.timestamp || Date.now(),
+                                timestamp: data.Timestamp || data.timestamp || Date.now(),
                                 quality,
+                                receivedAt: new Date(),
+                                format: 'sparkplug'
+                            };
+
+                            addMessage(msg, 'sparkplug');
+                            return;
+                        } catch {
+                            // Not JSON, show as binary
+                            const msg: MqttMessage = {
+                                id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                                topic: topic,
+                                tagId: 0,
+                                tagAlias: `[BINARY] ${extractAliasFromTopic(topic)}`,
+                                value: `<${payload.length} bytes>`,
+                                timestamp: Date.now(),
+                                quality: 0,
                                 receivedAt: new Date(),
                                 format: 'sparkplug'
                             };
@@ -217,110 +276,62 @@ const MqttMonitorPage = () => {
                         }
                     }
 
-                    // Fallback: try JSON parse
+                    // Legacy format (JSON)
+                    const message = payload.toString();
+                    let data: any;
+
                     try {
-                        const data = JSON.parse(payload.toString());
-                        const topicParts = topic.split('/');
-                        const msgType = topicParts[2] || '';
-                        const nodeId = topicParts[3] || '';
-                        const deviceId = topicParts[4] || '';
-                        const metrics = data.Metrics || data.metrics || [];
-                        const metricCount = Array.isArray(metrics) ? metrics.length : 1;
-
-                        let tagAlias: string;
-                        let value: number | boolean | string;
-                        let quality: number;
-
-                        if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
-                            tagAlias = `[${msgType}] ${deviceId || nodeId}`;
-                            value = `${metricCount} metric${metricCount !== 1 ? 's' : ''}`;
-                            quality = 0;
-                        } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
-                            tagAlias = `[${msgType}] ${deviceId || nodeId}`;
-                            value = 'offline';
-                            quality = 2;
-                        } else {
-                            const metric = Array.isArray(metrics) ? metrics[0] : metrics;
-                            const sparkplugQuality = metric?.Quality ?? metric?.quality ?? 192;
-                            tagAlias = metric?.Name || metric?.name || extractAliasFromTopic(topic);
-                            value = metric?.Value ?? metric?.value ?? '-';
-                            quality = convertSparkplugQuality(sparkplugQuality);
-                        }
-
-                        const msg: MqttMessage = {
-                            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                            topic: topic,
-                            tagId: 0,
-                            tagAlias,
-                            value,
-                            timestamp: data.Timestamp || data.timestamp || Date.now(),
-                            quality,
-                            receivedAt: new Date(),
-                            format: 'sparkplug'
-                        };
-
-                        addMessage(msg, 'sparkplug');
-                        return;
+                        data = JSON.parse(message);
                     } catch {
-                        // Not JSON, show as binary
-                        const msg: MqttMessage = {
-                            id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                            topic: topic,
-                            tagId: 0,
-                            tagAlias: `[BINARY] ${extractAliasFromTopic(topic)}`,
-                            value: `<${payload.length} bytes>`,
-                            timestamp: Date.now(),
-                            quality: 0,
-                            receivedAt: new Date(),
-                            format: 'sparkplug'
-                        };
-
-                        addMessage(msg, 'sparkplug');
-                        return;
+                        data = { v: message, ts: Date.now(), q: 0 };
                     }
+
+                    const msg: MqttMessage = {
+                        id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        topic: topic,
+                        tagId: data.tag_id || 0,
+                        tagAlias: extractAliasFromTopic(topic),
+                        value: data.v ?? data.value ?? '-',
+                        timestamp: data.ts || data.timestamp || Date.now(),
+                        quality: data.q ?? data.quality ?? 0,
+                        receivedAt: new Date(),
+                        format: 'legacy'
+                    };
+
+                    addMessage(msg, 'legacy');
+                } catch (e) {
+                    console.error('[MQTT Monitor] Parse error:', e);
                 }
+            });
 
-                // Legacy format (JSON)
-                const message = payload.toString();
-                let data: any;
+            client.on('error', (err) => {
+                console.error('[MQTT Monitor] Error:', err);
+            });
 
-                try {
-                    data = JSON.parse(message);
-                } catch {
-                    data = { v: message, ts: Date.now(), q: 0 };
+            client.on('close', () => {
+                if (!isMountedRef.current) return;
+                setIsConnected(false);
+                console.log('[MQTT Monitor] Disconnected');
+            });
+
+            client.on('reconnect', () => {
+                console.log('[MQTT Monitor] Reconnecting...');
+            });
+
+        };
+
+        connectAuthenticatedMqtt('mqtt-monitor', { reconnectPeriod: 3000 })
+            .then((client) => {
+                if (disposed) {
+                    client.end(true);
+                    return;
                 }
-
-                const msg: MqttMessage = {
-                    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                    topic: topic,
-                    tagId: data.tag_id || 0,
-                    tagAlias: extractAliasFromTopic(topic),
-                    value: data.v ?? data.value ?? '-',
-                    timestamp: data.ts || data.timestamp || Date.now(),
-                    quality: data.q ?? data.quality ?? 0,
-                    receivedAt: new Date(),
-                    format: 'legacy'
-                };
-
-                addMessage(msg, 'legacy');
-            } catch (e) {
-                console.error('[MQTT Monitor] Parse error:', e);
-            }
-        });
-
-        client.on('error', (err) => {
-            console.error('[MQTT Monitor] Error:', err);
-        });
-
-        client.on('close', () => {
-            if (!isMountedRef.current) return;
-            setIsConnected(false);
-            console.log('[MQTT Monitor] Disconnected');
-        });
-
-        client.on('reconnect', () => {
-            console.log('[MQTT Monitor] Reconnecting...');
-        });
+                clientRef.current = client;
+                wire(client);
+            })
+            .catch((err) => {
+                console.error('[MQTT Monitor] no MQTT credentials, not connecting:', err);
+            });
 
         return () => {
             console.log('[MQTT Monitor] Cleanup - closing connection');
@@ -335,10 +346,15 @@ const MqttMonitorPage = () => {
             // Force flush any remaining messages
             pendingMessagesRef.current = [];
 
-            // End MQTT connection immediately (not gracefully to avoid blocking)
-            if (client) {
-                client.removeAllListeners();
-                client.end(true); // Force close immediately
+            // End MQTT connection immediately (not gracefully to avoid blocking).
+            // Via the ref, because the client is now created asynchronously and
+            // may not exist yet — `disposed` above stops one that is still on
+            // its way from outliving this effect.
+            disposed = true;
+            if (clientRef.current) {
+                clientRef.current.removeAllListeners();
+                clientRef.current.end(true); // Force close immediately
+                clientRef.current = null;
             }
         };
     }, [addMessage]);

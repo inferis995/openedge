@@ -482,6 +482,22 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// The web UI's own MQTT identity, separate from the one above.
+	//
+	// The row above is an EDGE credential: its role may publish tag data, because
+	// a gateway must. The browser gets its own, bound to a read-only role, so a
+	// signed-in user cannot publish values that look like they came off a PLC.
+	// Nullable because organizations created before this column exists get their
+	// viewer provisioned on first use rather than by backfilling secrets here.
+	for _, stmt := range []string{
+		`ALTER TABLE org_mqtt_credentials ADD COLUMN IF NOT EXISTS ui_username TEXT`,
+		`ALTER TABLE org_mqtt_credentials ADD COLUMN IF NOT EXISTS ui_password TEXT`,
+	} {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			return fmt.Errorf("org_mqtt_credentials ui columns migration: %w", err)
+		}
+	}
+
 	// Migration: org API keys for edge-to-cloud auth (X-API-Key header).
 	orgApiKeys := []string{
 		`CREATE TABLE IF NOT EXISTS org_api_keys (

@@ -5,6 +5,40 @@ All notable changes to OpenEdge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+
+- **The web UI's MQTT connection was anonymous, and on the cloud deployment that
+  meant the broker was on the public internet.** The browser watches live values
+  over a WebSocket straight to Mosquitto (`mqtt-client.ts` → nginx `/mqtt` →
+  `mosquitto:9001`) and sent no credentials at all. To make that work the broker
+  config had been switched to `per_listener_settings true` with
+  `allow_anonymous true` on 9001 — which also detached the dynamic-security
+  plugin from that listener, leaving it with no ACLs whatsoever. nginx is
+  published by Traefik on 443, so anyone who could open the site could subscribe
+  to `#` and read every tenant's live plant data, and publish
+  `cmd/write/{gateway_id}`, which the S7 and Modbus drivers execute as a
+  setpoint write on real machinery.
+
+  The broker is authenticated again on both listeners, with one global policy and
+  the plugin governing both. The UI now signs in: `GET /api/mqtt/ui-credentials`
+  issues a per-organization identity to an already-authenticated session, bound
+  to a new role (`org-{id}-ui-role`, `uiViewerACLs`) that is **read-only by
+  construction** — subscribe and receive, not one `publishClientSend`. It is
+  deliberately NOT the organization's existing MQTT role: that one is an edge
+  identity and may publish tag data, so handing it to a browser would let any
+  signed-in user, including a read-only one, inject readings indistinguishable
+  from a PLC's. Command traffic (NCMD/DCMD, `cmd/`, `sys/command/`) is not
+  readable by the viewer either — reading a setpoint discloses what is about to
+  be written.
+
+  Existing organizations are provisioned on first use, so no backfill is needed.
+  The three places that opened MQTT connections separately — the client service,
+  `useSparkplugListener` and `MqttMonitorPage` — now go through one
+  `connectAuthenticatedMqtt`, because a rule written in three places is one that
+  gets missed in the fourth.
+
 ## [2.2.0] - 2026-08-18
 
 ### Security

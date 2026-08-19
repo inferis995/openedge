@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
-import mqtt, { type MqttClient } from 'mqtt';
+import { type MqttClient } from 'mqtt';
+import { connectAuthenticatedMqtt } from '@/lib/mqtt-client';
 import { useSparkplugDeviceStore } from '@/stores/useSparkplugDeviceStore';
 import { decodeSparkplugB } from '@/utils/sparkplugDecoder';
 
@@ -19,20 +20,15 @@ export function useSparkplugListener() {
     useEffect(() => {
         isMountedRef.current = true;
 
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/mqtt`;
-
         console.log('[SparkplugListener] Connecting to MQTT broker...');
 
-        const client = mqtt.connect(wsUrl, {
-            clientId: `sparkplug-listener-${Date.now()}`,
-            clean: true,
-            connectTimeout: 10000,
-            reconnectPeriod: 5000,
-            keepalive: 60,
-        });
-
-        clientRef.current = client;
+        // The broker requires credentials now, and fetching them is a round trip
+        // to the API — so the client arrives asynchronously and its handlers are
+        // registered in wire() below once it does. `disposed` covers the case
+        // where the component unmounts while that request is still in flight:
+        // without it the connection would be opened after cleanup had run and
+        // never closed.
+        let disposed = false;
 
         // Flush pending updates in batch (throttled)
         const flushPendingUpdates = () => {
@@ -70,99 +66,118 @@ export function useSparkplugListener() {
             }, 200);
         };
 
-        client.on('connect', () => {
-            if (!isMountedRef.current) return;
-            console.log('[SparkplugListener] Connected to MQTT broker - starting grace period (5s)');
+        // Every handler this hook needs, registered once the signed-in client
+        // exists.
+        const wire = (client: MqttClient) => {
+            client.on('connect', () => {
+                if (!isMountedRef.current) return;
+                console.log('[SparkplugListener] Connected to MQTT broker - starting grace period (5s)');
 
-            // Notify store that listener is connected (starts grace period)
-            useSparkplugDeviceStore.getState().setListenerConnected();
+                // Notify store that listener is connected (starts grace period)
+                useSparkplugDeviceStore.getState().setListenerConnected();
 
-            // Subscribe to Sparkplug B topics
-            client.subscribe('spBv1.0/#', { qos: 0 }, (err) => {
-                if (err) {
-                    console.error('[SparkplugListener] Subscribe error:', err);
-                } else {
-                    console.log('[SparkplugListener] Subscribed to spBv1.0/#');
+                // Subscribe to Sparkplug B topics
+                client.subscribe('spBv1.0/#', { qos: 0 }, (err) => {
+                    if (err) {
+                        console.error('[SparkplugListener] Subscribe error:', err);
+                    } else {
+                        console.log('[SparkplugListener] Subscribed to spBv1.0/#');
+                    }
+                });
+            });
+
+            client.on('message', (topic: string, payload: Buffer) => {
+                if (!isMountedRef.current) return;
+
+                try {
+                    // Only process Sparkplug B topics
+                    if (!topic.startsWith('spBv1.0/')) return;
+
+                    // Parse topic: spBv1.0/{groupId}/{msgType}/{nodeId}[/{deviceId}]
+                    const topicParts = topic.split('/');
+                    if (topicParts.length < 4) return;
+
+                    const groupId = topicParts[1];
+                    const msgType = topicParts[2];
+                    const nodeId = topicParts[3];
+                    const deviceId = topicParts[4] || nodeId;
+
+                    // Determine update type
+                    let updateType: 'birth' | 'death' | 'data';
+                    if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
+                        updateType = 'birth';
+                    } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
+                        updateType = 'death';
+                    } else if (msgType === 'DDATA' || msgType === 'NDATA') {
+                        updateType = 'data';
+                    } else {
+                        return; // Unknown message type
+                    }
+
+                    // Get metric count for birth messages
+                    let metricCount = 1;
+                    if (updateType === 'birth') {
+                        if (isProtobufData(payload)) {
+                            try {
+                                const decoded = decodeSparkplugB(payload);
+                                if (decoded && decoded.metrics) {
+                                    metricCount = decoded.metrics.length;
+                                }
+                            } catch { }
+                        } else {
+                            try {
+                                const data = JSON.parse(payload.toString());
+                                const metrics = data.Metrics || data.metrics || [];
+                                metricCount = Array.isArray(metrics) ? metrics.length : 1;
+                            } catch { }
+                        }
+                    }
+
+                    // Queue update (will overwrite previous for same device)
+                    const key = `${groupId}/${nodeId}/${deviceId}`;
+                    pendingUpdatesRef.current.set(key, {
+                        type: updateType,
+                        groupId,
+                        nodeId,
+                        deviceId,
+                        metricCount
+                    });
+
+                    // Schedule batch processing
+                    scheduleFlush();
+                } catch (error) {
+                    // Silently ignore parse errors
                 }
             });
-        });
 
-        client.on('message', (topic: string, payload: Buffer) => {
-            if (!isMountedRef.current) return;
+            client.on('error', (error) => {
+                console.error('[SparkplugListener] Error:', error);
+            });
 
-            try {
-                // Only process Sparkplug B topics
-                if (!topic.startsWith('spBv1.0/')) return;
+            client.on('close', () => {
+                if (!isMountedRef.current) return;
+                console.log('[SparkplugListener] Disconnected from MQTT broker');
+            });
 
-                // Parse topic: spBv1.0/{groupId}/{msgType}/{nodeId}[/{deviceId}]
-                const topicParts = topic.split('/');
-                if (topicParts.length < 4) return;
+        };
 
-                const groupId = topicParts[1];
-                const msgType = topicParts[2];
-                const nodeId = topicParts[3];
-                const deviceId = topicParts[4] || nodeId;
-
-                // Determine update type
-                let updateType: 'birth' | 'death' | 'data';
-                if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
-                    updateType = 'birth';
-                } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
-                    updateType = 'death';
-                } else if (msgType === 'DDATA' || msgType === 'NDATA') {
-                    updateType = 'data';
-                } else {
-                    return; // Unknown message type
+        connectAuthenticatedMqtt('sparkplug-listener')
+            .then((client) => {
+                if (disposed) {
+                    client.end(true);
+                    return;
                 }
-
-                // Get metric count for birth messages
-                let metricCount = 1;
-                if (updateType === 'birth') {
-                    if (isProtobufData(payload)) {
-                        try {
-                            const decoded = decodeSparkplugB(payload);
-                            if (decoded && decoded.metrics) {
-                                metricCount = decoded.metrics.length;
-                            }
-                        } catch { }
-                    } else {
-                        try {
-                            const data = JSON.parse(payload.toString());
-                            const metrics = data.Metrics || data.metrics || [];
-                            metricCount = Array.isArray(metrics) ? metrics.length : 1;
-                        } catch { }
-                    }
-                }
-
-                // Queue update (will overwrite previous for same device)
-                const key = `${groupId}/${nodeId}/${deviceId}`;
-                pendingUpdatesRef.current.set(key, {
-                    type: updateType,
-                    groupId,
-                    nodeId,
-                    deviceId,
-                    metricCount
-                });
-
-                // Schedule batch processing
-                scheduleFlush();
-            } catch (error) {
-                // Silently ignore parse errors
-            }
-        });
-
-        client.on('error', (error) => {
-            console.error('[SparkplugListener] Error:', error);
-        });
-
-        client.on('close', () => {
-            if (!isMountedRef.current) return;
-            console.log('[SparkplugListener] Disconnected from MQTT broker');
-        });
+                clientRef.current = client;
+                wire(client);
+            })
+            .catch((err) => {
+                console.error('[SparkplugListener] no MQTT credentials, not connecting:', err);
+            });
 
         return () => {
             console.log('[SparkplugListener] Cleanup');
             isMountedRef.current = false;
+            disposed = true;
 
             // Clear pending timeout
             if (flushTimeoutRef.current) {
