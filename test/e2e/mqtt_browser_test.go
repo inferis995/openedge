@@ -132,6 +132,18 @@ func TestTheWebUICanSignInToTheBroker(t *testing.T) {
 // Read-only is a property of the running broker, not just of the ACL we build.
 // The unit test in internal/mqtt asserts the role contains no publishClientSend;
 // this asserts Mosquitto agrees, against the deployed dynamic-security config.
+//
+// It asks the question by observation, not by return code. An earlier version of
+// this test published at QoS 1 and treated the acknowledgement as proof the
+// write had been accepted — which is wrong: MQTT 3.1.1's PUBACK carries no
+// failure code, so Mosquitto acknowledges a publish it has just denied and drops
+// it silently. The test failed against a fix that was working correctly.
+//
+// What actually matters is whether the message REACHES a driver. So a privileged
+// client subscribes to the topic the S7 and Modbus drivers act on, the UI
+// identity publishes to it, and nothing must arrive — with the same publish from
+// the privileged client immediately after as the control, because "nothing
+// arrived" is also what a broken subscription looks like.
 func TestTheWebUIIdentityCannotWriteASetpoint(t *testing.T) {
 	admin, _ := adminSession(t)
 	fx := newFixture(t, admin)
@@ -143,23 +155,55 @@ func TestTheWebUIIdentityCannotWriteASetpoint(t *testing.T) {
 		t.Fatalf("decode credentials: %v", err)
 	}
 
-	c := paho.NewClient(wsClientOptions(t, "e2e-ro-"+uniqueSuffix()).
+	topic := fmt.Sprintf("cmd/write/%d", fx.gwID)
+
+	// The witness: the broker admin the suite already uses, on the normal MQTT
+	// port, standing where a driver stands.
+	witness := mqttConnect(t, "e2e-witness-"+uniqueSuffix())
+	delivered := make(chan string, 4)
+	sub := witness.Subscribe(topic, 1, func(_ paho.Client, m paho.Message) {
+		delivered <- string(m.Payload())
+	})
+	if !sub.WaitTimeout(10*time.Second) || sub.Error() != nil {
+		t.Fatalf("the witness could not subscribe to %s: %v", topic, sub.Error())
+	}
+
+	ui := paho.NewClient(wsClientOptions(t, "e2e-ro-"+uniqueSuffix()).
 		SetUsername(creds.Username).SetPassword(creds.Password))
-	tok := c.Connect()
+	tok := ui.Connect()
 	if !tok.WaitTimeout(20*time.Second) || tok.Error() != nil {
 		t.Fatalf("connect with the UI identity: %v", tok.Error())
 	}
-	defer c.Disconnect(100)
+	defer ui.Disconnect(100)
 
-	// cmd/write/{gateway_id} is what the S7 and Modbus drivers act on
-	// (services/driver-*/main.go). A browser must not be able to reach it.
-	//
-	// Mosquitto does not NAK a denied publish at QoS 0, and at QoS 1 it simply
-	// never acknowledges, so the assertion is on the acknowledgement: a token
-	// that never completes is the broker refusing.
-	pub := c.Publish(fmt.Sprintf("cmd/write/%d", fx.gwID), 1, false, `{"value":1}`)
-	if pub.WaitTimeout(5*time.Second) && pub.Error() == nil {
-		t.Fatalf("the web UI identity published a setpoint write to cmd/write/%d — "+
-			"the broker is enforcing no read-only boundary on it", fx.gwID)
+	const forbidden = `{"value":"from-the-browser"}`
+	pub := ui.Publish(topic, 1, false, forbidden)
+	pub.WaitTimeout(5 * time.Second) // the ack says nothing; see above
+
+	select {
+	case got := <-delivered:
+		if got == forbidden {
+			t.Fatalf("a setpoint write published by the WEB UI identity reached %s. That topic is "+
+				"what services/driver-s7 and services/driver-modbus execute against a PLC", topic)
+		}
+	case <-time.After(3 * time.Second):
+		// Denied, as it should be.
+	}
+
+	// The control. Without it, a witness that silently failed to subscribe would
+	// make the assertion above pass while proving nothing at all.
+	const allowed = `{"value":"from-the-broker-admin"}`
+	ctrl := witness.Publish(topic, 1, false, allowed)
+	if !ctrl.WaitTimeout(10*time.Second) || ctrl.Error() != nil {
+		t.Fatalf("the control publish failed: %v", ctrl.Error())
+	}
+	select {
+	case got := <-delivered:
+		if got != allowed {
+			t.Fatalf("the control delivered %q, want %q", got, allowed)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the control message never arrived either — this subscription delivers nothing, " +
+			"so the check above was measuring a broken witness, not a denied publish")
 	}
 }
