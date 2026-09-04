@@ -116,3 +116,8 @@ backups/*.sql.gz
 # Release archives (keep folder, exclude content)
 release-*/openedge-*.tar.gz
 release-*/openedge-*.zip
+
+# TypeScript incremental build state. Machine-specific, changes on every build,
+# and was tracked — so every `tsc` run showed up as a dirty working tree and got
+# swept into unrelated commits.
+*.tsbuildinfo
