@@ -1,8 +1,15 @@
 name: CI
 
+# Every branch, and every pull request into a long-lived one.
+#
+# The push list used to be [main, master, develop, "claude/*"] — that wildcard
+# was the naming an AI session happened to use, so a branch called anything else
+# got no CI at all until somebody opened a pull request. A convention that only
+# holds for one tool's branch names is not a convention; running on all pushes
+# costs a few runner-minutes and removes a way to be surprised.
 on:
   push:
-    branches: [main, master, develop, "claude/*"]
+    branches: ["**"]
   pull_request:
     branches: [main, master, develop]
 
