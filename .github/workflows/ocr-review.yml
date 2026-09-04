@@ -1,0 +1,105 @@
+name: OCR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install OpenCodeReview
+        run: npm install -g @alibaba-group/open-code-review
+
+      - name: Configure LLM
+        env:
+          OCR_LLM_TOKEN: ${{ secrets.ZEN_API_KEY }}
+        run: |
+          ocr config unset provider || true
+          ocr config set llm.url https://opencode.ai/zen/v1
+          ocr config set llm.model muse-spark-1.3-contributor-free
+          ocr config set llm.protocol openai-responses
+          ocr config set llm.use_anthropic false
+          ocr config set llm.auth_token_cmd 'printf "%s" "$OCR_LLM_TOKEN"'
+          ocr config set language Italian
+
+      - name: Run review
+        env:
+          OCR_LLM_TOKEN: ${{ secrets.ZEN_API_KEY }}
+        run: |
+          BASE=$(git merge-base "origin/${{ github.base_ref }}" "${{ github.event.pull_request.head.sha }}")
+          echo "Review range: $BASE..${{ github.event.pull_request.head.sha }}"
+          ocr review --from "$BASE" --to "${{ github.event.pull_request.head.sha }}" --audience agent --format json --output result.json
+
+      - name: Post PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const MARKER = '<!-- ocr-review-bot -->';
+            let r = {};
+            try { r = JSON.parse(fs.readFileSync('result.json', 'utf8')); } catch (e) {}
+            const sevOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+            const sevIcon = { critical: '🔴', high: '🟠', medium: '🟡', low: '🔵' };
+            let body = MARKER + '\n## 🕵️ OCR Review\n\n';
+            const comments = (r.comments || []).sort((a, b) =>
+              (sevOrder[a.severity] ?? 4) - (sevOrder[b.severity] ?? 4));
+            if (comments.length === 0) {
+              body += '✅ **Nessun problema trovato.**\n';
+            } else {
+              body += `**${comments.length} finding(s):**\n\n`;
+              for (const c of comments) {
+                const icon = sevIcon[c.severity] || '⚪';
+                const cat = c.category ? ` \`${c.category}\`` : '';
+                const range = c.end_line && c.end_line !== c.start_line ? `-${c.end_line}` : '';
+                body += `### ${icon} \`${c.path}:${c.start_line}${range}\`${cat} [${c.severity || 'info'}]\n`;
+                body += `${(c.content || '').slice(0, 1500)}\n`;
+                if (c.suggestion_code) {
+                  body += '\n```\n' + c.suggestion_code + '\n```\n';
+                }
+                body += '\n';
+              }
+            }
+            const s = r.summary || {};
+            if (s.total_tokens) {
+              body += `\n---\n<sub>🤖 OpenCodeReview · muse-spark-1.3-contributor-free · ${s.files_reviewed ?? '?'} file · ${s.total_tokens} token · ${s.elapsed || '?'}</sub>\n`;
+            }
+            if (body.length > 60000) body = body.slice(0, 60000) + '\n\n... (troncato)';
+            const { data: existing } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const mine = existing.find(c => c.body && c.body.includes(MARKER));
+            if (mine) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: mine.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
