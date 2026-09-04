@@ -101,56 +101,75 @@ jobs:
   # tag, and not for the language tooling upstream pinned for us. The split is
   # derived from the Dockerfiles themselves — a stage with `AS <name>` is a
   # builder — so it cannot drift from what is actually built.
-  collect-base-images:
-    name: Collect Base Images
+  collect-images:
+    name: Collect Images
     runs-on: ubuntu-latest
     outputs:
-      runtime: ${{ steps.collect.outputs.runtime }}
+      services: ${{ steps.collect.outputs.services }}
       builder: ${{ steps.collect.outputs.builder }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Collect base images from Dockerfiles
+      - name: Collect services to build, and builder bases to scan
         id: collect
         run: |
-          strip() { sed -E 's/^FROM (--platform=[^ ]+ )?//; s/ +[Aa][Ss] .*//'; }
+          # Services are derived from the Dockerfiles that exist, so a new one
+          # is scanned the day it is added rather than the day somebody
+          # remembers to list it here.
+          services=$(ls -d services/*/Dockerfile | cut -d/ -f2 | sort -u | jq -R . | jq -sc .)
 
+          strip() { sed -E 's/^FROM (--platform=[^ ]+ )?//; s/ +[Aa][Ss] .*//'; }
           builder=$(grep -rhE '^FROM .+ [Aa][Ss] ' services/*/Dockerfile \
             | strip | sort -u | jq -R . | jq -sc .)
-          runtime=$(grep -rhE '^FROM ' services/*/Dockerfile \
-            | grep -viE ' [Aa][Ss] ' | strip | sort -u | jq -R . | jq -sc .)
 
-          echo "runtime (ships to customers): $runtime"
-          echo "builder (discarded after build): $builder"
-          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+          echo "services (built and scanned as shipped): $services"
+          echo "builder bases (discarded after build): $builder"
+          echo "services=$services" >> "$GITHUB_OUTPUT"
           echo "builder=$builder" >> "$GITHUB_OUTPUT"
 
-  base-images:
-    name: Runtime Image ${{ matrix.image }}
-    needs: collect-base-images
+  runtime-images:
+    name: Runtime Image ${{ matrix.service }}
+    needs: collect-images
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        image: ${{ fromJSON(needs.collect-base-images.outputs.runtime) }}
+        service: ${{ fromJSON(needs.collect-images.outputs.services) }}
     steps:
+      - uses: actions/checkout@v4
+
+      # Build it, then scan what was built.
+      #
+      # This used to scan the base image REF — `alpine:3.22` as it stands on the
+      # registry right now. That is not the product. The runtime stages run
+      # `apk upgrade`, so the image a customer receives can be clean while the
+      # base tag it started from is not, and the old scan called that a failure
+      # with no remedy: the fix it asked for, "bump the tag", does not exist
+      # until somebody else rebuilds one. Scanning the built image asks the
+      # question that matters — is what we ship clean — and makes the answer
+      # something this repository can act on.
+      - name: Build ${{ matrix.service }}
+        run: |
+          docker build -f services/${{ matrix.service }}/Dockerfile \
+            -t openedge-scan/${{ matrix.service }}:ci .
+
       # Everything in the image — OS packages and bundled libraries alike. This
       # one ships, so all of it is customer-facing.
       #
-      # ignore-unfixed is deliberate: a distro CVE with no released patch is not
-      # something this repo can act on, and a permanently red job is one
-      # everybody learns to ignore. Anything with a fix available is a real,
-      # actionable finding — bump the tag — and fails the build.
+      # ignore-unfixed is deliberate: a CVE with no released patch anywhere is
+      # not something this repo can act on, and a permanently red job is one
+      # everybody learns to ignore. Anything with a fix available is real and
+      # fails the build.
       #
       # The action is pinned to a commit, not a tag. It had a supply-chain
       # incident, and a tag is a movable pointer: whoever controls that repo can
       # retarget v0.36.0 at new code, which then runs here with a token. A SHA
       # cannot be retargeted. Dependabot still offers upgrades and rewrites both
       # the SHA and the trailing comment.
-      - name: Scan ${{ matrix.image }}
+      - name: Scan ${{ matrix.service }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ matrix.image }}
+          image-ref: openedge-scan/${{ matrix.service }}:ci
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
@@ -159,24 +178,33 @@ jobs:
 
   builder-images:
     name: Builder Image ${{ matrix.image }}
-    needs: collect-base-images
+    needs: collect-images
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        image: ${{ fromJSON(needs.collect-base-images.outputs.builder) }}
+        image: ${{ fromJSON(needs.collect-images.outputs.builder) }}
     steps:
-      # OS packages only — see the note on collect-base-images. The language
-      # toolchain bundled in a builder is whatever upstream shipped, is not
-      # separately patchable here, and is discarded before anything reaches a
-      # customer. Its OS layer, which a tag bump does fix, still has to be clean.
+      # A builder is DISCARDED at the end of the multi-stage build. Nothing in
+      # it reaches a customer, and the only remedy for an OS CVE in one is
+      # upstream rebuilding a tag this repository does not control — which is
+      # precisely the "permanently red, nobody can act" state that mutes a job.
+      # CVE-2026-14456 made that concrete: a HIGH openssl DoS sat in
+      # golang:1.25-alpine and node:22-alpine for days with no newer tag to move
+      # to, and it turned the whole nightly scan red every night.
       #
-      # The input is vuln-type, not Trivy's own --pkg-types flag: the action
-      # takes a fixed set of inputs and merely WARNS about unknown ones, so
-      # pkg-types was accepted, silently dropped, and the scan ran unrestricted.
-      # If this ever needs an option the action does not expose, run the Trivy
-      # binary directly rather than passing a flag that quietly does nothing.
-      - name: Scan ${{ matrix.image }}
+      # So the two questions are separated. What is in there is always PRINTED,
+      # because a rotten build environment is worth knowing about. What STOPS
+      # the build is CRITICAL only: at that severity the right move is to halt
+      # and pin a digest by hand, even for an image that is thrown away.
+      #
+      # OS packages only — the language toolchain bundled in a builder is
+      # whatever upstream shipped, is not separately patchable here, and is
+      # discarded. (The input is vuln-type, not Trivy's own --pkg-types flag:
+      # the action takes a fixed set of inputs and merely WARNS about unknown
+      # ones, so pkg-types was accepted, silently dropped, and the scan ran
+      # unrestricted.)
+      - name: Report what is in ${{ matrix.image }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ matrix.image }}
@@ -184,13 +212,24 @@ jobs:
           vuln-type: os
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          exit-code: "0"
+          format: table
+
+      - name: Fail on CRITICAL in ${{ matrix.image }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ matrix.image }}
+          scanners: vuln
+          vuln-type: os
+          severity: CRITICAL
+          ignore-unfixed: true
           exit-code: "1"
           format: table
 
   # ── Make a scheduled failure visible ────────────────────────────────────────
   report:
     name: Report
-    needs: [go-vulnerabilities, frontend-vulnerabilities, base-images, builder-images]
+    needs: [go-vulnerabilities, frontend-vulnerabilities, runtime-images, builder-images]
     # Only for the scheduled run: a push or a manual dispatch already has
     # somebody looking at the result.
     if: failure() && github.event_name == 'schedule'
@@ -216,7 +255,11 @@ jobs:
               '- **Go Dependencies** — `go get -u` the module, or add a documented',
               '  exception to `scripts/govulncheck-gate.sh`.',
               '- **Frontend Dependencies** — `npm audit fix` in `services/web-ui`.',
-              '- **Base Images** — bump the `FROM` tag; a patched one exists.',
+              '- **Runtime Image** — the image we ship has a fixable CVE. The runtime',
+              '  stages run `apk upgrade`, so a rebuild usually clears it; if not, bump',
+              '  the `FROM` tag in that service Dockerfile.',
+              '- **Builder Image** — only CRITICAL stops the build here; nothing in a',
+              '  builder ships. Pin a digest or bump the tag.',
               '',
               'Closing this without fixing it will simply reopen tomorrow.',
             ].join('\n');
