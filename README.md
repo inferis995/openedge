@@ -164,7 +164,7 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
   - [i3X Access API](#i3x-access-api-cesmii-standard)
   - [AI-Ops Endpoints](#ai-ops-endpoints)
   - [Standard Endpoints](#standard-endpoints)
-- [AI Agent Skills](#ai-agent-skills)
+- [CLI, MCP Server & AI Agent Skills](#cli-mcp-server--ai-agent-skills)
 - [Monitoring Stack](#monitoring-stack)
 - [Troubleshooting](#troubleshooting)
 
@@ -725,19 +725,106 @@ Real-time tag values, alarm notifications, system events. One message per tag up
 
 ---
 
-## AI Agent Skills
+## CLI, MCP Server & AI Agent Skills
 
-OpenEdge ships two skill files for AI agents (Claude Code and compatible frameworks).
+Three ways to drive OpenEdge without the web UI. They stack: the CLI is a
+command-line client, the MCP server is that same client speaking the Model
+Context Protocol, and the skills are what teach an agent to use it well.
+
+### The CLI
 
 ```bash
-# Already in the repo at .claude/skills/
-.claude/skills/openedge.md        # Monitor: read data, alarms, anomalies
-.claude/skills/openedge-ops.md    # Ops: deploy, configure, troubleshoot
+make install-cli                              # builds and installs to /usr/local/bin
+openedge login --url https://your-openedge.com
 ```
 
-### `openedge` — Monitor & Control
+Credentials are exchanged for a JWT and stored in `~/.openedge/config.json`;
+`openedge logout` removes it. Against an on-prem deployment with a certificate
+from Caddy's internal CA, install the exported root CA first (`make
+export-root-ca`) or the client will refuse the connection — which is the correct
+behaviour, not a bug to work around.
 
-Read-oriented skill. Gives the agent access to real-time values, alarms, history, anomalies, and OEE data via REST + i3X.
+| Area | Commands |
+|---|---|
+| Session | `login` · `logout` · `whoami` · `config show` · `config reset` |
+| Tags | `tags list` · `tags get` · `tags write` · `tags history` · `tags shadows` |
+| Alarms | `alarms list` · `alarms ack` |
+| Gateways | `gateways list` · `gateways get` · `gateways test` · `gateways lorawan` |
+| Organizations | `orgs list` · `orgs get` · `orgs invite` |
+| Fleet | `fleet status` · `fleet restart` · `fleet update` |
+| Analytics | `aiops summary` · `aiops anomalies` · `aiops digest` |
+| Diagnostics | `health` · `diagnostics` |
+| MCP | `mcp` — see below |
+
+Every path the CLI calls is checked against the routes the server actually
+registers — see `TestEveryCLICallHasARoute` in `test/config/routes_test.go`, and
+read its comment for what that check does and does not prove.
+
+### The MCP server
+
+The same binary speaks [Model Context Protocol](https://modelcontextprotocol.io),
+so Claude Code — or any MCP client — can read plant data and act on it.
+**Thirty-nine tools**, covering tags, alarms, gateways, sites, areas, synoptics, UDT
+types and instances, fleet, LoRaWAN and the AI-Ops endpoints.
+
+**Local — stdio.** The client starts the process and talks over its standard
+input and output. In Claude Code:
+
+```bash
+claude mcp add openedge -- openedge mcp
+```
+
+**Remote — Streamable HTTP.** For a client that is not on the same machine:
+
+```bash
+openedge mcp --http 127.0.0.1:9090 \
+  --auth-server https://your-openedge.com \
+  --public-url https://mcp.example.com \
+  --allow-origin https://claude.ai
+```
+
+Each request carries its own bearer token and is executed as **that** caller —
+identity is per request, never process-wide, so one server can serve several
+users without any of them inheriting another's access.
+
+Authentication is OAuth 2.1 against core-api: RFC 8414 discovery at
+`/.well-known/oauth-authorization-server`, RFC 7591 dynamic client
+registration, PKCE (S256) required, refresh-token rotation, and a replay of a
+rotated token revoking the whole family. Two scopes:
+
+| Scope | Grants |
+|---|---|
+| `openedge:read` | every read tool |
+| `openedge:write` | writing tag values, acknowledging alarms, creating and deleting objects |
+
+A token without `openedge:write` gets `403 insufficient_scope` on any mutating
+request — enforced in the API middleware, not in the tool descriptions, so it
+holds however the model is prompted.
+
+`--allow-origin` is empty by default and **any** browser Origin is rejected
+until you name one. That is deliberate: an MCP server on localhost with no
+Origin check can be driven by any page the user happens to have open.
+
+### The skills
+
+Two skill files that teach an agent this platform's vocabulary — its topic
+layout, its multi-tenant rules, the order operations must happen in. Already in
+the repo:
+
+```
+.claude/skills/openedge.md        # monitor and control
+.claude/skills/openedge-ops.md    # deploy and operate
+```
+
+Claude Code picks up `.claude/skills/` automatically when the repository is
+open. For another agent, point it at the files or copy them into its own skills
+directory.
+
+#### `openedge` — monitor and control
+
+Reading, and the writes an operator makes: current values, alarms, history,
+anomalies, OEE, tag shadows, and the i3X standard interface. It knows that a
+value carries a **quality** and that a stale one must not be presented as good.
 
 ```
 "Leggi il valore corrente di tutti i tag del gateway PLC-1"
@@ -748,9 +835,14 @@ Read-oriented skill. Gives the agent access to real-time values, alarms, history
 "Quanti edge sono online per l'org Acme Corp?"
 ```
 
-### `openedge-ops` — Deploy & Configure
+#### `openedge-ops` — deploy and operate
 
-Write-oriented skill. Gives the agent everything needed to deploy OpenEdge, manage organizations, invite users, configure gateways, and troubleshoot production issues.
+The one to start with on a fresh machine. It **asks before it acts** — which
+deployment mode, which operating system, whether you want HTTPS, which
+hostname, whether to enable monitoring — and only then runs anything. It covers
+self-hosted Linux and Windows, VPS with Traefik, Coolify, and the edge profile,
+plus organization and user administration, plant modelling with UDT, backups,
+OTA updates and troubleshooting.
 
 ```
 "Installa OpenEdge su questo VPS con Coolify"
@@ -760,6 +852,9 @@ Write-oriented skill. Gives the agent everything needed to deploy OpenEdge, mana
 "Il driver del gateway non parte — diagnostica e risolvi"
 "Configura il webhook su https://acme.com/hook per alarm.active"
 ```
+
+The two are complementary and safe to install together: `openedge` answers
+questions about a running plant, `openedge-ops` changes the system it runs on.
 
 ---
 
@@ -773,8 +868,18 @@ make monitoring-logs   # follow logs
 ```
 
 ### VPS / Cloud
-Monitoring is **always active** in `docker-compose.vps.yml` — no extra commands needed.
-Grafana is available at `https://grafana.YOUR_DOMAIN` with credentials from `GRAFANA_ADMIN_PASSWORD` in `.env`.
+Monitoring is **opt-in**, exactly as on-prem: the seven services sit behind
+`profiles: ["monitoring"]`, so `make vps-up` does not start them.
+
+```bash
+make vps-up-monitoring   # adds --profile monitoring, and checks the extras
+```
+
+With the profile on, Grafana is published at `https://grafana.YOUR_DOMAIN` —
+which needs **its own DNS A record**, and a real `GRAFANA_ADMIN_PASSWORD` in
+`.env`: `scripts/preflight.sh --with-monitoring` refuses the placeholder,
+because that Grafana is reachable from the internet and can query the
+datasource.
 
 | Service | On-prem URL | Credentials |
 |---------|-------------|-------------|
