@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Shield, AlertTriangle, CheckCircle2, XCircle, Lock, Key, Wifi, Server, Eye, FileText, Download } from 'lucide-react';
+import { Shield, AlertTriangle, CheckCircle2, XCircle, Lock, Key, Wifi, Server, Eye, FileText, Download, MinusCircle } from 'lucide-react';
 import { securityApi, SecurityOverview, SecurityEvent, ComplianceCheck } from '@/api/security';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -81,12 +81,23 @@ const SecurityPage = () => {
         }).finally(() => setLoading(false));
     }, []);
 
-    const downloadNIS2Report = () => {
+    const downloadPostureReport = () => {
         const report = {
-            type: 'NIS2_INCIDENT_REPORT',
+            type: 'SECURITY_POSTURE_SELF_ASSESSMENT',
+            // Chi riceve questo file lo leggerà fuori contesto, magari mesi
+            // dopo. La riga che segue è l'unica cosa che gli impedisce di
+            // scambiarlo per un certificato di conformità.
+            disclaimer:
+                'Autovalutazione automatica della postura di sicurezza, modellata sulle ' +
+                'misure dell\'art. 21 della direttiva NIS2. NON costituisce una ' +
+                'dichiarazione né una certificazione di conformità NIS2: i controlli con ' +
+                'stato "not_assessed" riguardano misure organizzative che il software non ' +
+                'può accertare e restano in capo al titolare dell\'impianto.',
             generated_at: new Date().toISOString(),
-            nis2_checks_passed: overview?.nis2_checks_passed,
-            nis2_checks_total: overview?.nis2_checks_total,
+            checks_passed: overview?.checks_passed,
+            checks_evaluated: overview?.checks_evaluated,
+            checks_not_assessed: overview?.checks_not_assessed,
+            checks: overview?.checks,
             security_score: overview?.score,
             failed_logins_24h: overview?.failed_logins_24h,
             security_events_24h: overview?.security_events_24h,
@@ -96,7 +107,7 @@ const SecurityPage = () => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `nis2-report-${new Date().toISOString().slice(0, 10)}.json`;
+        a.download = `security-posture-${new Date().toISOString().slice(0, 10)}.json`;
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -129,7 +140,13 @@ const SecurityPage = () => {
         );
     }
 
-    const passedCount = compliance.filter(c => c.passed).length;
+    const passedCount = compliance.filter(c => c.state === 'pass').length;
+    // Il denominatore è ciò che è stato valutato, non il numero di righe. Sei
+    // di queste voci sono misure organizzative: contarle nel totale faceva
+    // sembrare incompleta una piattaforma che su quei punti non ha nulla da
+    // dire, né mai potrà averne.
+    const evaluatedCount = compliance.filter(c => c.state !== 'not_assessed').length;
+    const notAssessedCount = compliance.length - evaluatedCount;
 
     return (
         <div className="p-6 space-y-6">
@@ -138,7 +155,7 @@ const SecurityPage = () => {
                     <Shield className="h-10 sm:h-8 w-10 sm:w-8 text-primary" />
                     <div>
                         <h1 className="text-2xl font-bold">Security Center</h1>
-                        <p className="text-muted-foreground text-sm">Monitoraggio sicurezza e conformità NIS2</p>
+                        <p className="text-muted-foreground text-sm">Monitoraggio della postura di sicurezza</p>
                     </div>
                 </div>
                 <div className="flex gap-2">
@@ -146,9 +163,9 @@ const SecurityPage = () => {
                         <Download className="h-4 w-4 mr-2" />
                         Esporta eventi CSV
                     </Button>
-                    <Button size="sm" onClick={downloadNIS2Report}>
+                    <Button size="sm" onClick={downloadPostureReport}>
                         <FileText className="h-4 w-4 mr-2" />
-                        Report NIS2
+                        Report postura
                     </Button>
                 </div>
             </div>
@@ -178,9 +195,15 @@ const SecurityPage = () => {
                 <Card>
                     <CardContent className="pt-6 text-center">
                         <div className="text-3xl font-bold text-blue-600">
-                            {overview?.nis2_checks_passed ?? 0}/{overview?.nis2_checks_total ?? 12}
+                            {overview?.checks_passed ?? 0}/{overview?.checks_evaluated ?? 0}
                         </div>
-                        <div className="text-sm text-muted-foreground mt-1">Check NIS2 superati</div>
+                        <div className="text-sm text-muted-foreground mt-1">Controlli automatici superati</div>
+                        {/* Il denominatore conta solo ciò che è stato davvero
+                            guardato. Senza questa riga, sei controlli sparirebbero
+                            dal totale senza che nessuno sappia che esistono. */}
+                        <div className="text-xs text-muted-foreground mt-1">
+                            {overview?.checks_not_assessed ?? 0} non valutabili automaticamente
+                        </div>
                     </CardContent>
                 </Card>
             </div>
@@ -220,22 +243,24 @@ const SecurityPage = () => {
             </Card>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* NIS2 Compliance */}
+                {/* Postura di sicurezza — autovalutazione, non conformità */}
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-base flex items-center justify-between">
-                            <span>Conformità NIS2 — Art. 21</span>
-                            <Badge variant={passedCount >= 9 ? 'default' : 'destructive'}>
-                                {passedCount}/{compliance.length} superati
+                            <span>Postura di sicurezza — misure art. 21 NIS2</span>
+                            <Badge variant={evaluatedCount > 0 && passedCount === evaluatedCount ? 'default' : 'destructive'}>
+                                {passedCount}/{evaluatedCount} superati
                             </Badge>
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2 max-h-96 overflow-y-auto">
                         {compliance.map(check => (
                             <div key={check.id} className="flex items-start gap-2 py-1">
-                                {check.passed
+                                {check.state === 'pass'
                                     ? <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
-                                    : <XCircle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
+                                    : check.state === 'fail'
+                                        ? <XCircle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
+                                        : <MinusCircle className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                                 }
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
@@ -246,6 +271,13 @@ const SecurityPage = () => {
                                 </div>
                             </div>
                         ))}
+                        {notAssessedCount > 0 && (
+                            <p className="text-xs text-muted-foreground pt-3 border-t">
+                                {notAssessedCount} misure sono organizzative e non accertabili dal
+                                software: restano in capo al titolare dell'impianto. Questa schermata
+                                è un'autovalutazione, non una dichiarazione di conformità NIS2.
+                            </p>
+                        )}
                     </CardContent>
                 </Card>
 

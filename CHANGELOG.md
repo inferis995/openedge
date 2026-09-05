@@ -5,6 +5,61 @@ All notable changes to OpenEdge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+> **Breaking (API).** `GET /api/security/overview` no longer returns
+> `nis2_checks_passed` and `nis2_checks_total`; `GET /api/security/compliance`
+> no longer returns `passed`. Both now carry a three-valued `state`
+> (`pass` / `fail` / `not_assessed`). The web UI is updated in the same commit;
+> any other consumer needs a change.
+
+### Fixed
+
+- **The security posture screen reported checks it had never performed.** Twelve
+  checks were shown as an NIS2 compliance figure; eight of them were constants
+  in the source — five hardcoded `true`, three hardcoded `false`. A deployment
+  saw 8/12 and could not raise that number by fixing anything, because three of
+  the twelve fail unconditionally, and five points were awarded without anything
+  being looked at. A boolean has no way to say "I don't know", so it was wrong in
+  both directions at once.
+
+  Six checks are real platform state and are read for real: business continuity
+  (backup freshness), network security (MQTT TLS), MFA, access control, audit
+  logging, account security. The other six — risk management, incident handling,
+  supply chain, cryptography, vulnerability management, data protection — are
+  organizational measures that depend on company procedure outside this process.
+  They now report `not_assessed`, and the denominator counts only what was
+  actually evaluated.
+
+- **A detail line that contradicted its own verdict.** The network security row
+  read "MQTT non cifrato (TLS assente)" next to a green tick whenever TLS *was*
+  enabled: the detail string was a constant independent of the outcome. Each
+  check now carries the text of the branch it is in.
+
+### Changed
+
+- **The product stopped claiming NIS2 compliance in the interface.** The Terms
+  of Service already stated the platform does not provide or substitute NIS2
+  compliance, while the Security Center header said "conformità NIS2" and the
+  report was titled "Stato conformità NIS2 Art. 21" — the UI promised what the
+  contract denied. The screens now say what the feature is: a self-assessment of
+  automated checks modelled on the Article 21 measures. The exported JSON is
+  `SECURITY_POSTURE_SELF_ASSESSMENT`, carries an explicit disclaimer for whoever
+  opens it out of context months later, and is named `security-posture-*.json`.
+
+  NIS2 is still named throughout, deliberately: as the thing the checks are
+  modelled on, and in the Terms of Service to disclaim it.
+
+### Added
+
+- **`TestTheNIS2ModuleStaysRemoved`.** Removal was a one-time act; staying
+  removed was not enforced by anything. The test fails if the `/api/compliance`
+  routes, the fourteen module files, or the hourly `StartAssetSyncWorker` come
+  back — from a revert, from a restore out of history, or from merging one of
+  the three branches that forked before the removal and carry 236, 253 and 259
+  commits each. All three assertions were verified by reintroducing the defect
+  and watching the test fail, not only by watching it pass.
+
 ## [3.0.0] - 2026-09-05
 
 > **Breaking — the NIS2 compliance module is gone.** Thirty-eight endpoints

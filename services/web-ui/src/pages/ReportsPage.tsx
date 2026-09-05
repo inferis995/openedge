@@ -177,9 +177,9 @@ const ReportsPage = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div className="rounded-md border bg-card p-4 space-y-3">
                             <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-                                <ShieldCheck size={16} /> Report NIS2 (JSON)
+                                <ShieldCheck size={16} /> Report postura di sicurezza (JSON)
                             </div>
-                            <p className="text-sm">Stato conformità NIS2 Art. 21 — tutti i check con esito e dettaglio.</p>
+                            <p className="text-sm">Autovalutazione dei controlli automatici, modellati sulle misure dell'art. 21 NIS2. Non è una dichiarazione di conformità.</p>
                             <Button
                                 className="gap-2"
                                 onClick={async () => {
@@ -189,11 +189,19 @@ const ReportsPage = () => {
                                             securityApi.compliance(),
                                         ]);
                                         const report = {
-                                            type: 'NIS2_COMPLIANCE_REPORT',
+                                            type: 'SECURITY_POSTURE_SELF_ASSESSMENT',
+                                            disclaimer:
+                                                'Autovalutazione automatica della postura di sicurezza, modellata sulle ' +
+                                                'misure dell\'art. 21 della direttiva NIS2. NON costituisce una ' +
+                                                'dichiarazione né una certificazione di conformità NIS2: i controlli con ' +
+                                                'stato "not_assessed" riguardano misure organizzative che il software non ' +
+                                                'può accertare e restano in capo al titolare dell\'impianto.',
                                             generated_at: new Date().toISOString(),
                                             security_score: overview.score,
-                                            nis2_checks_passed: overview.nis2_checks_passed,
-                                            nis2_checks_total: overview.nis2_checks_total,
+                                            checks_passed: overview.checks_passed,
+                                            checks_evaluated: overview.checks_evaluated,
+                                            checks_not_assessed: overview.checks_not_assessed,
+                                            checks: overview.checks,
                                             failed_logins_24h: overview.failed_logins_24h,
                                             locked_accounts: overview.locked_accounts,
                                             compliance_checks: compliance,
@@ -202,7 +210,7 @@ const ReportsPage = () => {
                                         const url = URL.createObjectURL(blob);
                                         const a = document.createElement('a');
                                         a.href = url;
-                                        a.download = `nis2-report-${new Date().toISOString().slice(0, 10)}.json`;
+                                        a.download = `security-posture-${new Date().toISOString().slice(0, 10)}.json`;
                                         a.click();
                                         URL.revokeObjectURL(url);
                                     } catch (e) {

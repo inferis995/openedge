@@ -15,8 +15,22 @@ export interface SecurityOverview {
     failed_logins_24h: number;
     locked_accounts: number;
     security_events_24h: number;
-    nis2_checks_passed: number;
-    nis2_checks_total: number;
+    /**
+     * Controlli automatici sulla postura di sicurezza, modellati sulle misure
+     * dell'art. 21 NIS2. Non sono una dichiarazione di conformità: sei dei
+     * dodici riguardano misure organizzative che il software non può
+     * accertare, e arrivano con state 'not_assessed' anziché contati come
+     * superati.
+     */
+    checks_passed: number;
+    checks_evaluated: number;
+    checks_not_assessed: number;
+    checks: SecurityCheck[];
+}
+
+export interface SecurityCheck {
+    id: string;
+    state: 'pass' | 'fail' | 'not_assessed';
 }
 
 export interface SecurityEvent {
@@ -34,7 +48,7 @@ export interface ComplianceCheck {
     id: string;
     name: string;
     article: string;
-    passed: boolean;
+    state: 'pass' | 'fail' | 'not_assessed';
     detail: string;
 }
 
