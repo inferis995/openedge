@@ -44,12 +44,6 @@ import NotFoundPage from '@/pages/NotFoundPage';
 import PrivacyPage from '@/pages/PrivacyPage';
 import TermsPage from '@/pages/TermsPage';
 import { CookieBanner } from '@/components/CookieBanner';
-import AssetDiscoveryPage from '@/pages/compliance/AssetDiscoveryPage';
-import RiskPosturePage from '@/pages/compliance/RiskPosturePage';
-import ThreatMonitorPage from '@/pages/compliance/ThreatMonitorPage';
-import ComplianceReportsPage from '@/pages/compliance/ComplianceReportsPage';
-import CSIRTPage from '@/pages/compliance/CSIRTPage';
-import VendorRiskPage from '@/pages/compliance/VendorRiskPage';
 
 import { useEffect, useState, useRef } from 'react';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -163,12 +157,6 @@ function App() {
                     <Route path="/users" element={<UsersPage />} />
                     <Route path="/profile" element={<ProfilePage />} />
                     <Route path="/connected-apps" element={<ConnectedAppsPage />} />
-                    <Route path="/compliance/assets" element={<AssetDiscoveryPage />} />
-                    <Route path="/compliance/risk" element={<RiskPosturePage />} />
-                    <Route path="/compliance/threats" element={<ThreatMonitorPage />} />
-                    <Route path="/compliance/reports" element={<ComplianceReportsPage />} />
-                    <Route path="/compliance/csirt" element={<CSIRTPage />} />
-                    <Route path="/compliance/vendors" element={<VendorRiskPage />} />
                 </Route>
             </Route>
 
