@@ -192,13 +192,21 @@ Ordinata per dipendenza, non per interesse tecnico.
 
 | Mese | Obiettivo | Sblocca |
 |---|---|---|
-| 1 | Costituzione società + iscrizione sezione speciale startup innovative | Praticamente ogni bando (vedi `FINANZIAMENTI.md`) |
+| 1 | Registrazione SIAE del software | Requisito per l'iscrizione come startup innovativa |
 | 1–2 | Impianto pilota con PLC reale, dati storicizzati | Vendita, valutazione, punteggio nei bandi |
-| 2–3 | Caso studio con numeri misurati | Fase canale |
-| 3–4 | Domanda Smart&Start Italia (sportello, nessuna scadenza) | €250k–400k a tasso zero |
-| 4–6 | Primo cliente pagante | Trasforma la valutazione da "asset" a "azienda" |
+| 2 | Caso studio con numeri misurati | Colloquio di merito, fase canale |
+| 2–3 | Domanda Smart&Start **come team di aspiranti imprenditori** | In Campania: 30% a fondo perduto + 70% a tasso zero |
+| 3–4 | Costituzione società + iscrizione sezione speciale startup innovative | Bando regionale, Fondo di Garanzia PMI, agevolazioni fiscali |
+| 4–5 | Domanda Campania Start-up (PR FESR) | Fondo perduto FESR, tipicamente 30–65% |
+| 5–7 | Primo cliente pagante | Trasforma la valutazione da "asset" a "azienda" |
 | 6–9 | Hardening: penetration test esterno, backup/restore provato su dati veri | Requisito per clienti industriali seri |
 | 9–12 | Secondo e terzo sito, primo integratore a contratto | Ricorrente sopra i €20k |
+
+La società arriva dopo la domanda Smart&Start, non prima: lo strumento accetta
+un team di persone fisiche che si impegna a costituirla se la domanda è accolta,
+e così i costi di costituzione cadono *dopo* la domanda, dove sono
+potenzialmente ammissibili. Se preferisci costituire subito per altre ragioni
+puoi farlo — perdi solo quella copertura.
 
 Il miglioramento del codice che stai già facendo si inserisce nel mese 6–9. Fino
 ad allora, ogni ora spesa sul codice invece che sul pilota rimanda la sola cosa
@@ -210,6 +218,14 @@ che cambia il valore del progetto.
 
 Ipotesi di progetto su 24 mesi, dimensionato per stare nella fascia bassa di
 Smart&Start Italia.
+
+> **Regola che vincola il piano**: sono ammissibili solo le spese sostenute
+> **dopo** la presentazione della domanda, e il piano deve essere avviato dopo la
+> domanda. Le 90.000 righe già scritte non sono quindi rendicontabili — e non
+> devono comparire in questa tabella. Il loro posto è la valutazione di merito,
+> dove valgono come riduzione del rischio: la tecnologia esiste già, il progetto
+> finanzia la sua validazione sul campo e la sua industrializzazione, non la sua
+> scrittura. Vedi `FINANZIAMENTI.md`, prima sezione.
 
 | Voce | Importo | Note |
 |---|---|---|
@@ -223,9 +239,15 @@ Smart&Start Italia.
 | Consulenza per la domanda di finanziamento | €8.000 | opzionale ma consigliata |
 | **Totale** | **€217.000** | |
 
-**[DA VERIFICARE]** Smart&Start finanzia progetti a partire da una soglia minima
-(comunemente indicata in €100.000): confermare la soglia sul bando vigente prima
-di dimensionare il progetto.
+Su Smart&Start, essendo la Campania fra le 8 regioni del Mezzogiorno, la
+copertura si articola in **30% a fondo perduto e 70% a tasso zero**: su €217.000
+significa circa €65.000 non restituiti e €152.000 da restituire senza interessi.
+
+**[DA VERIFICARE]**, e sono due verifiche che cambiano la tabella:
+- la soglia minima di progetto (comunemente indicata in €100.000);
+- **se e come il costo del personale sia ammissibile** — è la voce più pesante
+  qui sopra. Le voci confermate sono attrezzature, immobilizzazioni immateriali,
+  consulenze (max 20% del totale) e capitale circolante (max 20%).
 
 ---
 
@@ -262,11 +284,11 @@ sicurezza macchina. Non è certificato per farlo e non lo sarà a breve.
 
 Dati che nessuno può ricostruire dal codice:
 
-- Regione e comune di residenza fiscale — determina quali bandi regionali sono
-  accessibili e se rientri nelle 8 regioni del Mezzogiorno (dove Smart&Start
-  eroga il 30% a fondo perduto invece che il solo tasso zero).
-- Età anagrafica e composizione dei soci — determina l'accesso a ON e a diverse
-  misure regionali.
+- ~~Regione~~ — **Campania**, quindi Mezzogiorno: Smart&Start eroga il 30% a
+  fondo perduto, ed è accessibile il canale regionale PR FESR / Sviluppo
+  Campania. Resta da precisare il comune, per i bandi camerali e provinciali.
+- Età anagrafica e composizione dei soci — determina l'accesso a **Resto al Sud
+  2.0** (under 35, contributo interamente a fondo perduto) e a ON.
 - Se esiste già una società e da quanto — il limite dei 60 mesi vale per quasi
   tutti gli strumenti nazionali.
 - I contatti industriali già disponibili (sezione 5).
