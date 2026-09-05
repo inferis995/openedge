@@ -2,6 +2,7 @@ package mqtt
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -49,6 +50,14 @@ type Config struct {
 	LWTTopic      string
 	LWTPayload    string
 	LWTRetained   bool
+
+	// SpoolPath turns on store-and-forward: when set, messages that fail to
+	// go out are written there and resent on reconnect. Empty keeps the old
+	// behavior — publish or lose — which is the right one for a
+	// subscribe-only client, where an outbound queue nobody drains is just a
+	// disk filling up.
+	SpoolPath     string
+	SpoolMaxBytes int64
 }
 
 // MessageHandler is a function that handles incoming MQTT messages
@@ -56,13 +65,14 @@ type MessageHandler func(topic string, payload []byte)
 
 // Client represents an MQTT client
 type Client struct {
-	config         Config
-	client         mqtt.Client
-	handlers       map[string]MessageHandler // map of topic to handler
-	handlersMu     sync.RWMutex
-	connectOnce    sync.Once
+	config           Config
+	client           mqtt.Client
+	handlers         map[string]MessageHandler // map of topic to handler
+	handlersMu       sync.RWMutex
 	subscribedTopics map[string]bool
-	subscribeMu    sync.Mutex
+	subscribeMu      sync.Mutex
+	spool            *Spool
+	drainMu          sync.Mutex
 }
 
 // NewClient creates a new MQTT client with the given configuration
@@ -126,6 +136,23 @@ func NewClient(config Config) *Client {
 		config:           config,
 		handlers:         make(map[string]MessageHandler),
 		subscribedTopics: make(map[string]bool),
+	}
+
+	// A spool that will not open must not stop the driver from starting: with
+	// no buffer we are back to the old behavior, which is worse but works.
+	// Halting acquisition because a file could not be created would treat a
+	// partial loss of history as a plant failure.
+	if config.SpoolPath != "" {
+		sp, err := NewSpool(config.SpoolPath, config.SpoolMaxBytes)
+		if err != nil {
+			log.Printf("[MQTT] store-and-forward disabled, cannot open %s: %v",
+				config.SpoolPath, err)
+		} else {
+			c.spool = sp
+			if n, _, _ := sp.Stats(); n > 0 {
+				log.Printf("[MQTT] store-and-forward: %d bytes waiting from a previous session", n)
+			}
+		}
 	}
 
 	// Set a single default message handler that dispatches to registered handlers
@@ -305,36 +332,112 @@ func (c *Client) Unsubscribe(topic string) error {
 
 // Publish publishes a message to a topic
 func (c *Client) Publish(topic string, payload interface{}) error {
-	token := c.client.Publish(topic, 0, false, payload)
-	if !token.WaitTimeout(opTimeout) {
-		return fmt.Errorf("publish timeout on topic %s", topic)
+	return c.PublishWithQoS(topic, payload, 0, false)
+}
+
+// PublishWithQoS publishes a message to a topic with specified QoS and retain flag.
+//
+// With store-and-forward on, a publish that fails — broker down, timeout,
+// reconnect in progress — puts the message on disk instead of nowhere, and it
+// goes out on reconnect. The function then returns nil: the message has been
+// accepted for delivery, which is the truth, and the caller has nothing to do
+// about it. Returning an error for something already handled would push every
+// driver to write handling that duplicates this.
+//
+// With no spool the behavior is the old one, error included.
+func (c *Client) PublishWithQoS(topic string, payload interface{}, qos byte, retained bool) error {
+	err := c.publishNow(topic, payload, qos, retained)
+	if err == nil {
+		log.Printf("[MQTT] Published to topic %s (QoS=%d, retained=%t): %v", topic, qos, retained, payload)
+		return nil
 	}
-	if token.Error() != nil {
-		return token.Error()
+	if c.spool == nil {
+		return err
 	}
 
-	log.Printf("[MQTT] Published to topic %s: %v", topic, payload)
+	buf, convErr := payloadBytes(payload)
+	if convErr != nil {
+		// A payload we cannot serialize is one we cannot queue either: return
+		// the original publish error, which is the useful one.
+		return err
+	}
+	if spErr := c.spool.Add(SpooledMessage{Topic: topic, QoS: qos, Retained: retained, Payload: string(buf)}); spErr != nil {
+		log.Printf("[MQTT] store-and-forward: cannot queue %s: %v (original error: %v)", topic, spErr, err)
+		return err
+	}
 	return nil
 }
 
-// PublishWithQoS publishes a message to a topic with specified QoS and retain flag
-func (c *Client) PublishWithQoS(topic string, payload interface{}, qos byte, retained bool) error {
+// publishNow is the real publish, with no safety net.
+func (c *Client) publishNow(topic string, payload interface{}, qos byte, retained bool) error {
+	if c.client == nil || !c.client.IsConnected() {
+		return fmt.Errorf("not connected to the broker")
+	}
 	token := c.client.Publish(topic, qos, retained, payload)
 	if !token.WaitTimeout(opTimeout) {
 		return fmt.Errorf("publish timeout on topic %s", topic)
 	}
-	if token.Error() != nil {
-		return token.Error()
-	}
+	return token.Error()
+}
 
-	log.Printf("[MQTT] Published to topic %s (QoS=%d, retained=%t): %v", topic, qos, retained, payload)
-	return nil
+// payloadBytes reduces to bytes the types the drivers actually pass.
+func payloadBytes(payload interface{}) ([]byte, error) {
+	switch v := payload.(type) {
+	case []byte:
+		return v, nil
+	case string:
+		return []byte(v), nil
+	default:
+		return json.Marshal(v)
+	}
+}
+
+// drainSpool resends whatever was left on disk.
+//
+// It runs in a goroutine because it is called from onConnect, which is a paho
+// callback: blocking there stops the re-subscriptions and, with a day's worth
+// of spool, would hold the client still for minutes at the exact moment it has
+// just come back.
+func (c *Client) drainSpool() {
+	if c.spool == nil {
+		return
+	}
+	if !c.drainMu.TryLock() {
+		return // a replay is already running
+	}
+	defer c.drainMu.Unlock()
+
+	pending, _, _ := c.spool.Stats()
+	if pending == 0 {
+		return
+	}
+	log.Printf("[MQTT] store-and-forward: resending %d buffered bytes", pending)
+
+	var sent int
+	err := c.spool.Drain(func(m SpooledMessage) error {
+		if e := c.publishNow(m.Topic, []byte(m.Payload), m.QoS, m.Retained); e != nil {
+			return e
+		}
+		sent++
+		return nil
+	})
+
+	remaining, dropped, corrupt := c.spool.Stats()
+	if err != nil {
+		log.Printf("[MQTT] store-and-forward: resent %d messages, then stopped (%v); %d bytes still waiting",
+			sent, err, remaining)
+		return
+	}
+	log.Printf("[MQTT] store-and-forward: resent %d messages, queue empty (dropped for a full queue: %d, unreadable lines: %d)",
+		sent, dropped, corrupt)
 }
 
 // onConnect is called when the client connects to the broker
 func (c *Client) onConnect(client mqtt.Client) {
 	log.Println("[MQTT] Connection established")
 	telemetry.MQTTConnected.Set(1)
+
+	go c.drainSpool()
 
 	// Re-subscribe to all topics on reconnect
 	c.subscribeMu.Lock()

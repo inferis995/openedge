@@ -65,8 +65,8 @@ type Driver struct {
 	database     *sql.DB
 	mqttClient   *mqtt.Client // Internal broker (system) — used to publish bridged data
 	sourceClient *mqtt.Client // Optional EXTERNAL broker — used to subscribe to PLC topics.
-	                          // When nil, the driver subscribes on the internal broker
-	                          // (the PLCs publish straight to OpenEdge).
+	// When nil, the driver subscribes on the internal broker
+	// (the PLCs publish straight to OpenEdge).
 	// sourceWanted is true when connection_config asks for an external broker.
 	// Used to suppress wrong subscriptions on the internal broker while the
 	// external one is still (re)connecting.
@@ -79,7 +79,7 @@ type Driver struct {
 	stopChan       chan struct{}
 	reloadChan     chan struct{}
 	isConnected    atomic.Bool
-	connStateMu    sync.Mutex // serializes isConnected swap + health publish
+	connStateMu    sync.Mutex      // serializes isConnected swap + health publish
 	subscribedTags map[string]bool // Track subscribed source topics
 	subMu          sync.Mutex
 
@@ -151,9 +151,9 @@ func main() {
 
 	// Connect to internal MQTT broker (system broker)
 	mqttCfg := mqtt.Config{
-		Host:          getEnv("MQTT_HOST", "localhost"),
-		Port:          getEnvInt("MQTT_PORT", 1883),
-		ClientID:      fmt.Sprintf("driver-mqtt-%d", gatewayID),
+		Host:     getEnv("MQTT_HOST", "localhost"),
+		Port:     getEnvInt("MQTT_PORT", 1883),
+		ClientID: fmt.Sprintf("driver-mqtt-%d", gatewayID),
 		// The OpenEdge broker runs with allow_anonymous false. Without these the
 		// driver is refused at CONNECT and retries forever: the gateway looks
 		// configured, the container looks up, and not one field value ever
@@ -166,6 +166,13 @@ func main() {
 		LWTTopic:      fmt.Sprintf("sys/health/%d", gatewayID),
 		LWTPayload:    "offline",
 		LWTRetained:   true,
+
+		// Store-and-forward. Se il broker non risponde i campioni vanno su
+		// disco e ripartono alla riconnessione, invece di lasciare un buco
+		// nello storico. Il percorso sta su un volume: deve sopravvivere al
+		// riavvio del container, che è metà del motivo per cui esiste.
+		SpoolPath:     fmt.Sprintf("%s/driver-mqtt-%d.jsonl", getEnv("SPOOL_DIR", "/var/lib/openedge/spool"), gatewayID),
+		SpoolMaxBytes: int64(getEnvInt("SPOOL_MAX_BYTES", 64<<20)),
 	}
 
 	mqttClient := mqtt.NewClient(mqttCfg)
@@ -552,8 +559,10 @@ func (d *Driver) clearSubscribedTags(unsubClient *mqtt.Client) {
 // when the broker parameters change and tears the client down when
 // broker_host is removed. Recognised keys (all optional, only broker_host is
 // required to enable the feature):
-//   broker_host, broker_port (default 1883), broker_tls (bool, default false),
-//   broker_username, broker_password, broker_client_id (default auto).
+//
+//	broker_host, broker_port (default 1883), broker_tls (bool, default false),
+//	broker_username, broker_password, broker_client_id (default auto).
+//
 // When broker_host is empty the driver keeps subscribing on the internal
 // broker, matching the legacy behaviour.
 func (d *Driver) ensureSourceClient(cc map[string]interface{}) {

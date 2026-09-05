@@ -5,6 +5,57 @@ All notable changes to OpenEdge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Store-and-forward on every driver.** A driver reads the PLC on a fixed tick
+  and publishes over MQTT. When the broker was unreachable — network down,
+  container restarted, maintenance — that sample went into paho's in-memory
+  queue, which starts from a volatile store, and on process restart it was gone.
+  What remained in the historian was a hole, and a hole in the history is the
+  first thing a shift supervisor notices and the one thing there is no excuse
+  for.
+
+  Samples that fail to publish now go to an append-only file on a Docker volume
+  and are resent, in order, on reconnect. Set per driver via `SPOOL_DIR` and
+  `SPOOL_MAX_BYTES` (64 MB default, roughly a day for a mid-sized gateway).
+
+  Replay works because of a property the platform already had: the driver stamps
+  the timestamp when it READS the PLC and carries it in the payload, and the
+  historian writes that value into the `time` column. A sample held for twenty
+  minutes lands at the instant it was read, not the instant it was resent —
+  otherwise store-and-forward would draw a wrong curve instead of a gap, which
+  is worse than the gap.
+
+  When the ceiling is reached the OLDEST records are dropped, because when the
+  link returns the first thing anyone needs is the state of the plant now. The
+  lost stretch is counted and logged, so the gap is declared rather than
+  discovered from a chart. A line truncated by a crash is skipped and counted.
+  A failed resend stops the replay and leaves the remainder on disk; the file is
+  rewritten only after a send succeeds, so a crash mid-replay produces
+  duplicates rather than losses — for a time series a point written twice with
+  the same timestamp is harmless, a missing point is not.
+
+  Eight tests, each verified by reintroducing the defect and watching it fail:
+  replay order, survival across a process restart, the remainder staying on disk
+  after a failed send, oldest-dropped-and-counted when full, a corrupt line
+  skipped rather than fatal, draining an absent spool, and — at the client
+  level, with no broker running — that a publish with the broker down queues
+  instead of losing, while a client with no `SpoolPath` still returns the error
+  as it did before.
+
+### Fixed
+
+- **`Publish` did not check whether it was connected.** It handed the message to
+  paho and reported whatever came back. `publishNow` now fails explicitly when
+  the client is nil or disconnected, which is what makes the spool decision
+  possible at all.
+
+### Removed
+
+- `Client.connectOnce`, a `sync.Once` nothing had used.
+
 ## [3.1.0] - 2026-09-05
 
 > **No breaking change. Nothing to do on upgrade.** `nis2_checks_passed`,

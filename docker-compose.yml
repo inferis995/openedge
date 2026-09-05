@@ -547,6 +547,11 @@ services:
       - no-new-privileges:true
     networks:
       - openedge-net
+    volumes:
+      # Lo spool store-and-forward deve sopravvivere al riavvio del
+      # container: senza volume il buffer muore con il processo e il buco
+      # nello storico torna esattamente com'era.
+      - driver-modbus-spool:/var/lib/openedge/spool
 
   driver-s7:
     profiles: ["drivers"]
@@ -561,6 +566,11 @@ services:
       - no-new-privileges:true
     networks:
       - openedge-net
+    volumes:
+      # Lo spool store-and-forward deve sopravvivere al riavvio del
+      # container: senza volume il buffer muore con il processo e il buco
+      # nello storico torna esattamente com'era.
+      - driver-s7-spool:/var/lib/openedge/spool
 
   driver-opcua:
     profiles: ["drivers"]
@@ -575,6 +585,11 @@ services:
       - no-new-privileges:true
     networks:
       - openedge-net
+    volumes:
+      # Lo spool store-and-forward deve sopravvivere al riavvio del
+      # container: senza volume il buffer muore con il processo e il buco
+      # nello storico torna esattamente com'era.
+      - driver-opcua-spool:/var/lib/openedge/spool
 
   driver-mqtt:
     profiles: ["drivers"]
@@ -589,6 +604,11 @@ services:
       - no-new-privileges:true
     networks:
       - openedge-net
+    volumes:
+      # Lo spool store-and-forward deve sopravvivere al riavvio del
+      # container: senza volume il buffer muore con il processo e il buco
+      # nello storico torna esattamente com'era.
+      - driver-mqtt-spool:/var/lib/openedge/spool
 
   driver-redis:
     profiles: ["drivers"]
@@ -603,6 +623,11 @@ services:
       - no-new-privileges:true
     networks:
       - openedge-net
+    volumes:
+      # Lo spool store-and-forward deve sopravvivere al riavvio del
+      # container: senza volume il buffer muore con il processo e il buco
+      # nello storico torna esattamente com'era.
+      - driver-redis-spool:/var/lib/openedge/spool
 
   driver-lorawan:
     profiles: ["drivers"]
@@ -625,6 +650,16 @@ networks:
 
 volumes:
   pgdata:
+    driver: local
+  driver-modbus-spool:
+    driver: local
+  driver-s7-spool:
+    driver: local
+  driver-opcua-spool:
+    driver: local
+  driver-mqtt-spool:
+    driver: local
+  driver-redis-spool:
     driver: local
   redisdata:
     driver: local

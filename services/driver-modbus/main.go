@@ -157,9 +157,9 @@ func main() {
 	log.Println("[DRIVER] Connected to PostgreSQL")
 
 	mqttCfg := mqtt.Config{
-		Host:          getEnv("MQTT_HOST", "localhost"),
-		Port:          getEnvInt("MQTT_PORT", 1883),
-		ClientID:      fmt.Sprintf("driver-modbus-%d", gatewayID),
+		Host:     getEnv("MQTT_HOST", "localhost"),
+		Port:     getEnvInt("MQTT_PORT", 1883),
+		ClientID: fmt.Sprintf("driver-modbus-%d", gatewayID),
 		// The OpenEdge broker runs with allow_anonymous false. Without these the
 		// driver is refused at CONNECT and retries forever: the gateway looks
 		// configured, the container looks up, and not one field value ever
@@ -172,6 +172,13 @@ func main() {
 		LWTTopic:      fmt.Sprintf("sys/health/%d", gatewayID),
 		LWTPayload:    "offline",
 		LWTRetained:   true,
+
+		// Store-and-forward. Se il broker non risponde i campioni vanno su
+		// disco e ripartono alla riconnessione, invece di lasciare un buco
+		// nello storico. Il percorso sta su un volume: deve sopravvivere al
+		// riavvio del container, che è metà del motivo per cui esiste.
+		SpoolPath:     fmt.Sprintf("%s/driver-modbus-%d.jsonl", getEnv("SPOOL_DIR", "/var/lib/openedge/spool"), gatewayID),
+		SpoolMaxBytes: int64(getEnvInt("SPOOL_MAX_BYTES", 64<<20)),
 	}
 
 	mqttClient := mqtt.NewClient(mqttCfg)
