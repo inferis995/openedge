@@ -10,7 +10,24 @@ permissions:
 
 jobs:
   review:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    # Fork PRs cannot read secrets, and neither can Dependabot's.
+    #
+    # Dependabot runs in its own restricted context: `secrets.*` resolves to
+    # empty unless the value is also stored under Settings → Secrets and
+    # variables → *Dependabot*. So on every dependency PR this job reached
+    # `ocr review` with an empty token and died the same way — "auth_token_cmd
+    # for llm config produced empty output" — six seconds in. Eight open
+    # Dependabot PRs, eight identical red crosses, none of them about the code.
+    #
+    # We skip rather than store the key for Dependabot, because the review has
+    # nothing to read there. A dependency PR is a diff of version numbers in a
+    # manifest; what actually decides whether it is safe is Go Test, the
+    # vulnerability scan and the end-to-end suite, and those already run. The
+    # cost of the red cross was never the tokens — it was learning to ignore a
+    # failing check.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
