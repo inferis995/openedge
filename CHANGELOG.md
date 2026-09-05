@@ -48,8 +48,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SECURITY_POSTURE_SELF_ASSESSMENT`, carries an explicit disclaimer for whoever
   opens it out of context months later, and is named `security-posture-*.json`.
 
-  NIS2 is still named throughout, deliberately: as the thing the checks are
-  modelled on, and in the Terms of Service to disclaim it.
+- **NIS2 is no longer named on the security screens at all.** The box is called
+  "Controlli di sicurezza", each row shows the check and its verdict, and the
+  article reference next to it is gone — a legal citation beside a row of green
+  ticks reads as "compliant" whatever the heading says. The exported report
+  carries the checks without it too, because that file is what somebody ends up
+  handing to a customer. `article` is still served by the API for compatibility
+  and is deprecated for removal in 4.0.0.
+
+  The provenance stays in `internal/handlers/security.go`, where a developer
+  reads it and a customer does not. The Terms of Service still name the
+  directive, and must: the sentence there is "non fornisce, né sostituisce, gli
+  adempimenti previsti dalla direttiva NIS2", which is the disclaimer that
+  protects the seller.
 
 ### Deprecated
 

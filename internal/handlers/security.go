@@ -97,11 +97,16 @@ type SecurityOverview struct {
 	LockedAccounts    int64          `json:"locked_accounts"`
 	SecurityEvents24h int64          `json:"security_events_24h"`
 
-	// Controlli automatici sulla postura di sicurezza, modellati sulle misure
-	// dell'art. 21 NIS2. NON sono una dichiarazione di conformità: sei di essi
-	// riguardano misure organizzative che nessun software può accertare
+	// Controlli automatici di sicurezza. NON sono una certificazione: sei di
+	// essi riguardano misure organizzative che nessun software può accertare
 	// guardando dentro sé stesso, e sono riportati come non valutati anziché
 	// come superati.
+	//
+	// L'elenco deriva dalle misure dell'art. 21 della direttiva NIS2, che è una
+	// tassonomia ragionevole di che cosa guardare. Quella provenienza resta qui,
+	// nel sorgente, e non compare nell'interfaccia: un utente che legge "NIS2"
+	// accanto a un elenco di spunte capisce "conforme", e non è ciò che questi
+	// numeri dicono.
 	ChecksPassed      int             `json:"checks_passed"`
 	ChecksEvaluated   int             `json:"checks_evaluated"`
 	ChecksNotAssessed int             `json:"checks_not_assessed"`
@@ -371,6 +376,10 @@ func (h *SecurityHandler) Events(c *gin.Context) {
 type ComplianceCheck struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
+	// Article è deprecato dalla 3.1.0 e non è più mostrato nell'interfaccia né
+	// incluso nei report esportati: un riferimento normativo accanto a una
+	// spunta verde si legge come conformità. Resta servito per non rompere chi
+	// lo legge già. Da togliere in 4.0.0.
 	Article string `json:"article"`
 	State   string `json:"state"`
 	Detail  string `json:"detail"`

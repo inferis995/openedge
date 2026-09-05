@@ -177,9 +177,9 @@ const ReportsPage = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div className="rounded-md border bg-card p-4 space-y-3">
                             <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-                                <ShieldCheck size={16} /> Report postura di sicurezza (JSON)
+                                <ShieldCheck size={16} /> Report controlli di sicurezza (JSON)
                             </div>
-                            <p className="text-sm">Autovalutazione dei controlli automatici, modellati sulle misure dell'art. 21 NIS2. Non è una dichiarazione di conformità.</p>
+                            <p className="text-sm">Autovalutazione dei controlli automatici di sicurezza. Non è una certificazione.</p>
                             <Button
                                 className="gap-2"
                                 onClick={async () => {
@@ -191,11 +191,11 @@ const ReportsPage = () => {
                                         const report = {
                                             type: 'SECURITY_POSTURE_SELF_ASSESSMENT',
                                             disclaimer:
-                                                'Autovalutazione automatica della postura di sicurezza, modellata sulle ' +
-                                                'misure dell\'art. 21 della direttiva NIS2. NON costituisce una ' +
-                                                'dichiarazione né una certificazione di conformità NIS2: i controlli con ' +
-                                                'stato "not_assessed" riguardano misure organizzative che il software non ' +
-                                                'può accertare e restano in capo al titolare dell\'impianto.',
+                                                'Autovalutazione automatica dei controlli di sicurezza della piattaforma. ' +
+                                                'NON costituisce una certificazione né una dichiarazione di conformità ' +
+                                                'normativa: i controlli con stato "not_assessed" riguardano misure ' +
+                                                'organizzative che il software non può accertare e restano in capo al ' +
+                                                'titolare dell\'impianto.',
                                             generated_at: new Date().toISOString(),
                                             security_score: overview.score,
                                             checks_passed: overview.checks_passed,
@@ -204,7 +204,7 @@ const ReportsPage = () => {
                                             checks: overview.checks,
                                             failed_logins_24h: overview.failed_logins_24h,
                                             locked_accounts: overview.locked_accounts,
-                                            compliance_checks: compliance,
+                                            controlli: compliance.map(c => ({ id: c.id, name: c.name, state: c.state, detail: c.detail })),
                                         };
                                         const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
                                         const url = URL.createObjectURL(blob);

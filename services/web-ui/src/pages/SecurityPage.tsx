@@ -88,11 +88,11 @@ const SecurityPage = () => {
             // dopo. La riga che segue è l'unica cosa che gli impedisce di
             // scambiarlo per un certificato di conformità.
             disclaimer:
-                'Autovalutazione automatica della postura di sicurezza, modellata sulle ' +
-                'misure dell\'art. 21 della direttiva NIS2. NON costituisce una ' +
-                'dichiarazione né una certificazione di conformità NIS2: i controlli con ' +
-                'stato "not_assessed" riguardano misure organizzative che il software non ' +
-                'può accertare e restano in capo al titolare dell\'impianto.',
+                'Autovalutazione automatica dei controlli di sicurezza della piattaforma. ' +
+                'NON costituisce una certificazione né una dichiarazione di conformità ' +
+                'normativa: i controlli con stato "not_assessed" riguardano misure ' +
+                'organizzative che il software non può accertare e restano in capo al ' +
+                'titolare dell\'impianto.',
             generated_at: new Date().toISOString(),
             checks_passed: overview?.checks_passed,
             checks_evaluated: overview?.checks_evaluated,
@@ -101,7 +101,11 @@ const SecurityPage = () => {
             security_score: overview?.score,
             failed_logins_24h: overview?.failed_logins_24h,
             security_events_24h: overview?.security_events_24h,
-            compliance_checks: compliance,
+            // Solo ciò che serve a chi legge: cosa è stato controllato, com'è
+            // andato e perché. Il riferimento normativo resta nell'API per
+            // compatibilità ma non finisce in un file che qualcuno potrebbe
+            // presentare come prova di conformità.
+            controlli: compliance.map(c => ({ id: c.id, name: c.name, state: c.state, detail: c.detail })),
         };
         const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -243,11 +247,11 @@ const SecurityPage = () => {
             </Card>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Postura di sicurezza — autovalutazione, non conformità */}
+                {/* Controlli di sicurezza — autovalutazione, non certificazione */}
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-base flex items-center justify-between">
-                            <span>Postura di sicurezza — misure art. 21 NIS2</span>
+                            <span>Controlli di sicurezza</span>
                             <Badge variant={evaluatedCount > 0 && passedCount === evaluatedCount ? 'default' : 'destructive'}>
                                 {passedCount}/{evaluatedCount} superati
                             </Badge>
@@ -265,7 +269,6 @@ const SecurityPage = () => {
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
                                         <span className="text-sm font-medium">{check.name}</span>
-                                        <span className="text-xs text-muted-foreground">{check.article}</span>
                                     </div>
                                     <div className="text-xs text-muted-foreground">{check.detail}</div>
                                 </div>
@@ -273,9 +276,9 @@ const SecurityPage = () => {
                         ))}
                         {notAssessedCount > 0 && (
                             <p className="text-xs text-muted-foreground pt-3 border-t">
-                                {notAssessedCount} misure sono organizzative e non accertabili dal
-                                software: restano in capo al titolare dell'impianto. Questa schermata
-                                è un'autovalutazione, non una dichiarazione di conformità NIS2.
+                                {notAssessedCount} controlli riguardano misure organizzative che il
+                                software non può accertare: restano in capo al titolare dell'impianto.
+                                Questa schermata è un'autovalutazione, non una certificazione.
                             </p>
                         )}
                     </CardContent>

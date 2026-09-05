@@ -16,8 +16,7 @@ export interface SecurityOverview {
     locked_accounts: number;
     security_events_24h: number;
     /**
-     * Controlli automatici sulla postura di sicurezza, modellati sulle misure
-     * dell'art. 21 NIS2. Non sono una dichiarazione di conformità: sei dei
+     * Controlli automatici di sicurezza. Non sono una certificazione: sei dei
      * dodici riguardano misure organizzative che il software non può
      * accertare, e arrivano con state 'not_assessed' anziché contati come
      * superati.
@@ -30,7 +29,7 @@ export interface SecurityOverview {
     // dalla 3.1.0 per non rompere i client scritti sulla 3.0.0. Non sono
     // dichiarati qui apposta: la web UI non deve poterli usare, e un campo che
     // non esiste nel tipo è più difficile da reintrodurre per distrazione di
-    // uno marcato @deprecated.
+    // uno marcato @deprecated. Vale lo stesso per `article` su ComplianceCheck.
 }
 
 export interface SecurityCheck {
@@ -52,7 +51,6 @@ export interface SecurityEvent {
 export interface ComplianceCheck {
     id: string;
     name: string;
-    article: string;
     state: 'pass' | 'fail' | 'not_assessed';
     detail: string;
 }
