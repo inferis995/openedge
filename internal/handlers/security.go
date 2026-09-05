@@ -106,6 +106,23 @@ type SecurityOverview struct {
 	ChecksEvaluated   int             `json:"checks_evaluated"`
 	ChecksNotAssessed int             `json:"checks_not_assessed"`
 	Checks            []SecurityCheck `json:"checks"`
+
+	// Deprecati, serviti per non rompere chi già li legge.
+	//
+	// Rimuoverli avrebbe rotto i client esistenti per una correzione
+	// che non ne aveva bisogno: la forma di questi due campi — un superati e un
+	// totale da mostrare come frazione — non era il problema. Il problema erano
+	// i valori, e quelli ora sono onesti.
+	//
+	// NIS2ChecksTotal porta il numero di controlli VALUTATI, non dodici. Un
+	// client vecchio che stampa "X/Y" continua a funzionare e stampa una
+	// frazione vera, invece di un dodicesimo che nessuno poteva raggiungere.
+	//
+	// Da togliere in 4.0.0. Chi legge questi campi passi a ChecksPassed e
+	// ChecksEvaluated, che dicono la stessa cosa senza far credere che i
+	// controlli non misurati siano stati misurati.
+	NIS2ChecksPassed int `json:"nis2_checks_passed"`
+	NIS2ChecksTotal  int `json:"nis2_checks_total"`
 }
 
 // SecurityCheck è un singolo controllo con il suo esito.
@@ -195,20 +212,46 @@ func (h *SecurityHandler) Overview(c *gin.Context) {
 	// vulnerabilità, protezione dei dati — che dipendono da procedure aziendali
 	// fuori dal processo. Il software non le può accertare, e dirsi conformi su
 	// di esse sarebbe una dichiarazione su un'organizzazione che non conosce.
-	checks := []SecurityCheck{
+	overview := SecurityOverview{
+		Score:             score,
+		ScoreBreakdown:    breakdown,
+		FailedLogins24h:   failedLogins,
+		LockedAccounts:    lockedAccounts,
+		SecurityEvents24h: secEvents24h,
+	}
+	overview.setChecks(securityChecks(breakdown))
+
+	c.JSON(http.StatusOK, overview)
+}
+
+// securityChecks costruisce i dodici controlli a partire dallo stato della
+// piattaforma. Puro: nessuna query, così è verificabile senza un database.
+func securityChecks(b ScoreBreakdown) []SecurityCheck {
+	return []SecurityCheck{
 		{"risk_management", checkNotAssessed},
 		{"incident_handling", checkNotAssessed},
-		{"business_continuity", passFail(breakdown.BackupFresh)},
+		{"business_continuity", passFail(b.BackupFresh)},
 		{"supply_chain", checkNotAssessed},
-		{"network_security", passFail(breakdown.MQTTTLS)},
-		{"access_control", passFail(breakdown.RBACEnabled)},
-		{"mfa", passFail(breakdown.MFAAnyAdmin)},
+		{"network_security", passFail(b.MQTTTLS)},
+		{"access_control", passFail(b.RBACEnabled)},
+		{"mfa", passFail(b.MFAAnyAdmin)},
 		{"cryptography", checkNotAssessed},
 		{"vulnerability_mgmt", checkNotAssessed},
-		{"audit_logging", passFail(breakdown.AuditLogging)},
-		{"account_security", passFail(breakdown.AccountLockoutActive)},
+		{"audit_logging", passFail(b.AuditLogging)},
+		{"account_security", passFail(b.AccountLockoutActive)},
 		{"data_protection", checkNotAssessed},
 	}
+}
+
+// setChecks conta i controlli e riempie ENTRAMBE le rappresentazioni: quella
+// attuale e i due campi deprecati.
+//
+// È un metodo, e non due assegnazioni nel gestore, per una ragione precisa:
+// due rappresentazioni della stessa cosa calcolate in due punti diversi
+// divergono, sempre, non appena qualcuno tocca uno dei due. Qui c'è un solo
+// punto, quindi non possono. Quando i campi deprecati verranno tolti in 4.0.0,
+// spariscono da qui e da nessun altro posto.
+func (o *SecurityOverview) setChecks(checks []SecurityCheck) {
 	var passed, evaluated, notAssessed int
 	for _, ck := range checks {
 		switch ck.State {
@@ -221,18 +264,12 @@ func (h *SecurityHandler) Overview(c *gin.Context) {
 			notAssessed++
 		}
 	}
-
-	c.JSON(http.StatusOK, SecurityOverview{
-		Score:             score,
-		ScoreBreakdown:    breakdown,
-		FailedLogins24h:   failedLogins,
-		LockedAccounts:    lockedAccounts,
-		SecurityEvents24h: secEvents24h,
-		ChecksPassed:      passed,
-		ChecksEvaluated:   evaluated,
-		ChecksNotAssessed: notAssessed,
-		Checks:            checks,
-	})
+	o.Checks = checks
+	o.ChecksPassed = passed
+	o.ChecksEvaluated = evaluated
+	o.ChecksNotAssessed = notAssessed
+	o.NIS2ChecksPassed = passed
+	o.NIS2ChecksTotal = evaluated
 }
 
 type SecurityEventRow struct {
@@ -337,13 +374,21 @@ type ComplianceCheck struct {
 	Article string `json:"article"`
 	State   string `json:"state"`
 	Detail  string `json:"detail"`
+
+	// Deprecato, servito per non rompere chi già lo legge. Vale true solo per
+	// State == "pass": un controllo non valutato arriva come false, cioè "non
+	// superato", che è il verso sicuro in cui sbagliare — un client vecchio
+	// sottostima la propria postura invece di sopravvalutarla.
+	//
+	// Da togliere in 4.0.0.
+	Passed bool `json:"passed"`
 }
 
 // notAssessed costruisce una voce per una misura organizzativa. Detail dice
 // che cosa la piattaforma fa in quell'area, senza far discendere da quel fatto
 // una conformità che riguarda procedure aziendali fuori dal processo.
 func notAssessed(id, name, article, detail string) ComplianceCheck {
-	return ComplianceCheck{ID: id, Name: name, Article: article, State: checkNotAssessed, Detail: detail}
+	return ComplianceCheck{ID: id, Name: name, Article: article, State: checkNotAssessed, Detail: detail, Passed: false}
 }
 
 // evaluated costruisce una voce misurata, con il testo del ramo in cui si trova.
@@ -352,7 +397,46 @@ func evaluatedCheck(id, name, article string, ok bool, whenPass, whenFail string
 	if ok {
 		d = whenPass
 	}
-	return ComplianceCheck{ID: id, Name: name, Article: article, State: passFail(ok), Detail: d}
+	return ComplianceCheck{ID: id, Name: name, Article: article, State: passFail(ok), Detail: d, Passed: ok}
+}
+
+// complianceChecks costruisce l'elenco mostrato nel Security Center.
+//
+// Puro come securityChecks: prende i tre stati misurati e restituisce le voci,
+// senza toccare il database. È l'unico modo per verificare in un test che il
+// dettaglio segua il verdetto — il difetto che questa riscrittura è nata per
+// correggere era esattamente un dettaglio costante accanto a un esito
+// variabile, e nessuna prova che passasse per il gestore lo avrebbe mostrato
+// senza un Postgres acceso.
+func complianceChecks(backupPassed, mqttPassed, mfaPassed bool, mfaDetail string) []ComplianceCheck {
+	return []ComplianceCheck{
+		notAssessed("risk_management", "Gestione del rischio", "Art. 21(2)(a)",
+			"Misura organizzativa: la piattaforma registra gli eventi ma non può accertare l'esistenza di una politica di analisi del rischio"),
+		notAssessed("incident_handling", "Gestione incidenti", "Art. 21(2)(b)",
+			"Misura organizzativa: nessun workflow di gestione incidenti nella piattaforma"),
+		evaluatedCheck("business_continuity", "Continuità operativa", "Art. 21(2)(c)", backupPassed,
+			"Backup presente nelle ultime 25 ore, con verifica integrità SHA-256",
+			"Nessun backup nelle ultime 25 ore"),
+		notAssessed("supply_chain", "Sicurezza supply chain", "Art. 21(2)(d)",
+			"Misura organizzativa: le versioni dei componenti edge non sono monitorate dalla piattaforma"),
+		evaluatedCheck("network_security", "Sicurezza di rete", "Art. 21(2)(e)", mqttPassed,
+			"MQTT cifrato con TLS",
+			"MQTT non cifrato (TLS assente)"),
+		{ID: "access_control", Name: "Controllo accessi", Article: "Art. 21(2)(i)", State: checkPass, Passed: true,
+			Detail: "RBAC per ruolo su tutte le rotte; SSO OIDC configurabile per organizzazione"},
+		evaluatedCheck("mfa", "Autenticazione multi-fattore", "Art. 21(2)(j)", mfaPassed,
+			mfaDetail, mfaDetail),
+		notAssessed("cryptography", "Crittografia", "Art. 21(2)(h)",
+			"Misura organizzativa: la piattaforma usa bcrypt, SHA-256 sui backup e JWT HS256, ma la politica crittografica aziendale non è accertabile dal software"),
+		notAssessed("vulnerability_mgmt", "Gestione vulnerabilità", "Art. 21(2)(e)",
+			"Misura organizzativa: la piattaforma non monitora CVE e versioni dell'installazione del cliente"),
+		{ID: "audit_logging", Name: "Logging e monitoraggio", Article: "Art. 21(2)(f)", State: checkPass, Passed: true,
+			Detail: "Audit log sempre attivo, con IP e user agent"},
+		{ID: "account_security", Name: "Sicurezza account", Article: "Art. 21(2)(i)", State: checkPass, Passed: true,
+			Detail: "Rate limiting sul login e blocco account dopo 5 tentativi falliti"},
+		notAssessed("data_protection", "Protezione dati", "Art. 21(2)(h)",
+			"Misura organizzativa: password con hash e backup con hash di integrità, ma il trattamento dei dati resta in capo al titolare"),
+	}
 }
 
 func (h *SecurityHandler) Compliance(c *gin.Context) {
@@ -404,34 +488,7 @@ func (h *SecurityHandler) Compliance(c *gin.Context) {
 		mfaDetail = fmt.Sprintf("%d admin con MFA abilitato", mfaCount)
 	}
 
-	checks := []ComplianceCheck{
-		notAssessed("risk_management", "Gestione del rischio", "Art. 21(2)(a)",
-			"Misura organizzativa: la piattaforma registra gli eventi ma non può accertare l'esistenza di una politica di analisi del rischio"),
-		notAssessed("incident_handling", "Gestione incidenti", "Art. 21(2)(b)",
-			"Misura organizzativa: nessun workflow di gestione incidenti nella piattaforma"),
-		evaluatedCheck("business_continuity", "Continuità operativa", "Art. 21(2)(c)", backupPassed,
-			"Backup presente nelle ultime 25 ore, con verifica integrità SHA-256",
-			"Nessun backup nelle ultime 25 ore"),
-		notAssessed("supply_chain", "Sicurezza supply chain", "Art. 21(2)(d)",
-			"Misura organizzativa: le versioni dei componenti edge non sono monitorate dalla piattaforma"),
-		evaluatedCheck("network_security", "Sicurezza di rete", "Art. 21(2)(e)", mqttPassed,
-			"MQTT cifrato con TLS",
-			"MQTT non cifrato (TLS assente)"),
-		{ID: "access_control", Name: "Controllo accessi", Article: "Art. 21(2)(i)", State: checkPass,
-			Detail: "RBAC per ruolo su tutte le rotte; SSO OIDC configurabile per organizzazione"},
-		evaluatedCheck("mfa", "Autenticazione multi-fattore", "Art. 21(2)(j)", mfaPassed,
-			mfaDetail, mfaDetail),
-		notAssessed("cryptography", "Crittografia", "Art. 21(2)(h)",
-			"Misura organizzativa: la piattaforma usa bcrypt, SHA-256 sui backup e JWT HS256, ma la politica crittografica aziendale non è accertabile dal software"),
-		notAssessed("vulnerability_mgmt", "Gestione vulnerabilità", "Art. 21(2)(e)",
-			"Misura organizzativa: la piattaforma non monitora CVE e versioni dell'installazione del cliente"),
-		{ID: "audit_logging", Name: "Logging e monitoraggio", Article: "Art. 21(2)(f)", State: checkPass,
-			Detail: "Audit log sempre attivo, con IP e user agent"},
-		{ID: "account_security", Name: "Sicurezza account", Article: "Art. 21(2)(i)", State: checkPass,
-			Detail: "Rate limiting sul login e blocco account dopo 5 tentativi falliti"},
-		notAssessed("data_protection", "Protezione dati", "Art. 21(2)(h)",
-			"Misura organizzativa: password con hash e backup con hash di integrità, ma il trattamento dei dati resta in capo al titolare"),
-	}
-
-	c.JSON(http.StatusOK, checks)
+	c.JSON(http.StatusOK, complianceChecks(backupPassed, mqttPassed, mfaPassed, mfaDetail))
 }
+
+

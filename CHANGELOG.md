@@ -5,13 +5,14 @@ All notable changes to OpenEdge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.1.0] - 2026-09-05
 
-> **Breaking (API).** `GET /api/security/overview` no longer returns
-> `nis2_checks_passed` and `nis2_checks_total`; `GET /api/security/compliance`
-> no longer returns `passed`. Both now carry a three-valued `state`
-> (`pass` / `fail` / `not_assessed`). The web UI is updated in the same commit;
-> any other consumer needs a change.
+> **No breaking change. Nothing to do on upgrade.** `nis2_checks_passed`,
+> `nis2_checks_total` and `passed` are all still served — a client written
+> against 3.0.0 keeps working untouched. What changed is the values behind them,
+> which are now true. `nis2_checks_total` carries the number of checks actually
+> *evaluated* rather than a fixed twelve, so a client printing "X/Y" prints a
+> fraction that means something instead of a denominator nobody could reach.
 
 ### Fixed
 
@@ -50,6 +51,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   NIS2 is still named throughout, deliberately: as the thing the checks are
   modelled on, and in the Terms of Service to disclaim it.
 
+### Deprecated
+
+- **`nis2_checks_passed` and `nis2_checks_total`** on `GET /api/security/overview`,
+  and **`passed`** on `GET /api/security/compliance`. Superseded by
+  `checks_passed` / `checks_evaluated` / `checks_not_assessed` and by a
+  three-valued `state` (`pass` / `fail` / `not_assessed`) — a boolean has no way
+  to say "not assessed", which is what half these checks honestly are. The old
+  fields keep being served and keep agreeing with the new ones: both
+  representations are computed in one place (`SecurityOverview.setChecks`), and
+  `TestTheDeprecatedFieldsMirrorTheCurrentOnes` fails if they ever drift. A
+  compatibility field that quietly stops matching the thing it mirrors is worse
+  than no compatibility at all. `passed` is `false` for a check that was never
+  assessed — an old client understates its posture rather than overstating it,
+  which is the safe direction to be wrong in. Scheduled for removal in 4.0.0.
+
 ### Added
 
 - **`TestTheNIS2ModuleStaysRemoved`.** Removal was a one-time act; staying
@@ -59,6 +75,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the three branches that forked before the removal and carry 236, 253 and 259
   commits each. All three assertions were verified by reintroducing the defect
   and watching the test fail, not only by watching it pass.
+
+- **Three tests over the security checks**, all verified the same way — by
+  reintroducing the defect and watching them fail.
+  `TestTheDeprecatedFieldsMirrorTheCurrentOnes` catches the deprecated fields
+  drifting from the current ones. `TestOnlyMeasuredChecksAreCounted` catches a
+  constant put back where a measurement belongs: with every platform measure
+  off, no check may report as passed. `TestEachComplianceDetailFollowsItsVerdict`
+  catches a detail string shared between the pass and fail branches — the exact
+  shape of the "MQTT non cifrato (TLS assente)" line that sat next to a green
+  tick. `securityChecks` and `complianceChecks` were extracted as pure functions
+  so all three run without a database.
 
 ## [3.0.0] - 2026-09-05
 

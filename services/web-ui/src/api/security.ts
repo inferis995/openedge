@@ -26,6 +26,11 @@ export interface SecurityOverview {
     checks_evaluated: number;
     checks_not_assessed: number;
     checks: SecurityCheck[];
+    // Il server serve ancora nis2_checks_passed e nis2_checks_total, deprecati
+    // dalla 3.1.0 per non rompere i client scritti sulla 3.0.0. Non sono
+    // dichiarati qui apposta: la web UI non deve poterli usare, e un campo che
+    // non esiste nel tipo è più difficile da reintrodurre per distrazione di
+    // uno marcato @deprecated.
 }
 
 export interface SecurityCheck {
