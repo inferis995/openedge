@@ -5,6 +5,102 @@ All notable changes to OpenEdge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-09-05
+
+> **Breaking — the NIS2 compliance module is gone.** Thirty-eight endpoints
+> under `/api/compliance/*` no longer answer, six pages are removed, and the
+> Terms of Service no longer state that the platform provides NIS2/IEC 62443
+> compliance. Anything integrating with those endpoints must be updated. If you
+> need the module, stay on 2.3.0 or `git revert 235885f` — the code is in
+> history, not deleted from the world.
+>
+> **Upgrading an existing installation is safe and needs no action.** The
+> migrations stop *creating* the ten tables; nothing drops them. Existing rows —
+> including `csirt_incidents`, which holds incident records with statutory
+> filing deadlines somebody may be required to retain — stay where they are and
+> are simply no longer read. Removing them is an operator's deliberate act.
+
+### Removed
+
+- **The NIS2 / OT compliance module.** Six pages, five handlers, ten tables, the
+  whole `internal/sync` package, and an hourly background worker that walked
+  every organization on every installation whether or not anyone had ever opened
+  those pages. The directive binds companies in regulated sectors; every
+  deployment carried the weight, most have no obligation under it.
+
+  What remains, deliberately: `GET /api/security/compliance` still runs its
+  twelve checks against the deployment's own data — MFA on admins, audit
+  logging, MQTT over TLS, edge versions — mapped to NIS2 Art. 21(2) points, and
+  still feeds the Security and Reports pages. It reads users and settings, never
+  the removed tables. It is a posture report, not a compliance suite: no asset
+  register, no incident filing workflow, no supplier scoring, and README and the
+  Terms of Service now say exactly that.
+
+### Security
+
+- **Four CVEs were compiled into every Go binary this project ships.** Found on
+  the first run of the rebuilt image scan (see *Changed*), which looks at the
+  artifact instead of the base image it started from. The Alpine layer came back
+  clean; the binary did not.
+
+  | module | fixed in | advisory |
+  |---|---|---|
+  | `golang.org/x/crypto` | v0.55.0 | CVE-2026-56854 — **CRITICAL**, `ssh`: authentication bypass, source-address restrictions not enforced |
+  | `golang.org/x/mod` | v0.40.0 | CVE-2026-56864 — a malicious GOSUMDB could serve arbitrary module content |
+  | `golang.org/x/mod` | v0.40.0 | CVE-2026-56865 — `sumdb/tlog`: supply-chain compromise via tile verification bypass |
+  | `golang.org/x/text` | v0.41.0 | CVE-2026-56852 — denial of service on invalid UTF-8 |
+
+  No scan of a base image could ever have seen these. `govulncheck` did not
+  report them either, and is right not to: it reports what the code can *reach*,
+  and it passes on this tree. Trivy reports what is *present* — which is what a
+  customer's own scanner will find in the image and ask about.
+
+- **Shipped images now take OS security patches at build time.** Not one runtime
+  stage ran `apk upgrade`, so every image froze whatever its base tag happened to
+  hold on build day. The nightly scan found openssl 3.5.7-r0 (CVE-2026-14456,
+  HIGH) while Alpine had already published 3.5.8-r0, and the only remedy on offer
+  — "bump the FROM tag" — does not exist until somebody else rebuilds one. All
+  eleven runtime stages now upgrade their OS packages themselves.
+
+- **Frontend advisories.** `browserslist` (HIGH, unbounded memory growth) and
+  `@humanfs/node` (symlink traversal in recursive copy), both taken by
+  `npm audit fix` without touching `package.json`.
+
+### Changed
+
+- **The image scan looks at the product, not at its base.** It scanned the base
+  image *reference* — `alpine:3.22` as it stood on the registry. With the
+  upgrade above in place those two answers diverge: the artifact a customer
+  receives can be clean while the tag it started from is not, and the job would
+  have stayed red over a finding that no longer applied to anything shipped. The
+  runtime matrix now builds each service and scans what came out.
+
+- **Builder images report, and only CRITICAL stops the build.** `golang:1.25-alpine`
+  and `node:22-alpine` carried the same openssl with no tag to move to, turning
+  the whole nightly scan red with no action available — the state that teaches
+  people to ignore a job. Nothing in a builder reaches a customer, so what is in
+  there is always printed and only a CRITICAL halts.
+
+- **CI runs on every branch.** The push trigger listed `[main, master, develop,
+  "claude/*"]` — the branch naming one tool happened to use. A branch called
+  anything else got no CI until somebody opened a pull request.
+
+- **Accepted findings now carry an expiry.** `.trivyignore` holds seven
+  util-linux CVEs in the web-ui image: fixed in `libuuid 2.42.3-r0`, which is not
+  in the Alpine 3.24 branch that image builds on, so `apk upgrade` has nothing
+  newer to install. They are privilege escalations through `mount(8)`, `nsenter`
+  and X-mount hooks, and this container runs nginx as a non-root user under
+  `no-new-privileges` and mounts nothing — present on the filesystem, unreachable
+  by anything the image executes. **The exception expires 2026-12-01**, after
+  which the build goes red again on purpose.
+
+### Fixed
+
+- `services/web-ui/dist/` was in `.gitignore` and tracked anyway — `.gitignore`
+  does not untrack what git already knows. `tsconfig.tsbuildinfo` was tracked and
+  not ignored at all, so any `tsc` run dirtied the working tree and the file kept
+  being swept into unrelated commits.
+
 ## [2.3.0] - 2026-08-19
 
 ### Security
