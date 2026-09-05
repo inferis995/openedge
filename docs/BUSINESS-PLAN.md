@@ -42,6 +42,7 @@ a un valutatore per capire che sai dove sei.
 | Automazione via AI (CLI + MCP + skill) | **Dimostrato** | CLI completa, server MCP con 39 tool, skill `openedge` e `openedge-ops` |
 | Server OPC UA (essere letti da MES/ERP) | **ASSENTE** | `internal/opcua` è solo client: OpenEdge legge, non si fa leggere |
 | Ridondanza / failover | **ASSENTE** | nessuna traccia nel codice |
+| Store-and-forward sul gateway | **ASSENTE** | i driver riconnettono, ma il client MQTT usa il MemoryStore: i campioni prodotti a link caduto si perdono al riavvio |
 | **Collegamento a un PLC reale** | **MAI FATTO** | — |
 | **Impianto in produzione** | **NESSUNO** | — |
 | **Clienti paganti** | **ZERO** | — |
@@ -159,12 +160,52 @@ licenze da comporre, è una differenza concreta.
   ridondata. Connext ce l'ha e la mette in prima pagina, perché in un impianto
   serio è un requisito di gara, non una funzione desiderabile.
 
-**Che cosa farne.** Sono le due voci di sviluppo con il ritorno commerciale più
+### La loro descrizione, voce per voce, contro il codice
+
+Connext si presenta così: *"server OPC UA, I/O data server, gateway e motore di
+connettività IIoT... gateway di rete, historian e data logger, ridondanza e
+protocolli IIoT client, con massima sicurezza e prestazioni."* Presa alla
+lettera e confrontata con il repository:
+
+| Quello che dichiara Connext | OpenEdge, verificato |
+|---|---|
+| Server OPC UA | **No.** `internal/opcua` espone solo `NewClient` |
+| I/O data server | **Sì.** Tag engine con driver Modbus, S7, OPC UA, MQTT, LoRaWAN, Redis |
+| Gateway | **Sì.** `driver-manager` avvia i container driver; MQTT e Sparkplug B |
+| Motore di connettività IIoT | **Parziale.** MQTT e Sparkplug B nativi, export InfluxDB v2. Niente Azure IoT Hub, AWS IoT, Kafka |
+| Historian e data logger | **Sì, ma centralizzati.** `engine-historian` + TimescaleDB stanno al centro, non sul gateway |
+| Ridondanza | **No.** Nessuna occorrenza nel codice |
+| Massima sicurezza | **Forte.** JWT, RBAC, isolamento per `org_id`, identità MQTT per organizzazione, TLS |
+| Massime prestazioni | **Non misurata.** Nessun impianto, quindi nessun numero da mostrare |
+
+### La terza lacuna, che è la più seria delle tre
+
+L'historian centralizzato porta con sé una conseguenza che nessuno scopre finché
+la linea non cade: **non c'è store-and-forward**.
+
+Verificato: i driver riconnettono con backoff — `SetAutoReconnect`,
+`SetConnectRetry` — ma il client MQTT non imposta nessuno store persistente,
+quindi resta il MemoryStore di default. I campioni prodotti mentre il broker è
+irraggiungibile vivono solo in memoria e **si perdono al riavvio del processo**.
+Non c'è un buffer su disco che sopravviva a un riavvio o a un'interruzione
+lunga.
+
+Per un prodotto che si vende come gateway questo è il difetto che fa perdere la
+fiducia: un buco nello storico è la cosa che il capo reparto nota per primo, e
+l'unica per cui non esistono attenuanti. Connext mette historian e data logger
+sul gateway proprio per questo.
+
+**Che cosa farne.** Sono le tre voci di sviluppo con il ritorno commerciale più
 alto dopo il pilota, e vanno nel piano di Smart&Start — che finanzia esattamente
 questo, l'industrializzazione di una tecnologia esistente. Non nel senso di
-"aggiungiamo funzioni": nel senso che senza server OPC UA e senza ridondanza ci
-sono gare a cui non puoi nemmeno presentarti, e questo va scritto nel piano
-d'impresa invece che scoperto alla prima trattativa persa.
+"aggiungiamo funzioni": nel senso che senza server OPC UA, senza
+ridondanza e senza store-and-forward ci sono gare a cui non puoi nemmeno
+presentarti, e questo va scritto nel piano d'impresa invece che scoperto alla
+prima trattativa persa.
+
+Fra le tre, **lo store-and-forward viene prima**: è la meno costosa da
+realizzare, è quella che un cliente verifica staccando un cavo, ed è l'unica che
+senza di essa rende discutibili i dati di tutte le altre.
 
 ---
 
