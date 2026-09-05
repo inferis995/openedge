@@ -40,6 +40,8 @@ a un valutatore per capire che sai dove sei.
 | Multi-tenancy | **Dimostrato** | isolamento per `org_id` su tutte le query, test dedicati |
 | Sicurezza broker MQTT | **Dimostrato** | identità per-organizzazione read-only, anonimo disabilitato |
 | Automazione via AI (CLI + MCP + skill) | **Dimostrato** | CLI completa, server MCP con 39 tool, skill `openedge` e `openedge-ops` |
+| Server OPC UA (essere letti da MES/ERP) | **ASSENTE** | `internal/opcua` è solo client: OpenEdge legge, non si fa leggere |
+| Ridondanza / failover | **ASSENTE** | nessuna traccia nel codice |
 | **Collegamento a un PLC reale** | **MAI FATTO** | — |
 | **Impianto in produzione** | **NESSUNO** | — |
 | **Clienti paganti** | **ZERO** | — |
@@ -127,6 +129,42 @@ diventa un tuo argomento, e non piccolo, su un cliente con dieci gateway.
 giustamente. La domanda a cui rispondi meglio di loro è un'altra — *ho più
 stabilimenti, o servo più clienti, e non voglio moltiplicare licenze e
 installazioni.*
+
+### E il confronto vero: Movicon Connext
+
+Movicon.NExT è lo SCADA. **Connext è l'altro prodotto della stessa famiglia, e
+sta esattamente sullo strato di OpenEdge**: server OPC UA, I/O data server,
+gateway e motore di connettività IIoT, con dentro Gateway, Historian, Alarms &
+Condition, IIoT e **ridondanza**. Porta il dato dal campo verso SCADA, Plant
+Analytics o ERP, e lo registra su qualunque database o sul cloud. **Gira anche
+su Linux**, per sistemi embedded e IoT.
+
+È il confronto che conta, e va fatto onestamente in tutte e due le direzioni.
+
+**Dove OpenEdge è più largo.** Connext è headless: acquisisce e smista, ma per
+vedere qualcosa serve Movicon.NExT o un altro SCADA sopra. OpenEdge è tutto lo
+stack — acquisizione, storico, allarmi, notifiche, sinottici e interfaccia web —
+in un prodotto solo, multi-tenant. Per una PMI che vuole un sistema e non due
+licenze da comporre, è una differenza concreta.
+
+**Dove OpenEdge è indietro, e sono due cose serie:**
+
+- **Non è un server OPC UA.** `internal/opcua` è solo client: OpenEdge legge dai
+  PLC, ma nessun MES, ERP o SCADA di terzi può leggere da OpenEdge in OPC UA. In
+  una fabbrica che ha già un sistema gestionale, questa è spesso la prima
+  domanda del reparto IT. Le vie d'uscita esistono — REST, Sparkplug B su MQTT,
+  l'API i3X — ma non sono ciò che chiedono, e "abbiamo un'API REST" non risponde
+  a "esponi OPC UA?".
+- **Non c'è ridondanza.** Nessuna: né failover, né standby, né registrazione
+  ridondata. Connext ce l'ha e la mette in prima pagina, perché in un impianto
+  serio è un requisito di gara, non una funzione desiderabile.
+
+**Che cosa farne.** Sono le due voci di sviluppo con il ritorno commerciale più
+alto dopo il pilota, e vanno nel piano di Smart&Start — che finanzia esattamente
+questo, l'industrializzazione di una tecnologia esistente. Non nel senso di
+"aggiungiamo funzioni": nel senso che senza server OPC UA e senza ridondanza ci
+sono gare a cui non puoi nemmeno presentarti, e questo va scritto nel piano
+d'impresa invece che scoperto alla prima trattativa persa.
 
 ---
 
