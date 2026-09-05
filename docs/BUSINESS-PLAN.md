@@ -58,9 +58,9 @@ oggi tre strade, tutte con un costo che non è solo la licenza:
 1. **Suite del costruttore del PLC** (Siemens WinCC, Rockwell FactoryTalk).
    Funziona, ma lega l'impianto a un fornitore, costa in licenze per postazione
    e per tag, e non è pensata per essere multi-sito o multi-cliente.
-2. **Piattaforma commerciale indipendente** (Ignition, AVEVA, ThingWorx).
-   Tecnicamente ottima, ma il modello di licenza e il costo di ingresso sono
-   tarati su impianti grandi.
+2. **Piattaforma commerciale indipendente** (Ignition, AVEVA, ThingWorx e —
+   soprattutto in Italia — **Movicon.NExT**). Tecnicamente ottime, ma il modello
+   di licenza e il costo di ingresso sono tarati su impianti grandi.
 3. **Stack open-source assemblato** (Node-RED + InfluxDB + Grafana, o
    ThingsBoard). Costo di licenza zero, costo di integrazione e manutenzione a
    carico di qualcuno — di solito un system integrator che deve rimontare lo
@@ -73,6 +73,60 @@ non ha un reparto IT per tenere in piedi uno stack assemblato a mano.
 **[DA VERIFICARE]** La dimensione di questo segmento in Italia va quantificata
 con dati ISTAT sul manifatturiero per classe dimensionale prima di scrivere un
 numero in un bando. Non inventarne uno.
+
+### Il concorrente che incontrerai davvero: Movicon.NExT
+
+Un elenco di concorrenti che nomina Siemens, Rockwell e AVEVA e non nomina
+Movicon descrive il mercato mondiale, non quello in cui venderai. In una PMI
+manifatturiera italiana, la piattaforma che è già installata — o che
+l'integratore propone per abitudine — con ogni probabilità è quella.
+
+**Che cos'è.** SCADA/HMI di Progea, azienda di Modena, **acquisita da Emerson
+nell'ottobre 2020**. Piattaforma client/server costruita sul modello
+informativo OPC UA, che copre supervisione, HMI, allarmi, ricette, historian,
+scheduler, logiche e analisi MES.
+
+**Come si vende, ed è il punto che ti riguarda.** Le licenze runtime sono
+**modulari sul numero di tag** dichiarati nel progetto, da 50 fino a 100.000, e
+le funzioni si acquistano separatamente. Runtime in versione Server, Client o
+Client/Server, di tipo PRO o LT; l'Editor per sviluppare è un'opzione a parte —
+un distributore listava l'Editor V4 a circa €3.000 IVA inclusa. I prezzi non
+sono pubblici: si passa dal commerciale.
+
+**Dove OpenEdge perde, e va detto prima di sentirselo dire in una trattativa:**
+
+- venticinque anni di installato, driver certificati e collaudati su migliaia
+  di impianti; OpenEdge su zero;
+- una rete di integratori italiani già formata sul prodotto, che non ha nessuna
+  ragione di imparare il tuo;
+- Emerson dietro, cioè un fornitore che non fallisce — argomento decisivo per
+  chi compra un sistema che deve durare quindici anni;
+- assistenza in italiano, con un numero da chiamare.
+
+**Dove c'è spazio, e discende dal loro stesso modello:**
+
+- **il conteggio dei tag.** Un impianto con 20.000 tag paga in proporzione. Un
+  prezzo per sito a tag illimitati non è una furbizia commerciale, è una
+  differenza strutturale, e si spiega in una frase a chi ha appena ricevuto un
+  preventivo scalato sui tag;
+- **la multi-tenancy.** Una licenza governa un'installazione. Un integratore che
+  serve venti clienti ne compra venti; con OpenEdge ne installa una e li tiene
+  isolati per `org_id`. È l'argomento di margine per il canale, e nessuno dei
+  concorrenti citati lo offre nella fascia PMI;
+- **la stessa immagine on-prem e in cloud**, con entrambi i percorsi eseguiti
+  dalla pipeline a ogni commit;
+- **l'operabilità da agente AI** (CLI, server MCP, skill). Su questo il
+  confronto non esiste: nessuno dei prodotti sopra ha un equivalente.
+
+**[DA VERIFICARE]** Se Movicon.NExT giri anche su Linux o sia di fatto legato a
+Windows/.NET. È una verifica che vale la pena fare bene: se è vincolato a
+Windows, il costo di licenza del sistema operativo su ogni gateway di campo
+diventa un tuo argomento, e non piccolo, su un cliente con dieci gateway.
+
+**Come NON posizionarsi.** Non contro Movicon sulle funzioni: perderesti, e
+giustamente. La domanda a cui rispondi meglio di loro è un'altra — *ho più
+stabilimenti, o servo più clienti, e non voglio moltiplicare licenze e
+installazioni.*
 
 ---
 
