@@ -1,0 +1,32 @@
+# Findings accepted with a reason and a date, not suppressed.
+#
+# The rule is the same one scripts/govulncheck-gate.sh follows: an exception
+# exists only while the reasoning next to it holds, and it carries an expiry so
+# it cannot quietly become permanent. Anything not listed here still fails the
+# build.
+
+# ── util-linux in the web-ui image — no fix available on this Alpine branch ───
+#
+# services/web-ui builds on nginx:1.30-alpine, which is Alpine 3.24. Trivy
+# reports libuuid 2.42.1-r0 against a fix in 2.42.3-r0, and that package is not
+# in the 3.24 repository yet: the runtime stage already runs `apk upgrade
+# --no-cache` on every build — demonstrably working, since the same change took
+# the Go images from an openssl HIGH to zero findings — and the version has not
+# moved. There is nothing this repository can do until Alpine publishes it.
+#
+# What the seven CVEs are: privilege escalation through mount(8), nsenter and
+# X-mount hooks. Reaching any of them requires running those programs. This
+# container runs nginx as USER nginx, under no-new-privileges, and never mounts
+# anything — so the vulnerable code is present in the filesystem and not
+# reachable by anything the image executes.
+#
+# EXPIRES 2026-12-01. Past that date these stop being ignored and the build goes
+# red again, which is the point: re-check whether 2.42.3-r0 has landed and
+# delete this block rather than extending it out of habit.
+CVE-2026-53612 exp:2026-12-01
+CVE-2026-53613 exp:2026-12-01
+CVE-2026-53614 exp:2026-12-01
+CVE-2026-76642 exp:2026-12-01
+CVE-2026-78408 exp:2026-12-01
+CVE-2026-78409 exp:2026-12-01
+CVE-2026-78410 exp:2026-12-01

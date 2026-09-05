@@ -166,6 +166,10 @@ jobs:
       # retarget v0.36.0 at new code, which then runs here with a token. A SHA
       # cannot be retargeted. Dependabot still offers upgrades and rewrites both
       # the SHA and the trailing comment.
+      # .trivyignore carries the accepted findings, each with a reason and an
+      # EXPIRY DATE — see the file. ignore-unfixed already drops anything with no
+      # patch anywhere; this covers the other case, a patch that exists upstream
+      # but not in the Alpine branch this image is built on.
       - name: Scan ${{ matrix.service }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -173,6 +177,7 @@ jobs:
           scanners: vuln
           severity: HIGH,CRITICAL
           ignore-unfixed: true
+          trivyignores: .trivyignore
           exit-code: "1"
           format: table
 
