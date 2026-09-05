@@ -126,7 +126,7 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 
 **Security & Compliance**
 - **MFA / 2FA** — TOTP (Google Authenticator, Authy), QR code setup, 8 recovery codes, org-level enforcement (`mfa_required`)
-- **NIS2 Compliance Suite** — OT asset inventory (auto-sync), CSIRT Art.23 (24h/72h/30d legal deadlines), Vendor Risk Art.18 (0-100 score), 30-item checklist with auto-assessment, threat monitor, compliance reports
+- **Security posture self-check** — 12 automated checks on the deployment's own data (MFA on admins, audit logging, MQTT over TLS, edge versions), each mapped to a NIS2 Art. 21(2) point, with a JSON export. This is a posture report, not a compliance suite: there is no asset register, no incident filing workflow and no supplier scoring.
 - **SSO / OIDC** — Google and Azure AD single sign-on with automatic user provisioning
 - **Granular RBAC** — Per-user permission flags: write_tags, ack_alarms, export_data, manage_recipes, manage_shifts, view_audit, download_installer
 - **Account Lockout** — 5-strike 30-min lock, last-login IP tracking, security event feed

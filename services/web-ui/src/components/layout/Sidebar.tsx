@@ -218,8 +218,6 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
                     );
                 })}
 
-                {/* OT Compliance Section */}
-
                 {/* Admin Section */}
                 {isAdmin() && (
                     <>

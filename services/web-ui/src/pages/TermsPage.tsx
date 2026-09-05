@@ -21,7 +21,7 @@ export default function TermsPage() {
 
                     <section>
                         <h2 className="text-lg font-semibold text-foreground mb-2">2. Descrizione del servizio</h2>
-                        <p>OpenEdge è una piattaforma IIoT industriale per il monitoraggio OT, la gestione di asset edge, la conformità NIS2/IEC62443 e la supervisione SCADA. Il servizio è disponibile in modalità on-premises e SaaS.</p>
+                        <p>OpenEdge è una piattaforma IIoT industriale per il monitoraggio OT, la gestione di asset edge e la supervisione SCADA. Include controlli automatici sulla postura di sicurezza del proprio impianto; non fornisce, né sostituisce, gli adempimenti previsti dalla direttiva NIS2 o dalla norma IEC 62443, che restano in capo al Cliente. Il servizio è disponibile in modalità on-premises e SaaS.</p>
                     </section>
 
                     <section>
