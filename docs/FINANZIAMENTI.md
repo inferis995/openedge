@@ -191,6 +191,149 @@ Fonti: [EIC](https://eic.ec.europa.eu) ·
 
 ---
 
+# A-bis. Strumenti che portano il CLIENTE, non i soldi
+
+Questa sezione risponde a un'obiezione precisa: *non voglio farmi finanziare
+per costruire, voglio un bando che metta a terra un progetto con i requisiti
+della mia app, e che il cliente lo porti chi il bando lo fa.*
+
+È l'istinto giusto, e vale la pena dire perché. Smart&Start finanzia la
+costruzione di una cosa; tu la cosa l'hai già costruita — 90.000 righe, CI
+verde, on-prem e cloud provati. Quello che ti manca non è denaro per
+sviluppare: è **un impianto vero con dentro un PLC vero**. Uno strumento che ti
+dà €200.000 non risolve quel problema; uno strumento che ti mette in una
+fabbrica sì, anche se non ti dà un euro.
+
+**Un avvertimento, però, perché non ci siano illusioni.** Nessuno di questi
+enti "ti trova il cliente" come servizio. Fanno intermediazione: ti mettono in
+una stanza con aziende che cercano soluzioni, e in alcuni casi finanziano il
+progetto pilota che ne nasce. Vendere devi ancora vendere tu. La differenza è
+che parti da una porta aperta invece che da una chiamata a freddo, ed è una
+differenza enorme quando non hai referenze.
+
+---
+
+## A-bis.1. EDIH P.R.I.D.E. — Polo Regionale per l'Innovazione Digitale Evoluta
+
+**È lo strumento più vicino a quello che stai chiedendo.**
+
+Gli European Digital Innovation Hub sono sportelli unici finanziati al 50% dal
+programma Digital Europe e al 50% dal ministero, il cui mandato è far incontrare
+PMI che devono digitalizzarsi e chi la tecnologia ce l'ha. I servizi alle PMI
+sono gratuiti o fortemente sussidiati, perché il finanziamento è già arrivato
+all'hub.
+
+Il servizio che ti riguarda si chiama **"Test Before Invest"**: proof of
+concept, pre-ingegnerizzazione, assessment e **piloti di breve durata** presso
+un'azienda, per dimostrare il valore aggiunto di una tecnologia. Tradotto nel
+tuo caso: un impianto pilota, in una fabbrica vera, con l'hub che copre il costo
+e fa da garante.
+
+| | |
+|---|---|
+| **Chi lo coordina** | Campania DIH — rete Confindustria Scarl |
+| **Partner** | Consorzio MedITech, CERICT, ICAR-CNR |
+| **Focus** | Transizione digitale di PMI e PA: intelligenza artificiale, calcolo ad alte prestazioni, sicurezza informatica |
+| **Sito** | edih-pride.eu |
+
+Che il coordinatore sia la rete Confindustria non è un dettaglio burocratico: i
+suoi associati **sono** aziende manifatturiere. È la lista di clienti che nel
+business plan §5 è segnata come `[DA COMPILARE]`.
+
+**L'altro EDIH campano, Heritage SmartLab, non ti riguarda**: si occupa di beni
+culturali e industrie creative.
+
+Fonti: [EDIH PRIDE](https://www.edih-pride.eu/en/) ·
+[catalogo EDIH — Commissione Europea](https://european-digital-innovation-hubs.ec.europa.eu/edih-catalogue/pride) ·
+[Campania Competitiva](https://www.campaniacompetitiva.it/edih-european-digital-innovation-hub/)
+
+---
+
+## A-bis.2. MedITech — Competence Center Industria 4.0 (Campania e Puglia)
+
+Partenariato pubblico-privato fra **8 università e 21 attori industriali**, nato
+per accelerare il trasferimento tecnologico verso le PMI e l'adozione delle
+tecnologie 4.0.
+
+Pubblica periodicamente **bandi per progetti di innovazione che l'impresa svolge
+in collaborazione con il centro**. L'ultimo di cui si trova traccia — il terzo,
+su fondi PNRR M4C2 investimento 2.3 — aveva una dotazione di €6.000.000 e
+contributi diretti fino a **€400.000 per progetto**, riservati a micro, piccole
+e medie imprese; le grandi potevano partecipare solo in partenariato con una PMI
+e mai come capofila.
+
+**Il valore per te non è il contributo, sono i 21 attori industriali.** Un
+progetto svolto *con* il centro significa un interlocutore industriale assegnato,
+cioè esattamente il pilota che manca.
+
+**[DA VERIFICARE]** Lo stato attuale dei bandi: le informazioni reperibili si
+fermano al 2023, e i fondi PNRR hanno scadenze di rendicontazione che stanno
+maturando. Da chiedere direttamente al centro.
+
+Fonti: [Confindustria Salerno](https://www.confindustria.sa.it/agevolazioni-industria-4-0-bando-competence-center-meditech-per-la-selezione-di-progetti-di-innovazione-ricerca-industriale-in-tema-di-tecnologie-abilitanti-4-0/) ·
+[Knowledge for Business](https://www.kforbusiness.it/meditech-competence-center-per-lindustria-4-0/)
+
+---
+
+## A-bis.3. Appalti innovativi — quando il committente È il cliente
+
+`appaltinnovativi.gov.it` è la piattaforma di AgID, descritta dalla stessa
+Agenzia come *"un broker di innovazione per il procurement pubblico"*: fa
+incontrare la domanda di innovazione delle pubbliche amministrazioni con il
+mercato — industria, ricerca, terzo settore, PMI e startup.
+
+Qui non c'è un contributo da rendicontare: **c'è un ente che ha un problema e
+compra la soluzione**. Chi pubblica la sfida diventa il tuo primo cliente
+pagante, con un contratto e una referenza pubblica.
+
+Per OpenEdge il bacino naturale sono le utility e gli impianti tecnologici
+pubblici: acqua e depurazione, teleriscaldamento, illuminazione, impianti
+comunali distribuiti — cioè il profilo 3 del business plan §5.
+
+Nota di contesto, utile a calibrare le aspettative: il Piano Triennale ICT
+2024-2026 fissa fra gli obiettivi che **il 50% delle PMI innovative e startup
+partecipi a gare di procurement di innovazione**. È un obiettivo dichiarato,
+cioè c'è una spinta politica ad ammettere soggetti piccoli. Resta il fatto che
+i tempi della PA sono lunghi e la partecipazione richiede requisiti formali
+(iscrizione MePA, DURC, capacità tecnica) che una società appena costituita
+deve mettersi in casa.
+
+Fonti: [AgID — Appalti innovativi](https://www.agid.gov.it/en/intervention-areas/innovative-procurement) ·
+[Portale appaltinnovativi](https://appaltinnovativi.gov.it/il-portale/) ·
+[Piano Triennale ICT 2024-2026](https://docs.italia.it/italia/piano-triennale-ict/pianotriennale-ict-doc/it/2024-2026/capitolo-2_il-procurement-per-la-trasformazione-digitale/il-procurement-per-la-trasformazione-digitale.html)
+
+---
+
+## A-bis.4. Distretto Aerospaziale Campano
+
+Non è un ente finanziatore, è un'aggregazione: oltre 170 soggetti, di cui più di
+130 PMI subfornitrici, attorno a committenti come Leonardo, Magnaghi, DEMA e
+Atitech, più CIRA, CNR, ENEA e le cinque università campane con ingegneria.
+
+Serve per la stessa ragione dell'EDIH — è una porta su un elenco di
+stabilimenti — con in più il fatto che *"Factory 4.0 per l'aeronautica e lo
+spazio"* è una traiettoria RIS3 esplicita, quindi un pilota fatto lì si
+racconta bene in qualunque domanda regionale.
+
+---
+
+## Come stanno insieme le due strade
+
+Non sono alternative, e conviene tenerle su binari separati:
+
+| | Ti dà | Ti costa | Quando serve |
+|---|---|---|---|
+| **Smart&Start, ON, FESR** | denaro per 24 mesi di lavoro | una domanda, un colloquio, rendicontazione | quando devi pagare te stesso e un secondo sviluppatore |
+| **EDIH, MedITech, appalti** | un impianto, una referenza, a volte un contratto | tempo e presenza, poca burocrazia | **subito**, perché è ciò che manca |
+
+E c'è un ordine che conviene, contro-intuitivo ma solido: **prima l'impianto,
+poi i soldi**. Un pilota fatto tramite l'EDIH è la cosa che fa passare il
+colloquio di merito di Smart&Start. Il contrario — chiedere €217.000 per
+industrializzare una piattaforma che non ha mai visto un PLC — è la domanda che
+si fa bocciare.
+
+---
+
 # B. Strumenti che richiedono la società già iscritta
 
 ## B1. Campania Start-up — PR FESR Campania 2021-2027 / Sviluppo Campania
@@ -299,6 +442,7 @@ Fonti: [PMI.it](https://www.pmi.it/impresa/normativa/487154/transizione-5-0-scad
 
 | # | Azione | Dipende da | Tempi indicativi |
 |---|---|---|---|
+| 0 | **Contatto con EDIH P.R.I.D.E. e con il Campania DIH** | nulla | una telefonata; è l'unica voce che porta un impianto |
 | 1 | **Registrazione SIAE del software** | nulla | settimane, poche centinaia di € |
 | 2 | **Stesura del piano d'impresa** (parti da `BUSINESS-PLAN.md`) | nulla — si può fare in parallelo a 1 | settimane |
 | 3 | **Domanda Smart&Start** come team di aspiranti imprenditori | 1 e 2 | sportello, ~60 gg di istruttoria |
@@ -308,7 +452,11 @@ Fonti: [PMI.it](https://www.pmi.it/impresa/normativa/487154/transizione-5-0-scad
 | 7 | **EIC Accelerator Stage 1** | 2 | sempre aperto, esito 4–6 settimane |
 | 8 | **StartCup Campania** | 2 | edizione 2027, primavera |
 
-I punti 1 e 2 dipendono solo da te e non hanno scadenze: **inizia da lì, oggi**.
+I punti 0, 1 e 2 dipendono solo da te e non hanno scadenze: **inizia da lì,
+oggi**. Il punto 0 non costa nulla e non richiede nemmeno una partita IVA per
+una prima conversazione: è una domanda — *avete PMI manifatturiere che cercano
+supervisione e acquisizione dati, e un Test Before Invest da attivare?* — a cui
+qualcuno risponde sì o no in una settimana.
 
 **E l'impianto pilota?** Non è un passo burocratico e non compare in questa
 tabella, ma è ciò che decide il colloquio di merito di Smart&Start e la
