@@ -79,14 +79,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`TestTheNIS2ModuleStaysRemoved`.** Removal was a one-time act; staying
-  removed was not enforced by anything. The test fails if the `/api/compliance`
-  routes, the fourteen module files, or the hourly `StartAssetSyncWorker` come
-  back — from a revert, from a restore out of history, or from merging one of
-  the three branches that forked before the removal and carry 236, 253 and 259
-  commits each. All three assertions were verified by reintroducing the defect
-  and watching the test fail, not only by watching it pass.
-
 - **Three tests over the security checks**, all verified the same way — by
   reintroducing the defect and watching them fail.
   `TestTheDeprecatedFieldsMirrorTheCurrentOnes` catches the deprecated fields
