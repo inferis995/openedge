@@ -123,6 +123,23 @@ In ordine di facilità di chiusura, non di dimensione:
 impianto pilota gratuito o quasi in cambio della licenza a vita. Serve una
 persona, non un mercato.
 
+### Dove cercarlo, in Campania
+
+Il **Distretto Aerospaziale Campano** riunisce oltre 170 soggetti, di cui più di
+130 PMI subfornitrici, attorno a committenti come Leonardo, Magnaghi, DEMA e
+Atitech. La Campania è prima in Italia per addetti del settore aerospaziale.
+
+Quelle PMI subfornitrici sono il profilo 2 di questo elenco quasi alla lettera:
+20-250 addetti, macchine con PLC, standard di qualità e tracciabilità imposti
+dal committente, nessuna supervisione centralizzata.
+
+E c'è un secondo motivo, che riguarda i finanziamenti. *"Factory 4.0 per
+l'aeronautica e lo spazio"* è una traiettoria tecnologica esplicita della RIS3
+Campania (vedi `FINANZIAMENTI.md`). Un pilota in un subfornitore aeronautico
+campano vale quindi due volte: è la referenza commerciale che manca, ed è la
+prova che il progetto sta dentro il dominio su cui la Regione concentra più
+risorse. Nessun altro pilota fa entrambe le cose.
+
 **[DA COMPILARE]** Elenca qui i nomi che conosci già: integratori, quadristi,
 ex colleghi, aziende della tua zona. Questa lista vale più delle prossime tre
 sezioni messe insieme.
@@ -243,11 +260,18 @@ Su Smart&Start, essendo la Campania fra le 8 regioni del Mezzogiorno, la
 copertura si articola in **30% a fondo perduto e 70% a tasso zero**: su €217.000
 significa circa €65.000 non restituiti e €152.000 da restituire senza interessi.
 
-**[DA VERIFICARE]**, e sono due verifiche che cambiano la tabella:
-- la soglia minima di progetto (comunemente indicata in €100.000);
-- **se e come il costo del personale sia ammissibile** — è la voce più pesante
-  qui sopra. Le voci confermate sono attrezzature, immobilizzazioni immateriali,
-  consulenze (max 20% del totale) e capitale circolante (max 20%).
+Entrambe le verifiche aperte sono state chiuse, e la tabella regge:
+
+- **la fascia ammessa è €100.000 – €1.500.000**: €217.000 sta sopra la soglia
+  minima e lontano dal tetto;
+- **il costo del personale è ammissibile** — personale dipendente e
+  collaboratori a qualsiasi titolo, nella misura in cui sono impiegati
+  funzionalmente nel piano. Era la voce più pesante qui sopra, €140.000 su
+  €217.000, ed è coperta.
+
+Le spese vanno sostenute nei 24 mesi successivi alla firma del contratto, e il
+personale va pagato prima di rendicontarlo — quindi serve cassa per anticipare,
+che è la ragione per cui la voce capitale circolante non è decorativa.
 
 ---
 
@@ -286,7 +310,8 @@ Dati che nessuno può ricostruire dal codice:
 
 - ~~Regione~~ — **Campania**, quindi Mezzogiorno: Smart&Start eroga il 30% a
   fondo perduto, ed è accessibile il canale regionale PR FESR / Sviluppo
-  Campania. Resta da precisare il comune, per i bandi camerali e provinciali.
+  Campania, dove **Manifattura 4.0 è un'area RIS3 esplicita**. Resta da
+  precisare il comune, per i bandi camerali e provinciali.
 - Età anagrafica e composizione dei soci — determina l'accesso a **Resto al Sud
   2.0** (under 35, contributo interamente a fondo perduto) e a ON.
 - Se esiste già una società e da quanto — il limite dei 60 mesi vale per quasi

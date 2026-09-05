@@ -100,9 +100,16 @@ Fonte: [Regione Campania](https://www.regione.campania.it/it/printable/campania-
   rientrano penetration test, consulenza legale, consulenza per la domanda;
 - capitale circolante: **massimo 20%** delle spese precedenti.
 
-**[DA VERIFICARE]** Se e come rientri il costo del personale (tuo e di un
-eventuale assunto): è la voce più pesante del piano in §9 del business plan e
-va confermata sul testo vigente prima di dimensionare il progetto.
+**Il costo del personale è ammissibile.** Verificato: lo strumento finanzia i
+costi del personale dipendente e dei collaboratori a qualsiasi titolo, nella
+misura in cui sono impiegati funzionalmente nella realizzazione del piano. È la
+voce più pesante del piano in §9 del business plan, ed è coperta. Vanno pagati
+prima della rendicontazione.
+
+**La fascia del piano è €100.000 – €1.500.000.** Il progetto da €217.000 del
+business plan sta comodamente dentro: sopra la soglia minima e lontano dal
+tetto. Le spese vanno sostenute nei 24 mesi successivi alla firma del
+contratto.
 
 **Perché è il primo della lista**: fondo perduto al 30% grazie alla Campania,
 sportello sempre aperto (nessuna corsa alla scadenza), nessuna garanzia
@@ -197,13 +204,30 @@ Fonti: [EIC](https://eic.ec.europa.eu) ·
 | **Fondo perduto** | I bandi FESR Campania si collocano tipicamente fra il **30% e il 65%**, spesso in combinazione con tasso zero |
 | **Scadenze** | Finestra riportata come aperta fino a nuove comunicazioni |
 
-**[DA VERIFICARE], ed è la verifica decisiva**: che l'automazione industriale /
-IIoT rientri nelle aree RIS3 della Campania. Le RIS3 campane storicamente
-includono aerospazio, trasporti, biotecnologie, energia/ambiente, beni culturali
-e **materiali avanzati/manifattura**: la piattaforma di supervisione industriale
-dovrebbe rientrare, ma va letta la classificazione ufficiale e scritta la
-domanda nel linguaggio di quell'area. È il tipo di dettaglio che fa scartare una
-domanda buona.
+**Le RIS3: verificato, e rientri.** Era la verifica decisiva, ed è andata bene.
+
+La RIS3 Campania 2021-2027 si articola in filiere — Aerospazio; Trasporti
+terrestri e logistica avanzata; Biotecnologie, salute umana e agroalimentare;
+Beni culturali, turismo ed edilizia sostenibile; Energia e ambiente; Materiali
+avanzati e nanotecnologie — e in mercati emergenti: Blue Economy, Bio-Economy,
+**Manifattura 4.0** e Industrie Creative.
+
+**Manifattura 4.0 è un'area esplicita**, ed è esattamente dove sta OpenEdge. La
+Campania è stata inoltre fra le prime regioni italiane a darsi una legge
+dedicata — *"Manifattura Campania: Industria 4.0"* — che sostiene le tecnologie
+abilitanti per la transizione al modello 4.0.
+
+**E c'è una seconda porta, che vale più della prima.** Fra le traiettorie
+tecnologiche del dominio Aerospazio compare **"Factory 4.0 per l'aeronautica e
+lo spazio"**. L'aerospazio è la filiera di punta della Campania: il Distretto
+Aerospaziale Campano riunisce oltre 170 soggetti, di cui **più di 130 PMI
+subfornitrici**, e la Campania è prima in Italia per addetti del settore.
+
+Presentare il progetto come *supervisione e acquisizione dati per la fabbrica
+4.0 nella filiera aeronautica campana* lo colloca contemporaneamente in
+Manifattura 4.0 e nella traiettoria Factory 4.0 dell'Aerospazio, cioè nel
+dominio su cui la Regione concentra più risorse. Non è un artificio: quelle PMI
+subfornitrici sono precisamente il cliente descritto in `BUSINESS-PLAN.md` §5.
 
 Questo è lo strumento con la percentuale di contributo potenzialmente più alta
 di tutto l'elenco, ma arriva **dopo** l'iscrizione come startup innovativa.
@@ -224,6 +248,22 @@ rendicontazione. Da riprendere dopo il primo anno, magari in cordata con un
 integratore o con un dipartimento universitario campano.
 
 Fonte: [MIMIT](https://www.mimit.gov.it)
+
+---
+
+## Un bando da NON inseguire
+
+Cercando emerge spesso l'avviso campano *"Innovazione e trasferimento
+tecnologico: studi di fattibilità (Fase 1) e progetti (Fase 2) coerenti con la
+RIS3"*, da 45 milioni. **È del 2018**, a valere sul FESR 2014-2020 (Decreto
+Dirigenziale n. 198 del 21.05.2018): quella programmazione è chiusa. Compare
+ancora in cima ai risultati di ricerca ed è il classico modo di perdere una
+settimana.
+
+Vale però come indicazione di che cosa la Regione finanzia quando riapre uno
+strumento simile: studi di fattibilità in Fase 1, trasferimento tecnologico e
+prima industrializzazione in Fase 2 — e, allora, 10 milioni riservati
+all'Aerospazio tramite l'accordo con Clean Sky 2.
 
 ---
 
