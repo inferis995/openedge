@@ -77,13 +77,22 @@ func parseTagLine(line string) (*ParsedTag, error) {
 	dataType := strings.ToUpper(matches[2])
 	address := matches[3]
 
-	// Validate data type
+	// The list must match the CHECK constraint on tags.data_type, and it did
+	// not: UINT, UDINT and WORD parsed here and were then rejected by the
+	// database on INSERT. The line was accepted, the row was not, and the
+	// operator got a Postgres constraint message instead of a sentence telling
+	// them which types this accepts.
+	//
+	// They are rejected here rather than mapped onto INT or DINT. A silent
+	// widening of a WORD into a signed INT changes what the value MEANS —
+	// 40000 in a WORD is 40000, in an INT16 it is -25536 — and an import is
+	// exactly the moment nobody would notice.
 	validTypes := map[string]bool{
-		"BOOL": true, "INT": true, "UINT": true, "DINT": true,
-		"UDINT": true, "REAL": true, "STRING": true, "WORD": true,
+		"BOOL": true, "INT": true, "DINT": true, "REAL": true, "STRING": true,
 	}
 	if !validTypes[dataType] {
-		return nil, fmt.Errorf("invalid data type: %s", dataType)
+		return nil, fmt.Errorf(
+			"unsupported data type %q (supported: BOOL, INT, DINT, REAL, STRING)", dataType)
 	}
 
 	return &ParsedTag{

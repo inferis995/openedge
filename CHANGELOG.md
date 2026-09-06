@@ -23,6 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   follows a commit. The web UI says explicitly that nothing landed, because
   "Created: 0" next to a list of errors otherwise reads as a half-done import.
 
+- **The import parser accepted three data types the column refuses.** It allowed
+  UINT, UDINT and WORD; `tags.data_type` carries a CHECK listing INT, REAL,
+  BOOL, DINT and STRING. Those lines parsed, reached the INSERT, and were
+  rejected there — the operator got a Postgres constraint message naming a
+  column instead of a sentence naming the types the import accepts. They are
+  now rejected at parse time, and rejected rather than mapped onto INT or DINT:
+  widening a WORD into a signed INT changes what the value means (40000 in a
+  WORD is 40000; in an INT16 it is −25536), and an import is exactly the moment
+  nobody would notice. `TestTheParserAcceptsOnlyWhatTheColumnStores` reads the
+  CHECK out of the schema rather than restating it, so widening one side
+  without the other fails there instead of at somebody's first import.
+
 - **The import set a change filter nobody asked for.** It hardcoded
   `historize_deadband = 0.1` while the column default is 0 and a tag created
   through the UI gets 0. On a temperature living inside a narrow band that

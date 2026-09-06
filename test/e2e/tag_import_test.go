@@ -156,9 +156,13 @@ func seedGateway(t *testing.T, db *sql.DB, admin *apiClient) (int, func()) {
 		siteID, "area-"+suffix).Scan(&areaID); err != nil {
 		t.Fatalf("creating area: %v", err)
 	}
+	// driver_type is constrained to the values in the CHECK, and
+	// connection_config is NOT NULL: an empty object satisfies both without
+	// implying a gateway anybody could connect to. enabled=false keeps the
+	// driver-manager from trying to start a container for it.
 	if err := db.QueryRow(
-		`INSERT INTO gateways (area_id, name, driver_type, enabled)
-		 VALUES ($1, $2, 'modbus', false) RETURNING id`,
+		`INSERT INTO gateways (area_id, name, driver_type, connection_config, enabled)
+		 VALUES ($1, $2, 'MODBUS_TCP', '{}'::jsonb, false) RETURNING id`,
 		areaID, fmt.Sprintf("gw-%s", suffix)).Scan(&gatewayID); err != nil {
 		t.Fatalf("creating gateway: %v", err)
 	}
