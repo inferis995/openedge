@@ -167,9 +167,22 @@ func seedGateway(t *testing.T, db *sql.DB, admin *apiClient) (int, func()) {
 		t.Fatalf("creating gateway: %v", err)
 	}
 
+	// Bottom-up: areas and gateways reference their parent with ON DELETE
+	// RESTRICT, so deleting the site first fails and leaves the tree behind.
 	return gatewayID, func() {
-		if _, err := db.Exec(`DELETE FROM sites WHERE id = $1`, siteID); err != nil {
-			t.Logf("cleaning site: %v", err)
+		for _, step := range []struct {
+			what string
+			q    string
+			arg  interface{}
+		}{
+			{"tags", `DELETE FROM tags WHERE gateway_id = $1`, gatewayID},
+			{"gateway", `DELETE FROM gateways WHERE id = $1`, gatewayID},
+			{"area", `DELETE FROM areas WHERE id = $1`, areaID},
+			{"site", `DELETE FROM sites WHERE id = $1`, siteID},
+		} {
+			if _, err := db.Exec(step.q, step.arg); err != nil {
+				t.Logf("cleaning %s: %v", step.what, err)
+			}
 		}
 	}
 }

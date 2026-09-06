@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The backup button in the web UI produced a file with no history in it.**
+  `GET /api/system/backup` ran pg_dump with `--exclude-table=_timescaledb_internal.*`.
+  In TimescaleDB a hypertable's rows do not live in the table they are named
+  after: they live in chunk tables under exactly that schema, and the parent is
+  an empty routing shell. So the export threw away every sample ever recorded
+  while producing a dump that looks complete — the CREATE TABLE for
+  `tag_history` is right there, and so is every configuration row. An operator
+  pressing that button got a file that restores an empty historian, and until
+  this release `validateRestoreIntegrity` called that success.
+
+  This was not deduced: `TestTheInAppBackupContainsTheHistory` seeded one row
+  with a value unique to the run and found the schema present and the row
+  absent, on a real TimescaleDB, in CI.
+
+  The exclusions are gone from the export and from the pre-restore safety
+  backup — a safety backup that cannot restore the history is not a safety
+  backup, and it is taken at the one moment it will ever be needed, immediately
+  before `DROP SCHEMA public CASCADE`. `ImportRestore` now wraps the replay in
+  `timescaledb_pre_restore()` / `timescaledb_post_restore()`, which is what
+  makes dumping the catalog safe and is the sequence `scripts/restore.sh` has
+  always used. `post_restore` runs whatever the replay did: leaving the
+  extension suspended is worse than a failed restore, because from then on
+  nothing ages or compresses and nothing says so.
+
+  `scripts/backup.sh` never excluded anything and was correct throughout. Only
+  the in-app path was affected.
+
 - **A tag import that failed halfway left the gateway half configured, and
   reloaded the driver onto it.** The import walked the lines writing as it went,
   collected failures into a list, and then sent the reload command whatever had

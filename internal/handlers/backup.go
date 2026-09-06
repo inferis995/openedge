@@ -124,15 +124,28 @@ func (h *BackupHandler) ExportBackup(c *gin.Context) {
 	pgDB := os.Getenv("DB_NAME")
 
 	pgDumpFile := filepath.Join(tempDir, "full_backup.sql")
+	// The three --exclude-table flags that used to be here threw the history
+	// away.
+	//
+	// In TimescaleDB a hypertable's rows do not live in the table you named
+	// them after: they live in chunk tables under _timescaledb_internal, and
+	// the parent is an empty routing shell. Excluding that schema therefore
+	// excluded every sample ever recorded, while leaving a dump that looks
+	// complete — the CREATE TABLE for tag_history is right there, and so is
+	// every configuration row. TestTheInAppBackupContainsTheHistory proved it
+	// on a real stack: schema present, seeded row absent.
+	//
+	// scripts/backup.sh never excluded anything, which is why the script path
+	// was correct all along. This now does the same, and ImportRestore wraps
+	// the replay in timescaledb_pre_restore/post_restore the way
+	// scripts/restore.sh does — dumping the catalog is only safe if the restore
+	// suspends the extension while replaying it.
 	pgCmd := exec.CommandContext(c.Request.Context(), "pg_dump",
 		"-h", pgHost, "-U", pgUser, "-d", pgDB,
 		"-F", "p",
 		"--create",
 		"--clean", "--if-exists",
 		"--no-owner", "--no-acl",
-		"--exclude-table=_timescaledb_internal.*",
-		"--exclude-table=_timescaledb_catalog.*",
-		"--exclude-table=_timescaledb_config.*",
 		"-f", pgDumpFile)
 	pgCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
 
@@ -278,6 +291,9 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 	// Step 0: safety backup before dropping anything.
 	log.Println("[BACKUP] Step 0: creating pre-restore safety backup")
 	safetyPath := filepath.Join(tempDir, "safety_backup.sql")
+	// No exclusions here either: a safety backup that cannot restore the
+	// history is not a safety backup, and this one is taken at the single
+	// moment it will ever be needed — right before DROP SCHEMA public CASCADE.
 	safetyCmd := exec.CommandContext(context.Background(), "pg_dump",
 		"-h", pgHost, "-U", pgUser, "-d", pgDB,
 		"-F", "p", "--no-owner", "--no-acl", "-f", safetyPath)
@@ -300,12 +316,53 @@ func (h *BackupHandler) ImportRestore(c *gin.Context) {
 	}
 	messages = append(messages, "Schema reset complete")
 
-	// Step 2: restore.
+	// Step 2: restore, with TimescaleDB suspended for the duration.
+	//
+	// The dump now carries TimescaleDB's own catalog rows — the hypertable,
+	// chunk and policy definitions — because that is where the samples are.
+	// Replaying them into a live extension makes it try to process each one as
+	// a new object while being told the object already exists.
+	// timescaledb_pre_restore() suspends that machinery; post_restore() turns
+	// it back on and revalidates the catalog.
+	//
+	// Without the pair the restore either fails partway or, worse, completes
+	// with tag_history as an ORDINARY table: the historian is present,
+	// queryable, and quietly no longer a hypertable, so compression and
+	// retention never run again. This is the sequence scripts/restore.sh
+	// performs and that TestBackupCanActuallyBeRestored checks.
+	psqlExec := func(sqlText string) error {
+		cmd := exec.CommandContext(context.Background(), "psql",
+			"-h", pgHost, "-U", pgUser, "-d", pgDB,
+			"-v", "ON_ERROR_STOP=1", "-c", sqlText)
+		cmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s: %w (%s)", sqlText, err, maskCredentials(string(out), pgPass))
+		}
+		return nil
+	}
+
+	if err := psqlExec("CREATE EXTENSION IF NOT EXISTS timescaledb"); err != nil {
+		log.Printf("[BACKUP] could not ensure the timescaledb extension: %v", err)
+	}
+	if err := psqlExec("SELECT timescaledb_pre_restore()"); err != nil {
+		// Not fatal: a database without the extension restores fine without it,
+		// and failing here would abort a restore that would have worked.
+		log.Printf("[BACKUP] timescaledb_pre_restore failed: %v", err)
+	}
+
 	pgCmd := exec.CommandContext(context.Background(), "psql",
 		"-h", pgHost, "-U", pgUser, "-d", pgDB,
 		"-v", "ON_ERROR_STOP=0", "-f", pgDumpFile)
 	pgCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
 	outputBytes, restoreErr := pgCmd.CombinedOutput()
+
+	// post_restore runs whatever the replay did: leaving the extension
+	// suspended is worse than a failed restore, because nothing ages or
+	// compresses from then on and nothing says so.
+	if err := psqlExec("SELECT timescaledb_post_restore()"); err != nil {
+		log.Printf("[BACKUP] timescaledb_post_restore failed: %v", err)
+	}
 	output := string(outputBytes)
 	log.Printf("[BACKUP] psql restore completed (err: %v)", restoreErr)
 

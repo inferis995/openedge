@@ -111,16 +111,28 @@ func seedOneHistoryRow(t *testing.T, db *sql.DB, admin *apiClient) (int, float64
 		t.Fatalf("seeding the history row: %v", err)
 	}
 
+	// Cleanup runs bottom-up. areas and gateways reference their parent with ON
+	// DELETE RESTRICT, not CASCADE, so deleting the site first fails and leaves
+	// the whole tree behind for every later run to trip over.
+	//
+	// tag_history is deleted explicitly rather than left to the foreign key:
+	// where the key is absent — the divergence this change repairs — the rows
+	// would survive their tag forever, which is the defect, not the cleanup.
 	t.Cleanup(func() {
-		// tag_history cascades from tags where the foreign key is present; where
-		// it is not, this leaves the row behind, which is itself the defect the
-		// constraint repair now covers. Delete explicitly so the test does not
-		// depend on which shape the table has.
-		if _, err := db.Exec(`DELETE FROM tag_history WHERE tag_id = $1`, tagID); err != nil {
-			t.Logf("cleaning history rows: %v", err)
-		}
-		if _, err := db.Exec(`DELETE FROM sites WHERE id = $1`, siteID); err != nil {
-			t.Logf("cleaning site: %v", err)
+		for _, step := range []struct {
+			what string
+			q    string
+			arg  interface{}
+		}{
+			{"history rows", `DELETE FROM tag_history WHERE tag_id = $1`, tagID},
+			{"tags", `DELETE FROM tags WHERE gateway_id = $1`, gatewayID},
+			{"gateway", `DELETE FROM gateways WHERE id = $1`, gatewayID},
+			{"area", `DELETE FROM areas WHERE id = $1`, areaID},
+			{"site", `DELETE FROM sites WHERE id = $1`, siteID},
+		} {
+			if _, err := db.Exec(step.q, step.arg); err != nil {
+				t.Logf("cleaning %s: %v", step.what, err)
+			}
 		}
 	})
 

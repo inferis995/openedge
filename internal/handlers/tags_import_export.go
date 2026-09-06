@@ -132,13 +132,10 @@ func (h *TagsHandler) ImportTags(c *gin.Context) {
 	// reading the header was not a hole — but it made this endpoint the only
 	// one that fails with 400 when the header is absent, even though the token
 	// says exactly which organization the caller is in.
-	orgID, ok := middleware.GetOrganizationID(c)
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Organization context required"})
-		return
-	}
+	orgID, hasOrg := middleware.GetOrganizationID(c)
 
-	// Verify gateway belongs to organization
+	// Which organization owns the gateway is a fact about the gateway, so read
+	// it first and decide afterwards.
 	var gatewayOrgID int
 	err := h.db.QueryRow(`
 		SELECT o.id FROM gateways g
@@ -151,7 +148,22 @@ func (h *TagsHandler) ImportTags(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
 		return
 	}
-	if gatewayOrgID != orgID {
+
+	// No organization in the context is the global-admin case, not an error.
+	// OrganizationContext sets it from the JWT for an org-scoped user, and from
+	// the header for a global admin who names one — but a global admin has no
+	// organization of their own, so sending no header leaves it unset. They may
+	// act on any gateway, and the gateway's own organization is the scope.
+	//
+	// Reading the header directly, as this handler used to, hid the difference:
+	// it demanded a header from everybody and then compared the gateway to
+	// whatever the header claimed.
+	if !hasOrg {
+		if !middleware.IsGlobalAdmin(c) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Organization context required"})
+			return
+		}
+	} else if gatewayOrgID != orgID {
 		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
 		return
 	}
