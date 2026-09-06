@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 )
 
 // TagImportRequest represents the import request
@@ -17,6 +19,16 @@ type TagImportRequest struct {
 	GatewayID int    `json:"gateway_id" binding:"required"`
 	Content   string `json:"content" binding:"required"`
 	Historize bool   `json:"historize"` // Optional, defaults to false
+
+	// HistorizeDeadband is optional and defaults to the column default, 0.
+	//
+	// It used to be hardcoded to 0.1 here, which is not what anybody chose: a
+	// tag created through the UI gets 0, an identical tag arriving through an
+	// import got change filtering nobody asked for. On a temperature that lives
+	// inside a narrow band, 0.1 silently drops the readings an operator imported
+	// the tag to see. A pointer so that "not sent" and "sent as zero" stay
+	// distinguishable.
+	HistorizeDeadband *float64 `json:"historize_deadband"`
 }
 
 // TagImportResult represents the import result
@@ -82,6 +94,22 @@ func parseTagLine(line string) (*ParsedTag, error) {
 }
 
 // ImportTags handles POST /api/tags/import
+//
+// The import is ALL OR NOTHING, and that is a deliberate change from what it
+// used to be.
+//
+// It used to walk the lines writing as it went, collecting failures into an
+// error list, and then — whatever had happened — send the reload command to the
+// gateway. A thousand-tag import that failed at line five hundred left four
+// hundred and ninety-nine tags written, five hundred and one missing, and a
+// driver restarted onto that half-configured gateway. It then polled addresses
+// that no longer matched the tag list, which does not look like a failed import:
+// it looks like a plant reading wrong.
+//
+// Now every line is parsed before anything is written. If a single line does not
+// parse, nothing is written and the errors come back with Created and Updated at
+// zero, so the operator fixes the file and imports again. What does get written
+// goes in one transaction, and the reload only follows a commit.
 func (h *TagsHandler) ImportTags(c *gin.Context) {
 	var req TagImportRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -89,13 +117,17 @@ func (h *TagsHandler) ImportTags(c *gin.Context) {
 		return
 	}
 
-	// Get organization ID from header
-	orgIDStr := c.GetHeader("X-Organization-ID")
-	if orgIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "X-Organization-ID header required"})
+	// The org comes from the JWT by way of OrganizationContext, not from the
+	// X-Organization-ID header this handler used to read on its own. The
+	// middleware already refuses a header that disagrees with the token, so
+	// reading the header was not a hole — but it made this endpoint the only
+	// one that fails with 400 when the header is absent, even though the token
+	// says exactly which organization the caller is in.
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Organization context required"})
 		return
 	}
-	orgID, _ := strconv.Atoi(orgIDStr)
 
 	// Verify gateway belongs to organization
 	var gatewayOrgID int
@@ -115,59 +147,108 @@ func (h *TagsHandler) ImportTags(c *gin.Context) {
 		return
 	}
 
+	// ── Parse everything first ────────────────────────────────────────────
+	type importLine struct {
+		num    int
+		parsed *ParsedTag
+	}
+	var toApply []importLine
 	result := TagImportResult{}
-	lines := strings.Split(req.Content, "\n")
 
-	for lineNum, line := range lines {
-		parsed, err := parseTagLine(line)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("Line %d: %s", lineNum+1, err.Error()))
+	for lineNum, line := range strings.Split(req.Content, "\n") {
+		parsed, parseErr := parseTagLine(line)
+		if parseErr != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Line %d: %s", lineNum+1, parseErr.Error()))
 			continue
 		}
 		if parsed == nil {
-			continue // Empty line
+			continue // blank line or comment
 		}
+		toApply = append(toApply, importLine{num: lineNum + 1, parsed: parsed})
+	}
 
-		// Check if tag with this address already exists
+	if len(result.Errors) > 0 {
+		// Nothing written. Returning 200 with the error list is what the web UI
+		// already renders, and the zero counts say plainly that the file has to
+		// be fixed rather than half of it having landed.
+		c.JSON(http.StatusOK, result)
+		return
+	}
+	if len(toApply) == 0 {
+		c.JSON(http.StatusOK, result)
+		return
+	}
+
+	deadband := 0.0
+	if req.HistorizeDeadband != nil {
+		deadband = *req.HistorizeDeadband
+	}
+
+	// ── Apply in one transaction ──────────────────────────────────────────
+	ctx := c.Request.Context()
+	tx, err := h.db.BeginTx(ctx, nil)
+	if err != nil {
+		log.Printf("[API] tag import: cannot open transaction: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Import failed"})
+		return
+	}
+	defer func() { _ = tx.Rollback() }() // no-op after a successful Commit
+
+	for _, item := range toApply {
 		var existingID int
-		err = h.db.QueryRow(`
+		lookupErr := tx.QueryRowContext(ctx, `
 			SELECT id FROM tags WHERE gateway_id = $1 AND code = $2
-		`, req.GatewayID, parsed.Address).Scan(&existingID)
+		`, req.GatewayID, item.parsed.Address).Scan(&existingID)
 
-		if err == sql.ErrNoRows {
-			// Create new tag
-			_, err = h.db.Exec(`
+		switch lookupErr {
+		case sql.ErrNoRows:
+			if _, execErr := tx.ExecContext(ctx, `
 				INSERT INTO tags (gateway_id, code, alias, data_type, historize, historize_deadband)
-				VALUES ($1, $2, $3, $4, $5, 0.1)
-			`, req.GatewayID, parsed.Address, parsed.Alias, parsed.DataType, req.Historize)
-			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("Line %d: failed to create: %s", lineNum+1, err.Error()))
-				continue
+				VALUES ($1, $2, $3, $4, $5, $6)
+			`, req.GatewayID, item.parsed.Address, item.parsed.Alias, item.parsed.DataType,
+				req.Historize, deadband); execErr != nil {
+				c.JSON(http.StatusConflict, gin.H{
+					"error":  fmt.Sprintf("Line %d: failed to create: %s", item.num, execErr.Error()),
+					"detail": "nothing was imported; the whole file is applied or none of it is",
+				})
+				return
 			}
 			result.Created++
-		} else if err == nil {
-			// Update existing tag alias, data_type and historize
-			_, err = h.db.Exec(`
+		case nil:
+			if _, execErr := tx.ExecContext(ctx, `
 				UPDATE tags SET alias = $1, data_type = $2, historize = $3 WHERE id = $4
-			`, parsed.Alias, parsed.DataType, req.Historize, existingID)
-			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("Line %d: failed to update: %s", lineNum+1, err.Error()))
-				continue
+			`, item.parsed.Alias, item.parsed.DataType, req.Historize, existingID); execErr != nil {
+				c.JSON(http.StatusConflict, gin.H{
+					"error":  fmt.Sprintf("Line %d: failed to update: %s", item.num, execErr.Error()),
+					"detail": "nothing was imported; the whole file is applied or none of it is",
+				})
+				return
 			}
 			result.Updated++
-		} else {
-			result.Errors = append(result.Errors, fmt.Sprintf("Line %d: DB error: %s", lineNum+1, err.Error()))
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":  fmt.Sprintf("Line %d: DB error: %s", item.num, lookupErr.Error()),
+				"detail": "nothing was imported; the whole file is applied or none of it is",
+			})
+			return
 		}
 	}
 
-	// Publish reload command to MQTT if changes were made
+	if err := tx.Commit(); err != nil {
+		log.Printf("[API] tag import: commit failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Import failed"})
+		return
+	}
+
+	// Only now. A reload sent over a rolled-back import restarts the driver onto
+	// the tag list it already had, which is harmless but pointless; a reload sent
+	// over a HALF-applied import was the actual damage.
 	if (result.Created > 0 || result.Updated > 0) && h.mqttClient != nil {
 		topic := fmt.Sprintf("sys/command/reload/%d", req.GatewayID)
-		if err := h.mqttClient.Publish(topic, "reload"); err != nil {
+		if pubErr := h.mqttClient.Publish(topic, "reload"); pubErr != nil {
 			// Same as Update: the import succeeded, but the driver will not pick
-			// the new tags up until it reconnects, so say so. The log line here
-			// was commented out, leaving the failure completely invisible.
-			log.Printf("[API] tag import applied but reload command to gateway %d failed: %v", req.GatewayID, err)
+			// the new tags up until it reconnects, so say so.
+			log.Printf("[API] tag import applied but reload command to gateway %d failed: %v", req.GatewayID, pubErr)
 		}
 	}
 

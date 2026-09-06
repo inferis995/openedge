@@ -911,7 +911,17 @@ const TagsPage = () => {
                                                 <p>Created: {importResult.created} | Updated: {importResult.updated}</p>
                                                 {importResult.errors && importResult.errors.length > 0 && (
                                                     <div className="mt-2 text-red-600">
-                                                        <p className="font-medium">Errors:</p>
+                                                        {/* The import used to write as it walked the lines, so an
+                                                            error halfway through left half the tags in. It now writes
+                                                            nothing, and that has to be said: without this line "Created: 0"
+                                                            next to a list of errors reads as an import that failed
+                                                            halfway, which is the moment somebody goes and checks by
+                                                            hand what survived. */}
+                                                        <p className="font-medium">
+                                                            Nothing was imported — the file is applied whole or not
+                                                            at all. Fix the lines below and import again.
+                                                        </p>
+                                                        <p className="font-medium mt-2">Errors:</p>
                                                         <ul className="list-disc list-inside max-h-32 overflow-auto">
                                                             {importResult.errors.map((err, i) => (
                                                                 <li key={i}>{err}</li>

@@ -7,7 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A tag import that failed halfway left the gateway half configured, and
+  reloaded the driver onto it.** The import walked the lines writing as it went,
+  collected failures into a list, and then sent the reload command whatever had
+  happened. A thousand-line file failing at line five hundred left 499 tags
+  written, 501 missing, and a driver restarted onto that gateway polling
+  addresses that no longer matched the tag list. That does not present as a
+  failed import; it presents as a plant reading wrong.
+
+  Every line is now parsed before anything is written. A single unparseable line
+  means nothing is written and the errors come back with created and updated at
+  zero. What does get written goes in one transaction, and the reload only
+  follows a commit. The web UI says explicitly that nothing landed, because
+  "Created: 0" next to a list of errors otherwise reads as a half-done import.
+
+- **The import set a change filter nobody asked for.** It hardcoded
+  `historize_deadband = 0.1` while the column default is 0 and a tag created
+  through the UI gets 0. On a temperature living inside a narrow band that
+  silently drops the readings the tag was imported to show. It now defaults to 0
+  and accepts an explicit `historize_deadband` in the request.
+
+- **`tag_history` and `system_events` could exist without their foreign keys.**
+  `EnsureTimescaleDBStructures` created both without `REFERENCES`, while
+  `migrations/20250308_schema.sql` declared them with `ON DELETE CASCADE`: the
+  same table had two shapes depending on which path created it. And
+  `ensureCriticalConstraints`, which repairs foreign keys after a restore,
+  covered `tags`, `alarm_definitions` and `alarm_events` but neither of these
+  two. Without the cascade, every tag an operator deletes leaves its samples
+  behind — invisible, unreachable from the UI, and still aged and compressed as
+  if they mattered. Both definitions now carry the key, and both are repaired
+  after a restore.
+
+- **`validateRestoreIntegrity` reported success over an empty database.** It
+  checked that eight tables EXISTED and then printed "All 8 critical tables
+  verified". Table existence is the one thing a restore cannot really fail at:
+  the schema is at the top of the dump and lands long before any data. It now
+  counts rows, puts the numbers in front of the operator, and says so
+  explicitly when `tag_history` comes back empty — without turning that into a
+  failure, because a restore into a new installation legitimately has no
+  history, and a check that cries wolf gets switched off within a week.
+
 ### Added
+
+- **A test for the backup button in the web UI.** `scripts/backup.sh` and
+  `scripts/restore.sh` are covered end to end by `TestBackupCanActuallyBeRestored`.
+  `GET /api/system/backup` is a different route — it runs pg_dump with
+  `--exclude-table=_timescaledb_internal.*`, and in TimescaleDB the rows of a
+  hypertable physically live in chunk tables under exactly that schema — and
+  nothing was checking it. `TestTheInAppBackupContainsTheHistory` seeds one
+  history row with a value unique to the run, calls the endpoint, and reads the
+  dump back out of the ZIP looking for that row. It answers the question without
+  restoring anything: restoring into the live database to find out would be a
+  destructive test of a destructive path.
+
+- **Two tests for the tag import**, covering the two fixes above: a file with one
+  bad line must leave the database untouched, and a clean file must land whole
+  with `historize_deadband` at 0.
 
 - **Store-and-forward on every driver.** A driver reads the PLC on a fixed tick
   and publishes over MQTT. When the broker was unreachable — network down,

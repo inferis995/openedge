@@ -488,6 +488,21 @@ func (h *BackupHandler) ensureCriticalConstraints() {
 			`ALTER TABLE alarm_events DROP CONSTRAINT IF EXISTS alarm_events_tag_id_fkey`,
 			`ALTER TABLE alarm_events ADD CONSTRAINT alarm_events_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE`,
 		},
+		// The two that were missing, and the ones that matter most: the
+		// historian and the gateway event log are the tables that grow. Without
+		// the cascade, every tag an operator ever deletes leaves its samples
+		// behind — invisible, unqueryable through the UI, and still counted by
+		// retention and compression.
+		{
+			"tag_history_tag_id_fkey",
+			`ALTER TABLE tag_history DROP CONSTRAINT IF EXISTS tag_history_tag_id_fkey`,
+			`ALTER TABLE tag_history ADD CONSTRAINT tag_history_tag_id_fkey FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE`,
+		},
+		{
+			"system_events_gateway_id_fkey",
+			`ALTER TABLE system_events DROP CONSTRAINT IF EXISTS system_events_gateway_id_fkey`,
+			`ALTER TABLE system_events ADD CONSTRAINT system_events_gateway_id_fkey FOREIGN KEY (gateway_id) REFERENCES gateways(id) ON DELETE CASCADE`,
+		},
 	} {
 		if _, err := h.db.ExecContext(context.Background(), c.drop); err != nil {
 			log.Printf("[BACKUP] Warning: could not drop constraint %s: %v", c.name, err)
@@ -498,9 +513,23 @@ func (h *BackupHandler) ensureCriticalConstraints() {
 	}
 }
 
-// validateRestoreIntegrity checks that critical tables exist after restore.
+// validateRestoreIntegrity reports what actually came back after a restore.
+//
+// It used to check only that eight tables EXISTED, and then print "All 8
+// critical tables verified". A restore that recreated the schema and brought
+// back not one row passed that check and told the operator everything was fine.
+// Table existence is the one thing a restore cannot really fail at: the schema
+// is at the top of the dump, and it lands long before any COPY does.
+//
+// So this now counts rows and puts the numbers in front of the operator. It
+// deliberately does not turn an empty table into a failure — a restore into a
+// new installation legitimately has no history, and a check that cried wolf
+// there would be switched off within a week. What it will not do any more is
+// say "verified" over an empty historian.
 func (h *BackupHandler) validateRestoreIntegrity() []string {
 	messages := []string{}
+	counts := map[string]int64{}
+
 	for _, table := range []string{
 		"organizations", "sites", "areas", "gateways", "tags",
 		"alarm_definitions", "alarm_events", "tag_history",
@@ -510,11 +539,36 @@ func (h *BackupHandler) validateRestoreIntegrity() []string {
 			SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = $1)`, table).
 			Scan(&exists); err != nil || !exists {
 			messages = append(messages, fmt.Sprintf("WARNING: Table '%s' missing after restore", table))
+			continue
+		}
+
+		var n int64
+		// The table name comes from the literal list above, never from input.
+		if err := h.db.QueryRowContext(context.Background(),
+			fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)).Scan(&n); err != nil {
+			messages = append(messages, fmt.Sprintf("WARNING: Table '%s' exists but could not be counted: %v", table, err))
+			continue
+		}
+		counts[table] = n
+	}
+
+	for _, table := range []string{
+		"organizations", "sites", "areas", "gateways", "tags",
+		"alarm_definitions", "alarm_events", "tag_history",
+	} {
+		if n, ok := counts[table]; ok {
+			messages = append(messages, fmt.Sprintf("%s: %d rows", table, n))
 		}
 	}
-	if len(messages) == 0 {
-		messages = append(messages, "All 8 critical tables verified")
+
+	// The historian is the one an operator restores a backup FOR, and the one
+	// whose loss is invisible until somebody opens a trend from last month.
+	if n, ok := counts["tag_history"]; ok && n == 0 {
+		messages = append(messages, "WARNING: tag_history came back with 0 rows — "+
+			"expected on a restore into a new installation, but if this backup was "+
+			"taken from a running plant the history did NOT come back")
 	}
+
 	return messages
 }
 
@@ -890,10 +944,15 @@ func (h *BackupHandler) EnsureTimescaleDBStructures() error {
 	}
 
 	for _, stmt := range []string{
+		// The foreign key is not decoration. Without it, deleting a tag leaves
+		// its history behind forever: rows no query joins, that retention still
+		// ages, and that nobody can see or remove. This definition used to omit
+		// it while migrations/20250308_schema.sql declared it, so the same table
+		// had two shapes depending on which path created it.
 		`CREATE TABLE IF NOT EXISTS tag_history (
 			id        BIGSERIAL,
 			time      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			tag_id    INT NOT NULL,
+			tag_id    INT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
 			value     DOUBLE PRECISION,
 			source    VARCHAR(20) DEFAULT 'mqtt',
 			PRIMARY KEY (time, id)
@@ -904,7 +963,7 @@ func (h *BackupHandler) EnsureTimescaleDBStructures() error {
 		`CREATE TABLE IF NOT EXISTS system_events (
 			id         BIGSERIAL,
 			time       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			gateway_id INT NOT NULL,
+			gateway_id INT NOT NULL REFERENCES gateways(id) ON DELETE CASCADE,
 			status     VARCHAR(20) NOT NULL,
 			message    TEXT
 		)`,
