@@ -67,11 +67,114 @@ func wrapModbusError(err error) error {
 }
 
 // Config holds the Modbus TCP connection configuration
+// Transport picks the wire a Modbus device is reached over.
+//
+// TCP was the only one for a long time, and on a plant built this decade it is
+// usually right. It is not right on the plants this platform is meant to reach:
+// an Italian factory floor is full of inverters, energy meters and older
+// instrumentation that speak Modbus RTU over RS-485 and have no Ethernet port
+// at all. Without RTU every one of those jobs needs a serial-to-Ethernet
+// gateway bought and wired for it.
+const (
+	// TransportTCP is Modbus TCP — the default, and what every existing
+	// gateway configuration means when it says nothing.
+	TransportTCP = "tcp"
+	// TransportRTU is Modbus RTU on a serial port: /dev/ttyUSB0, COM3.
+	TransportRTU = "rtu"
+	// TransportRTUOverTCP is RTU framing carried over a TCP socket, which is
+	// what a serial gateway in transparent mode gives you. It looks like TCP
+	// on the wire and like RTU inside, and getting the two confused produces a
+	// connection that opens and then answers nothing.
+	TransportRTUOverTCP = "rtuovertcp"
+)
+
 type Config struct {
-	Host    string
-	Port    int
+	// Transport is one of the Transport* constants. Empty means TCP, which is
+	// what makes every configuration written before this field existed keep
+	// working unchanged.
+	Transport string
+
+	// TCP and RTU-over-TCP.
+	Host string
+	Port int
+
+	// RTU only.
+	Device   string // serial port: /dev/ttyUSB0, COM3
+	BaudRate int
+	DataBits int
+	Parity   string // "N", "E", "O" — see parseParity
+	StopBits int
+
 	SlaveID byte
 	Timeout time.Duration
+}
+
+// transport returns the configured transport, defaulting to TCP.
+func (c *Config) transport() string {
+	if c.Transport == "" {
+		return TransportTCP
+	}
+	return strings.ToLower(strings.TrimSpace(c.Transport))
+}
+
+// url builds the connection string the library expects, and refuses a
+// configuration that cannot produce one.
+//
+// It is separate from Connect so it can be tested without a serial port or a
+// device on the other end — the two things a test machine never has.
+func (c *Config) url() (string, error) {
+	switch t := c.transport(); t {
+	case TransportTCP:
+		if c.Host == "" {
+			return "", errors.New("modbus tcp: no host configured")
+		}
+		port := c.Port
+		if port == 0 {
+			port = 502
+		}
+		return fmt.Sprintf("tcp://%s:%d", c.Host, port), nil
+
+	case TransportRTUOverTCP:
+		if c.Host == "" {
+			return "", errors.New("modbus rtuovertcp: no host configured")
+		}
+		port := c.Port
+		if port == 0 {
+			port = 502
+		}
+		return fmt.Sprintf("rtuovertcp://%s:%d", c.Host, port), nil
+
+	case TransportRTU:
+		if c.Device == "" {
+			return "", errors.New("modbus rtu: no serial device configured (e.g. /dev/ttyUSB0 or COM3)")
+		}
+		// The library splits on "://" and takes the remainder as the device
+		// path, so an absolute path lands as rtu:///dev/ttyUSB0 — three
+		// slashes, which looks like a typo and is not one.
+		return "rtu://" + c.Device, nil
+
+	default:
+		return "", fmt.Errorf("modbus: unknown transport %q (want %q, %q or %q)",
+			t, TransportTCP, TransportRTU, TransportRTUOverTCP)
+	}
+}
+
+// parseParity maps what an operator writes into what the library wants.
+//
+// Accepts the single letters used on every device datasheet and the words used
+// in every configuration UI, because both will be typed. An empty value is
+// none, which is what almost every industrial serial device uses.
+func parseParity(p string) (uint, error) {
+	switch strings.ToUpper(strings.TrimSpace(p)) {
+	case "", "N", "NONE":
+		return modbus.PARITY_NONE, nil
+	case "E", "EVEN":
+		return modbus.PARITY_EVEN, nil
+	case "O", "ODD":
+		return modbus.PARITY_ODD, nil
+	default:
+		return 0, fmt.Errorf("modbus: unknown parity %q (want N, E or O)", p)
+	}
 }
 
 // Client represents a Modbus TCP client wrapper around simonvetter/modbus
@@ -93,38 +196,119 @@ func NewClient(cfg Config) *Client {
 
 // NewClientFromConfig creates a Modbus client from a connection config map
 func NewClientFromConfig(connConfig map[string]interface{}) (*Client, error) {
-	host, _ := connConfig["ip"].(string)
-	if host == "" {
-		host, _ = connConfig["ip_address"].(string)
-	}
-	if host == "" {
-		return nil, errors.New("missing 'ip' or 'ip_address' in connection config")
-	}
-	host = strings.TrimSpace(host)
-
-	var port int
-	if p, ok := connConfig["port"].(float64); ok {
-		port = int(p)
-	} else {
-		port = 502 // Default Modbus TCP port
+	// A configuration that names no transport is TCP. Every gateway configured
+	// before this field existed says nothing, and must keep meaning what it
+	// meant.
+	transport := TransportTCP
+	if t, ok := firstString(connConfig, "transport", "mode"); ok {
+		transport = strings.ToLower(strings.TrimSpace(t))
 	}
 
-	var slaveID byte
-	if s, ok := connConfig["slave_id"].(float64); ok {
+	slaveID := byte(1)
+	if s, ok := firstNumber(connConfig, "slave_id", "unit_id"); ok {
 		slaveID = byte(s)
-	} else {
-		slaveID = 1 // Default slave ID
 	}
 
-	return NewClient(Config{
-		Host:    host,
-		Port:    port,
-		SlaveID: slaveID,
+	cfg := Config{
+		Transport: transport,
+		SlaveID:   slaveID,
+		// TCP over a plant network tolerates a long wait. A serial line does
+		// not: a slave that is switched off would hold the poll loop for the
+		// whole timeout, once per scan, and the other devices on the bus would
+		// go stale because of it.
 		Timeout: 5 * time.Second,
-	}), nil
+	}
+
+	switch transport {
+	case TransportTCP, TransportRTUOverTCP:
+		host, ok := firstString(connConfig, "ip", "ip_address", "host")
+		if !ok || strings.TrimSpace(host) == "" {
+			return nil, errors.New("missing 'ip' or 'ip_address' in connection config")
+		}
+		cfg.Host = strings.TrimSpace(host)
+
+		cfg.Port = 502
+		if p, ok := firstNumber(connConfig, "port"); ok {
+			cfg.Port = int(p)
+		}
+
+	case TransportRTU:
+		device, ok := firstString(connConfig, "device", "serial_port", "port_name")
+		if !ok || strings.TrimSpace(device) == "" {
+			return nil, errors.New("modbus rtu: missing 'device' in connection config (e.g. /dev/ttyUSB0 or COM3)")
+		}
+		cfg.Device = strings.TrimSpace(device)
+
+		if b, ok := firstNumber(connConfig, "baud_rate", "baudrate", "speed"); ok {
+			cfg.BaudRate = int(b)
+		}
+		if d, ok := firstNumber(connConfig, "data_bits", "databits"); ok {
+			cfg.DataBits = int(d)
+		}
+		if sb, ok := firstNumber(connConfig, "stop_bits", "stopbits"); ok {
+			cfg.StopBits = int(sb)
+		}
+		if par, ok := firstString(connConfig, "parity"); ok {
+			cfg.Parity = par
+		}
+		// Reject a bad parity here rather than at Connect: the operator is
+		// looking at the form now, and will be looking at a red gateway in an
+		// hour.
+		if _, err := parseParity(cfg.Parity); err != nil {
+			return nil, err
+		}
+		cfg.Timeout = time.Second
+
+	default:
+		return nil, fmt.Errorf("modbus: unknown transport %q (want %q, %q or %q)",
+			transport, TransportTCP, TransportRTU, TransportRTUOverTCP)
+	}
+
+	// Fail here rather than on the first poll, so a wrong configuration is a
+	// refused save instead of a gateway that looks configured and never reads.
+	if _, err := cfg.url(); err != nil {
+		return nil, err
+	}
+
+	return NewClient(cfg), nil
 }
 
-// Connect establishes a TCP connection to the Modbus device
+// firstString returns the first key present as a non-empty string.
+//
+// The connection config is JSON written by several generations of the UI and
+// by hand, so the same thing is spelled more than one way. Accepting the
+// aliases costs a line each and saves an operator from a form that silently
+// ignores what they typed.
+func firstString(m map[string]interface{}, keys ...string) (string, bool) {
+	for _, k := range keys {
+		if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+			return v, true
+		}
+	}
+	return "", false
+}
+
+// firstNumber returns the first key present as a number.
+//
+// JSON numbers decode to float64, but a value that came back from Postgres or
+// was built in Go can be an int, and a form can send it as a string.
+func firstNumber(m map[string]interface{}, keys ...string) (float64, bool) {
+	for _, k := range keys {
+		switch v := m[k].(type) {
+		case float64:
+			return v, true
+		case int:
+			return float64(v), true
+		case string:
+			if n, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+				return n, true
+			}
+		}
+	}
+	return 0, false
+}
+
+// Connect opens the link to the Modbus device over the configured transport.
 func (c *Client) Connect() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -133,14 +317,28 @@ func (c *Client) Connect() error {
 	// The library doesn't expose IsConnected. We should just try to Open() or handle errors.
 	// For this wrapper, let's just proceed to Open().
 
-	url := fmt.Sprintf("tcp://%s:%d", c.config.Host, c.config.Port)
+	url, err := c.config.url()
+	if err != nil {
+		return err
+	}
+
+	parity, err := parseParity(c.config.Parity)
+	if err != nil {
+		return err
+	}
+
+	// Zero means "let the library choose", and its choices are the ones from
+	// the Modbus-over-serial specification: 19200 baud, 8 data bits, and two
+	// stop bits when there is no parity. Overriding them with our own guesses
+	// would be a second set of defaults to keep in step with a document we do
+	// not own.
 	client, err := modbus.NewClient(&modbus.ClientConfiguration{
 		URL:      url,
 		Timeout:  c.config.Timeout,
-		Speed:    19200, // Default for RTU, ignored for TCP but good to set
-		DataBits: 8,     // Default
-		Parity:   modbus.PARITY_NONE,
-		StopBits: 1,
+		Speed:    uint(c.config.BaudRate),
+		DataBits: uint(c.config.DataBits),
+		Parity:   parity,
+		StopBits: uint(c.config.StopBits),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create client: %w", err)

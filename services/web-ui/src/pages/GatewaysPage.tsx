@@ -45,6 +45,14 @@ interface ExtendedCreateGatewayDto extends Omit<CreateGatewayDto, 'connection_co
     password?: string;
     cert_file?: string;
     key_file?: string;
+    // Modbus transport. Absent or 'tcp' is Modbus TCP, which is what every
+    // gateway configured before these fields existed means.
+    modbus_transport?: string;   // 'tcp' | 'rtu' | 'rtuovertcp'
+    modbus_device?: string;      // serial port, RTU only: /dev/ttyUSB0, COM3
+    modbus_baud_rate?: number;
+    modbus_parity?: string;      // 'N' | 'E' | 'O'
+    modbus_data_bits?: number;
+    modbus_stop_bits?: number;
     // MQTT external-broker fields (all optional; empty broker_host = use
     // OpenEdge's internal broker, the legacy behaviour).
     broker_host?: string;
@@ -101,6 +109,14 @@ const GatewaysPage = () => {
         slot: 2,
         port: 502,
         slave_id: 1,
+        // Modbus transport. 'tcp' keeps every gateway configured before this
+        // existed meaning exactly what it meant.
+        modbus_transport: 'tcp',
+        modbus_device: '',
+        modbus_baud_rate: 9600,
+        modbus_parity: 'N',
+        modbus_data_bits: 8,
+        modbus_stop_bits: 1,
         scan_rate_ms: 1000,
         enabled: true,
         zero_based: false, // Default to false (Standard Modbus)
@@ -138,7 +154,26 @@ const GatewaysPage = () => {
         if (formData.driver_type === 'S7') {
             connection_config = { ip_address: formData.ip_address, rack: formData.rack, slot: formData.slot };
         } else if (formData.driver_type === 'MODBUS_TCP') {
-            connection_config = { ip_address: formData.ip_address, port: formData.port, slave_id: formData.slave_id };
+            if (formData.modbus_transport === 'rtu') {
+                connection_config = {
+                    transport: 'rtu',
+                    device: formData.modbus_device,
+                    baud_rate: formData.modbus_baud_rate,
+                    parity: formData.modbus_parity,
+                    data_bits: formData.modbus_data_bits,
+                    stop_bits: formData.modbus_stop_bits,
+                    slave_id: formData.slave_id,
+                };
+            } else {
+                // 'tcp' and 'rtuovertcp' both dial an address; only the framing
+                // inside differs, and that is the server's business.
+                connection_config = {
+                    transport: formData.modbus_transport || 'tcp',
+                    ip_address: formData.ip_address,
+                    port: formData.port,
+                    slave_id: formData.slave_id,
+                };
+            }
         } else if (formData.driver_type === 'OPC_UA') {
             connection_config = {
                 endpoint: formData.endpoint,
@@ -175,7 +210,11 @@ const GatewaysPage = () => {
         if (!formData.name || !selectedAreaForCreate) return;
         // IP is required for S7 and MODBUS_TCP only
         const noIPDrivers = ['MQTT', 'OPC_UA', 'LORAWAN'];
-        if (!noIPDrivers.includes(formData.driver_type!) && !formData.ip_address) return;
+        // A serial gateway has no address. Demanding one here is how the form
+        // refuses to save a configuration that is perfectly valid.
+        const isSerialModbus = formData.driver_type === 'MODBUS_TCP' && formData.modbus_transport === 'rtu';
+        if (isSerialModbus && !formData.modbus_device) return;
+        if (!isSerialModbus && !noIPDrivers.includes(formData.driver_type!) && !formData.ip_address) return;
         if (formData.driver_type === 'OPC_UA' && !formData.endpoint) return;
         if (formData.driver_type === 'LORAWAN' && (!formData.lora_server_host || !formData.lora_application_id)) return;
 
@@ -213,6 +252,12 @@ const GatewaysPage = () => {
             slot: 2,
             port: 502,
             slave_id: 1,
+            modbus_transport: 'tcp',
+            modbus_device: '',
+            modbus_baud_rate: 9600,
+            modbus_parity: 'N',
+            modbus_data_bits: 8,
+            modbus_stop_bits: 1,
             scan_rate_ms: 1000,
             enabled: true,
             zero_based: false, // Default to false (Standard Modbus)
@@ -245,6 +290,8 @@ const GatewaysPage = () => {
 
         // Parse connection config based on driver type
         let rack = 0, slot = 2, port = 502, slave_id = 1, ip_address = '';
+        let modbus_transport = 'tcp', modbus_device = '', modbus_baud_rate = 9600;
+        let modbus_parity = 'N', modbus_data_bits = 8, modbus_stop_bits = 1;
         let auth_mode = 'Anonymous', username = '', password = '', cert_file = '', key_file = '';
         let endpoint = '';
         let broker_host = '', broker_port = 1883, broker_tls = false;
@@ -261,6 +308,12 @@ const GatewaysPage = () => {
             } else if (gateway.driver_type === 'MODBUS_TCP') {
                 port = config.port || 502;
                 slave_id = config.slave_id || 1;
+                modbus_transport = config.transport || config.mode || 'tcp';
+                modbus_device = config.device || config.serial_port || '';
+                modbus_baud_rate = config.baud_rate || 9600;
+                modbus_parity = config.parity || 'N';
+                modbus_data_bits = config.data_bits || 8;
+                modbus_stop_bits = config.stop_bits || 1;
             } else if (gateway.driver_type === 'OPC_UA') {
                 endpoint = config.endpoint || '';
                 auth_mode = config.auth_mode || 'Anonymous';
@@ -295,6 +348,12 @@ const GatewaysPage = () => {
             slot,
             port,
             slave_id,
+            modbus_transport,
+            modbus_device,
+            modbus_baud_rate,
+            modbus_parity,
+            modbus_data_bits,
+            modbus_stop_bits,
             scan_rate_ms: gateway.scan_rate_ms,
             enabled: gateway.enabled,
             zero_based: gateway.zero_based !== undefined ? gateway.zero_based : false,
@@ -431,7 +490,10 @@ const GatewaysPage = () => {
                                     />
                                 </div>
 
-                                {formData.driver_type !== 'MQTT' && formData.driver_type !== 'OPC_UA' && formData.driver_type !== 'LORAWAN' && (
+                                {/* A serial Modbus gateway has no address, so the field goes
+                                    away rather than sitting there empty and required. */}
+                                {formData.driver_type !== 'MQTT' && formData.driver_type !== 'OPC_UA' && formData.driver_type !== 'LORAWAN'
+                                    && !(formData.driver_type === 'MODBUS_TCP' && formData.modbus_transport === 'rtu') && (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div className="grid gap-2">
                                             <Label htmlFor="ip">IP Address</Label>
@@ -479,16 +541,102 @@ const GatewaysPage = () => {
 
                                 {formData.driver_type === 'MODBUS_TCP' && (
                                     <>
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="modbus_transport">Transport</Label>
+                                            <Select
+                                                value={formData.modbus_transport || 'tcp'}
+                                                onValueChange={(v) => handleInputChange('modbus_transport', v)}
+                                            >
+                                                <SelectTrigger id="modbus_transport">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="tcp">Modbus TCP — Ethernet</SelectItem>
+                                                    <SelectItem value="rtu">Modbus RTU — serial RS-485 / RS-232</SelectItem>
+                                                    <SelectItem value="rtuovertcp">RTU over TCP — serial gateway in transparent mode</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                            <p className="text-xs text-muted-foreground">
+                                                RTU over TCP looks like TCP on the wire and carries RTU framing inside.
+                                                Choosing plain TCP for one gives a socket that opens and then answers nothing.
+                                            </p>
+                                        </div>
+
+                                        {formData.modbus_transport === 'rtu' && (
+                                            <>
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="modbus_device">Serial device</Label>
+                                                    <Input
+                                                        id="modbus_device"
+                                                        value={formData.modbus_device}
+                                                        onChange={(e) => handleInputChange('modbus_device', e.target.value)}
+                                                        placeholder="/dev/ttyUSB0"
+                                                    />
+                                                    <p className="text-xs text-muted-foreground">
+                                                        The port on the machine running the driver — /dev/ttyUSB0 on Linux, COM3 on Windows.
+                                                        It must be passed through to the driver container.
+                                                    </p>
+                                                </div>
+                                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                                                    <div className="grid gap-2">
+                                                        <Label htmlFor="modbus_baud">Baud rate</Label>
+                                                        <Input
+                                                            id="modbus_baud"
+                                                            type="number"
+                                                            value={formData.modbus_baud_rate}
+                                                            onChange={(e) => handleInputChange('modbus_baud_rate', parseInt(e.target.value))}
+                                                        />
+                                                    </div>
+                                                    <div className="grid gap-2">
+                                                        <Label htmlFor="modbus_parity">Parity</Label>
+                                                        <Select
+                                                            value={formData.modbus_parity || 'N'}
+                                                            onValueChange={(v) => handleInputChange('modbus_parity', v)}
+                                                        >
+                                                            <SelectTrigger id="modbus_parity">
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="N">None</SelectItem>
+                                                                <SelectItem value="E">Even</SelectItem>
+                                                                <SelectItem value="O">Odd</SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    <div className="grid gap-2">
+                                                        <Label htmlFor="modbus_databits">Data bits</Label>
+                                                        <Input
+                                                            id="modbus_databits"
+                                                            type="number"
+                                                            value={formData.modbus_data_bits}
+                                                            onChange={(e) => handleInputChange('modbus_data_bits', parseInt(e.target.value))}
+                                                        />
+                                                    </div>
+                                                    <div className="grid gap-2">
+                                                        <Label htmlFor="modbus_stopbits">Stop bits</Label>
+                                                        <Input
+                                                            id="modbus_stopbits"
+                                                            type="number"
+                                                            value={formData.modbus_stop_bits}
+                                                            onChange={(e) => handleInputChange('modbus_stop_bits', parseInt(e.target.value))}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                            <div className="grid gap-2">
-                                                <Label htmlFor="port">Port</Label>
-                                                <Input
-                                                    id="port"
-                                                    type="number"
-                                                    value={formData.port}
-                                                    onChange={(e) => handleInputChange('port', parseInt(e.target.value))}
-                                                />
-                                            </div>
+                                            {formData.modbus_transport !== 'rtu' && (
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="port">Port</Label>
+                                                    <Input
+                                                        id="port"
+                                                        type="number"
+                                                        value={formData.port}
+                                                        onChange={(e) => handleInputChange('port', parseInt(e.target.value))}
+                                                    />
+                                                </div>
+                                            )}
                                             <div className="grid gap-2">
                                                 <Label htmlFor="slave">Slave ID</Label>
                                                 <Input

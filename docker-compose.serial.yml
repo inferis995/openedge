@@ -1,0 +1,45 @@
+# Serial passthrough for Modbus RTU.
+#
+# WHY THIS IS A SEPARATE FILE
+#
+# A `devices:` entry naming a port that does not exist makes `docker compose up`
+# fail outright — not the driver, the whole stack. Most installations have no
+# serial adapter, so putting the mapping in docker-compose.yml would break every
+# one of them to serve the few that need it.
+#
+# So it lives here, and is opted into:
+#
+#   MODBUS_SERIAL_DEVICE=/dev/ttyUSB0 \
+#   docker compose -f docker-compose.yml -f docker-compose.serial.yml --profile drivers up -d
+#
+# Or set MODBUS_SERIAL_DEVICE in .env and add this file to COMPOSE_FILE.
+#
+# The default is /dev/null: it exists on every Linux host, mapping it is
+# harmless, and it means this file can be included unconditionally by a
+# deployment that does not know yet whether the plant has a serial device.
+#
+# The device path inside the container is the same as on the host, so the value
+# configured on the gateway in the web UI is the one an operator reads off the
+# machine — no second mapping to keep in step.
+#
+# PERMISSIONS
+#
+# The driver containers run as root, so the usual `dialout` group ownership of
+# /dev/ttyUSB* is not in the way. If a future image drops privileges, this needs
+# a group_add for the group that owns the device on the host.
+#
+# USB ADAPTERS MOVE
+#
+# /dev/ttyUSB0 is assigned in the order adapters are enumerated, so a second USB
+# device or a reboot can renumber it — and the gateway then polls the wrong
+# port, or nothing. On a plant that matters, use the stable path instead:
+#
+#   MODBUS_SERIAL_DEVICE=/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A50285BI-if00-port0
+#
+# `ls -l /dev/serial/by-id/` prints it. That name follows the adapter, not the
+# order it was plugged in.
+
+services:
+  driver-modbus:
+    devices:
+      - "${MODBUS_SERIAL_DEVICE:-/dev/null}:${MODBUS_SERIAL_DEVICE:-/dev/null}"

@@ -831,6 +831,42 @@ func (h *GatewaysHandler) TestConnection(c *gin.Context) {
 		return
 	}
 
+	// A Modbus gateway on a serial line has no address to dial, and saying "No
+	// IP address configured" about one is not a failed test — it is this
+	// endpoint describing its own assumption as the operator's mistake.
+	//
+	// Nor can the serial port be probed from here: it is wired to the machine
+	// running the DRIVER container, and this handler runs in core-api. A check
+	// that opened /dev/ttyUSB0 in this process would report on the wrong
+	// computer. So say what is true, the way the MQTT and LoRaWAN branches
+	// above already do, and leave the verdict to the gateway's health.
+	if driverType == "MODBUS_TCP" {
+		transport, _ := config["transport"].(string)
+		if transport == "" {
+			transport, _ = config["mode"].(string)
+		}
+		if strings.EqualFold(strings.TrimSpace(transport), "rtu") {
+			device, _ := config["device"].(string)
+			if device == "" {
+				device, _ = config["serial_port"].(string)
+			}
+			if strings.TrimSpace(device) == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"success": false,
+					"message": "Modbus RTU: no serial device configured (e.g. /dev/ttyUSB0 or COM3)",
+				})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"success": true,
+				"message": fmt.Sprintf("Modbus RTU on %s. A serial port is opened by the driver "+
+					"container on the machine it is wired to, so it cannot be reached from here — "+
+					"start the gateway and read its health status.", device),
+			})
+			return
+		}
+	}
+
 	if val, ok := config["ip_address"].(string); ok {
 		ipAddress = val
 	} else {

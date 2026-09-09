@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Modbus RTU on a serial line, and RTU over TCP.** The driver spoke Modbus TCP
+  and nothing else — the URL was `fmt.Sprintf("tcp://%s:%d", ...)`, hardcoded.
+  On the plants this platform is meant to reach that leaves out most of what is
+  actually installed: inverters, energy meters and older instrumentation speak
+  Modbus RTU over RS-485 and have no Ethernet port at all. Every one of those
+  jobs needed a serial-to-Ethernet gateway bought and wired for it.
+
+  `simonvetter/modbus` already supported RTU, and the client already carried
+  `Speed`, `DataBits`, `Parity` and `StopBits` next to a comment reading
+  "Default for RTU, ignored for TCP" — somebody saw this coming and stopped
+  there.
+
+  Three transports now: `tcp` (unchanged, and what a configuration that names
+  none still means), `rtu` (a serial device), and `rtuovertcp` (RTU framing over
+  a socket, which is what a serial gateway in transparent mode gives you —
+  confusing it with plain TCP produces a connection that opens and then answers
+  nothing). The web UI grew a transport selector and, for RTU, the device, baud
+  rate, parity, data bits and stop bits; the IP field disappears rather than
+  sitting there empty and required.
+
+  The RTU timeout defaults to one second rather than the TCP five: on a serial
+  bus one slave that is switched off would otherwise hold the poll loop for five
+  seconds every scan, and every other device on the line would go stale waiting
+  for it.
+
+  **`docker-compose.serial.yml`** carries the device passthrough, because a
+  `devices:` entry naming a port that does not exist makes `docker compose up`
+  fail for the whole stack — and most installations have no serial adapter. Set
+  `MODBUS_SERIAL_DEVICE` and add the file. It documents the trap that
+  `/dev/ttyUSB0` is assigned in enumeration order, so a second adapter or a
+  reboot renumbers it and the gateway then polls the wrong port;
+  `/dev/serial/by-id/...` follows the adapter instead.
+
+  The connection-test endpoint no longer answers "No IP address configured" to a
+  serial gateway. It says what is true: a serial port belongs to the machine
+  running the driver container, this handler runs in core-api, and a check that
+  opened the device here would be reporting on the wrong computer.
+
+  Eight tests, each verified by reintroducing the defect. One of them was added
+  *because* the verification found the first version wanting: the
+  backward-compatibility test went through `NewClientFromConfig`, which sets the
+  transport explicitly, so it passed with the fallback inside `transport()`
+  deliberately changed to RTU — it asserted the behavior of one path while
+  claiming the behavior of both. There are two defaults; there are now two
+  tests.
+
 ### Fixed
 
 - **The backup button in the web UI produced a file with no history in it.**
