@@ -4,9 +4,14 @@ import "time"
 
 // AlarmDefinition represents a configured alarm rule for a tag
 type AlarmDefinition struct {
-	ID           int       `json:"id" db:"id"`
-	TagID        int       `json:"tag_id" db:"tag_id"`
-	AlarmType    string    `json:"alarm_type" db:"alarm_type"`       // 'bool_true', 'bool_false', 'high', 'low', 'high_high', 'low_low'
+	ID    int `json:"id" db:"id"`
+	TagID int `json:"tag_id" db:"tag_id"`
+	// AlarmType is either a value rule — 'bool_true', 'bool_false', 'high',
+	// 'low', 'high_high', 'low_low' — judged against each incoming reading, or
+	// a health rule — 'comm_loss', 'frozen' — judged on the clock because what
+	// triggers it is the absence of a reading, or of a change. Health rules
+	// carry no threshold and read DelaySeconds as their timeout.
+	AlarmType    string    `json:"alarm_type" db:"alarm_type"`
 	Threshold    *float64  `json:"threshold" db:"threshold"`         // Nil for boolean
 	Deadband     float64   `json:"deadband" db:"deadband"`           // To prevent chattering
 	DelaySeconds int       `json:"delay_seconds" db:"delay_seconds"` // Wait seconds before trigger
@@ -22,7 +27,7 @@ type AlarmEvent struct {
 	ID             int        `json:"id" db:"id"`
 	TagID          int        `json:"tag_id" db:"tag_id"`
 	DefinitionID   *int       `json:"definition_id,omitempty" db:"definition_id"` // Nil if def was deleted
-	Status         string     `json:"status" db:"status"`                          // 'ACTIVE', 'ACKNOWLEDGED', 'CLEARED'
+	Status         string     `json:"status" db:"status"`                         // 'ACTIVE', 'ACKNOWLEDGED', 'CLEARED'
 	AlarmType      string     `json:"alarm_type" db:"alarm_type"`
 	Severity       string     `json:"severity" db:"severity"`
 	Message        string     `json:"message" db:"message"`

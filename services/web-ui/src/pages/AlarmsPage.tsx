@@ -13,6 +13,7 @@ import { alarmsApi, AlarmEvent } from '@/api/alarms';
 import { tagsApi } from '@/api/tags';
 import { Tag } from '@/types';
 import { toast } from 'sonner';
+import { alarmTypeBadgeLabel } from '@/lib/alarmTypes';
 import { useAuthStore } from '@/stores/useAuthStore';
 
 function TableSkeletonRows({ cols, rows = 6 }: { cols: number; rows?: number }) {
@@ -265,7 +266,7 @@ export default function AlarmsPage() {
                                 </div>
                             </TableCell>
                             <TableCell className="font-medium">{tagName}</TableCell>
-                            <TableCell><Badge variant="outline" className="text-xs">{event.alarm_type}</Badge></TableCell>
+                            <TableCell><Badge variant="outline" className="text-xs">{alarmTypeBadgeLabel(event.alarm_type)}</Badge></TableCell>
                             <TableCell>{event.message}</TableCell>
                             <TableCell>{event.value_at_trigger?.toFixed(2) ?? '-'}</TableCell>
                             <TableCell>{formatTime(event.trigger_time)}</TableCell>
@@ -327,7 +328,7 @@ export default function AlarmsPage() {
                                 </div>
                             </TableCell>
                             <TableCell className="font-medium">{tagName}</TableCell>
-                            <TableCell><Badge variant="outline" className="text-xs">{event.alarm_type}</Badge></TableCell>
+                            <TableCell><Badge variant="outline" className="text-xs">{alarmTypeBadgeLabel(event.alarm_type)}</Badge></TableCell>
                             <TableCell>{event.message}</TableCell>
                             <TableCell>{event.value_at_trigger?.toFixed(2) ?? '-'}</TableCell>
                             <TableCell>{formatTime(event.trigger_time)}</TableCell>

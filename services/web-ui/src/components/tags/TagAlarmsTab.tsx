@@ -7,6 +7,7 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Trash2, Plus, Activity, AlertTriangle } from 'lucide-react';
 import { tagsApi } from '@/api/tags';
+import { ALARM_TYPE_LABELS, NO_THRESHOLD_TYPES, HEALTH_TYPES } from '@/lib/alarmTypes';
 import { toast } from 'sonner';
 
 export interface AlarmDefinition {
@@ -27,18 +28,6 @@ interface Props {
     onSave?: () => void;
 }
 
-// Etichette delle condizioni di allarme. Le label sono human-friendly:
-// l'operatore vede "Valore troppo alto" non "high". L'helper text spiega
-// la regola esatta ("scatta quando valore > soglia").
-const ALARM_TYPE_LABELS: Record<string, { label: string; thresholdLabel: string; helper: string }> = {
-    bool_true:  { label: 'Quando diventa VERO (ON)',  thresholdLabel: '', helper: 'Scatta sul fronte di salita 0 → 1.' },
-    bool_false: { label: 'Quando diventa FALSO (OFF)', thresholdLabel: '', helper: 'Scatta sul fronte di discesa 1 → 0.' },
-    high:       { label: 'Valore troppo alto',        thresholdLabel: 'Soglia massima',     helper: 'Scatta quando valore > soglia massima.' },
-    low:        { label: 'Valore troppo basso',       thresholdLabel: 'Soglia minima',      helper: 'Scatta quando valore < soglia minima.' },
-    high_high:  { label: 'Valore CRITICO alto',       thresholdLabel: 'Soglia critica alta', helper: 'Soglia oltre il "troppo alto" — usata per allarmi urgenti.' },
-    low_low:    { label: 'Valore CRITICO basso',      thresholdLabel: 'Soglia critica bassa', helper: 'Soglia oltre il "troppo basso" — usata per allarmi urgenti.' },
-};
-
 const SEVERITY_LABELS: Record<string, string> = {
     info:     'Info — solo log',
     warning:  'Allarme — notifica operatore',
@@ -55,6 +44,8 @@ const defaultMessage = (alarm_type: string, alias: string, threshold: number | n
         case 'low':        return `${what}: sotto soglia${threshold !== null ? ` (< ${threshold})` : ''}`;
         case 'high_high':  return `${what}: CRITICO alto${threshold !== null ? ` (> ${threshold})` : ''}`;
         case 'low_low':    return `${what}: CRITICO basso${threshold !== null ? ` (< ${threshold})` : ''}`;
+        case 'comm_loss':  return `${what}: comunicazione persa`;
+        case 'frozen':     return `${what}: valore bloccato`;
         default:           return `Allarme su ${what}`;
     }
 };
@@ -92,7 +83,7 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
     const handleSave = async () => {
         // Validazione minima: condizioni non-bool richiedono soglia numerica.
         for (const a of alarms) {
-            const needsThreshold = a.alarm_type !== 'bool_true' && a.alarm_type !== 'bool_false';
+            const needsThreshold = !NO_THRESHOLD_TYPES.has(a.alarm_type);
             if (needsThreshold && (a.threshold === null || a.threshold === undefined || Number.isNaN(a.threshold))) {
                 toast.error(`Soglia mancante per "${ALARM_TYPE_LABELS[a.alarm_type]?.label ?? a.alarm_type}".`);
                 return;
@@ -144,8 +135,8 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
         }
         // Switching to/from BOOL types resets threshold appropriately
         if (field === 'alarm_type') {
-            const isBoolType = value === 'bool_true' || value === 'bool_false';
-            if (isBoolType) newAlarm.threshold = null;
+            const hasNoThreshold = NO_THRESHOLD_TYPES.has(value as string);
+            if (hasNoThreshold) newAlarm.threshold = null;
             else if (cur.threshold === null) newAlarm.threshold = typeof current?.value === 'number' ? current.value : 0;
         }
 
@@ -195,7 +186,8 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                 <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
                     {alarms.map((alarm, idx) => {
                         const meta = ALARM_TYPE_LABELS[alarm.alarm_type];
-                        const needsThreshold = alarm.alarm_type !== 'bool_true' && alarm.alarm_type !== 'bool_false';
+                        const needsThreshold = !NO_THRESHOLD_TYPES.has(alarm.alarm_type);
+                        const isHealth = HEALTH_TYPES.has(alarm.alarm_type);
                         return (
                             <div key={idx} className="p-4 border rounded-md shadow-sm space-y-3 bg-card relative">
                                 <Button
@@ -231,6 +223,10 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                                                         <SelectItem value="low_low">{ALARM_TYPE_LABELS.low_low.label}</SelectItem>
                                                     </>
                                                 )}
+                                                {/* Valgono per qualsiasi tipo di dato: guardano il
+                                                    collegamento, non il valore. */}
+                                                <SelectItem value="comm_loss">{ALARM_TYPE_LABELS.comm_loss.label}</SelectItem>
+                                                <SelectItem value="frozen">{ALARM_TYPE_LABELS.frozen.label}</SelectItem>
                                             </SelectContent>
                                         </Select>
                                         {meta?.helper && (
@@ -267,11 +263,15 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                                             onChange={(e) => updateAlarm(idx, 'delay_seconds', parseInt(e.target.value || '0'))}
                                         />
                                         <p className="text-[11px] text-muted-foreground">
-                                            Condizione deve resistere {alarm.delay_seconds}s prima di scattare (anti-rimbalzo).
+                                            {isHealth
+                                                ? `Scatta dopo ${alarm.delay_seconds || 60}s ${alarm.alarm_type === 'comm_loss' ? 'senza letture valide' : 'senza che il valore si muova'}. 0 = usa 60s.`
+                                                : `Condizione deve resistere ${alarm.delay_seconds}s prima di scattare (anti-rimbalzo).`}
                                         </p>
                                     </div>
 
-                                    {needsThreshold && (
+                                    {/* La deadband serve anche a "valore bloccato": li' dice
+                                        quanto rumore NON va considerato movimento. */}
+                                    {(needsThreshold || alarm.alarm_type === 'frozen') && (
                                         <div className="space-y-1">
                                             <Label>Deadband (isteresi)</Label>
                                             <Input
@@ -282,7 +282,9 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                                                 placeholder="0 = nessuna isteresi"
                                             />
                                             <p className="text-[11px] text-muted-foreground">
-                                                Per rientrare, il valore deve scostarsi di almeno {alarm.deadband || 0} dalla soglia.
+                                                {alarm.alarm_type === 'frozen'
+                                                    ? `Il valore è considerato fermo finché si muove di meno di ${alarm.deadband || 0}.`
+                                                    : `Per rientrare, il valore deve scostarsi di almeno ${alarm.deadband || 0} dalla soglia.`}
                                             </p>
                                         </div>
                                     )}

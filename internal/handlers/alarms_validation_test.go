@@ -29,6 +29,21 @@ func TestValidateAlarmDefinitions(t *testing.T) {
 			},
 		},
 		{
+			// The alarm engine judges these two on the clock, so the API has to
+			// accept them with no threshold at all. A rule the operator can
+			// build in the UI but not save is worse than no rule.
+			name: "valid comm_loss alarm no threshold",
+			alarms: []models.AlarmDefinition{
+				{AlarmType: "comm_loss", Severity: "critical", DelaySeconds: 30},
+			},
+		},
+		{
+			name: "valid frozen alarm no threshold",
+			alarms: []models.AlarmDefinition{
+				{AlarmType: "frozen", Severity: "warning", DelaySeconds: 300, Deadband: 0.5},
+			},
+		},
+		{
 			name:    "invalid alarm_type",
 			alarms:  []models.AlarmDefinition{{AlarmType: "bad_type", Severity: "info"}},
 			wantErr: true,

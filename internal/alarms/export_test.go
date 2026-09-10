@@ -158,3 +158,57 @@ func (s *FakeStore) TagAlias(tagID int) (string, error) {
 	}
 	return fmt.Sprintf("tag-%d", tagID), nil
 }
+
+// IsHealthAlarm exposes the unexported isHealthAlarm for testing.
+func IsHealthAlarm(alarmType string) bool { return isHealthAlarm(alarmType) }
+
+// HealthTimeout exposes the unexported healthTimeout for testing.
+func HealthTimeout(def *models.AlarmDefinition) time.Duration { return healthTimeout(def) }
+
+// BackdateHealth ages the health state of a tag by d, so a test can reach a
+// silence or freeze timeout without waiting out a real one.
+func (m *Manager) BackdateHealth(tagID int, d time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s := m.samples[tagID]
+	if s == nil {
+		return
+	}
+	s.lastGood = s.lastGood.Add(-d)
+	for _, a := range s.anchors {
+		a.since = a.since.Add(-d)
+	}
+}
+
+// HealthStateSize reports how many tags carry health state, and how many change
+// anchors the given tag still holds.
+func (m *Manager) HealthStateSize(tagID int) (tags, anchors int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s := m.samples[tagID]; s != nil {
+		anchors = len(s.anchors)
+	}
+	return len(m.samples), anchors
+}
+
+// PruneHealthState exposes the unexported pruneHealthState for testing, taking
+// the same lock LoadDefinitions holds when it calls it.
+func (m *Manager) PruneHealthState(newDefs map[int][]models.AlarmDefinition) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.definitions = newDefs
+	m.pruneHealthState(newDefs)
+}
+
+// ActiveCount reports how many fired (announced) tracks exist for a tag.
+func (m *Manager) ActiveCount(tagID int) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, t := range m.activeTracks[tagID] {
+		if t.Triggered {
+			n++
+		}
+	}
+	return n
+}

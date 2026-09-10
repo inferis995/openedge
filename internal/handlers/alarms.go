@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	alarmengine "github.com/ralph/industrial-edge-middleware/internal/alarms"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
@@ -699,6 +700,9 @@ func validateAlarmDefinitions(alarms []models.AlarmDefinition) string {
 	validTypes := map[string]bool{
 		"bool_true": true, "bool_false": true,
 		"high": true, "low": true, "high_high": true, "low_low": true,
+		// Health rules. They carry no threshold: what they watch is the link,
+		// not the value, and their delay is the silence they tolerate.
+		alarmengine.AlarmCommLoss: true, alarmengine.AlarmFrozen: true,
 	}
 	validSeverities := map[string]bool{"info": true, "warning": true, "critical": true}
 

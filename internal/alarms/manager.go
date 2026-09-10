@@ -85,6 +85,7 @@ type Manager struct {
 	gatewayName  string
 	definitions  map[int][]models.AlarmDefinition  // tag_id -> definitions
 	activeTracks map[int]map[int]*activeAlarmTrack // tag_id -> definition_id -> track
+	samples      map[int]*sampleState              // tag_id -> health state, only for tags with a health rule
 	pendingIO    []alarmIO                         // ordered queue drained outside the lock
 	ioDraining   bool                              // a goroutine is inside drainIO
 	mu           sync.RWMutex
@@ -236,6 +237,7 @@ func (m *Manager) LoadDefinitions() {
 
 	m.mu.Lock()
 	m.definitions = newDefs
+	m.pruneHealthState(newDefs)
 
 	// Clean up active tracks that no longer have definitions
 	for tagID, tracks := range m.activeTracks {
@@ -350,6 +352,10 @@ func (m *Manager) tickDelays() {
 		}
 	}
 
+	// After the value tracks, so a health alarm raised on this very tick is not
+	// immediately revisited by the insert-retry branch above.
+	m.tickHealth(now)
+
 	m.mu.Unlock()
 
 	m.drainIO()
@@ -357,14 +363,7 @@ func (m *Manager) tickDelays() {
 
 // EvaluateTag checks a new tag value against all its alarm rules
 func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, quality int) {
-	if quality != 192 {
-		return // Do not evaluate bad quality data
-	}
-
-	floatVal, ok := toFloat(value)
-	if !ok {
-		return // Unsupported data type for alarm logic
-	}
+	floatVal, isNumeric := toFloat(value)
 
 	m.mu.Lock()
 
@@ -374,14 +373,37 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 		return
 	}
 
+	now := time.Now()
+
+	// A trustworthy reading is the sign of life the health rules wait for, so
+	// it is recorded before the quality gate below. That gate is exactly what
+	// used to make a dead PLC silent: no usable sample, no evaluation, and
+	// therefore no alarm about the very thing that had gone wrong.
+	if quality == qualityGood && isNumeric {
+		m.recordGoodSample(tagID, defs, floatVal, now)
+	}
+
+	if quality != qualityGood || !isNumeric {
+		// Bad quality, or a type the value rules cannot compare. Nothing here
+		// can be judged; the health rules will notice on the next tick.
+		m.mu.Unlock()
+		return
+	}
+
 	if m.activeTracks[tagID] == nil {
 		m.activeTracks[tagID] = make(map[int]*activeAlarmTrack)
 	}
 	tracks := m.activeTracks[tagID]
 
-	now := time.Now()
-
 	for _, def := range defs {
+		if isHealthAlarm(def.AlarmType) {
+			// Judged on the clock in tickDelays. Letting a health rule fall
+			// through here would be worse than ignoring it: isConditionViolated
+			// does not know these types, so every incoming sample would look
+			// like a recovery and clear an alarm that is still perfectly true.
+			continue
+		}
+
 		isViolating := isConditionViolated(def, floatVal)
 		track, isTracking := tracks[def.ID]
 
