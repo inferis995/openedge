@@ -24,6 +24,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/connectors"
 	"github.com/ralph/industrial-edge-middleware/internal/crypto"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
+	"github.com/ralph/industrial-edge-middleware/internal/dbhealth"
 	"github.com/ralph/industrial-edge-middleware/internal/gatewayhealth"
 	"github.com/ralph/industrial-edge-middleware/internal/handlers"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
@@ -659,6 +660,14 @@ func main() {
 			gwWatcher := gatewayhealth.NewWatcher(database, gatewayAnnouncer{d: notifDispatcher},
 				gatewayhealth.Config{Silence: 6 * time.Minute})
 			go gwWatcher.Run(context.Background(), 1*time.Minute)
+
+			// And the database under all of it. Five minutes: none of the three
+			// things it looks for — a background job that stopped, a saturated
+			// pool, a statement stuck for hours — turns around in less, and the
+			// check itself takes a connection from the pool it is reporting on.
+			dbWatcher := dbhealth.NewWatcher(database, dbAnnouncer{d: notifDispatcher},
+				dbhealth.DefaultThresholds())
+			go dbWatcher.Run(context.Background(), 5*time.Minute)
 		}
 
 		config := api.Group("/config")
@@ -1832,6 +1841,32 @@ func (a gatewayAnnouncer) dispatch(severity, description string, gatewayID int) 
 		TagAlias:    fmt.Sprintf("sistema/gateway/%d", gatewayID),
 		Severity:    severity,
 		Status:      "ACTIVE",
+		Description: description,
+		OccurredAt:  time.Now().UTC(),
+		OrgID:       0,
+	})
+}
+
+// dbAnnouncer carries a database problem to the operator's channels.
+type dbAnnouncer struct{ d *notifications.Dispatcher }
+
+func (a dbAnnouncer) Problem(key, severity, message string) {
+	a.dispatch(severity, "ACTIVE", key, message)
+}
+
+func (a dbAnnouncer) Resolved(key string) {
+	a.dispatch("info", "CLEARED", key, "Rientrato: "+key)
+}
+
+func (a dbAnnouncer) dispatch(severity, status, key, description string) {
+	if a.d == nil {
+		return
+	}
+	a.d.Dispatch(notifications.Event{
+		AlarmID:     0, // synthetic: there is no row in alarm_events
+		TagAlias:    "sistema/database/" + key,
+		Severity:    severity,
+		Status:      status,
 		Description: description,
 		OccurredAt:  time.Now().UTC(),
 		OrgID:       0,
