@@ -179,7 +179,23 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./backups:/backups
+      # A named volume, not ./backups.
+      #
+      # core-api runs as the unprivileged "openedge" user; ./backups on the host
+      # is created by Docker as root:root the first time the stack comes up. The
+      # scheduled backup therefore could not write a single byte — os.Create
+      # returned "permission denied" and the scheduler discarded the error, so
+      # the settings page went on showing whatever status it had last managed to
+      # store. Not one automatic backup has ever landed on a Docker install.
+      #
+      # A named volume takes its ownership from the image, where /backups is
+      # created owned by openedge, so it is writable from the first boot with no
+      # host-side chown and no root in the container. The files are reachable
+      # through the UI, which downloads them from the API.
+      #
+      # scripts/backup.sh is unaffected: it runs on the host, writes to
+      # ./backups there, and always worked.
+      - backups:/backups
     # Browsers never talk to :8081 — web-ui's nginx proxies /api and /ws to
     # core-api:8081 over openedge-net, and Prometheus scrapes /metrics the same
     # way. Published on loopback only so the raw API (and /metrics) is reachable
@@ -650,6 +666,9 @@ networks:
 
 volumes:
   pgdata:
+    driver: local
+  # Where the scheduled backup writes. See the note on core-api's mount.
+  backups:
     driver: local
   driver-modbus-spool:
     driver: local

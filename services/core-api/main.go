@@ -630,6 +630,9 @@ func main() {
 
 			// Automatic backup settings
 			backupHandler.EnsureTimescaleDBStructures()
+			// Answered at startup rather than at three in the morning by a
+			// backup that is not there.
+			backupHandler.CheckBackupPathWritable()
 			system.GET("/backup/settings", middleware.RequireGlobalAdmin(), backupHandler.GetBackupSettings)
 			system.PUT("/backup/settings", middleware.RequireGlobalAdmin(), backupHandler.UpdateBackupSettings)
 			system.GET("/backup/list", middleware.RequireGlobalAdmin(), backupHandler.ListBackups)

@@ -213,3 +213,57 @@ func TestHumanBytes(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// probeWritable
+// ---------------------------------------------------------------------------
+
+// The check that would have caught, on the first boot, that no Docker install
+// had ever written a backup: the directory existed and was listable, and every
+// create was refused.
+func TestADirectoryThatRefusesWritesIsReported(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, which is allowed to write into a read-only directory")
+	}
+	dir := filepath.Join(t.TempDir(), "backups")
+	if err := os.Mkdir(dir, 0o555); err != nil { // r-xr-xr-x: listable, not writable
+		t.Fatal(err)
+	}
+
+	if err := probeWritable(dir); err == nil {
+		t.Fatal("a directory that refuses every create was reported as writable; " +
+			"stat is not a write, and only a write settles this")
+	}
+}
+
+func TestAWritableDirectoryPasses(t *testing.T) {
+	dir := t.TempDir()
+	if err := probeWritable(dir); err != nil {
+		t.Fatalf("a writable directory was rejected: %v", err)
+	}
+}
+
+// The probe must not leave its own droppings in the directory it checks.
+func TestTheProbeLeavesNothingBehind(t *testing.T) {
+	dir := t.TempDir()
+	if err := probeWritable(dir); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("the probe left %v behind", names)
+	}
+}
+
+func TestADirectoryThatIsNotThereIsReported(t *testing.T) {
+	if err := probeWritable(filepath.Join(t.TempDir(), "absent")); err == nil {
+		t.Fatal("a directory that does not exist was reported as writable")
+	}
+}

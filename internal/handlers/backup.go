@@ -1197,6 +1197,54 @@ func humanBytes(n uint64) string {
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGT"[exp])
 }
 
+// probeWritable finds out whether a directory can actually be written to, by
+// writing to it. Nothing else settles the question: the directory can exist, be
+// listable, and still refuse every create.
+func probeWritable(dir string) error {
+	f, err := os.CreateTemp(dir, ".openedge-write-probe-*")
+	if err != nil {
+		return err
+	}
+	name := f.Name()
+	closeErr := f.Close()
+	rmErr := os.Remove(name)
+	if closeErr != nil {
+		return closeErr
+	}
+	return rmErr
+}
+
+// CheckBackupPathWritable probes the backup directory once, at startup.
+//
+// It is here because of what it found. core-api runs unprivileged and the
+// backup directory was a bind mount Docker had created as root, so the
+// scheduled backup could not write a single byte — and os.Create's error went
+// to a caller that discarded it. Every Docker install had been failing to back
+// itself up, silently, for as long as the feature had existed.
+//
+// Finding that out at three in the morning, from a backup that is not there, is
+// the expensive way to find it out.
+func (h *BackupHandler) CheckBackupPathWritable() {
+	backupPath := os.Getenv("BACKUP_PATH")
+	if backupPath == "" {
+		backupPath = "/backups"
+	}
+	if err := os.MkdirAll(backupPath, 0o755); err != nil {
+		log.Printf("[BACKUP] %s cannot be created: %v — no backup will ever be written", backupPath, err)
+		h.notifyOperator("critical", fmt.Sprintf(
+			"Cartella dei backup %s non creabile: %v. Nessun backup verrà scritto.", backupPath, err))
+		return
+	}
+	if err := probeWritable(backupPath); err != nil {
+		log.Printf("[BACKUP] %s is not writable: %v — no backup will ever be written", backupPath, err)
+		h.notifyOperator("critical", fmt.Sprintf(
+			"Cartella dei backup %s non scrivibile: %v. Nessun backup verrà scritto: "+
+				"finché non si risolve, questa installazione non ha copie di sicurezza.", backupPath, err))
+		return
+	}
+	log.Printf("[BACKUP] %s is writable", backupPath)
+}
+
 // RunBackupNow takes a backup immediately, ignoring the schedule.
 //
 // An operator who turns on automatic backups has no way to find out whether

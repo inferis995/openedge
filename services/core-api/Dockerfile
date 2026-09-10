@@ -32,7 +32,8 @@ WORKDIR /app
 
 RUN apk add --no-cache ca-certificates tzdata wget postgresql16-client && \
     addgroup -S openedge && adduser -S -G openedge openedge && \
-    chown openedge:openedge /app
+    chown openedge:openedge /app && \
+    mkdir -p /backups && chown openedge:openedge /backups
 
 COPY --from=builder --chown=openedge:openedge /app/core-api .
 COPY --chown=openedge:openedge migrations ./migrations
