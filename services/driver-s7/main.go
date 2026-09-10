@@ -273,6 +273,7 @@ func main() {
 
 	// Start the driver loop
 	go driver.run()
+	go driver.healthLoop()
 
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
@@ -992,6 +993,39 @@ func (d *Driver) connectS7() error {
 	d.configMu.Unlock()
 	log.Println("Connected to S7 PLC")
 	return nil
+}
+
+// healthLoop republishes the link state on a timer.
+//
+// The status used to be published only when it changed. A retained "online"
+// then outlived the driver that wrote it: the last-will only fires when the
+// BROKER decides a client is gone, and a broker that is itself restarted never
+// decides anything — every retained "online" simply survives. Repeating it
+// turns the topic into a heartbeat, which is what lets the platform tell a
+// healthy driver from a dead one.
+//
+// Ten seconds, matching driver-opcua. The message is a single word on a
+// retained topic; the cost of being wrong about a plant is not.
+func (d *Driver) healthLoop() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.stopChan:
+			return
+		case <-ticker.C:
+			d.configMu.RLock()
+			client := d.s7Client
+			d.configMu.RUnlock()
+
+			status := "offline"
+			if client != nil && client.IsConnected() {
+				status = "online"
+			}
+			d.publishHealthStatus(status)
+		}
+	}
 }
 
 // publishHealthStatus publishes online/offline to MQTT health topic

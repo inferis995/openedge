@@ -24,6 +24,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/connectors"
 	"github.com/ralph/industrial-edge-middleware/internal/crypto"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
+	"github.com/ralph/industrial-edge-middleware/internal/gatewayhealth"
 	"github.com/ralph/industrial-edge-middleware/internal/handlers"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
@@ -207,7 +208,7 @@ func main() {
 
 		// Subscribe to gateway health status updates
 		if err := mqttClient.Subscribe("sys/health/#", func(topic string, payload []byte) {
-			handleGatewayHealthUpdate(topic, payload, redisClient)
+			handleGatewayHealthUpdate(topic, payload, redisClient, database)
 		}); err != nil {
 			slog.Error("CRITICAL: failed to subscribe to gateway health topic — edge status tracking disabled", "error", err)
 		} else {
@@ -642,6 +643,19 @@ func main() {
 
 			// Start backup scheduler
 			go startBackupScheduler(backupHandler)
+
+			// Watch the gateways. The drivers have always published their link
+			// state on sys/health/{id}; until now the only thing that read it
+			// was a colored dot in the web UI, so an outage at three in the
+			// morning was found by the first shift.
+			//
+			// Six minutes of silence: the drivers that publish periodically do
+			// so every ten to thirty seconds, so this is more than a dozen
+			// missed messages — far too many to be a slow broker, and short
+			// enough that nobody loses a night of production over it.
+			gwWatcher := gatewayhealth.NewWatcher(database, gatewayAnnouncer{d: notifDispatcher},
+				gatewayhealth.Config{Silence: 6 * time.Minute})
+			go gwWatcher.Run(context.Background(), 1*time.Minute)
 		}
 
 		config := api.Group("/config")
@@ -1152,13 +1166,39 @@ type GatewayHealthStatus struct {
 // handleGatewayHealthUpdate processes gateway health status updates from MQTT
 // Topics: sys/health/{gateway_id}
 // Payload: "online" or "offline"
-func handleGatewayHealthUpdate(topic string, payload []byte, redisClient *redis.Client) {
-	log.Printf("[HEALTH] Received health update - topic: %s, payload: %s", topic, string(payload))
-
-	if redisClient == nil {
-		log.Printf("[HEALTH] Redis client is nil, cannot store health status")
-		return
+// parseHealthPayload reads a status off sys/health/{id}, in either of the two
+// shapes that topic actually carries.
+//
+// The drivers publish a bare word — "online", "offline", "error". driver-manager
+// publishes a JSON GatewayStatus object on the same topic when it starts or
+// stops a container. Only the bare word was ever accepted, and only two of the
+// three words at that: a driver reporting "error" and every message from
+// driver-manager were logged as invalid and dropped. The worst state a gateway
+// can be in was the one state the platform could not see.
+func parseHealthPayload(payload []byte) (string, bool) {
+	valid := func(s string) (string, bool) {
+		switch s {
+		case gatewayhealth.StatusOnline, gatewayhealth.StatusOffline, gatewayhealth.StatusError:
+			return s, true
+		}
+		return "", false
 	}
+
+	if s, ok := valid(strings.ToLower(strings.TrimSpace(string(payload)))); ok {
+		return s, true
+	}
+
+	var obj struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(payload, &obj); err == nil {
+		return valid(strings.ToLower(strings.TrimSpace(obj.Status)))
+	}
+	return "", false
+}
+
+func handleGatewayHealthUpdate(topic string, payload []byte, redisClient *redis.Client, db *sql.DB) {
+	log.Printf("[HEALTH] Received health update - topic: %s, payload: %s", topic, string(payload))
 
 	// Parse topic: sys/health/{gateway_id}
 	parts := strings.Split(topic, "/")
@@ -1174,10 +1214,25 @@ func handleGatewayHealthUpdate(topic string, payload []byte, redisClient *redis.
 		return
 	}
 
-	// Parse status from payload
-	status := strings.ToLower(strings.TrimSpace(string(payload)))
-	if status != "online" && status != "offline" {
-		log.Printf("Invalid health status payload: %s", status)
+	status, ok := parseHealthPayload(payload)
+	if !ok {
+		log.Printf("Invalid health status payload: %s", string(payload))
+		return
+	}
+
+	// The database first: Redis is a cache the UI paints a dot from, and it is
+	// optional. What decides whether anyone is TOLD the gateway is down has to
+	// survive a Redis that is not running.
+	if db != nil {
+		if _, dbErr := db.ExecContext(context.Background(),
+			`UPDATE gateways SET health_status = $2, health_reported_at = NOW() WHERE id = $1`,
+			gatewayID, status); dbErr != nil {
+			log.Printf("[HEALTH] could not record status of gateway %d: %v", gatewayID, dbErr)
+		}
+	}
+
+	if redisClient == nil {
+		log.Printf("[HEALTH] Redis client is nil, cannot cache health status")
 		return
 	}
 
@@ -1744,6 +1799,40 @@ func startBackupScheduler(backupHandler *handlers.BackupHandler) {
 			log.Printf("[BACKUP-SCHEDULER] backup failed: %v", err)
 		}
 	}
+}
+
+// gatewayAnnouncer turns a gateway going down into the same kind of message an
+// alarm produces, on the same channels.
+//
+// It exists so internal/gatewayhealth never has to know that notifications
+// exist: what decides and what delivers stay apart, and the watcher can be
+// tested without a broker.
+type gatewayAnnouncer struct{ d *notifications.Dispatcher }
+
+func (a gatewayAnnouncer) GatewayDown(gatewayID int, name, reason string) {
+	a.dispatch("critical", fmt.Sprintf("Gateway %q NON RAGGIUNGIBILE — %s. "+
+		"I dati di questo gateway non stanno più arrivando.", name, reason), gatewayID)
+}
+
+func (a gatewayAnnouncer) GatewayUp(gatewayID int, name string) {
+	a.dispatch("info", fmt.Sprintf("Gateway %q di nuovo raggiungibile.", name), gatewayID)
+}
+
+func (a gatewayAnnouncer) dispatch(severity, description string, gatewayID int) {
+	if a.d == nil {
+		return
+	}
+	a.d.Dispatch(notifications.Event{
+		AlarmID: 0, // synthetic: there is no row in alarm_events
+		// The channels render this field as the subject line, so it carries
+		// what is broken rather than a tag that does not exist here.
+		TagAlias:    fmt.Sprintf("sistema/gateway/%d", gatewayID),
+		Severity:    severity,
+		Status:      "ACTIVE",
+		Description: description,
+		OccurredAt:  time.Now().UTC(),
+		OrgID:       0,
+	})
 }
 
 // getCloudMQTTPrefix retrieves the cloud MQTT prefix from system settings

@@ -270,6 +270,7 @@ func main() {
 	go driver.alarmManager.StartTicker(context.Background())
 
 	go driver.run()
+	go driver.healthLoop()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -1684,8 +1685,7 @@ func (d *Driver) setConnectionStateLocked(connected bool) {
 	}
 
 	// Publish health status
-	topic := fmt.Sprintf("sys/health/%d", d.gatewayID)
-	d.mqttClient.PublishWithQoS(topic, status, 1, true)
+	d.publishHealth(status)
 	log.Printf("[DRIVER] Health status changed to: %s (was: %v)", status, wasConnected)
 
 	// Handle Sparkplug B birth/death messages
@@ -1775,5 +1775,41 @@ func valuesEqual(a, b interface{}) bool {
 	default:
 		// Fallback to direct comparison
 		return a == b
+	}
+}
+
+// publishHealth writes the link state to the retained health topic.
+func (d *Driver) publishHealth(status string) {
+	_ = d.mqttClient.PublishWithQoS(fmt.Sprintf("sys/health/%d", d.gatewayID), status, 1, true)
+}
+
+// healthLoop republishes the link state on a timer.
+//
+// It used to be published only when it changed, which left a retained "online"
+// outliving the driver that wrote it: the last-will fires only when the BROKER
+// decides a client is gone, and a broker that is itself restarted never decides
+// anything. Repeating it turns the topic into a heartbeat, which is what lets
+// the platform tell a healthy driver from a dead one.
+//
+// Ten seconds, matching driver-opcua and driver-s7.
+func (d *Driver) healthLoop() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.stopChan:
+			return
+		case <-ticker.C:
+			d.configMu.RLock()
+			connected := d.isConnected != nil && *d.isConnected
+			d.configMu.RUnlock()
+
+			status := "offline"
+			if connected {
+				status = "online"
+			}
+			d.publishHealth(status)
+		}
 	}
 }

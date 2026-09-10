@@ -983,10 +983,24 @@ func runAutoMigrations(db *sql.DB) error {
 	}
 
 	// Migration: gateway heartbeat columns
+	//
+	// last_seen_at is written by the edge agent's heartbeat, which is sent once
+	// per ORGANIZATION: it says the agent is alive, not which gateway is. The
+	// health_* columns below are per gateway, written from what each driver
+	// publishes on sys/health/{id}.
 	gatewayHeartbeatCols := []string{
 		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ`,
 		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS last_seen_ip INET`,
 		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS agent_version VARCHAR(30)`,
+
+		// What the driver last said about its link, and when.
+		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS health_status VARCHAR(20)`,
+		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS health_reported_at TIMESTAMPTZ`,
+
+		// What the operator was last told. In the database rather than in
+		// memory on purpose: restarting core-api must not re-announce an
+		// outage that started last night and is already being worked on.
+		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS health_notified_state VARCHAR(10)`,
 	}
 	for _, stmt := range gatewayHeartbeatCols {
 		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
