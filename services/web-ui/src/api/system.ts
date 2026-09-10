@@ -276,6 +276,14 @@ export const systemApi = {
         await api.put('/system/backup/settings', settings);
     },
 
+    // Takes a backup immediately, running the same code the scheduler runs.
+    // The only way to find out whether the unattended backup works without
+    // waiting for the small hours and reading the status afterwards.
+    runBackupNow: async (): Promise<{ status: string; filename: string; size_bytes: number }> => {
+        const response = await api.post('/system/backup/run');
+        return response.data;
+    },
+
     // List available backups
     listBackups: async (): Promise<BackupFileInfo[]> => {
         const response = await api.get('/system/backup/list');

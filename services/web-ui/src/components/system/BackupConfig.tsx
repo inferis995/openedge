@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Clock, HardDrive, Loader2, ShieldCheck, Upload } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Clock, HardDrive, Loader2, PlayCircle, ShieldCheck, Upload } from 'lucide-react';
 
 import { systemApi, GlobalSettings } from '@/api/system';
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,20 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+
+// Byte sizes the way somebody reading a confirmation reads them. Exact figures
+// live in the audit log.
+const formatBytes = (n: number): string => {
+    if (!Number.isFinite(n) || n < 1024) return `${n} B`;
+    const units = ['KB', 'MB', 'GB', 'TB'];
+    let value = n / 1024;
+    let i = 0;
+    while (value >= 1024 && i < units.length - 1) {
+        value /= 1024;
+        i++;
+    }
+    return `${value.toFixed(1)} ${units[i]}`;
+};
 
 const SCHEDULES = [
     { value: '0 3 * * *',    label: 'Daily at 03:00 UTC (recommended)' },
@@ -59,6 +73,7 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
 
     const [saving, setSaving]             = useState(false);
     const [toast, setToast]               = useState<Toast>(null);
+    const [running, setRunning]           = useState(false);
     const [showAudit, setShowAudit]       = useState(false);
     const [audit, setAudit]               = useState<AuditEntry[]>([]);
     const [auditLoading, setAuditLoading] = useState(false);
@@ -105,6 +120,29 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
         if (s3Enabled && !s3Bucket) errs.push('S3 bucket name is required when S3 is enabled');
         return errs;
     }, [enabled, retention, preset, customCron, s3Enabled, s3Bucket]);
+
+    // Runs the scheduled backup on demand. Deliberately the same code path the
+    // scheduler uses: a button that exercised a copy of it would confirm
+    // nothing about the backup that runs at three in the morning.
+    const handleRunNow = async () => {
+        setRunning(true);
+        setToast(null);
+        try {
+            const r = await systemApi.runBackupNow();
+            setToast({
+                kind: 'success',
+                text: `Backup written: ${r.filename} (${formatBytes(r.size_bytes)}), archive verified.`,
+            });
+            onSaved?.();
+        } catch (e: unknown) {
+            // The server already logged, audited and notified this failure; the
+            // operator pressed the button, so they get the reason on screen too.
+            const detail = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
+            setToast({ kind: 'error', text: `Backup failed: ${detail ?? (e as Error)?.message ?? 'unknown error'}` });
+        } finally {
+            setRunning(false);
+        }
+    };
 
     const handleSave = async () => {
         setSaving(true);
@@ -265,9 +303,13 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
 
                 {/* Save */}
                 <div className="flex items-center gap-3 pt-2 border-t">
-                    <Button onClick={handleSave} disabled={errors.length > 0 || saving}>
+                    <Button onClick={handleSave} disabled={errors.length > 0 || saving || running}>
                         {saving && <Loader2 size={16} className="mr-2 animate-spin" />}
                         {saving ? 'Saving…' : 'Save'}
+                    </Button>
+                    <Button variant="outline" onClick={handleRunNow} disabled={saving || running}>
+                        {running ? <Loader2 size={16} className="mr-2 animate-spin" /> : <PlayCircle size={16} className="mr-2" />}
+                        {running ? 'Running…' : 'Run backup now'}
                     </Button>
                     {toast && (
                         <span className={`text-sm flex items-center gap-1 ${

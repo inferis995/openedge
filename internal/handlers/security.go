@@ -374,8 +374,8 @@ func (h *SecurityHandler) Events(c *gin.Context) {
 // cifrato (TLS assente)", accanto a un segno di spunta verde. Ora ogni voce ha
 // il testo del suo stato.
 type ComplianceCheck struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
 	// Article è deprecato dalla 3.1.0 e non è più mostrato nell'interfaccia né
 	// incluso nei report esportati: un riferimento normativo accanto a una
 	// spunta verde si legge come conformità. Resta servito per non rompere chi
@@ -499,5 +499,3 @@ func (h *SecurityHandler) Compliance(c *gin.Context) {
 
 	c.JSON(http.StatusOK, complianceChecks(backupPassed, mqttPassed, mfaPassed, mfaDetail))
 }
-
-

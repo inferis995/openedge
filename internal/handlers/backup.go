@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -18,12 +19,22 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ralph/industrial-edge-middleware/internal/notifications"
 )
 
 type BackupHandler struct {
 	db         *sql.DB
 	mqttClient MQTTClient
+
+	// notifier is optional: when set, a failed backup reaches the operator on
+	// the channels they configured instead of only a log line nobody reads.
+	notifier *notifications.Dispatcher
 }
+
+// SetNotifier wires the out-of-band channels. Separate from the constructor
+// because the dispatcher needs the database too, and the wiring order in
+// core-api builds it first.
+func (h *BackupHandler) SetNotifier(d *notifications.Dispatcher) { h.notifier = d }
 
 func NewBackupHandler(db *sql.DB, mqttClient MQTTClient) *BackupHandler {
 	return &BackupHandler{
@@ -827,7 +838,30 @@ func (h *BackupHandler) DeleteBackup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Backup deleted"})
 }
 
-// RunScheduledBackup executes a backup, saves it to disk, and records it in the catalog.
+// Thresholds for the automatic backup. All three exist because a backup that
+// fails loudly is worth far more than one that fails quietly.
+const (
+	// backupMinFreeBytes is the floor below which a backup is refused before it
+	// starts. A pg_dump that runs out of disk halfway does not report anything
+	// an operator notices: it leaves a file that exists, has a plausible name,
+	// and stops in the middle of a COPY.
+	backupMinFreeBytes = 256 << 20
+
+	// backupMinZipBytes: an archive carrying even an empty OpenEdge schema is
+	// far larger than this. Anything smaller is a truncated write.
+	backupMinZipBytes = 1024
+
+	// backupMinDumpBytes is the same floor applied to the SQL inside the
+	// archive, after decompression.
+	backupMinDumpBytes = 4096
+
+	// backupHeadroomFactor is how many further backups must still fit after a
+	// successful one before the operator is warned. Three is roughly "you have
+	// until the weekend".
+	backupHeadroomFactor = 3
+)
+
+// RunScheduledBackup takes the automatic backup when the schedule says it is due.
 func (h *BackupHandler) RunScheduledBackup() error {
 	var enabled bool
 	var interval, backupType string
@@ -844,17 +878,29 @@ func (h *BackupHandler) RunScheduledBackup() error {
 		return nil
 	}
 
+	return h.performBackup(retention)
+}
+
+// performBackup takes the backup, reads it back, and only then publishes it —
+// or reports the failure everywhere an operator might look.
+//
+// It is separate from the schedule check so the "run now" button can reach it
+// without pretending a backup is due.
+func (h *BackupHandler) performBackup(retentionDays int) error {
 	backupPath := os.Getenv("BACKUP_PATH")
 	if backupPath == "" {
 		backupPath = "/backups"
 	}
 	if err := os.MkdirAll(backupPath, 0o755); err != nil {
-		return err
+		return h.backupFailed("creating the backup directory", err)
+	}
+	if err := h.checkRoomToWrite(backupPath); err != nil {
+		return h.backupFailed("checking free space", err)
 	}
 
 	tempDir, err := os.MkdirTemp("", "backup-*")
 	if err != nil {
-		return err
+		return h.backupFailed("creating a temporary directory", err)
 	}
 	defer os.RemoveAll(tempDir)
 
@@ -864,77 +910,324 @@ func (h *BackupHandler) RunScheduledBackup() error {
 	pgDB := os.Getenv("DB_NAME")
 
 	pgDumpFile := filepath.Join(tempDir, "full_backup.sql")
+
+	// No --exclude-table here, deliberately.
+	//
+	// This path used to exclude _timescaledb_internal.*, exactly as the download
+	// endpoint did until that was fixed: in TimescaleDB the rows of a hypertable
+	// physically live in the chunk tables under that schema, and the table they
+	// are named after is an empty routing shell. Excluding it produced a dump
+	// that looks complete — the CREATE TABLE for tag_history is there, and so is
+	// every configuration row — and restores an empty historian.
+	//
+	// The fix landed on the endpoint an operator presses by hand and not on the
+	// one that runs unattended every night, which is the one people actually
+	// rely on. The TimescaleDB catalog is dumped with it; scripts/restore.sh and
+	// ImportRestore both replay between timescaledb_pre_restore() and
+	// post_restore(), which is what makes that safe.
 	pgCmd := exec.CommandContext(context.Background(), "pg_dump",
 		"-h", pgHost, "-U", pgUser, "-d", pgDB,
 		"-F", "p", "--create", "--clean", "--if-exists",
 		"--no-owner", "--no-acl",
-		"--exclude-table=_timescaledb_internal.*",
-		"--exclude-table=_timescaledb_catalog.*",
-		"--exclude-table=_timescaledb_config.*",
 		"-f", pgDumpFile)
 	pgCmd.Env = append(os.Environ(), fmt.Sprintf("PGPASSWORD=%s", pgPass))
 
 	if output, dumpErr := pgCmd.CombinedOutput(); dumpErr != nil {
-		log.Printf("[BACKUP] Scheduled pg_dump error: %s", string(output))
-		h.updateBackupStatus("failed")
-		h.logAudit(context.Background(), "backup_failed", "", "system", "", "pg_dump: "+string(output))
-		return dumpErr
+		return h.backupFailed("pg_dump",
+			fmt.Errorf("%w: %s", dumpErr, maskCredentials(string(output), pgPass)))
 	}
 
 	timestamp := time.Now().UTC().Format("20060102-150405")
-	zipPath := filepath.Join(backupPath, fmt.Sprintf("full-backup-%s.zip", timestamp))
+	finalPath := filepath.Join(backupPath, fmt.Sprintf("full-backup-%s.zip", timestamp))
 
-	zipFile, err := os.Create(zipPath)
-	if err != nil {
-		return err
-	}
-	defer zipFile.Close()
+	// Written under a hidden temporary name in the SAME directory and renamed
+	// only once it has been read back. The rename is atomic within a
+	// filesystem, so neither the backup catalog nor the file listing can show a
+	// half-written archive: it does not carry its final name until it is known
+	// to be good. scripts/backup.sh has always worked this way; this path
+	// published the file first and never looked at it again.
+	tmpPath := filepath.Join(backupPath, "."+filepath.Base(finalPath)+".partial")
+	defer func() { _ = os.Remove(tmpPath) }() // a no-op once the rename has succeeded
 
-	zipWriter := zip.NewWriter(zipFile)
-	srcFile, err := os.Open(pgDumpFile)
-	if err != nil {
-		return err
+	if err := writeDumpZip(tmpPath, pgDumpFile); err != nil {
+		return h.backupFailed("writing the archive", err)
 	}
-	defer srcFile.Close()
-
-	w, _ := zipWriter.Create(filepath.Base(pgDumpFile))
-	if _, err = io.Copy(w, srcFile); err != nil {
-		return err
+	if err := verifyBackupZip(tmpPath); err != nil {
+		return h.backupFailed("verifying the archive", err)
 	}
-	if err = zipWriter.Close(); err != nil {
-		return fmt.Errorf("zip finalize: %w", err)
-	}
-	if err = zipFile.Close(); err != nil {
-		return fmt.Errorf("zip file close: %w", err)
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		return h.backupFailed("publishing the archive", err)
 	}
 
-	// Compute SHA-256 of the zip.
-	chk, checksumErr := checksumFile(zipPath)
+	chk, checksumErr := checksumFile(finalPath)
 	if checksumErr != nil {
 		log.Printf("[BACKUP] SHA-256 computation failed: %v", checksumErr)
 		chk = ""
 	}
 
-	info, _ := os.Stat(zipPath)
-	sizeBytes := int64(0)
-	if info != nil {
+	var sizeBytes int64
+	if info, statErr := os.Stat(finalPath); statErr == nil {
 		sizeBytes = info.Size()
 	}
 
-	// Record in catalog.
 	_, _ = h.db.ExecContext(context.Background(), `
 		INSERT INTO backup_catalog (filename, size_bytes, sha256, encrypted, storage)
 		VALUES ($1, $2, $3, false, 'local')
 		ON CONFLICT (filename) DO UPDATE SET size_bytes = $2, sha256 = $3`,
-		filepath.Base(zipPath), sizeBytes, chk)
+		filepath.Base(finalPath), sizeBytes, chk)
 
-	h.logAudit(context.Background(), "backup_created", filepath.Base(zipPath), "system", "",
+	h.logAudit(context.Background(), "backup_created", filepath.Base(finalPath), "system", "",
 		fmt.Sprintf("size=%d sha256=%s", sizeBytes, chk))
 
-	log.Printf("[BACKUP] Scheduled backup: %s (%d bytes, sha256=%s)", zipPath, sizeBytes, chk)
+	log.Printf("[BACKUP] Scheduled backup: %s (%d bytes, sha256=%s)", finalPath, sizeBytes, chk)
 	h.updateBackupStatus("success")
-	h.cleanupOldBackups(backupPath, retention)
+	h.cleanupOldBackups(backupPath, retentionDays)
+	h.warnIfDiskIsRunningOut(backupPath, sizeBytes)
 	return nil
+}
+
+// Operator-facing wording. The UI and every notification channel are in
+// Italian; the code around them is not.
+const backupFailedSubject = "Backup pianificato FALLITO"
+
+// backupFailed records a failed backup everywhere an operator might look, and
+// tells them out of band.
+//
+// Only pg_dump's own failure used to be recorded. Every later step — creating
+// the file, copying into the archive, closing it — returned an error to a
+// caller that discarded it, so the run left no audit row, no failed status, and
+// the settings page went on showing the last success. A disk that filled up on
+// Tuesday was discovered by whoever needed to restore on Friday.
+//
+// Note that updateBackupStatus moves last_run forward even on a failure, so the
+// next attempt waits a full interval. That is deliberate: a disk that is full at
+// 02:00 is still full at 03:00, and an hourly retry would be an hourly
+// notification.
+func (h *BackupHandler) backupFailed(step string, err error) error {
+	wrapped := fmt.Errorf("%s: %w", step, err)
+	log.Printf("[BACKUP] FAILED while %s: %v", step, err)
+	h.updateBackupStatus("failed")
+	h.logAudit(context.Background(), "backup_failed", "", "system", "", wrapped.Error())
+	h.notifyOperator("critical", backupFailedSubject+" ("+step+"): "+err.Error())
+	return wrapped
+}
+
+// notifyOperator sends a system-level event through the configured channels.
+//
+// TagAlias carries the subsystem rather than a tag: these events have no tag,
+// and every channel renders that field as the subject line, so it is where the
+// operator's eye lands first.
+func (h *BackupHandler) notifyOperator(severity, description string) {
+	if h.notifier == nil {
+		return
+	}
+	h.notifier.Dispatch(notifications.Event{
+		AlarmID:     0, // synthetic: there is no row in alarm_events
+		TagAlias:    "sistema/backup",
+		Severity:    severity,
+		Status:      "ACTIVE",
+		Description: description,
+		OccurredAt:  time.Now().UTC(),
+		OrgID:       0,
+	})
+}
+
+// writeDumpZip packs one SQL dump into an archive, closing things in the order
+// that makes a close error mean something: the central directory is written by
+// the zip writer's Close, and the bytes only reach the disk on the file's own.
+// Deferring both swallows exactly the two failures worth reporting.
+func writeDumpZip(zipPath, dumpPath string) error {
+	src, err := os.Open(dumpPath)
+	if err != nil {
+		return fmt.Errorf("open dump: %w", err)
+	}
+	defer func() { _ = src.Close() }()
+
+	out, err := os.Create(zipPath)
+	if err != nil {
+		return fmt.Errorf("create archive: %w", err)
+	}
+	// On every error path below this closes the descriptor and the caller
+	// removes the file; on the happy path Close has already run and this one
+	// fails harmlessly.
+	defer func() { _ = out.Close() }()
+
+	zw := zip.NewWriter(out)
+	w, err := zw.Create(filepath.Base(dumpPath))
+	if err != nil {
+		return fmt.Errorf("create archive entry: %w", err)
+	}
+	if _, err := io.Copy(w, src); err != nil {
+		return fmt.Errorf("copy the dump into the archive: %w", err)
+	}
+	if err := zw.Close(); err != nil {
+		return fmt.Errorf("finalize the archive: %w", err)
+	}
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("close the archive: %w", err)
+	}
+	return nil
+}
+
+// verifyBackupZip reads back what was just written and reports whether it is a
+// backup at all.
+//
+// scripts/backup.sh has always tested its output with gzip -t and a minimum
+// size. The scheduled backup inside the application wrote an archive and never
+// opened it again, so an archive whose central directory never reached the disk
+// was indistinguishable from a good one until somebody tried to restore it.
+//
+// The entry is fully decompressed rather than merely listed: the size in the
+// header is what the writer intended to write, and a CRC error is the only
+// thing that tells you it did not.
+func verifyBackupZip(path string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat: %w", err)
+	}
+	if info.Size() < backupMinZipBytes {
+		return fmt.Errorf("the archive is %d bytes, under the %d-byte floor — a truncated write, not a backup",
+			info.Size(), backupMinZipBytes)
+	}
+
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return fmt.Errorf("the archive does not open: %w", err)
+	}
+	defer func() { _ = r.Close() }()
+
+	for _, f := range r.File {
+		if !strings.HasSuffix(f.Name, ".sql") {
+			continue
+		}
+		rc, openErr := f.Open()
+		if openErr != nil {
+			return fmt.Errorf("entry %s does not open: %w", f.Name, openErr)
+		}
+		n, copyErr := io.Copy(io.Discard, rc)
+		_ = rc.Close()
+		if copyErr != nil {
+			return fmt.Errorf("entry %s does not decompress: %w", f.Name, copyErr)
+		}
+		if n < backupMinDumpBytes {
+			return fmt.Errorf("the dump inside the archive is %d bytes — too small to be a database", n)
+		}
+		return nil
+	}
+	return errors.New("the archive contains no .sql dump")
+}
+
+// checkRoomToWrite refuses to start a backup the disk cannot hold.
+//
+// Refusing up front is the only unambiguous outcome available: running out of
+// space mid-dump leaves something that looks like a backup, and finding out
+// costs a restore.
+func (h *BackupHandler) checkRoomToWrite(backupPath string) error {
+	free, err := freeSpaceBytes(backupPath)
+	if err != nil {
+		// Unknown is not the same as insufficient. A platform that cannot
+		// answer must not be a platform that cannot back up.
+		log.Printf("[BACKUP] free space unknown for %s: %v", backupPath, err)
+		return nil
+	}
+
+	need := uint64(backupMinFreeBytes)
+	if last := h.lastBackupSize(); last > 0 {
+		if twice := uint64(last) * 2; twice > need {
+			need = twice
+		}
+	}
+
+	if free < need {
+		return fmt.Errorf("%s has %s free and this backup needs about %s",
+			backupPath, humanBytes(free), humanBytes(need))
+	}
+	return nil
+}
+
+// warnIfDiskIsRunningOut tells the operator before the disk decides for them.
+//
+// The warning is sent after a SUCCESSFUL backup on purpose: that is the moment
+// the true size of one is known, and the moment there is still time to act.
+func (h *BackupHandler) warnIfDiskIsRunningOut(backupPath string, lastSize int64) {
+	if lastSize <= 0 {
+		return
+	}
+	free, err := freeSpaceBytes(backupPath)
+	if err != nil {
+		return
+	}
+	remaining := free / uint64(lastSize)
+	if remaining >= backupHeadroomFactor {
+		return
+	}
+	h.notifyOperator("warning", fmt.Sprintf(
+		"Spazio quasi esaurito su %s: restano %s e un backup ne occupa %s. "+
+			"Ci stanno ancora %d backup, poi la copia pianificata inizierà a fallire.",
+		backupPath, humanBytes(free), humanBytes(uint64(lastSize)), remaining))
+}
+
+// lastBackupSize is the size of the most recent backup still on disk, or 0 when
+// there has never been one.
+func (h *BackupHandler) lastBackupSize() int64 {
+	var size sql.NullInt64
+	_ = h.db.QueryRowContext(context.Background(), `
+		SELECT size_bytes FROM backup_catalog
+		WHERE deleted_at IS NULL
+		ORDER BY created_at DESC LIMIT 1`).Scan(&size)
+	if !size.Valid {
+		return 0
+	}
+	return size.Int64
+}
+
+// humanBytes renders a byte count the way an operator reading an alert reads
+// one. Exact figures belong in the audit trail, not in a message someone is
+// looking at on a phone at two in the morning.
+func humanBytes(n uint64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := uint64(unit), 0
+	for rest := n / unit; rest >= unit && exp < 3; rest /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGT"[exp])
+}
+
+// RunBackupNow takes a backup immediately, ignoring the schedule.
+//
+// An operator who turns on automatic backups has no way to find out whether
+// they work other than waiting for the small hours and looking at the status
+// afterwards. This is that button — and it runs exactly the same code the
+// scheduler runs, which is the only version of it worth having.
+func (h *BackupHandler) RunBackupNow(c *gin.Context) {
+	var retention int
+	if err := h.db.QueryRowContext(c.Request.Context(),
+		`SELECT retention_days FROM backup_settings WHERE id = 1`).Scan(&retention); err != nil {
+		retention = 7
+	}
+
+	if err := h.performBackup(retention); err != nil {
+		// performBackup has already logged, audited and notified. The operator
+		// pressed the button, so they also get the reason on screen.
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	var filename string
+	var sizeBytes int64
+	_ = h.db.QueryRowContext(c.Request.Context(), `
+		SELECT filename, size_bytes FROM backup_catalog
+		WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`).Scan(&filename, &sizeBytes)
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":     "success",
+		"filename":   filename,
+		"size_bytes": sizeBytes,
+	})
 }
 
 // cleanupOldBackups removes backups older than retentionDays.

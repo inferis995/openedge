@@ -621,6 +621,8 @@ func main() {
 
 			// Backup & Restore
 			backupHandler := handlers.NewBackupHandler(database, mqttClient)
+			// A failed backup has to reach the operator, not just the log.
+			backupHandler.SetNotifier(notifDispatcher)
 			system.GET("/backup", middleware.RequireGlobalAdmin(), backupHandler.ExportBackup)
 			system.POST("/restore", middleware.RequireGlobalAdmin(), backupHandler.ImportRestore)
 			system.POST("/restore/restart", middleware.RequireGlobalAdmin(), backupHandler.PostRestore)
@@ -634,6 +636,9 @@ func main() {
 			system.DELETE("/backup/files/:filename", middleware.RequireGlobalAdmin(), backupHandler.DeleteBackup)
 			system.GET("/backup/catalog", middleware.RequireGlobalAdmin(), backupHandler.GetCatalog)
 			system.GET("/backup/audit", middleware.RequireGlobalAdmin(), backupHandler.GetAudit)
+			// Runs the scheduled backup on demand: the only way to find out
+			// whether the unattended one works without waiting for the night.
+			system.POST("/backup/run", middleware.RequireGlobalAdmin(), backupHandler.RunBackupNow)
 
 			// Start backup scheduler
 			go startBackupScheduler(backupHandler)
@@ -1732,8 +1737,12 @@ func startBackupScheduler(backupHandler *handlers.BackupHandler) {
 	log.Println("[BACKUP-SCHEDULER] Started - checking every hour")
 
 	for range ticker.C {
-		// Check if we need to run a backup
-		backupHandler.RunScheduledBackup()
+		// The error is already logged, audited and notified inside; what must
+		// not happen again is what happened here before, which was discarding
+		// it entirely and leaving the scheduler looking like it had succeeded.
+		if err := backupHandler.RunScheduledBackup(); err != nil {
+			log.Printf("[BACKUP-SCHEDULER] backup failed: %v", err)
+		}
 	}
 }
 
