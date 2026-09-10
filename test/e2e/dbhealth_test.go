@@ -22,10 +22,12 @@ func TestTheDatabaseHealthCollectorRunsAgainstTheRealDatabase(t *testing.T) {
 
 	snap := dbhealth.Collect(context.Background(), db)
 
-	// The pool always answers: it is read from database/sql, not from Postgres.
-	if snap.Pool.MaxOpen <= 0 {
-		t.Errorf("the connection pool reports MaxOpen=%d", snap.Pool.MaxOpen)
-	}
+	// Nothing is asserted about the pool here. Those numbers come from
+	// database/sql, not from Postgres, and they describe THIS test's connection
+	// rather than the one core-api runs — a first version checked MaxOpen and
+	// failed, because a pool with no limit reports zero and this test never set
+	// one. The pool is covered by the unit tests; what only a real database can
+	// answer is whether the queries below run at all.
 
 	// The jobs come from timescaledb_information, and this deployment has
 	// retention and compression policies — TestHistorianHasARetentionPolicy
@@ -71,12 +73,43 @@ func TestAPolicyThatHasNeverRunIsNotReportedAsAncient(t *testing.T) {
 
 	for _, j := range snap.Jobs {
 		if j.LastSuccess.IsZero() {
-			continue
+			continue // never finished successfully, which is what zero means here
 		}
 		if j.LastSuccess.Year() < 2000 {
 			t.Errorf("job %d reports its last success as %v — that is TimescaleDB's "+
 				"-infinity leaking through, and it would be announced as a fault",
 				j.ID, j.LastSuccess)
 		}
+	}
+}
+
+// The defect the first run of this file actually found: a job whose
+// last_successful_finish is -infinity — every policy that has not yet had a
+// successful run — came back from lib/pq as raw bytes, the row failed to scan,
+// and the collector logged one line and moved on. The jobs that were most worth
+// looking at were the ones it could not see.
+//
+// A row that cannot be read is now an error, not a shrug, so this asserts the
+// whole set comes back rather than whatever survived.
+func TestEveryBackgroundJobIsRead(t *testing.T) {
+	db := openDB(t)
+
+	var expected int
+	if err := db.QueryRow(
+		`SELECT COUNT(*) FROM timescaledb_information.jobs WHERE job_id >= 1000`).
+		Scan(&expected); err != nil {
+		t.Fatalf("counting the jobs: %v", err)
+	}
+	if expected == 0 {
+		t.Skip("this database has no background jobs to read")
+	}
+
+	snap := dbhealth.Collect(context.Background(), db)
+
+	if len(snap.Jobs) != expected {
+		t.Fatalf("the collector read %d of %d background jobs. The ones it drops are the "+
+			"ones whose columns it cannot parse — which is where a policy that has never "+
+			"run lives, and that is exactly the policy worth watching.",
+			len(snap.Jobs), expected)
 	}
 }

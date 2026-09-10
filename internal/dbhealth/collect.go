@@ -3,6 +3,7 @@ package dbhealth
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -53,12 +54,22 @@ func collectJobs(ctx context.Context, db *sql.DB) ([]Job, error) {
 	ctx, cancel := context.WithTimeout(ctx, collectTimeout)
 	defer cancel()
 
+	// last_successful_finish is filtered through a CASE rather than read
+	// straight, because for a job that has never finished successfully
+	// TimescaleDB stores -infinity. lib/pq cannot turn that into a time.Time
+	// and hands back raw bytes instead, so the whole row failed to scan and was
+	// skipped — every policy that had not yet had its first successful run was
+	// invisible to this check, which is precisely the moment it is worth
+	// looking. Turning both infinities into NULL in SQL gives a NullTime that
+	// says what it means: never.
 	rows, err := db.QueryContext(ctx, `
 		SELECT j.job_id,
 		       COALESCE(j.application_name, 'job ' || j.job_id::text),
 		       COALESCE(s.last_run_status, ''),
 		       COALESCE(s.total_failures, 0),
-		       s.last_successful_finish
+		       CASE WHEN s.last_successful_finish >  '-infinity'::timestamptz
+		             AND s.last_successful_finish <   'infinity'::timestamptz
+		            THEN s.last_successful_finish END
 		FROM timescaledb_information.jobs j
 		LEFT JOIN timescaledb_information.job_stats s ON s.job_id = j.job_id
 		WHERE j.job_id >= 1000`) // below 1000 are TimescaleDB's own internal jobs
@@ -72,17 +83,14 @@ func collectJobs(ctx context.Context, db *sql.DB) ([]Job, error) {
 		var j Job
 		var lastSuccess sql.NullTime
 		if scanErr := rows.Scan(&j.ID, &j.Name, &j.LastRunStatus, &j.TotalFailures, &lastSuccess); scanErr != nil {
-			log.Printf("[DB-HEALTH] skipping a job row: %v", scanErr)
-			continue
+			// A row that cannot be read is a job that cannot be watched. It was
+			// worth one log line and a shrug until one of them turned out to be
+			// every policy that had never run — so it is now reported to the
+			// caller instead of being dropped here.
+			return nil, fmt.Errorf("reading job row: %w", scanErr)
 		}
 		if lastSuccess.Valid {
-			// TimescaleDB reports -infinity for a job that has never finished
-			// successfully. Left as it comes, that is a timestamp in the year
-			// -4713 and every fresh policy is instantly "stale for 6 million
-			// years"; as a zero time it means what it is, which is "never".
-			if lastSuccess.Time.Year() > 1 {
-				j.LastSuccess = lastSuccess.Time
-			}
+			j.LastSuccess = lastSuccess.Time
 		}
 		out = append(out, j)
 	}
