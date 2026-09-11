@@ -210,6 +210,11 @@ func main() {
 		getEnv("CORE_API_TOKEN", ""),
 	)
 
+	// Mirror the configuration from the central platform into this box's own
+	// database. Everything below reads the local copy, so the plant goes on
+	// being polled whether or not the link is up.
+	go runConfigSync(ctx, database, getEnv("CORE_API_URL", ""), getEnv("CORE_API_TOKEN", ""))
+
 	// Start polling loop
 	go manager.pollLoop()
 

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ralph/industrial-edge-middleware/migrations"
 )
 
 // EdgeInstallerHandler generates downloadable edge deployment packages.
@@ -37,6 +38,17 @@ type installerData struct {
 	MQTTUser   string
 	MQTTPass   string
 	Generated  string
+
+	// Where the box's broker forwards to. Taken from the same settings the
+	// edge config endpoint hands out, so the two cannot point at different
+	// brokers.
+	CloudMQTTHost string
+	CloudMQTTPort int
+
+	// Credentials for the box's OWN broker. Generated per installation: this
+	// broker used to allow anyone on the factory network to connect.
+	EdgeMQTTUser string
+	EdgeMQTTPass string
 }
 
 // Download generates and streams a ZIP installer package for the given org.
@@ -98,6 +110,13 @@ func (h *EdgeInstallerHandler) Download(c *gin.Context) {
 		`SELECT username, password FROM org_mqtt_credentials WHERE org_id = $1`, orgID,
 	).Scan(&mqttUser, &mqttPass)
 
+	// A password for the box's own broker, different for every installation.
+	localPass := make([]byte, 18)
+	if _, err = rand.Read(localPass); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "key generation failed"})
+		return
+	}
+
 	data := &installerData{
 		OrgID:      orgID,
 		OrgName:    orgName,
@@ -107,6 +126,12 @@ func (h *EdgeInstallerHandler) Download(c *gin.Context) {
 		MQTTUser:   mqttUser,
 		MQTTPass:   mqttPass,
 		Generated:  time.Now().UTC().Format(time.RFC3339),
+
+		CloudMQTTHost: mqttPublicHost(),
+		CloudMQTTPort: mqttPublicPort(),
+
+		EdgeMQTTUser: "edge",
+		EdgeMQTTPass: hex.EncodeToString(localPass),
 	}
 
 	zipBuf, buildErr := buildInstallerZIP(data)
@@ -161,18 +186,82 @@ func buildInstallerZIP(data *installerData) (*bytes.Buffer, error) {
 		}
 	}
 
-	// Mosquitto minimal config.
-	mqFH := &zip.FileHeader{Name: dir + "mosquitto/config/mosquitto.conf", Method: zip.Deflate}
-	mqFH.SetMode(0644)
-	mqFW, err := w.CreateHeader(mqFH)
-	if err != nil {
+	if err := addFile(w, dir+"mosquitto/config/mosquitto.conf", mosquittoConf, data); err != nil {
 		return nil, err
 	}
-	if _, err = mqFW.Write([]byte(mosquittoConf)); err != nil {
+	// The bridge is a file of its own so a deliberately offline box is a
+	// configuration and not a patch: delete it and the broker keeps working,
+	// it simply stops forwarding.
+	if err := addFile(w, dir+"mosquitto/config/conf.d/bridge.conf", mosquittoBridgeConf, data); err != nil {
+		return nil, err
+	}
+
+	// The schema. The box runs its own Postgres and nothing else was ever going
+	// to create the tables in it: organizations, sites, areas, gateways, tags
+	// and alarm_definitions exist only in these files, and the edge stack did
+	// not carry them. driver-manager's own migrations run afterwards and take
+	// the schema the rest of the way, exactly as they do on the central server.
+	if err := addMigrations(w, dir); err != nil {
 		return nil, err
 	}
 
 	return buf, nil
+}
+
+// addFile renders one template into the archive.
+func addFile(w *zip.Writer, name, tmplStr string, data *installerData) error {
+	tmpl, err := template.New(name).Parse(tmplStr)
+	if err != nil {
+		return fmt.Errorf("template parse %s: %w", name, err)
+	}
+	var content bytes.Buffer
+	if execErr := tmpl.Execute(&content, data); execErr != nil {
+		return fmt.Errorf("template execute %s: %w", name, execErr)
+	}
+
+	fh := &zip.FileHeader{Name: name, Method: zip.Deflate}
+	fh.SetMode(0o644)
+	fw, err := w.CreateHeader(fh)
+	if err != nil {
+		return err
+	}
+	_, err = fw.Write(content.Bytes())
+	return err
+}
+
+// addMigrations copies the schema files into the archive, where the box's
+// compose mounts them as Postgres's init directory.
+func addMigrations(w *zip.Writer, dir string) error {
+	entries, err := migrations.Files.ReadDir(".")
+	if err != nil {
+		return fmt.Errorf("reading the embedded schema: %w", err)
+	}
+	if len(entries) == 0 {
+		// An installer that ships no schema produces a box whose database is
+		// empty and whose drivers fail their first query. Better to refuse to
+		// build it than to hand it to somebody.
+		return fmt.Errorf("no schema files are embedded in this build")
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		content, readErr := migrations.Files.ReadFile(e.Name())
+		if readErr != nil {
+			return fmt.Errorf("reading %s: %w", e.Name(), readErr)
+		}
+		fh := &zip.FileHeader{Name: dir + "migrations/" + e.Name(), Method: zip.Deflate}
+		fh.SetMode(0o644)
+		fw, createErr := w.CreateHeader(fh)
+		if createErr != nil {
+			return createErr
+		}
+		if _, writeErr := fw.Write(content); writeErr != nil {
+			return writeErr
+		}
+	}
+	return nil
 }
 
 // publicBaseURL returns the API base URL visible from outside the server.
@@ -206,10 +295,70 @@ func slugify(s string) string {
 
 // ── Templates ────────────────────────────────────────────────────────────────
 
+// mosquittoConf is the broker inside the box.
+//
+// Two things it must do, and neither was configured before: keep the plant's
+// own traffic private, and carry it to the central platform when there is a
+// link.
+//
+// cleansession false on the bridge is the whole point of the second. With it,
+// the broker keeps the bridge's session across disconnections and queues the
+// QoS 1 messages it could not deliver; without it, everything published while
+// the line is down is simply gone. A plant with no internet is the normal case
+// here, not the exception.
 const mosquittoConf = `listener 1883
-allow_anonymous true
+
+# The plant's own traffic. Anonymous access used to be allowed, which meant
+# anybody on the factory network could read every value and — where writes are
+# enabled — send setpoints to the PLCs.
+allow_anonymous false
+password_file /mosquitto/config/passwd
+
 persistence true
 persistence_location /mosquitto/data/
+autosave_interval 30
+
+# Forwarding to the central platform. Delete bridge.conf to keep this box
+# entirely offline; everything else goes on working.
+include_dir /mosquitto/config/conf.d
+
+# Queued messages survive a restart of the box, not just a drop of the link.
+max_queued_messages 0
+queue_qos0_messages false
+`
+
+// mosquittoBridgeConf is written separately because it is filled in from the
+// organization's credentials, and because a box deliberately kept offline is a
+// legitimate configuration: delete this file and the broker keeps working, it
+// simply stops forwarding.
+const mosquittoBridgeConf = `# Bridge to the central OpenEdge platform.
+connection openedge-central
+address {{.CloudMQTTHost}}:{{.CloudMQTTPort}}
+bridge_protocol_version mqttv311
+
+remote_username {{.MQTTUser}}
+remote_password {{.MQTTPass}}
+remote_clientid edge-{{.OrgSlug}}
+
+# The session — and with it the queue of undelivered messages — survives the
+# link going down. This is what makes a plant with intermittent internet work.
+cleansession false
+start_type automatic
+restart_timeout 10 60
+notifications false
+try_private false
+
+# Out: what the plant produces.
+topic data/# out 1
+topic sys/alarms/# out 1
+topic sys/health/# out 1
+topic spBv1.0/# out 1
+
+# In: what the platform asks the plant to do. One direction each, deliberately:
+# a bridge declared both ways echoes every message back to its own sender.
+topic sys/write/# in 1
+topic sys/update/# in 1
+topic sys/restart/# in 1
 `
 
 const envTemplate = `# OpenEdge Edge Configuration
@@ -218,9 +367,14 @@ const envTemplate = `# OpenEdge Edge Configuration
 #
 # KEEP THIS FILE SECURE — it contains credentials.
 
-# ── Cloud API ────────────────────────────────────────────────────────────────
-EDGE_API_URL={{.APIBaseURL}}
-EDGE_API_KEY={{.APIKey}}
+# ── Central platform ─────────────────────────────────────────────────────────
+# These three names are the ones driver-manager actually reads. The installer
+# used to write EDGE_API_URL and EDGE_API_KEY, which nothing consumed, and never
+# wrote ORG_ID at all — so the heartbeat condition was never satisfied and the
+# box never appeared in the platform.
+CORE_API_URL={{.APIBaseURL}}
+CORE_API_TOKEN={{.APIKey}}
+ORG_ID={{.OrgID}}
 
 # ── Local Database ───────────────────────────────────────────────────────────
 DB_HOST=postgres
@@ -232,6 +386,10 @@ DB_NAME=edge_db
 # ── Local MQTT Broker ────────────────────────────────────────────────────────
 MQTT_HOST=mosquitto
 MQTT_PORT=1883
+# Credentials for the broker inside this box. install.sh turns these into the
+# broker's password file; anonymous access is refused.
+EDGE_MQTT_USER={{.EdgeMQTTUser}}
+EDGE_MQTT_PASS={{.EdgeMQTTPass}}
 
 # ── Cloud MQTT (data forwarding) ─────────────────────────────────────────────
 {{- if .MQTTUser}}
@@ -244,6 +402,9 @@ CLOUD_MQTT_PASS={{.MQTTPass}}
 
 # ── Misc ─────────────────────────────────────────────────────────────────────
 LOG_FORMAT=json
+# Passed to every driver container: it is what the timestamps an operator reads
+# are rendered in.
+TZ=Europe/Rome
 `
 
 const composeTemplate = `# OpenEdge Edge Stack
@@ -260,7 +421,9 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2
     volumes:
-      - ./mosquitto/config:/mosquitto/config:ro
+      # Not read-only: mosquitto_passwd writes the password file in here during
+      # install, and the broker rewrites nothing afterwards.
+      - ./mosquitto/config:/mosquitto/config
       - mosquitto_data:/mosquitto/data
     restart: unless-stopped
 
@@ -278,6 +441,10 @@ services:
       POSTGRES_DB: ${DB_NAME:-edge_db}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # The base schema. Postgres runs this once, on an empty data directory;
+      # driver-manager's own migrations take it the rest of the way on every
+      # start, which is how the central server works too.
+      - ./migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${DB_USER:-edge_user}"]
       interval: 10s
@@ -295,8 +462,12 @@ services:
       DB_NAME: ${DB_NAME:-edge_db}
       MQTT_HOST: mosquitto
       MQTT_PORT: ${MQTT_PORT:-1883}
-      EDGE_API_URL: ${EDGE_API_URL}
-      EDGE_API_KEY: ${EDGE_API_KEY}
+      CORE_API_URL: ${CORE_API_URL}
+      CORE_API_TOKEN: ${CORE_API_TOKEN}
+      ORG_ID: ${ORG_ID}
+      AGENT_VERSION: ${AGENT_VERSION:-edge}
+      MQTT_USERNAME: ${EDGE_MQTT_USER:-edge}
+      MQTT_PASSWORD: ${EDGE_MQTT_PASS}
       LOG_FORMAT: ${LOG_FORMAT:-json}
     depends_on:
       postgres:
@@ -340,11 +511,35 @@ if ! docker compose version &>/dev/null; then
   exit 1
 fi
 
+# The broker refuses anonymous connections, so it needs a password file. It is
+# built with mosquitto's own tool inside the official image rather than by
+# hashing the password here: the format is mosquitto's, and reimplementing it
+# is how a box ends up with a broker nobody can log into.
+if [ ! -f mosquitto/config/passwd ]; then
+  echo "Creating the broker password file..."
+  # shellcheck disable=SC1091
+  set -a; . ./.env; set +a
+  docker run --rm -v "$(pwd)/mosquitto/config:/mosquitto/config" \
+    eclipse-mosquitto:2 \
+    mosquitto_passwd -b -c /mosquitto/config/passwd "$EDGE_MQTT_USER" "$EDGE_MQTT_PASS"
+  chmod 0700 mosquitto/config/passwd
+fi
+
 echo "Pulling images..."
 docker compose pull
 
 echo "Starting services..."
 docker compose up -d
+
+echo ""
+echo "Waiting for the configuration to arrive from the platform..."
+for _ in $(seq 1 30); do
+  if docker compose logs driver-manager 2>/dev/null | grep -q "\[CONFIG-SYNC\] configuration for"; then
+    echo -e "${GREEN}✓ Configuration received.${NC}"
+    break
+  fi
+  sleep 2
+done
 
 echo ""
 echo -e "${GREEN}✓ OpenEdge edge is running!${NC}"
@@ -420,8 +615,9 @@ Edit ` + "`" + `.env` + "`" + ` before starting to change passwords and paths.
 
 | Variable | Description |
 |---|---|
-| ` + "`EDGE_API_KEY`" + ` | API key for cloud authentication (pre-filled) |
-| ` + "`EDGE_API_URL`" + ` | Cloud API base URL (pre-filled) |
+| ` + "`CORE_API_TOKEN`" + ` | API key for the central platform (pre-filled) |
+| ` + "`CORE_API_URL`" + ` | Central platform base URL (pre-filled) |
+| ` + "`ORG_ID`" + ` | This plant's organization (pre-filled) |
 | ` + "`DB_PASSWORD`" + ` | Local PostgreSQL password — **change this** |
 
 ## Manage

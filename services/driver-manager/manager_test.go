@@ -46,9 +46,9 @@ func TestCalculateBackoff(t *testing.T) {
 		attempt int
 		want    time.Duration
 	}{
-		{0, 1 * time.Second},  // base * 2^0 = 1s
-		{1, 2 * time.Second},  // base * 2^1 = 2s
-		{2, 4 * time.Second},  // base * 2^2 = 4s
+		{0, 1 * time.Second},   // base * 2^0 = 1s
+		{1, 2 * time.Second},   // base * 2^1 = 2s
+		{2, 4 * time.Second},   // base * 2^2 = 4s
 		{10, 30 * time.Second}, // base * 2^10 = 1024s → capped at maxDelay
 	}
 
