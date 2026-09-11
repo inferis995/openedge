@@ -193,8 +193,12 @@ func (r *Report) buildAlarms(ctx context.Context, db *sql.DB, orgID int, from, t
 		       COUNT(*),
 		       COUNT(*) FILTER (WHERE e.clear_time IS NULL OR e.clear_time >= $3),
 		       COUNT(*) FILTER (WHERE e.ack_time IS NOT NULL),
-		       COALESCE(EXTRACT(EPOCH FROM AVG(e.ack_time - e.trigger_time))
-		                FILTER (WHERE e.ack_time IS NOT NULL), 0)
+		       -- FILTER attaches to the aggregate, which is AVG, and has to sit
+		       -- inside EXTRACT. Hung on the EXTRACT instead it is a syntax
+		       -- error: EXTRACT is not an aggregate, and Postgres refuses the
+		       -- whole statement.
+		       COALESCE(EXTRACT(EPOCH FROM AVG(e.ack_time - e.trigger_time)
+		                        FILTER (WHERE e.ack_time IS NOT NULL)), 0)
 		FROM alarm_events e
 		JOIN tags t ON t.id = e.tag_id
 		JOIN gateways g ON g.id = t.gateway_id

@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -114,6 +115,12 @@ func (h *ServiceReportHandler) build(c *gin.Context) (*servicereport.Report, boo
 
 	report, err := servicereport.Build(c.Request.Context(), h.db, orgID, from, to)
 	if err != nil {
+		// Logged, not just answered. The caller gets a generic message on
+		// purpose — a failing query is not something to show a customer — but
+		// swallowing it entirely is how a broken statement reaches production
+		// as "could not build the report" and nothing else, anywhere.
+		log.Printf("[REPORT] building the service report for org %d over [%s, %s): %v",
+			orgID, from.Format(time.RFC3339), to.Format(time.RFC3339), err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "could not build the report"})
 		return nil, false
 	}
