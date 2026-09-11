@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Download, FileText, BellRing, ShieldCheck, Shield, Server } from 'lucide-react';
+import { Download, FileText, BellRing, ShieldCheck, Shield, Server, FileSignature } from 'lucide-react';
 
 import api from '@/api/client';
 import { tagsApi } from '@/api/tags';
@@ -27,6 +27,19 @@ const defaultStart = () => {
     return toLocalInput(d);
 };
 
+// Il mese appena concluso, che è quello che si vuole quasi sempre: il report
+// si genera il primo del mese per il mese prima.
+const lastMonth = (): string => {
+    const d = new Date();
+    d.setUTCDate(1);
+    d.setUTCMonth(d.getUTCMonth() - 1);
+    return d.toISOString().slice(0, 7);
+};
+
+// Il mese corrente non è ancora finito: offrirlo come limite superiore evita di
+// generare un rapporto su un periodo che sta ancora cambiando.
+const thisMonth = (): string => new Date().toISOString().slice(0, 7);
+
 interface ExportCardProps {
     icon: React.ReactNode;
     title: string;
@@ -35,15 +48,16 @@ interface ExportCardProps {
     extraControls?: React.ReactNode;
     busy?: boolean;
     disabled?: boolean;
+    buttonLabel?: string;
 }
 
-const ExportCard = ({ icon, title, description, onExport, extraControls, busy, disabled }: ExportCardProps) => (
+const ExportCard = ({ icon, title, description, onExport, extraControls, busy, disabled, buttonLabel }: ExportCardProps) => (
     <div className="rounded-md border bg-card p-4 space-y-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">{icon}{title}</div>
         <p className="text-sm">{description}</p>
         {extraControls}
         <Button onClick={onExport} disabled={busy || disabled} className="gap-2">
-            <Download size={16} /> {busy ? 'Preparing...' : 'Download CSV'}
+            <Download size={16} /> {busy ? 'Preparing...' : (buttonLabel ?? 'Download CSV')}
         </Button>
     </div>
 );
@@ -55,6 +69,7 @@ const ReportsPage = () => {
     const [end, setEnd] = useState(defaultEnd());
     const [selectedTags, setSelectedTags] = useState<number[]>([]);
     const [busy, setBusy] = useState<string | null>(null);
+    const [reportMonth, setReportMonth] = useState(lastMonth());
 
     const { data: tags = [] } = useQuery({
         queryKey: ['tags-with-hierarchy'],
@@ -154,6 +169,31 @@ const ReportsPage = () => {
                     description="Every alarm trigger / clear within the range with severity, value and message."
                     busy={busy === '/reports/alarms.csv'}
                     onExport={() => download('/reports/alarms.csv', `alarms-${Date.now()}.csv`, {})}
+                />
+
+                <ExportCard
+                    icon={<FileSignature size={16} />}
+                    title="Service report"
+                    description="The end-of-month document: what is installed, what stopped, for how long, and what was done about it. Opens in a browser and prints to PDF."
+                    busy={busy === '/reports/service-report.html'}
+                    buttonLabel="Download report"
+                    onExport={() => download('/reports/service-report.html',
+                        `rapporto-servizio-${reportMonth}.html`, { month: reportMonth })}
+                    extraControls={
+                        <div className="space-y-1">
+                            <Label htmlFor="rep-month" className="text-xs">Month</Label>
+                            <Input
+                                id="rep-month"
+                                type="month"
+                                value={reportMonth}
+                                max={thisMonth()}
+                                onChange={(e) => setReportMonth(e.target.value)}
+                            />
+                            <p className="text-[11px] text-muted-foreground">
+                                A whole calendar month. Its own date range, independent of the one above.
+                            </p>
+                        </div>
+                    }
                 />
 
                 {isAdmin() && (

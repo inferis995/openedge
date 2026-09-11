@@ -711,6 +711,13 @@ func main() {
 			// gated behind global admin only — org admins read their own
 			// scoped events through other UI surfaces.
 			reports.GET("/audit.csv", middleware.RequireGlobalAdmin(), reportsHandler.AuditCSV)
+
+			// The end-of-month document: what is installed, what stopped, for
+			// how long, and what was done about it. Scoped from the token like
+			// everything else here.
+			serviceReport := handlers.NewServiceReportHandler(database)
+			reports.GET("/service-report", serviceReport.GetServiceReport)
+			reports.GET("/service-report.html", serviceReport.DownloadServiceReport)
 		}
 
 		// Recipe management — operator loads a named set of (tag, value) pairs

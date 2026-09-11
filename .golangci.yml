@@ -53,6 +53,7 @@ linters:
         - configurata
         - inventario
         - eliminato
+        - indicato
         - momento
         - parita
         - rientrato
