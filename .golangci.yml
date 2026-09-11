@@ -38,6 +38,25 @@ linters:
         - shadow
     misspell:
       locale: US
+      # Words an Italian operator reads, which the US dictionary insists are
+      # misspelled English. Every message this platform shows a plant electrician
+      # is in Italian; the code and its comments are not. Without this the choice
+      # is between contorting the wording of an alarm and muting the linter that
+      # catches real typos in the English half.
+      ignore-rules:
+        - applicato
+        - applicazione
+        - automatica
+        - automatico
+        - cancellato
+        - configurato
+        - configurata
+        - inventario
+        - eliminato
+        - momento
+        - parita
+        - rientrato
+        - seriale
 
   exclusions:
     rules:

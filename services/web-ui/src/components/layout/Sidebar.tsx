@@ -39,6 +39,7 @@ import {
     Layers,
     Plug,
     X,
+    ClipboardList,
 } from 'lucide-react';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -86,6 +87,7 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
         { name: t('nav.sites'), path: '/sites', icon: Factory },
         { name: t('nav.areas'), path: '/areas', icon: MapPin },
         { name: t('nav.gateways'), path: '/gateways', icon: Cpu },
+        { name: 'Inventario', path: '/inventory', icon: ClipboardList },
         { name: t('nav.tags'), path: '/tags', icon: Tags },
         { name: t('nav.trend'), path: '/trend', icon: TrendingUp },
         { name: t('nav.historian'), path: '/history', icon: History },

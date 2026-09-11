@@ -9,6 +9,7 @@ import DashboardPage from '@/pages/DashboardPage';
 import SitesPage from '@/pages/SitesPage';
 import AreasPage from '@/pages/AreasPage';
 import GatewaysPage from '@/pages/GatewaysPage';
+import InventoryPage from '@/pages/InventoryPage';
 import TagsPage from '@/pages/TagsPage';
 import SystemPage from '@/pages/SystemPage';
 import TrendPage from '@/pages/TrendPage';
@@ -136,6 +137,7 @@ function App() {
                     <Route path="/sites" element={<SitesPage />} />
                     <Route path="/areas" element={<AreasPage />} />
                     <Route path="/gateways" element={<GatewaysPage />} />
+                    <Route path="/inventory" element={<InventoryPage />} />
                     <Route path="/tags" element={<TagsPage />} />
                     <Route path="/system" element={<SystemPage />} />
                     <Route path="/trend" element={<TrendPage />} />

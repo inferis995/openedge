@@ -532,6 +532,18 @@ func main() {
 			gateways.POST("/:id/lorawan/downlink", middleware.RequireRole(models.RoleAdmin), lorawanHandler.Downlink)
 		}
 
+		// Inventory — the list of what is actually installed, which is the
+		// document a customer asks for at handover and an auditor asks for
+		// under NIS2. Read-only, and scoped from the token rather than from
+		// anything the caller can set.
+		inventoryHandler := handlers.NewInventoryHandler(database)
+		inventoryGroup := api.Group("/inventory")
+		inventoryGroup.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			inventoryGroup.GET("", inventoryHandler.GetInventory)
+			inventoryGroup.GET("/export.csv", inventoryHandler.ExportInventoryCSV)
+		}
+
 		// Tags endpoints
 		tags := api.Group("/tags")
 		tags.Use(middleware.RequireAuth, middleware.OrganizationContext())
