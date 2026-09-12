@@ -21,6 +21,8 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	"github.com/ralph/industrial-edge-middleware/internal/topics"
+
+	"github.com/ralph/industrial-edge-middleware/internal/naming"
 )
 
 const (
@@ -473,17 +475,12 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	}
 
 	// Parse topic structure: data/{org}/{site}/{area}/{gateway}/{alias}
-	parts := strings.Split(topic, "/")
-	if len(parts) < 6 || parts[0] != "data" {
-		log.Printf("Invalid topic format: %s", topic)
+	dt, err := parseDataTopic(topic)
+	if err != nil {
+		log.Printf("[HISTORIAN] %v", err)
 		return
 	}
-
-	org := parts[1]
-	site := parts[2]
-	area := parts[3]
-	gateway := parts[4]
-	alias := parts[5]
+	org, site, area, gateway, alias := dt.org, dt.site, dt.area, dt.gateway, dt.alias
 
 	// Note: We DON'T unslugify org/site/area/gateway because:
 	// 1. The SQL query uses LOWER() for case-insensitive matching
@@ -546,39 +543,14 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 		return
 	}
 
-	// Convert value to float64
-	var floatValue float64
-	switch v := mqttPayload.V.(type) {
-	case bool:
-		if v {
-			floatValue = 1.0
-		} else {
-			floatValue = 0.0
-		}
-	case float64:
-		floatValue = v
-	case int:
-		floatValue = float64(v)
-	default:
-		// Attempt numeric conversion for other types. A failure used to fall
-		// through with floatValue still 0, writing a GOOD-quality 0.0 that an
-		// operator cannot distinguish from a real zero reading (0 bar, 0 °C).
-		// A non-numeric payload (STRING tag, null) is not history — drop it.
-		val, convErr := strconv.ParseFloat(fmt.Sprintf("%v", v), 64)
-		if convErr != nil {
-			log.Printf("[HISTORIAN] tag %d: non-numeric value %v (%T) — not historised", tagInfo.ID, v, v)
-			return
-		}
-		floatValue = val
+	floatValue, ok := historianFloat(mqttPayload.V)
+	if !ok {
+		log.Printf("[HISTORIAN] tag %d: non-numeric value %v (%T) — not historised",
+			tagInfo.ID, mqttPayload.V, mqttPayload.V)
+		return
 	}
 
-	// A missing or nonsensical timestamp would land the row in 1970, where it is
-	// invisible on any trend and gets swept by the retention worker on its next
-	// pass. Fall back to now, matching the Sparkplug path.
-	ts := mqttPayload.Ts
-	if ts <= 0 {
-		ts = time.Now().UnixMilli()
-	}
+	ts := sampleTimestamp(time.Now, mqttPayload.Ts)
 
 	// Persist FIRST: the deadband baseline may only advance for a sample that
 	// actually reached the database, otherwise a transient DB outage silently
@@ -843,14 +815,8 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 		// Track this tag under its device for DEATH handling
 		s.trackDeviceTag(deviceKey, tagInfo.ID)
 
-		// Use metric timestamp or payload timestamp
-		timestamp := metric.Timestamp
-		if timestamp == 0 {
-			timestamp = sparkplugPayload.Timestamp
-		}
-		if timestamp == 0 {
-			timestamp = time.Now().UnixMilli()
-		}
+		// Prefer the metric's own timestamp, then the payload's, then now.
+		timestamp := sampleTimestamp(time.Now, metric.Timestamp, sparkplugPayload.Timestamp)
 
 		// Store in Redis for real-time queries
 		mqttPayload := MQTTPayload{
@@ -875,34 +841,11 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 			continue
 		}
 
-		// Convert value to float64
-		var floatValue float64
-		switch v := metric.Value.(type) {
-		case bool:
-			if v {
-				floatValue = 1.0
-			} else {
-				floatValue = 0.0
-			}
-		case float64:
-			floatValue = v
-		case float32:
-			floatValue = float64(v)
-		case int:
-			floatValue = float64(v)
-		case int32:
-			floatValue = float64(v)
-		case int64:
-			floatValue = float64(v)
-		default:
-			// See the legacy path: falling through with floatValue == 0 wrote a
-			// GOOD-quality 0.0 indistinguishable from a real zero.
-			val, convErr := strconv.ParseFloat(fmt.Sprintf("%v", v), 64)
-			if convErr != nil {
-				log.Printf("[HISTORIAN] tag %d: non-numeric Sparkplug metric %v (%T) — not historised", tagInfo.ID, v, v)
-				continue
-			}
-			floatValue = val
+		floatValue, ok := historianFloat(metric.Value)
+		if !ok {
+			log.Printf("[HISTORIAN] tag %d: non-numeric Sparkplug metric %v (%T) — not historised",
+				tagInfo.ID, metric.Value, metric.Value)
+			continue
 		}
 
 		// Persist FIRST, then advance the deadband baseline — only for a sample
@@ -996,16 +939,15 @@ func (s *HistorianService) getTagInfo(org, site, area, gateway, alias string) (*
 		JOIN areas a ON g.area_id = a.id
 		JOIN sites s ON a.site_id = s.id
 		JOIN organizations o ON s.org_id = o.id
-		-- Both sides are reduced to the same canonical slug (lowercase, ' '
-		-- and '_' collapsed to '-'), mirroring sparkplug.slugify, so a name
-		-- spelled "Motor 1", "Motor_1" or "motor-1" matches the topic either
-		-- way. Comparing raw-or-hyphenated against an underscored input, as
-		-- before, matched only aliases whose sole separator was '_'.
-		WHERE LOWER(REPLACE(REPLACE(BTRIM(o.name), ' ', '-'), '_', '-')) = LOWER(REPLACE(REPLACE(BTRIM($1), ' ', '-'), '_', '-'))
-		  AND LOWER(REPLACE(REPLACE(BTRIM(s.name), ' ', '-'), '_', '-')) = LOWER(REPLACE(REPLACE(BTRIM($2), ' ', '-'), '_', '-'))
-		  AND LOWER(REPLACE(REPLACE(BTRIM(a.name), ' ', '-'), '_', '-')) = LOWER(REPLACE(REPLACE(BTRIM($3), ' ', '-'), '_', '-'))
-		  AND LOWER(REPLACE(REPLACE(BTRIM(g.name), ' ', '-'), '_', '-')) = LOWER(REPLACE(REPLACE(BTRIM($4), ' ', '-'), '_', '-'))
-		  AND LOWER(REPLACE(REPLACE(BTRIM(t.alias), ' ', '-'), '_', '-')) = LOWER(REPLACE(REPLACE(BTRIM($5), ' ', '-'), '_', '-'))
+		-- Both sides are reduced to the same canonical slug, built from the
+		-- single definition in internal/naming so this expression cannot
+		-- handle one character fewer than the drivers do — the failure mode
+		-- being a tag that is never historised and never logs anything.
+		WHERE ` + naming.SQL("o.name") + ` = ` + naming.SQL("$1") + `
+		  AND ` + naming.SQL("s.name") + ` = ` + naming.SQL("$2") + `
+		  AND ` + naming.SQL("a.name") + ` = ` + naming.SQL("$3") + `
+		  AND ` + naming.SQL("g.name") + ` = ` + naming.SQL("$4") + `
+		  AND ` + naming.SQL("t.alias") + ` = ` + naming.SQL("$5") + `
 	`
 
 	var tagInfo TagInfo
@@ -1098,7 +1040,7 @@ func (s *HistorianService) getTagInfoByAlias(alias, groupID, edgeNodeID string) 
 		}
 	}
 
-	const slug = `LOWER(REPLACE(REPLACE(BTRIM(%s), ' ', '-'), '_', '-'))`
+	slug := naming.SQL("%s")
 	query := fmt.Sprintf(`
 		SELECT t.id, s.org_id, t.historize, t.historize_deadband
 		FROM tags t

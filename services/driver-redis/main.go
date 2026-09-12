@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -22,6 +21,8 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	"github.com/ralph/industrial-edge-middleware/internal/topics"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/ralph/industrial-edge-middleware/internal/naming"
 )
 
 // maxPollFailures is the number of consecutive poll failures after which the
@@ -873,10 +874,11 @@ func scanRateDuration(ms int) time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
+// slugify reduces a name to the canonical topic form. The reduction itself
+// lives in internal/naming so the drivers, the ACL builder and the
+// historian's SQL cannot drift apart; see the package comment there.
 func slugify(s string) string {
-	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, " ", "-")
-	return s
+	return naming.Slug(s)
 }
 
 func getEnv(key, def string) string {

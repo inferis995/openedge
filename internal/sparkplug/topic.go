@@ -3,6 +3,8 @@ package sparkplug
 import (
 	"fmt"
 	"strings"
+
+	"github.com/ralph/industrial-edge-middleware/internal/naming"
 )
 
 // BuildTopic constructs a Sparkplug B topic from components
@@ -124,11 +126,9 @@ func ExtractLegacyTopicInfo(topic string) (org, site, area, gateway, alias strin
 	return
 }
 
-// slugify converts a string to URL-friendly format
+// slugify reduces a name to the canonical topic form. The reduction itself
+// lives in internal/naming so the drivers, the ACL builder and the
+// historian's SQL cannot drift apart; see the package comment there.
 func slugify(s string) string {
-	s = strings.TrimSpace(s)
-	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, " ", "-")
-	s = strings.ReplaceAll(s, "_", "-")
-	return s
+	return naming.Slug(s)
 }

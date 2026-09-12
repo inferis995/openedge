@@ -48,6 +48,8 @@ import (
 	paho "github.com/eclipse/paho.mqtt.golang"
 	_ "github.com/lib/pq"
 	"github.com/ralph/industrial-edge-middleware/internal/topics"
+
+	"github.com/ralph/industrial-edge-middleware/internal/naming"
 )
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -750,17 +752,11 @@ func connectDB() (*sql.DB, error) {
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
+// slugify reduces a name to the canonical topic form. The reduction itself
+// lives in internal/naming so the drivers, the ACL builder and the
+// historian's SQL cannot drift apart; see the package comment there.
 func slugify(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	var b strings.Builder
-	for _, r := range s {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-			b.WriteRune(r)
-		} else if r == ' ' || r == '/' || r == '\\' {
-			b.WriteRune('-')
-		}
-	}
-	return b.String()
+	return naming.Slug(s)
 }
 
 func getEnv(key, def string) string {

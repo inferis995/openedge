@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ralph/industrial-edge-middleware/internal/naming"
 )
 
 // DynsecClient manages MQTT broker Dynamic Security plugin users via the control API.
@@ -168,16 +170,11 @@ var sparkplugEdgeOriginated = []string{"NBIRTH", "NDEATH", "NDATA", "DBIRTH", "D
 // sparkplugCommands are the Sparkplug B message types an edge may only *receive*.
 var sparkplugCommands = []string{"NCMD", "DCMD"}
 
-// slugifyTopic mirrors the unexported slugify() in internal/sparkplug/topic.go —
-// keep the two in sync, otherwise the ACL will not match the topics the drivers
-// actually publish on.  Verified identical as of this change: TrimSpace, ToLower,
-// " " -> "-", "_" -> "-".
+// slugifyTopic reduces a name to the canonical topic form. The reduction itself
+// lives in internal/naming so the drivers, the ACL builder and the
+// historian's SQL cannot drift apart; see the package comment there.
 func slugifyTopic(s string) string {
-	s = strings.TrimSpace(s)
-	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, " ", "-")
-	s = strings.ReplaceAll(s, "_", "-")
-	return s
+	return naming.Slug(s)
 }
 
 // aclSet accumulates Mosquitto dynamic-security ACL entries, de-duplicating

@@ -25,6 +25,8 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	"github.com/ralph/industrial-edge-middleware/internal/topics"
+
+	"github.com/ralph/industrial-edge-middleware/internal/naming"
 )
 
 // TagInBlock stores a tag with its pre-computed offset within a block
@@ -1649,8 +1651,11 @@ func (d *Driver) updateState(id int, val interface{}, quality int) {
 	d.previousQualities[id] = quality
 }
 
+// slugify reduces a name to the canonical topic form. The reduction itself
+// lives in internal/naming so the drivers, the ACL builder and the
+// historian's SQL cannot drift apart; see the package comment there.
 func slugify(s string) string {
-	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(s)), " ", "-")
+	return naming.Slug(s)
 }
 
 func getEnv(k, d string) string {

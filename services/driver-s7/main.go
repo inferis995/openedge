@@ -22,6 +22,8 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	"github.com/ralph/industrial-edge-middleware/internal/topics"
+
+	"github.com/ralph/industrial-edge-middleware/internal/naming"
 )
 
 // GatewayConfig holds the loaded gateway configuration
@@ -1274,11 +1276,11 @@ func valuesEqual(a, b interface{}) bool {
 	}
 }
 
-// slugify converts a string to a URL-friendly slug
+// slugify reduces a name to the canonical topic form. The reduction itself
+// lives in internal/naming so the drivers, the ACL builder and the
+// historian's SQL cannot drift apart; see the package comment there.
 func slugify(s string) string {
-	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, " ", "-")
-	return s
+	return naming.Slug(s)
 }
 
 func getEnv(key, defaultValue string) string {

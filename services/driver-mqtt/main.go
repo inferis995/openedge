@@ -21,6 +21,8 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	"github.com/ralph/industrial-edge-middleware/internal/topics"
+
+	"github.com/ralph/industrial-edge-middleware/internal/naming"
 )
 
 // TagMapping maps a source MQTT topic to a system publish topic and tag metadata
@@ -1399,8 +1401,11 @@ func (d *Driver) checkSourceTimeouts() {
 
 // Utility functions
 
+// slugify reduces a name to the canonical topic form. The reduction itself
+// lives in internal/naming so the drivers, the ACL builder and the
+// historian's SQL cannot drift apart; see the package comment there.
 func slugify(s string) string {
-	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(s)), " ", "-")
+	return naming.Slug(s)
 }
 
 func getEnv(k, d string) string {
