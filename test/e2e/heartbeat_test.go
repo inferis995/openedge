@@ -124,7 +124,11 @@ func postHeartbeat(t *testing.T, apiKey, body string) (int, []byte) {
 		req.Header.Set("X-API-Key", apiKey)
 	}
 
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
+	// The harness's client, not one built here: under the cloud overlay the API
+	// sits behind Traefik with a self-signed certificate, and a client built
+	// from scratch refuses it. That is not a finding about the heartbeat — it
+	// is a test that never reached the endpoint.
+	resp, err := httpClient(15 * time.Second).Do(req)
 	if err != nil {
 		t.Fatalf("posting the heartbeat: %v", err)
 	}
