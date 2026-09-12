@@ -58,6 +58,12 @@ type UpdateGatewayRequest struct {
 	ScanRateMs       *int                     `json:"scan_rate_ms"`
 	Enabled          *bool                    `json:"enabled"`
 	ZeroBased        *bool                    `json:"zero_based"`
+
+	// EdgeAgentID assigns this gateway to one of the organization's boxes.
+	// Zero unassigns it: a nil pointer already means "leave it alone", so
+	// there has to be a value that means "nobody", or a gateway could be
+	// assigned and never released.
+	EdgeAgentID *int `json:"edge_agent_id"`
 }
 
 // GatewayHealthStatus represents the health status from Redis
@@ -693,6 +699,34 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 	if req.ZeroBased != nil {
 		updates = append(updates, "zero_based = $"+strconv.Itoa(argPos))
 		args = append(args, *req.ZeroBased)
+		argPos++
+	}
+
+	if req.EdgeAgentID != nil {
+		// The box has to belong to the same organization as the gateway.
+		// Without this check an admin of one tenant could hand their gateway
+		// to another tenant's box, which would then be handed its address,
+		// its tags and its credentials on the next configuration pull.
+		if *req.EdgeAgentID != 0 {
+			var agentOrgID int
+			agentErr := h.db.QueryRowContext(c.Request.Context(),
+				`SELECT org_id FROM edge_agents WHERE id = $1`, *req.EdgeAgentID).Scan(&agentOrgID)
+			if agentErr == sql.ErrNoRows || (agentErr == nil && agentOrgID != orgID) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "unknown edge agent for this organization"})
+				return
+			}
+			if agentErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify the edge agent"})
+				return
+			}
+		}
+
+		updates = append(updates, "edge_agent_id = $"+strconv.Itoa(argPos))
+		if *req.EdgeAgentID == 0 {
+			args = append(args, nil)
+		} else {
+			args = append(args, *req.EdgeAgentID)
+		}
 		argPos++
 	}
 

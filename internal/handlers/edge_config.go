@@ -85,6 +85,29 @@ func (h *EdgeConfigHandler) Get(c *gin.Context) {
 		return
 	}
 
+	// Narrow it to the box that is asking. With one box this changes nothing;
+	// with two it is what stops both of them polling every PLC of the
+	// organization, including the ones on the other site.
+	agentID, _ := c.Get(middleware.APIKeyAgentContextKey)
+	id, _ := agentID.(int)
+
+	var agentsInOrg int
+	if err := h.db.QueryRowContext(c.Request.Context(),
+		`SELECT COUNT(*) FROM edge_agents WHERE org_id = $1`, orgID).Scan(&agentsInOrg); err != nil {
+		// Counting is what decides whether the assignment applies at all.
+		// Guessing would either strand a lone box or let two fight, so the
+		// request fails instead.
+		log.Printf("[EDGE-CONFIG] counting the boxes of org %d: %v", orgID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load edge configuration"})
+		return
+	}
+
+	cfg.FilterTree(id, agentsInOrg)
+	if cfg.Unassigned > 0 {
+		log.Printf("[EDGE-CONFIG] org %d has %d gateway(s) assigned to no box; nobody is polling them",
+			orgID, cfg.Unassigned)
+	}
+
 	c.JSON(http.StatusOK, cfg)
 }
 
@@ -151,7 +174,7 @@ func (h *EdgeConfigHandler) loadTree(ctx context.Context, orgID int, cfg *edgesy
 
 	gateways, err := h.db.QueryContext(ctx, `
 		SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config,
-		       g.scan_rate_ms, g.enabled, COALESCE(g.zero_based, true)
+		       g.scan_rate_ms, g.enabled, COALESCE(g.zero_based, true), g.edge_agent_id
 		FROM gateways g
 		JOIN areas a ON a.id = g.area_id
 		JOIN sites s ON s.id = a.site_id
@@ -163,7 +186,8 @@ func (h *EdgeConfigHandler) loadTree(ctx context.Context, orgID int, cfg *edgesy
 	for gateways.Next() {
 		var g models.Gateway
 		if scanErr := gateways.Scan(&g.ID, &g.AreaID, &g.Name, &g.DriverType,
-			&g.ConnectionConfig, &g.ScanRateMs, &g.Enabled, &g.ZeroBased); scanErr != nil {
+			&g.ConnectionConfig, &g.ScanRateMs, &g.Enabled, &g.ZeroBased,
+			&g.EdgeAgentID); scanErr != nil {
 			return fmt.Errorf("reading a gateway: %w", scanErr)
 		}
 		cfg.Gateways = append(cfg.Gateways, g)

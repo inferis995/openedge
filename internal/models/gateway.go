@@ -16,7 +16,13 @@ type Gateway struct {
 	ScanRateMs       int              `json:"scan_rate_ms" db:"scan_rate_ms"`
 	Enabled          bool             `json:"enabled" db:"enabled"`
 	ZeroBased        bool             `json:"zero_based" db:"zero_based"`
-	CreatedAt        time.Time        `json:"created_at" db:"created_at"`
+
+	// EdgeAgentID is the box responsible for polling this gateway, or nil when
+	// nobody has been told. An organization with one box can leave every
+	// gateway unassigned and nothing changes; with two, an unassigned gateway
+	// is one neither of them will touch.
+	EdgeAgentID *int      `json:"edge_agent_id,omitempty" db:"edge_agent_id"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
 
 // ConnectionConfig is a JSONB field storing driver-specific connection parameters

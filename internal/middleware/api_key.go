@@ -14,6 +14,11 @@ import (
 
 const APIKeyContextKey = "api_key_org_id"
 
+// APIKeyAgentContextKey holds the edge agent this key belongs to, or 0 for a
+// key minted before boxes had identities. Those keys behave as the
+// organization's only box, which is what they were.
+const APIKeyAgentContextKey = "api_key_edge_agent_id"
+
 // RequireAPIKey authenticates requests via an X-API-Key header.
 // On success it stores the org_id in the gin context under APIKeyContextKey.
 // Key format: oe_PPPPPPPP_RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR
@@ -35,11 +40,12 @@ func RequireAPIKey(db *sql.DB) gin.HandlerFunc {
 		hash := apiKeyHash(key)
 
 		var orgID int
+		var agentID sql.NullInt64
 		err := db.QueryRowContext(c.Request.Context(),
-			`SELECT org_id FROM org_api_keys
+			`SELECT org_id, edge_agent_id FROM org_api_keys
 			 WHERE key_prefix = $1 AND key_hash = $2 AND revoked_at IS NULL`,
 			prefix, hash,
-		).Scan(&orgID)
+		).Scan(&orgID, &agentID)
 
 		if err == sql.ErrNoRows {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or revoked API key"})
@@ -59,6 +65,7 @@ func RequireAPIKey(db *sql.DB) gin.HandlerFunc {
 		}()
 
 		c.Set(APIKeyContextKey, orgID)
+		c.Set(APIKeyAgentContextKey, int(agentID.Int64)) // 0 when the key predates boxes
 		c.Next()
 	}
 }

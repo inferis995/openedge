@@ -963,6 +963,11 @@ func main() {
 			middleware.RequireOrgParam("id"))
 		{
 			orgEdge.GET("/edge-installer", installerHandler.Download)
+			// The boxes installed for this organization. Needed to assign a
+			// gateway to one: the assignment is by id, and without this there
+			// is no way to know which id.
+			edgeAgentsHandler := handlers.NewEdgeAgentsHandler(database)
+			orgEdge.GET("/edge-agents", edgeAgentsHandler.List)
 		}
 
 		// User invites — org admins create one-time invite links for new members.

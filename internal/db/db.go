@@ -982,6 +982,49 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Migration: edge agents.
+	//
+	// Until now everything about an installed box was keyed by organization:
+	// the heartbeat, the restart command, the configuration it pulled. That
+	// works exactly as long as an organization has ONE box. With two, both
+	// pulled every gateway of the organization and both tried to poll them —
+	// including the ones on the other site, which they cannot reach.
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS edge_agents (
+			id            SERIAL PRIMARY KEY,
+			org_id        INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			name          TEXT NOT NULL,
+			created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			last_seen_at  TIMESTAMPTZ,
+			agent_version VARCHAR(30)
+		)`); err != nil {
+		log.Printf("Warning: failed to create edge_agents: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE INDEX IF NOT EXISTS idx_edge_agents_org ON edge_agents (org_id)`); err != nil {
+		log.Printf("Warning: idx_edge_agents_org: %v", err)
+	}
+
+	edgeAgentCols := []string{
+		// Which box is responsible for a gateway. NULL means nobody has said —
+		// which an organization with a single box can ignore, and one with two
+		// cannot.
+		`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS edge_agent_id INT
+		   REFERENCES edge_agents(id) ON DELETE SET NULL`,
+		// Which box a key belongs to. The key is how a box proves which plant
+		// it is, so it is also the natural place to record which box it is.
+		// NULL on every key minted before this existed: those behave as the
+		// organization's only box, which is what they were.
+		`ALTER TABLE org_api_keys ADD COLUMN IF NOT EXISTS edge_agent_id INT
+		   REFERENCES edge_agents(id) ON DELETE SET NULL`,
+		`CREATE INDEX IF NOT EXISTS idx_gateways_edge_agent ON gateways (edge_agent_id)`,
+	}
+	for _, stmt := range edgeAgentCols {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: edge agent migration: %v", err)
+		}
+	}
+
 	// Migration: gateway heartbeat columns
 	//
 	// last_seen_at is written by the edge agent's heartbeat, which is sent once

@@ -94,12 +94,34 @@ func (h *EdgeInstallerHandler) Download(c *gin.Context) {
 	keyHash := hex.EncodeToString(h256[:])
 	keyName := "edge-" + time.Now().UTC().Format("20060102-150405")
 
+	// Every download is a box, and gets an identity. Without one, a second
+	// installation in the same organization would pull every gateway the first
+	// one is already polling.
+	agentName := c.Query("agent_name")
+	if agentName == "" {
+		agentName = "Box " + time.Now().UTC().Format("2006-01-02 15:04")
+	}
+
+	var agentID int
+	if err = h.db.QueryRowContext(c.Request.Context(),
+		`INSERT INTO edge_agents (org_id, name) VALUES ($1, $2) RETURNING id`,
+		orgID, agentName,
+	).Scan(&agentID); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register the edge agent"})
+		return
+	}
+
 	_, err = h.db.ExecContext(c.Request.Context(),
-		`INSERT INTO org_api_keys (org_id, name, key_prefix, key_hash)
-		 VALUES ($1, $2, $3, $4)`,
-		orgID, keyName, prefix, keyHash,
+		`INSERT INTO org_api_keys (org_id, name, key_prefix, key_hash, edge_agent_id)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		orgID, keyName, prefix, keyHash, agentID,
 	)
 	if err != nil {
+		// The agent row would otherwise linger as a box that does not exist,
+		// and the count of boxes is what decides whether the assignment rule
+		// applies at all — one phantom turns a working single-box plant into an
+		// organization where nothing is assigned to anybody.
+		_, _ = h.db.ExecContext(c.Request.Context(), `DELETE FROM edge_agents WHERE id = $1`, agentID)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create API key"})
 		return
 	}
