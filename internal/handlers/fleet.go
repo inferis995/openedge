@@ -86,9 +86,29 @@ func (h *FleetHandler) RestartEdge(c *gin.Context) {
 		return
 	}
 
+	// An optional box: without one this restarts every box of the organization,
+	// which is what it has always done and what a single-box plant wants. With
+	// one, it restarts that box alone — because bouncing three plants to fix
+	// one is not a thing anybody asked for.
+	var req struct {
+		AgentID int `json:"agent_id"`
+	}
+	_ = c.ShouldBindJSON(&req)
+
 	topic := fmt.Sprintf("sys/restart/%d", orgID)
+	if req.AgentID > 0 {
+		var owner int
+		if err := h.db.QueryRowContext(c.Request.Context(),
+			`SELECT org_id FROM edge_agents WHERE id = $1`, req.AgentID).Scan(&owner); err != nil || owner != orgID {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "unknown edge agent for this organization"})
+			return
+		}
+		topic = fmt.Sprintf("sys/restart/%d/%d", orgID, req.AgentID)
+	}
+
 	payload, _ := json.Marshal(map[string]interface{}{
 		"org_id":       orgID,
+		"agent_id":     req.AgentID,
 		"requested_at": time.Now().UTC().Format(time.RFC3339),
 	})
 	if err := h.mqttClient.Publish(topic, payload); err != nil {

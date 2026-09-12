@@ -1,8 +1,9 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useGateways } from '@/hooks/useGateways';
 import { useAreas } from '@/hooks/useAreas';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { edgeAgentsApi, EdgeAgent } from '@/api/edgeAgents';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -39,6 +40,8 @@ import { LoRaWANDevicesPanel } from '@/components/lorawan/LoRaWANDevicesPanel';
 // Extended DTO to include UI-specific fields or fields not yet in shared types
 interface ExtendedCreateGatewayDto extends Omit<CreateGatewayDto, 'connection_config'> {
     zero_based: boolean;
+    // Quale scatola interroga questo gateway. Zero significa nessuna.
+    edge_agent_id?: number;
     connection_config: any;
     auth_mode?: string;
     username?: string;
@@ -76,7 +79,20 @@ const GatewaysPage = () => {
     const { selectedAreaId, selectedSiteId } = useNavigationStore();
     const { gateways, isLoading, create, remove, testConnection, update, isUpdating } = useGateways(selectedAreaId);
     const { areas } = useAreas(selectedSiteId); // Get areas for current site
-    const { isAdmin } = useAuthStore();
+    const { isAdmin, user } = useAuthStore();
+
+    // Le scatole installate per questa organizzazione. Il selettore compare
+    // solo quando sono più d'una: con una sola l'assegnazione viene ignorata
+    // dalla piattaforma, e mostrare un campo che non fa niente è peggio che
+    // non mostrarlo.
+    const [edgeAgents, setEdgeAgents] = useState<EdgeAgent[]>([]);
+    useEffect(() => {
+        const orgId = user?.org_id;
+        if (!orgId) return;
+        edgeAgentsApi.list(orgId)
+            .then((r) => setEdgeAgents(r.agents))
+            .catch(() => setEdgeAgents([]));
+    }, [user?.org_id]);
 
     const [isOpen, setIsOpen] = useState(false);
     const [testResult, setTestResult] = useState<{ id: number, success: boolean, message: string } | null>(null);
@@ -489,6 +505,35 @@ const GatewaysPage = () => {
                                         placeholder="e.g. PLC Line 1"
                                     />
                                 </div>
+
+                                {/* Quale scatola interroga questo gateway. Compare solo con più
+                                    di una scatola: con una sola la piattaforma le assegna tutto
+                                    comunque, e un campo che non cambia niente confonde. */}
+                                {edgeAgents.length > 1 && (
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="edge_agent">Scatola che lo interroga</Label>
+                                        <Select
+                                            value={String(formData.edge_agent_id ?? 0)}
+                                            onValueChange={(val) => handleInputChange('edge_agent_id', parseInt(val))}
+                                        >
+                                            <SelectTrigger id="edge_agent">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="0">Nessuna — non viene interrogato</SelectItem>
+                                                {edgeAgents.map((a) => (
+                                                    <SelectItem key={a.id} value={String(a.id)}>
+                                                        {a.name} ({a.gateways} gateway)
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <p className="text-[11px] text-muted-foreground">
+                                            Con più scatole ognuna interroga solo ciò che le è stato assegnato.
+                                            Un gateway senza scatola non lo interroga nessuno.
+                                        </p>
+                                    </div>
+                                )}
 
                                 {/* A serial Modbus gateway has no address, so the field goes
                                     away rather than sitting there empty and required. */}

@@ -31,6 +31,8 @@ export interface Gateway {
     last_seen?: number;
     created_at?: string;
     zero_based?: boolean;
+    // Quale scatola interroga questo gateway, quando ce n'è più d'una.
+    edge_agent_id?: number | null;
 }
 
 export interface Tag {

@@ -381,6 +381,11 @@ topic spBv1.0/# out 1
 topic sys/write/# in 1
 topic sys/update/# in 1
 topic sys/restart/# in 1
+# The "#" above already covers sys/restart/{org}/{box}; it is spelled out
+# because a bridge that silently stops carrying one shape of a command is the
+# kind of thing nobody notices until a restart does nothing.
+topic sys/restart/+/+ in 1
+topic sys/update/+/+ in 1
 `
 
 const envTemplate = `# OpenEdge Edge Configuration

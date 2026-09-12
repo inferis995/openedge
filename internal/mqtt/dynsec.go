@@ -366,7 +366,12 @@ func orgRoleACLs(orgID int, orgName string, siteNames []string) []map[string]int
 
 	// sys/update/{org_id} and sys/restart/{org_id} are OTA commands published by
 	// core-api towards the edge: receive-only, and only this org's own.
-	a.receive("sys/update/"+org, "sys/restart/"+org)
+	// Both shapes: addressed to the organization, and addressed to one of its
+	// boxes. Without the second the broker would refuse to deliver a restart
+	// aimed at a single box, and the command would vanish with no error
+	// anywhere — the publisher sees a successful publish either way.
+	a.receive("sys/update/"+org, "sys/restart/"+org,
+		"sys/update/"+org+"/+", "sys/restart/"+org+"/+")
 	// services/driver-manager/main.go subscribes to the literal filters
 	// "sys/update/#" and "sys/restart/#"; the subscription is allowed but only this
 	// org's own messages are ever delivered.

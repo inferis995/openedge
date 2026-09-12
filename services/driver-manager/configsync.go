@@ -80,7 +80,16 @@ func syncOnce(ctx context.Context, database *sql.DB, baseURL, apiKey string) {
 		return
 	}
 
+	// The platform is the only thing that knows which box this is: the identity
+	// lives in the key, and only the other end can map one to the other.
+	setAgentID(cfg.AgentID)
+
 	sites, areas, gateways, tags, alarms := cfg.Counts()
-	log.Printf("[CONFIG-SYNC] configuration for %q: %d sites, %d areas, %d gateways, %d tags, %d alarm rules",
-		cfg.OrgName, sites, areas, gateways, tags, alarms)
+	log.Printf("[CONFIG-SYNC] configuration for %q (box %d): %d sites, %d areas, %d gateways, %d tags, %d alarm rules",
+		cfg.OrgName, cfg.AgentID, sites, areas, gateways, tags, alarms)
+
+	if cfg.Unassigned > 0 {
+		log.Printf("[CONFIG-SYNC] %d gateway(s) of this plant are assigned to no box and are "+
+			"being polled by nobody", cfg.Unassigned)
+	}
 }

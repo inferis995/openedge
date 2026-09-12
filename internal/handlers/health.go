@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ralph/industrial-edge-middleware/internal/edgesync"
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	internalredis "github.com/ralph/industrial-edge-middleware/internal/redis"
 )
 
@@ -156,27 +158,74 @@ func (h *HealthHandler) DBStats(c *gin.Context) {
 	c.JSON(200, resp)
 }
 
-// EdgeHeartbeat handles POST /api/edge/heartbeat (requires auth).
-// Edge agent PINGs core API every 30s; we update gateways.last_seen_at + agent_version.
+// EdgeHeartbeat handles POST /api/edge/heartbeat.
+//
+// Authenticated with the box's API key, which is also what says which box it
+// is. It used to sit behind RequireAuth and read the organization out of the
+// request body — two problems in one line. The body is written by the caller,
+// so any authenticated user of any tenant could refresh another organization's
+// gateways and make a dead plant look alive; and the only thing that ever calls
+// this sends an API key, which RequireAuth parses as a JWT and rejects. The
+// heartbeat has never once arrived.
 func (h *HealthHandler) EdgeHeartbeat(c *gin.Context) {
+	orgRaw, ok := c.Get(middleware.APIKeyContextKey)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing org context"})
+		return
+	}
+	orgID, _ := orgRaw.(int)
+	agentRaw, _ := c.Get(middleware.APIKeyAgentContextKey)
+	agentID, _ := agentRaw.(int)
+
 	var body struct {
-		OrgID        int    `json:"org_id"`
 		AgentVersion string `json:"agent_version"`
 		Ts           int64  `json:"ts"`
 	}
-	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	// A missing or malformed body is not a reason to lose the heartbeat: what
+	// it proves — that this box is alive — is carried by the credential.
+	_ = c.ShouldBindJSON(&body)
+
+	ctx := c.Request.Context()
+
+	if agentID > 0 {
+		if _, err := h.db.ExecContext(ctx,
+			`UPDATE edge_agents SET last_seen_at = NOW(), agent_version = $2
+			 WHERE id = $1 AND org_id = $3`,
+			agentID, body.AgentVersion, orgID); err != nil {
+			log.Printf("[HEARTBEAT] recording agent %d: %v", agentID, err)
+		}
+	}
+
+	var agentsInOrg int
+	if err := h.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM edge_agents WHERE org_id = $1`, orgID).Scan(&agentsInOrg); err != nil {
+		log.Printf("[HEARTBEAT] counting the boxes of org %d: %v", orgID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		return
 	}
 
-	_, _ = h.db.ExecContext(c.Request.Context(),
-		`UPDATE gateways SET last_seen_at=NOW(), agent_version=$1
-		 WHERE area_id IN (
-		   SELECT a.id FROM areas a
-		   JOIN sites s ON s.id = a.site_id
-		   JOIN organizations o ON o.id = s.org_id
-		   WHERE o.id = $2
-		 )`, body.AgentVersion, body.OrgID)
+	// A box vouches for the gateways it is responsible for, and for no others.
+	// Refreshing every gateway of the organization is how two dead boxes out of
+	// three were made to look alive by the survivor.
+	var err error
+	if edgesync.ScopeIsWholeOrg(agentID, agentsInOrg) {
+		_, err = h.db.ExecContext(ctx,
+			`UPDATE gateways SET last_seen_at = NOW(), agent_version = $1
+			 WHERE area_id IN (
+			   SELECT a.id FROM areas a
+			   JOIN sites s ON s.id = a.site_id
+			   WHERE s.org_id = $2
+			 )`, body.AgentVersion, orgID)
+	} else {
+		_, err = h.db.ExecContext(ctx,
+			`UPDATE gateways SET last_seen_at = NOW(), agent_version = $1
+			 WHERE edge_agent_id = $2`, body.AgentVersion, agentID)
+	}
+	if err != nil {
+		log.Printf("[HEARTBEAT] recording the gateways of org %d: %v", orgID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
 
-	c.JSON(http.StatusOK, gin.H{"ok": true})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "agent_id": agentID})
 }

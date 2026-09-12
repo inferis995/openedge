@@ -28,7 +28,7 @@ import "github.com/ralph/industrial-edge-middleware/internal/models"
 // and it is why UnassignedIn exists, so it can be said out loud rather than
 // discovered.
 func GatewaysFor(agentID, agentsInOrg int, gateways []models.Gateway) []models.Gateway {
-	if agentID == 0 || agentsInOrg <= 1 {
+	if ScopeIsWholeOrg(agentID, agentsInOrg) {
 		return gateways
 	}
 
@@ -39,6 +39,18 @@ func GatewaysFor(agentID, agentsInOrg int, gateways []models.Gateway) []models.G
 		}
 	}
 	return mine
+}
+
+// ScopeIsWholeOrg reports whether a box speaks for the whole organization.
+//
+// It is the one decision behind every "which gateways" question, and it is
+// asked from two places that cannot share a loop: the configuration pull, which
+// filters a slice, and the heartbeat, which has to express the same thing as a
+// WHERE clause. Two copies of a three-case rule diverge on the first change, and
+// the divergence would be a box that is handed gateways it does not vouch for —
+// or vouches for gateways it was never handed.
+func ScopeIsWholeOrg(agentID, agentsInOrg int) bool {
+	return agentID == 0 || agentsInOrg <= 1
 }
 
 // UnassignedIn counts the gateways nobody has been made responsible for.

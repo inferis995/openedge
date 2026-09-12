@@ -108,6 +108,13 @@ type Manager struct {
 	consecutiveErrors int
 	mqttClient        MQTTClient
 
+	// orgID is the plant this box belongs to. Used to refuse OTA commands
+	// addressed to somebody else's organization: the broker's permissions
+	// already confine delivery, but a subscription is a wildcard and code that
+	// relies on the broker for its authorization has no answer the day the
+	// broker is misconfigured.
+	orgID int
+
 	// Per-image pull cooldown: a registry that keeps failing must not cost
 	// every sync cycle 15 minutes of serial retries, starving the other
 	// gateways. Guarded by pullMu (pre-pull runs outside m.mu).
@@ -181,6 +188,7 @@ func main() {
 		ctx:           ctx,
 		cancel:        cancel,
 		mqttClient:    mqttClient,
+		orgID:         getEnvInt("ORG_ID", 0),
 	}
 
 	// Get or create Docker network
@@ -1011,6 +1019,11 @@ func (m *Manager) handleOTAUpdate(_ mqtt.Client, msg mqtt.Message) {
 func (m *Manager) handleOTARestart(_ mqtt.Client, msg mqtt.Message) {
 	log.Printf("[OTA] Received restart command (topic: %s)", msg.Topic())
 
+	if !commandIsForThisBox(msg.Topic(), m.orgID) {
+		log.Printf("[OTA] restart on %s is not addressed to this box — ignored", msg.Topic())
+		return
+	}
+
 	m.mu.Lock()
 	gateways := make([]models.Gateway, 0, len(m.gatewayStates))
 	for _, state := range m.gatewayStates {
@@ -1093,7 +1106,7 @@ func checkAndApplyUpdate(orgID int, currentVersion, apiURL, apiToken string) {
 		log.Printf("[UPDATE-POLL] Failed to build check request: %v", err)
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+apiToken)
+	req.Header.Set("X-API-Key", apiToken)
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -1298,8 +1311,9 @@ func runHeartbeat(orgID int, apiURL, apiToken, agentVersion string) {
 
 // sendHeartbeat sends a single heartbeat POST to core API.
 func sendHeartbeat(orgID int, apiURL, apiToken, agentVersion string) {
+	// The organization is no longer declared here: the platform takes it from
+	// the key, which is the only part of this request the box cannot forge.
 	body, _ := json.Marshal(map[string]interface{}{
-		"org_id":        orgID,
 		"agent_version": agentVersion,
 		"ts":            time.Now().Unix(),
 	})
@@ -1308,7 +1322,7 @@ func sendHeartbeat(orgID int, apiURL, apiToken, agentVersion string) {
 		log.Printf("[HEARTBEAT] Failed to build request: %v", err)
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+apiToken)
+	req.Header.Set("X-API-Key", apiToken)
 	req.Header.Set("Content-Type", "application/json")
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -1355,7 +1369,7 @@ func postUpdateStatus(httpClient *http.Client, apiURL, apiToken string, orgID, r
 		log.Printf("[UPDATE-POLL] postUpdateStatus build request: %v", err)
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+apiToken)
+	req.Header.Set("X-API-Key", apiToken)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := httpClient.Do(req)
 	if err != nil {

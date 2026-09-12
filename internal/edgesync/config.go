@@ -25,6 +25,13 @@ type Config struct {
 	OrgID   int    `json:"org_id"`
 	OrgName string `json:"org_name"`
 
+	// AgentID is which box this is, as the platform knows it. A box cannot
+	// work it out on its own — its identity lives in the key it authenticates
+	// with — and it needs it to recognize a command addressed to it rather than
+	// to every box of the organization. Zero for a key minted before boxes had
+	// identities.
+	AgentID int `json:"agent_id"`
+
 	MQTT MQTTCreds `json:"mqtt"`
 
 	Sites    []Site                   `json:"sites"`

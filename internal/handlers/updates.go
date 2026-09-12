@@ -395,12 +395,19 @@ func (h *UpdatesHandler) ApproveUpdate(c *gin.Context) {
 // Query params: org_id, current_version.
 // Only requires RequireAuth (not admin). Returns update info only when approved.
 func (h *UpdatesHandler) EdgeUpdateCheck(c *gin.Context) {
-	orgIDStr := c.Query("org_id")
 	currentVersion := c.Query("current_version")
 
-	orgID, err := strconv.Atoi(orgIDStr)
-	if err != nil || orgID <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "org_id required"})
+	// The organization comes from the key, not from the query string. A box
+	// asking which update is approved for somebody else's plant — and being
+	// told — is not a question it should be able to ask.
+	orgRaw, ok := c.Get(middleware.APIKeyContextKey)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing org context"})
+		return
+	}
+	orgID, _ := orgRaw.(int)
+	if orgID <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing org context"})
 		return
 	}
 
@@ -417,7 +424,7 @@ func (h *UpdatesHandler) EdgeUpdateCheck(c *gin.Context) {
 	var releaseID int
 	var version, artifactURL, sha256, releaseNotes, status string
 
-	err = h.db.QueryRowContext(c.Request.Context(), `
+	err := h.db.QueryRowContext(c.Request.Context(), `
 		SELECT r.id, r.version, r.artifact_url, r.sha256_checksum, r.release_notes, a.status
 		FROM edge_releases r
 		JOIN org_update_approvals a ON a.release_id = r.id AND a.org_id = $1
@@ -458,13 +465,26 @@ func (h *UpdatesHandler) EdgeUpdateCheck(c *gin.Context) {
 // Only requires RequireAuth.
 func (h *UpdatesHandler) EdgeUpdateStatus(c *gin.Context) {
 	var body struct {
-		OrgID     int    `json:"org_id"     binding:"required"`
 		ReleaseID int    `json:"release_id" binding:"required"`
 		Status    string `json:"status"     binding:"required"`
 		ErrorMsg  string `json:"error_msg"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// The organization is taken from the key rather than from the body, which
+	// the caller writes: a box could otherwise report an update outcome against
+	// another tenant's plant.
+	orgRaw, ok := c.Get(middleware.APIKeyContextKey)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing org context"})
+		return
+	}
+	orgID, _ := orgRaw.(int)
+	if orgID <= 0 {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing org context"})
 		return
 	}
 
@@ -485,13 +505,13 @@ func (h *UpdatesHandler) EdgeUpdateStatus(c *gin.Context) {
 			UPDATE org_update_approvals
 			SET status='updating', started_at=$1
 			WHERE org_id=$2 AND release_id=$3
-		`, now, body.OrgID, body.ReleaseID)
+		`, now, orgID, body.ReleaseID)
 	case "success", "failed", "rolled_back":
 		_, err = h.db.ExecContext(c.Request.Context(), `
 			UPDATE org_update_approvals
 			SET status=$1, completed_at=$2, error_msg=NULLIF($3,'')
 			WHERE org_id=$4 AND release_id=$5
-		`, body.Status, now, body.ErrorMsg, body.OrgID, body.ReleaseID)
+		`, body.Status, now, body.ErrorMsg, orgID, body.ReleaseID)
 	}
 
 	if err != nil {
@@ -509,7 +529,7 @@ func (h *UpdatesHandler) EdgeUpdateStatus(c *gin.Context) {
 					'status', $4,
 					'error_msg', $5
 				))
-			`, body.OrgID, "ota_"+body.Status, body.ReleaseID, body.Status, body.ErrorMsg)
+			`, orgID, "ota_"+body.Status, body.ReleaseID, body.Status, body.ErrorMsg)
 		}()
 	}
 

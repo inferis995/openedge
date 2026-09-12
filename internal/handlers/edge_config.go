@@ -102,6 +102,7 @@ func (h *EdgeConfigHandler) Get(c *gin.Context) {
 		return
 	}
 
+	cfg.AgentID = id
 	cfg.FilterTree(id, agentsInOrg)
 	if cfg.Unassigned > 0 {
 		log.Printf("[EDGE-CONFIG] org %d has %d gateway(s) assigned to no box; nobody is polling them",

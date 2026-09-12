@@ -1087,9 +1087,15 @@ func main() {
 			orgUpdates.GET("/update", updatesH.GetPendingUpdate)
 			orgUpdates.POST("/approve-update", updatesH.ApproveUpdate)
 		}
-		// Edge agent endpoints (RequireAuth only, no admin requirement)
+		// Edge agent endpoints.
+		//
+		// Authenticated with the box's API key, not with a user's JWT. They sat
+		// behind RequireAuth, which parses the Bearer token as a JWT — and the
+		// only thing that calls them sends an API key. All three answered 401
+		// to every box that ever ran, which is why no installation has ever
+		// shown a heartbeat or picked up an OTA update.
 		edgeUpdate := api.Group("/edge")
-		edgeUpdate.Use(middleware.RequireAuth)
+		edgeUpdate.Use(middleware.RequireAPIKey(database))
 		{
 			edgeUpdate.GET("/update-check", updatesH.EdgeUpdateCheck)
 			edgeUpdate.POST("/update-status", updatesH.EdgeUpdateStatus)
