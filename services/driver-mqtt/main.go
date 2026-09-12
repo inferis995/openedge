@@ -963,6 +963,30 @@ func parseIncomingValue(payload []byte, dataType, jsonPath string) (interface{},
 	return convertStringValue(raw, dataType)
 }
 
+// parseBool reads the text a device uses for a two-state signal.
+//
+// There were two vocabularies for this. The JSON path accepted "true" and "1";
+// a bare string payload also accepted "on" and "yes". The same word therefore
+// meant different things depending on whether the device wrapped it in an
+// object — "on" inside {"v":"on"} read as false while a bare on read as true.
+//
+// Anything outside the vocabulary is refused rather than answered. Returning
+// false for an unrecognized word reports a valve as shut, a pump as stopped, a
+// guard as closed. None of those look like an error; they look like the plant.
+func parseBool(raw string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "1", "on", "yes", "t", "y":
+		return true, nil
+	case "false", "0", "off", "no", "f", "n":
+		return false, nil
+	}
+	// A device may send any number for a digital signal; nonzero is on.
+	if f, err := strconv.ParseFloat(strings.TrimSpace(raw), 64); err == nil {
+		return f != 0, nil
+	}
+	return false, fmt.Errorf("%q is not a recognizable true or false", raw)
+}
+
 // convertValue converts a parsed JSON value to the expected data type
 func convertValue(v interface{}, dataType string) (interface{}, error) {
 	switch strings.ToUpper(dataType) {
@@ -973,9 +997,11 @@ func convertValue(v interface{}, dataType string) (interface{}, error) {
 		case float64:
 			return val != 0, nil
 		case string:
-			return strings.ToLower(val) == "true" || val == "1", nil
+			return parseBool(val)
 		}
-		return false, nil
+		// nil, an object, an array: not a two-state signal. Answering false
+		// here invented an "off" that the device never reported.
+		return nil, fmt.Errorf("cannot read %T as BOOL", v)
 
 	case "INT", "UINT", "DINT":
 		switch val := v.(type) {
@@ -1010,8 +1036,7 @@ func convertValue(v interface{}, dataType string) (interface{}, error) {
 func convertStringValue(raw string, dataType string) (interface{}, error) {
 	switch strings.ToUpper(dataType) {
 	case "BOOL":
-		lower := strings.ToLower(raw)
-		return lower == "true" || lower == "1" || lower == "on" || lower == "yes", nil
+		return parseBool(raw)
 
 	case "INT", "UINT", "DINT":
 		f, err := strconv.ParseFloat(raw, 64)
