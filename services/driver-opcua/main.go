@@ -25,17 +25,11 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/topics"
 
 	"github.com/ralph/industrial-edge-middleware/internal/naming"
+
+	"github.com/ralph/industrial-edge-middleware/internal/scaling"
 )
 
 // TagPayload is the standard payload published to MQTT
-type TagPayload struct {
-	TagID     int         `json:"tag_id"`
-	OrgID     int         `json:"org_id"`
-	Value     interface{} `json:"v"`
-	Timestamp int64       `json:"ts"`
-	Quality   int         `json:"q"`
-}
-
 // GatewayConfig holds configuration
 type GatewayConfig struct {
 	Gateway  models.Gateway
@@ -507,9 +501,7 @@ func (d *Driver) loadConfig() error {
 
 	// Load tags
 	tagsQuery := `
-		SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband
-		FROM tags WHERE gateway_id = $1
-		ORDER BY id
+		SELECT ` + models.DriverTagColumns + ` FROM tags WHERE gateway_id = $1 ORDER BY id
 	`
 	rows, err := d.database.Query(tagsQuery, d.gatewayID)
 	if err != nil {
@@ -520,7 +512,7 @@ func (d *Driver) loadConfig() error {
 	var tags []models.Tag
 	for rows.Next() {
 		var t models.Tag
-		if err := rows.Scan(&t.ID, &t.GatewayID, &t.Code, &t.Alias, &t.DataType, &t.Historize, &t.HistorizeDeadband); err != nil {
+		if err := models.ScanDriverTag(rows, &t); err != nil {
 			return fmt.Errorf("failed to scan tag: %w", err)
 		}
 		tags = append(tags, t)
@@ -704,6 +696,12 @@ func (d *Driver) publishTagValue(tag models.Tag, value interface{}, quality int)
 		return
 	}
 
+	// Same conversion as publishDual, for the same reason: this is the other
+	// place a value leaves the driver. The tag row is in hand here, so the
+	// conversion is read straight off it.
+	sc := scaling.FromTag(&tag)
+	value = scaling.Apply(value, sc)
+
 	publishMode := d.getPublishMode()
 
 	d.sparkplugMu.RLock()
@@ -713,7 +711,7 @@ func (d *Driver) publishTagValue(tag models.Tag, value interface{}, quality int)
 	switch publishMode {
 	case models.PublishModeLegacyOnly:
 		// Only legacy format
-		d.publishLegacy(tag.ID, cfg.OrgID, alias, value, timestamp, quality, cfg)
+		d.publishLegacy(tag.ID, cfg.OrgID, alias, value, timestamp, quality, sc.Enabled, cfg)
 
 	case models.PublishModeSparkplugOnly:
 		// Only Sparkplug B format (Protobuf)
@@ -726,6 +724,7 @@ func (d *Driver) publishTagValue(tag models.Tag, value interface{}, quality int)
 				Timestamp: timestamp,
 				Quality:   quality,
 				OrgID:     cfg.OrgID,
+				EUScaled:  sc.Enabled,
 			}
 			// DDATA goes to the GATEWAY device — the same device announced by
 			// PublishDBIRTH(slugify(cfg.Gateway.Name), …) in
@@ -739,7 +738,7 @@ func (d *Driver) publishTagValue(tag models.Tag, value interface{}, quality int)
 
 	default: // PublishModeDual
 		// Both formats - publish legacy first, then Sparkplug B
-		d.publishLegacy(tag.ID, cfg.OrgID, alias, value, timestamp, quality, cfg)
+		d.publishLegacy(tag.ID, cfg.OrgID, alias, value, timestamp, quality, sc.Enabled, cfg)
 
 		// Publish Sparkplug B format (addressed to the gateway device — see above)
 		if sparkplugClient != nil && sparkplugClient.IsConnected() {
@@ -751,6 +750,7 @@ func (d *Driver) publishTagValue(tag models.Tag, value interface{}, quality int)
 				Timestamp: timestamp,
 				Quality:   quality,
 				OrgID:     cfg.OrgID,
+				EUScaled:  sc.Enabled,
 			}
 			if err := sparkplugClient.PublishSingleTag(slugify(cfg.Gateway.Name), tagData); err != nil {
 				log.Printf("[OPC-UA Driver] Sparkplug publish error for %s: %v", alias, err)
@@ -760,16 +760,17 @@ func (d *Driver) publishTagValue(tag models.Tag, value interface{}, quality int)
 }
 
 // publishLegacy publishes a tag value in legacy JSON format only
-func (d *Driver) publishLegacy(tagID int, orgID int, alias string, value interface{}, timestamp int64, quality int, cfg *GatewayConfig) {
+func (d *Driver) publishLegacy(tagID int, orgID int, alias string, value interface{}, timestamp int64, quality int, euScaled bool, cfg *GatewayConfig) {
 	topic := fmt.Sprintf("data/%s/%s/%s/%s/%s",
 		slugify(cfg.OrgName), slugify(cfg.SiteName), slugify(cfg.AreaName),
 		slugify(cfg.Gateway.Name), slugify(alias))
-	payload := TagPayload{
+	payload := models.TagPayload{
 		TagID:     tagID,
 		OrgID:     orgID,
 		Value:     value,
 		Timestamp: timestamp,
 		Quality:   quality,
+		EUScaled:  euScaled,
 	}
 	data, _ := json.Marshal(payload)
 	d.mqttClient.PublishWithQoS(topic, string(data), 1, false)
@@ -1052,7 +1053,13 @@ func (d *Driver) pollLoop() {
 			if d.alarmManager != nil {
 				log.Printf("[OPC-UA ALARM-EVAL] tagID=%d (%s), value=%v (type=%T), alarmQuality=%d",
 					tag.ID, tag.Alias, value, value, alarmQuality)
-				d.alarmManager.EvaluateTag(tag.ID, tag.Alias, value, alarmQuality)
+				// The threshold on an alarm definition is typed into a form that
+				// shows engineering units, so the value it is compared against has
+				// to be in those units too. Comparing a bar threshold against raw
+				// counts does not fail: on a 0..27648 transmitter every threshold
+				// below full scale is exceeded on the first reading.
+				d.alarmManager.EvaluateTag(tag.ID, tag.Alias,
+					scaling.Apply(value, scaling.FromTag(&tag)), alarmQuality)
 			}
 
 			// Check RBE - only publish if value/quality changed
@@ -1338,59 +1345,6 @@ func getEnvInt(key string, defaultValue int) int {
 // historian's SQL cannot drift apart; see the package comment there.
 func slugify(s string) string {
 	return naming.Slug(s)
-}
-
-// publishDual publishes a tag value based on the configured publish mode
-func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataType string, quality int, timestamp int64) {
-	publishMode := models.PublishModeDual // default
-	if d.settingsManager != nil {
-		publishMode = d.settingsManager.Get().PublishMode
-	}
-
-	d.configMu.RLock()
-	cfg := d.config
-	d.configMu.RUnlock()
-
-	if cfg == nil {
-		return
-	}
-
-	d.sparkplugMu.RLock()
-	dualPublisher := d.dualPublisher
-	sparkplugClient := d.sparkplugClient
-	d.sparkplugMu.RUnlock()
-
-	// Publish based on mode
-	switch publishMode {
-	case models.PublishModeLegacyOnly:
-		d.publishLegacy(tagID, cfg.OrgID, alias, value, timestamp, quality, cfg)
-
-	case models.PublishModeSparkplugOnly:
-		if sparkplugClient != nil && sparkplugClient.IsConnected() {
-			tagData := sparkplug.TagData{
-				TagID:     tagID,
-				DeviceID:  alias,
-				Value:     value,
-				DataType:  dataType,
-				Timestamp: timestamp,
-				Quality:   quality,
-				OrgID:     cfg.OrgID,
-			}
-			// DDATA is addressed to the gateway device announced by DBIRTH.
-			if err := sparkplugClient.PublishSingleTag(slugify(cfg.Gateway.Name), tagData); err != nil {
-				log.Printf("[OPC-UA Driver] Sparkplug publish error for %s: %v", alias, err)
-			}
-		}
-
-	default: // PublishModeDual
-		if dualPublisher != nil {
-			if err := dualPublisher.Publish(tagID, alias, value, dataType, quality, timestamp, d.mqttClient); err != nil {
-				log.Printf("[OPC-UA Driver] Dual publish error for %s: %v", alias, err)
-			}
-		} else {
-			d.publishLegacy(tagID, cfg.OrgID, alias, value, timestamp, quality, cfg)
-		}
-	}
 }
 
 // shouldPublish checks if the value should be published based on RBE settings

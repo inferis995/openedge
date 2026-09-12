@@ -1306,13 +1306,7 @@ func handleDataUpdate(topic string, payload []byte, redisClient *redis.Client) {
 		return
 	}
 
-	var update struct {
-		TagID     int         `json:"tag_id"`
-		OrgID     int         `json:"org_id"`
-		Value     interface{} `json:"v"`
-		Timestamp int64       `json:"ts"`
-		Quality   int         `json:"q"`
-	}
+	var update models.TagPayload
 
 	if err := json.Unmarshal(payload, &update); err != nil {
 		// Only log verbose error if needed, avoiding spam
@@ -1323,19 +1317,24 @@ func handleDataUpdate(topic string, payload []byte, redisClient *redis.Client) {
 		return
 	}
 
-	// Apply EU scaling if configured for this tag.
-	// The converted value replaces the raw value for all downstream consumers
-	// (Redis cache, WebSocket broadcast, historian, InfluxDB, shadow).
-	if cfg, ok := scalingCache.Load(update.TagID); ok {
+	// Engineering-unit conversion now happens in the driver, once, so that the
+	// historian and the alarm engine see the same units as this cache does.
+	// (They did not: the historian subscribes to data/# itself and stored the
+	// raw value, so a scaled tag's trend and its gauge disagreed, and alarm
+	// thresholds typed in engineering units were compared against raw counts.)
+	//
+	// This branch remains for drivers that have not been updated yet. The
+	// containers come down through OTA independently of this service, so for
+	// the length of a rollout both kinds of publisher are on the broker at
+	// once, and the flag is the only thing telling them apart — a value in bar
+	// and the same number in raw counts are both plausible readings.
+	//
+	// It can be deleted once no unflagged publisher remains in the field.
+	if cfg, ok := scalingCache.Load(update.TagID); ok && !update.EUScaled {
 		update.Value = scaling.Apply(update.Value, cfg.(scaling.Config))
+		update.EUScaled = true
 		// Re-encode the payload with the scaled value so Redis/WS get EU data.
-		if scaled, err := json.Marshal(map[string]interface{}{
-			"tag_id": update.TagID,
-			"org_id": update.OrgID,
-			"v":      update.Value,
-			"ts":     update.Timestamp,
-			"q":      update.Quality,
-		}); err == nil {
+		if scaled, err := json.Marshal(update); err == nil {
 			payload = scaled
 		}
 	}

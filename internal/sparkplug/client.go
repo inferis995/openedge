@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
+
+	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
 // UseProtobuf controls whether to use Protobuf (true) or JSON (false) encoding
@@ -326,12 +328,13 @@ func (c *SparkplugClient) PublishDual(tag TagData, org, site, area, gateway stri
 
 	// 1. Always publish legacy format
 	legacyTopic := BuildLegacyTopic(org, site, area, gateway, tag.DeviceID)
-	legacyPayload := LegacyPayload{
+	legacyPayload := models.TagPayload{
 		TagID:     tag.TagID,
 		OrgID:     tag.OrgID,
 		Value:     tag.Value,
 		Timestamp: tag.Timestamp,
 		Quality:   tag.Quality,
+		EUScaled:  tag.EUScaled,
 	}
 
 	legacyBytes, err := json.Marshal(legacyPayload)
@@ -569,15 +572,20 @@ func NewDualPublisher(sparkplugClient *SparkplugClient, orgName, siteName, areaN
 }
 
 // Publish publishes a tag value in both formats
-func (dp *DualPublisher) Publish(tagID int, alias string, value interface{}, dataType string, quality int, timestamp int64, mqttClient *mqtt.Client) error {
+// euScaled must say whether value has already been converted to engineering
+// units. It is a parameter rather than something looked up here because this
+// function has no access to the tag row, and a wrong answer is silent: the
+// value is plausible either way and only the units are wrong.
+func (dp *DualPublisher) Publish(tagID int, alias string, value interface{}, dataType string, quality int, timestamp int64, euScaled bool, mqttClient *mqtt.Client) error {
 	// 1. Always publish legacy format
 	legacyTopic := BuildLegacyTopic(dp.orgName, dp.siteName, dp.areaName, dp.gatewayName, alias)
-	legacyPayload := LegacyPayload{
+	legacyPayload := models.TagPayload{
 		TagID:     tagID,
 		OrgID:     dp.orgID,
 		Value:     value,
 		Timestamp: timestamp,
 		Quality:   quality,
+		EUScaled:  euScaled,
 	}
 
 	legacyBytes, err := json.Marshal(legacyPayload)
@@ -599,6 +607,7 @@ func (dp *DualPublisher) Publish(tagID int, alias string, value interface{}, dat
 			Timestamp: timestamp,
 			Quality:   quality,
 			OrgID:     dp.orgID,
+			EUScaled:  euScaled,
 		}
 
 		// Address the DDATA to the gateway device — the one the drivers birth

@@ -10,14 +10,14 @@ const (
 	Namespace = "spBv1.0"
 
 	// Message types
-	MessageTypeDBIRTH  = "DBIRTH"  // Device birth (initial data on connect)
-	MessageTypeNBIRTH  = "NBIRTH"  // Node birth (edge node startup)
-	MessageTypeDDATA   = "DDATA"   // Device data (regular updates)
-	MessageTypeNDATA   = "NDATA"   // Node data
-	MessageTypeDDEATH  = "DDEATH"  // Device death (disconnect)
-	MessageTypeNDEATH  = "NDEATH"  // Node death
-	MessageTypeDCMD    = "DCMD"    // Device command
-	MessageTypeNCMD    = "NCMD"    // Node command
+	MessageTypeDBIRTH = "DBIRTH" // Device birth (initial data on connect)
+	MessageTypeNBIRTH = "NBIRTH" // Node birth (edge node startup)
+	MessageTypeDDATA  = "DDATA"  // Device data (regular updates)
+	MessageTypeNDATA  = "NDATA"  // Node data
+	MessageTypeDDEATH = "DDEATH" // Device death (disconnect)
+	MessageTypeNDEATH = "NDEATH" // Node death
+	MessageTypeDCMD   = "DCMD"   // Device command
+	MessageTypeNCMD   = "NCMD"   // Node command
 )
 
 // Quality constants (Sparkplug B uses different values than legacy)
@@ -79,8 +79,8 @@ type Config struct {
 	MQTTPassword string
 
 	// Sparkplug B identity
-	GroupID     string // Organization-Site combination (e.g., "acme-corp-factory1")
-	EdgeNodeID  string // Area-Gateway combination (e.g., "production-plc01")
+	GroupID    string // Organization-Site combination (e.g., "acme-corp-factory1")
+	EdgeNodeID string // Area-Gateway combination (e.g., "production-plc01")
 
 	// Options
 	EnableLegacy bool // Also publish to legacy topics (default: true)
@@ -101,6 +101,9 @@ type TagData struct {
 	Timestamp int64       // Unix timestamp in milliseconds
 	Quality   int         // 0 = Good, 1 = Uncertain, 2 = Bad (legacy format)
 	OrgID     int         // Organization ID
+	// EUScaled says the publisher already converted Value to engineering
+	// units, so no consumer should convert it again. See models.TagPayload.
+	EUScaled bool
 }
 
 // Metric represents a single Sparkplug B metric
@@ -129,15 +132,6 @@ type TopicInfo struct {
 	MessageType string // DDATA, DBIRTH, etc.
 	EdgeNodeID  string // Area-Gateway
 	DeviceID    string // Tag alias
-}
-
-// LegacyPayload represents the legacy JSON format
-type LegacyPayload struct {
-	TagID     int         `json:"tag_id"`
-	OrgID     int         `json:"org_id"`
-	Value     interface{} `json:"v"`
-	Timestamp int64       `json:"ts"`
-	Quality   int         `json:"q"`
 }
 
 // DataTypeMapping maps Ralph data types to Sparkplug B data types

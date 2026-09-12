@@ -50,6 +50,10 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/topics"
 
 	"github.com/ralph/industrial-edge-middleware/internal/naming"
+
+	"github.com/ralph/industrial-edge-middleware/internal/models"
+
+	"github.com/ralph/industrial-edge-middleware/internal/scaling"
 )
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -72,22 +76,6 @@ type GatewayRow struct {
 	OrgName          string
 	SiteName         string
 	AreaName         string
-}
-
-type TagRow struct {
-	ID       int
-	Code     string // device_id/field
-	Alias    string
-	DataType string
-}
-
-// TagPayload is the standard OpenEdge tag value message.
-type TagPayload struct {
-	TagID     int         `json:"tag_id"`
-	OrgID     int         `json:"org_id"`
-	Value     interface{} `json:"v"`
-	Timestamp int64       `json:"ts"`
-	Quality   int         `json:"q"`
 }
 
 // ─── LNS message formats ──────────────────────────────────────────────────────
@@ -146,7 +134,7 @@ type Driver struct {
 	orgID     int
 	gateway   GatewayRow
 	cfg       ConnectionConfig
-	tags      []TagRow
+	tags      []models.Tag
 	tagsMu    sync.RWMutex // guards tags (reload goroutine vs paho handlers)
 	db        *sql.DB
 	lnsClient paho.Client // subscribes to LNS MQTT
@@ -302,16 +290,16 @@ func (d *Driver) loadConfig(db *sql.DB) error {
 
 func (d *Driver) loadTags(db *sql.DB) error {
 	rows, err := db.QueryContext(context.Background(),
-		`SELECT id, code, alias, data_type FROM tags WHERE gateway_id = $1`, d.gatewayID)
+		`SELECT `+models.DriverTagColumns+` FROM tags WHERE gateway_id = $1`, d.gatewayID)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rows.Close() }()
 
-	var tags []TagRow
+	var tags []models.Tag
 	for rows.Next() {
-		var t TagRow
-		if err := rows.Scan(&t.ID, &t.Code, &t.Alias, &t.DataType); err != nil {
+		var t models.Tag
+		if err := models.ScanDriverTag(rows, &t); err != nil {
 			log.Printf("loadTags: scan failed, skipping row: %v", err)
 			continue
 		}
@@ -540,11 +528,14 @@ func (d *Driver) publishFields(deviceID string, fields map[string]interface{}, t
 		if !ok {
 			continue
 		}
-		value := coerceValue(rawVal, tag.DataType)
+		// Engineering-unit conversion on the way out, as in every other
+		// driver, with the flag saying it has already happened.
+		sc := scaling.FromTag(&tag)
+		value := scaling.Apply(coerceValue(rawVal, tag.DataType), sc)
 		topic := fmt.Sprintf("%s/%s", d.pubPrefix, slugify(tag.Alias))
-		payload, _ := json.Marshal(TagPayload{
+		payload, _ := json.Marshal(models.TagPayload{
 			TagID: tag.ID, OrgID: d.gateway.OrgID,
-			Value: value, Timestamp: tsMs, Quality: 0,
+			Value: value, Timestamp: tsMs, Quality: 0, EUScaled: sc.Enabled,
 		})
 		tok := d.sysClient.Publish(topic, 1, false, payload)
 		if !tok.WaitTimeout(10 * time.Second) {

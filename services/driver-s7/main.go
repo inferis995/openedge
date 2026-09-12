@@ -24,6 +24,8 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/topics"
 
 	"github.com/ralph/industrial-edge-middleware/internal/naming"
+
+	"github.com/ralph/industrial-edge-middleware/internal/scaling"
 )
 
 // GatewayConfig holds the loaded gateway configuration
@@ -37,14 +39,6 @@ type GatewayConfig struct {
 }
 
 // TagPayload represents the MQTT message payload for tag values
-type TagPayload struct {
-	TagID     int         `json:"tag_id"`
-	OrgID     int         `json:"org_id"`
-	Value     interface{} `json:"v"`
-	Timestamp int64       `json:"ts"`
-	Quality   int         `json:"q"`
-}
-
 const (
 	maxRetries   = 30
 	initialDelay = 2 * time.Second
@@ -365,11 +359,7 @@ func (d *Driver) loadConfig() error {
 	}
 
 	// Load tags for this gateway
-	tagsQuery := `
-		SELECT id, gateway_id, code, alias, data_type, historize, historize_deadband
-		FROM tags
-		WHERE gateway_id = $1
-	`
+	tagsQuery := `SELECT ` + models.DriverTagColumns + ` FROM tags WHERE gateway_id = $1`
 
 	rows, err := d.database.Query(tagsQuery, d.gatewayID)
 	if err != nil {
@@ -380,16 +370,7 @@ func (d *Driver) loadConfig() error {
 	var tags []models.Tag
 	for rows.Next() {
 		var tag models.Tag
-		err := rows.Scan(
-			&tag.ID,
-			&tag.GatewayID,
-			&tag.Code,
-			&tag.Alias,
-			&tag.DataType,
-			&tag.Historize,
-			&tag.HistorizeDeadband,
-		)
-		if err != nil {
+		if err := models.ScanDriverTag(rows, &tag); err != nil {
 			return fmt.Errorf("failed to scan tag: %w", err)
 		}
 		tags = append(tags, tag)
@@ -469,6 +450,28 @@ func (d *Driver) initSparkplugClientLocked(orgName, siteName, areaName, gatewayN
 	log.Printf("[DRIVER-S7] Sparkplug B client initialized: group=%s, node=%s", groupID, edgeNodeID)
 }
 
+// scalingFor returns the engineering-unit conversion configured for a tag.
+//
+// The conversion is applied where the value leaves this process — in
+// publishDual and at the alarm evaluation — rather than at the point it is
+// read, so everything internal to the driver (the write cooldown, the
+// optimistic previous value, report-by-exception) keeps comparing raw counts
+// against raw counts, as it always has.
+func (d *Driver) scalingFor(tagID int) scaling.Config {
+	d.configMu.RLock()
+	cfg := d.config
+	d.configMu.RUnlock()
+	if cfg == nil {
+		return scaling.Config{}
+	}
+	for i := range cfg.Tags {
+		if cfg.Tags[i].ID == tagID {
+			return scaling.FromTag(&cfg.Tags[i])
+		}
+	}
+	return scaling.Config{}
+}
+
 // publishDual publishes a tag value in both legacy and Sparkplug B formats
 func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataType string, quality int, timestamp int64) {
 	// Get publish mode from settings manager
@@ -489,10 +492,19 @@ func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataTyp
 		return
 	}
 
+	// Engineering-unit conversion happens here, once, on the way out — so
+	// every consumer (core-api, the historian, the cloud bridge) receives the
+	// same number in the same units, and the flag on the payload says so.
+	sc := d.scalingFor(tagID)
+	value = scaling.Apply(value, sc)
+
 	// Legacy publish func
 	publishLegacy := func() {
 		topic := fmt.Sprintf("data/%s/%s/%s/%s/%s", cfg.OrgName, cfg.Site, cfg.Area, slugify(cfg.Gateway.Name), slugify(alias))
-		payload, _ := json.Marshal(TagPayload{tagID, cfg.OrgID, value, timestamp, quality})
+		payload, _ := json.Marshal(models.TagPayload{
+			TagID: tagID, OrgID: cfg.OrgID, Value: value,
+			Timestamp: timestamp, Quality: quality, EUScaled: sc.Enabled,
+		})
 		d.mqttClient.PublishWithQoS(topic, string(payload), 1, false)
 	}
 
@@ -514,6 +526,7 @@ func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataTyp
 					Timestamp: timestamp,
 					Quality:   quality,
 					OrgID:     cfg.OrgID,
+					EUScaled:  sc.Enabled,
 				}
 				// DDATA goes to the GATEWAY device (the one a DBIRTH announces),
 				// not to the tag: the alias is the metric name in the payload.
@@ -525,7 +538,7 @@ func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataTyp
 
 	default: // PublishModeDual
 		if dualPublisher != nil {
-			if err := dualPublisher.Publish(tagID, alias, value, dataType, quality, timestamp, d.mqttClient); err != nil {
+			if err := dualPublisher.Publish(tagID, alias, value, dataType, quality, timestamp, sc.Enabled, d.mqttClient); err != nil {
 				log.Printf("[DRIVER-S7] Dual publish error for %s: %v", alias, err)
 			}
 		} else {
@@ -1161,7 +1174,13 @@ func (d *Driver) poll() {
 			alarmQuality = 0 // BAD - will be skipped by alarm manager
 		}
 		if d.alarmManager != nil {
-			d.alarmManager.EvaluateTag(tag.ID, tag.Alias, result.Value, alarmQuality)
+			// The threshold on an alarm definition is typed into a form that
+			// shows engineering units, so the value it is compared against has
+			// to be in those units too. Comparing a bar threshold against raw
+			// counts does not fail: on a 0..27648 transmitter every threshold
+			// below full scale is exceeded on the first reading.
+			d.alarmManager.EvaluateTag(tag.ID, tag.Alias,
+				scaling.Apply(result.Value, scaling.FromTag(&tag)), alarmQuality)
 		}
 
 		// Publish to MQTT only if value changed (Report by Exception)
