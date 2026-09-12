@@ -17,6 +17,14 @@ env:
   GO_VERSION: "1.25.13"  # must match the toolchain in go.mod: govulncheck reports against whatever runs
   NODE_VERSION: "22"
   JWT_SECRET: "ci-test-secret-key-minimum-32-chars-ok"
+  # The acceptance suite fires requests as fast as the runner allows and
+  # exhausts the shipped burst in its first seconds; from then on any test that
+  # makes several calls in a row fails with a 429 that says nothing about what
+  # it was checking. The limiter itself is covered by internal/middleware's own
+  # tests, which assert the SHIPPED defaults — this raises the ceiling for the
+  # stack under test without softening what is shipped.
+  API_RATE_LIMIT_PER_MINUTE: "60000"
+  API_RATE_LIMIT_BURST: "5000"
 
 jobs:
   # ── Go: lint ────────────────────────────────────────────────────────────────

@@ -3,6 +3,8 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -91,12 +93,41 @@ func LoginRateLimit() gin.HandlerFunc {
 	}
 }
 
-// GlobalRateLimit limits all API requests to 300 per minute (burst: 50) per IP.
+// Defaults for the global limit: 300 requests a minute per IP, with a burst of
+// 50. Enough for a plant's boxes — each polls once a minute, so fifty of them
+// behind one address still use a sixth of the budget — and low enough to make
+// scraping the API tedious.
+const (
+	defaultGlobalRatePerMinute = 300
+	defaultGlobalBurst         = 50
+)
+
+// globalRate reads the limit from the environment, falling back to the defaults.
+//
+// Configurable because of what it does to a test suite: an acceptance run fires
+// requests as fast as the machine allows, exhausts the burst in the first
+// seconds, and from then on any test that makes several calls in a row fails
+// with a 429 that has nothing to do with what it was testing. The limiter is
+// covered by its own tests now, rather than by whichever acceptance test
+// happened to trip over it.
+func globalRate() (rate.Limit, int) {
+	perMinute := defaultGlobalRatePerMinute
+	if v, err := strconv.Atoi(os.Getenv("API_RATE_LIMIT_PER_MINUTE")); err == nil && v > 0 {
+		perMinute = v
+	}
+	burst := defaultGlobalBurst
+	if v, err := strconv.Atoi(os.Getenv("API_RATE_LIMIT_BURST")); err == nil && v > 0 {
+		burst = v
+	}
+	return rate.Limit(float64(perMinute) / 60.0), burst
+}
+
+// GlobalRateLimit limits all API requests per IP.
 // Applied to the entire /api/ group to prevent scraping and abuse.
 func GlobalRateLimit() gin.HandlerFunc {
+	limit, burst := globalRate()
 	return func(c *gin.Context) {
-		// 300 req/min = one every 200ms, burst 50
-		if !getLimiter(&globalVisitorsMu, globalVisitors, c.ClientIP(), rate.Every(200*time.Millisecond), 50).Allow() {
+		if !getLimiter(&globalVisitorsMu, globalVisitors, c.ClientIP(), limit, burst).Allow() {
 			slog.Warn("global rate limit exceeded", "ip", c.ClientIP(), "path", c.Request.URL.Path)
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error": "Too many requests. Please slow down.",

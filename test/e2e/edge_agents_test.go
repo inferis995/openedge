@@ -41,8 +41,14 @@ func TestTwoBoxesInOneOrgEachGetOnlyItsOwnGateways(t *testing.T) {
 	}
 	t.Logf("boxes: %d and %d", agents[0].ID, agents[1].ID)
 
-	assignGateway(t, admin, napoli, agents[0].ID)
-	assignGateway(t, admin, milano, agents[1].ID)
+	// Assigned by an admin OF THAT ORGANIZATION, not by the global admin: the
+	// gateway update endpoint takes its scope from the caller's organization,
+	// and a global admin who names none has never been able to use it. That is
+	// existing behaviour of that endpoint, and it is also the realistic path —
+	// a customer's own admin decides which box polls what.
+	orgAdmin := createOrgAdmin(t, admin, org.ID, "agents-"+suffix, "e2e-Password-"+suffix)
+	assignGateway(t, orgAdmin, napoli, agents[0].ID)
+	assignGateway(t, orgAdmin, milano, agents[1].ID)
 
 	first, err := edgesync.Fetch(context.Background(), apiBase(), firstKey)
 	if err != nil {
@@ -115,7 +121,8 @@ func TestAGatewayCannotBeGivenToAnotherTenantsBox(t *testing.T) {
 		t.Fatal("no box was registered for the other organization")
 	}
 
-	status, body := admin.do("PUT", fmt.Sprintf("/api/gateways/%d", myGateway),
+	mineAdmin := createOrgAdmin(t, admin, mine.ID, "agent-mine-"+suffix, "e2e-Password-"+suffix)
+	status, body := mineAdmin.do("PUT", fmt.Sprintf("/api/gateways/%d", myGateway),
 		map[string]interface{}{"edge_agent_id": theirAgents[0].ID})
 	if status < 400 {
 		t.Fatalf("a gateway of org %d was assigned to a box of org %d (status %d): %s",

@@ -175,6 +175,10 @@ services:
       PORT: ${PORT:-8081}
       BACKUP_PATH: /backups
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required — run 'make start'}
+      # Left unset in a normal deployment: the shipped defaults (300/min, burst
+      # 50) apply. Raised only by the acceptance suite, which is not a plant.
+      API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-}
+      API_RATE_LIMIT_BURST: ${API_RATE_LIMIT_BURST:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001}
     extra_hosts:
       - "host.docker.internal:host-gateway"
