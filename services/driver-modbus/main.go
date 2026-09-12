@@ -61,13 +61,17 @@ type Driver struct {
 	// orgID is the plant this gateway belongs to. Carried so the health
 	// topic can be scoped by organization instead of being readable and
 	// writable by every tenant.
-	orgID             int
-	database          *sql.DB
-	mqttClient        *mqtt.Client
-	modbusClient      *modbus.Client
-	modbusMu          sync.RWMutex // protects modbusClient pointer
-	config            *GatewayConfig
-	configMu          sync.RWMutex
+	orgID        int
+	database     *sql.DB
+	mqttClient   *mqtt.Client
+	modbusClient *modbus.Client
+	modbusMu     sync.RWMutex // protects modbusClient pointer
+	config       *GatewayConfig
+	configMu     sync.RWMutex
+	// parseFailures remembers which tags have already reported a decoding
+	// failure, so the report is one line per tag rather than one per poll.
+	parseFailMu       sync.Mutex
+	parseFailures     map[int]bool
 	stopChan          chan struct{}
 	reloadChan        chan struct{}
 	previousValues    map[int]interface{}
@@ -979,6 +983,13 @@ func (d *Driver) loadConfig() error {
 
 	blocks := d.createBlocks(tags, gateway.ZeroBased)
 
+	// A tag whose type was just corrected must be allowed to report again if
+	// it is still wrong; otherwise the one line it is entitled to was spent on
+	// the previous configuration.
+	d.parseFailMu.Lock()
+	d.parseFailures = nil
+	d.parseFailMu.Unlock()
+
 	d.config = &GatewayConfig{
 		Gateway: gateway,
 		Tags:    tags,
@@ -1333,9 +1344,17 @@ func (d *Driver) createBlocks(tags []models.Tag, zeroBased bool) []Block {
 	var parsed []TagWithAddr
 	for _, t := range tags {
 		addr, err := modbus.ParseAddress(t.Code, zeroBased)
-		if err == nil {
-			parsed = append(parsed, TagWithAddr{t, addr})
+		if err != nil {
+			// A tag whose address cannot be parsed was dropped here in silence.
+			// It stays in the tag list, it is shown in the UI, it is configured
+			// to be historised — and it is in no block, so it is never read and
+			// never publishes anything. Indistinguishable, from the outside,
+			// from a sensor that is simply quiet.
+			log.Printf("[DRIVER] tag %q (id %d) has an address this driver cannot "+
+				"parse (%q) and will never be read: %v", t.Alias, t.ID, t.Code, err)
+			continue
 		}
+		parsed = append(parsed, TagWithAddr{t, addr})
 	}
 
 	sort.Slice(parsed, func(i, j int) bool {
@@ -1552,12 +1571,15 @@ func (d *Driver) readBlock(client *modbus.Client, b Block, prefix string, ts int
 		off := tib.Offset - b.StartAddress
 		val, err := parseValue(data, off, tib.Tag.DataType, tib.BitOffset, b.DataType)
 		if err != nil {
-			// Log errors for DINT tags to debug the issue
-			if tib.Tag.DataType == "DINT" {
-				byteOff := int(off) * 2
-				log.Printf("[DEBUG] DINT ERROR: %s (TagOffset=%d, BlockStart=%d, RelOff=%d, ByteOff=%d, DataLen=%d): %v",
-					tib.Tag.Alias, tib.Offset, b.StartAddress, off, byteOff, len(data), err)
-			}
+			// Every failure here is reported, not only DINT's. A tag whose type
+			// this driver cannot decode — STRING is accepted by the API and is
+			// not decodable over Modbus — used to fall through this branch on
+			// every poll, forever, in silence: no value, no log, a tag that
+			// looks configured and produces nothing.
+			//
+			// Reported once per tag per run, because the alternative in a poll
+			// loop is a line per tag per cycle, which buries everything else.
+			d.reportParseFailureOnce(&tib, &b, off, len(data), err)
 			continue
 		}
 
@@ -1617,6 +1639,26 @@ func (d *Driver) readBlock(client *modbus.Client, b Block, prefix string, ts int
 			log.Printf("[DRIVER] PUBLISHED: %s = %v", tib.Tag.Alias, val)
 		}
 	}
+}
+
+// reportParseFailureOnce logs a tag's first decoding failure and then stays
+// quiet about that tag. A poll loop running every second would otherwise turn
+// one misconfigured tag into a log nobody reads.
+func (d *Driver) reportParseFailureOnce(tib *TagInBlock, b *Block, off uint16, dataLen int, err error) {
+	d.parseFailMu.Lock()
+	if d.parseFailures == nil {
+		d.parseFailures = map[int]bool{}
+	}
+	seen := d.parseFailures[tib.Tag.ID]
+	d.parseFailures[tib.Tag.ID] = true
+	d.parseFailMu.Unlock()
+	if seen {
+		return
+	}
+	log.Printf("[DRIVER] tag %q (id %d, type %s) cannot be decoded and will "+
+		"produce no value: offset=%d blockStart=%d relOffset=%d bytes=%d: %v",
+		tib.Tag.Alias, tib.Tag.ID, tib.Tag.DataType,
+		tib.Offset, b.StartAddress, off, dataLen, err)
 }
 
 func parseValue(data []byte, off uint16, dtype string, boff *int, btype string) (interface{}, error) {
