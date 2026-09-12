@@ -22,6 +22,7 @@ import (
 	opcuaclient "github.com/ralph/industrial-edge-middleware/internal/opcua"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
+	"github.com/ralph/industrial-edge-middleware/internal/topics"
 )
 
 // TagPayload is the standard payload published to MQTT
@@ -85,7 +86,11 @@ func retryWithBackoff(operationName string, operation func() error) error {
 
 // Driver manages the OPC UA driver lifecycle
 type Driver struct {
-	gatewayID      int
+	gatewayID int
+	// orgID is the plant this gateway belongs to. Carried so the health
+	// topic can be scoped by organization instead of being readable and
+	// writable by every tenant.
+	orgID          int
 	database       *sql.DB
 	mqttClient     *mqtt.Client
 	opcuaClient    *opcuaclient.Client
@@ -135,6 +140,11 @@ func main() {
 		log.Fatalf("Invalid GATEWAY_ID: %v", err)
 	}
 
+	// Supplied by driver-manager. Absent when a driver is started by hand, and
+	// then the health topic falls back to the shape that carries no
+	// organization — which the platform still understands.
+	orgID := getEnvInt("ORG_ID", 0)
+
 	// Connect to database using internal db package
 	dbCfg := db.Config{
 		Host:     getEnv("DB_HOST", "postgres"),
@@ -170,7 +180,7 @@ func main() {
 		CleanSession:  true,
 		AutoReconnect: true,
 		KeepAlive:     30 * time.Second,
-		LWTTopic:      fmt.Sprintf("sys/health/%d", gatewayID),
+		LWTTopic:      topics.Health(orgID, gatewayID),
 		LWTPayload:    "offline",
 		LWTRetained:   true,
 
@@ -249,7 +259,7 @@ func main() {
 	log.Printf("[OPC-UA Driver] Subscribed to direct write topic: %s", directWriteTopic)
 
 	// Subscribe to health events for auto-reload when gateway comes online
-	healthTopic := "sys/health/+"
+	healthTopic := topics.HealthFilter
 	mqttClient.Subscribe(healthTopic, driver.handleHealthMessage)
 	log.Printf("[OPC-UA Driver] Subscribed to health topic: %s (auto-reload enabled)", healthTopic)
 
@@ -1271,7 +1281,7 @@ func (d *Driver) healthLoop() {
 				status = "online"
 			}
 
-			topic := fmt.Sprintf("sys/health/%d", d.gatewayID)
+			topic := topics.Health(d.orgID, d.gatewayID)
 			d.mqttClient.PublishWithQoS(topic, status, 1, true)
 		}
 	}

@@ -24,6 +24,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
+	"github.com/ralph/industrial-edge-middleware/internal/topics"
 )
 
 // TagInBlock stores a tag with its pre-computed offset within a block
@@ -60,7 +61,11 @@ type TagPayload struct {
 }
 
 type Driver struct {
-	gatewayID         int
+	gatewayID int
+	// orgID is the plant this gateway belongs to. Carried so the health
+	// topic can be scoped by organization instead of being readable and
+	// writable by every tenant.
+	orgID             int
 	database          *sql.DB
 	mqttClient        *mqtt.Client
 	modbusClient      *modbus.Client
@@ -134,6 +139,11 @@ func main() {
 	}
 	gatewayID, _ := strconv.Atoi(gatewayIDStr)
 
+	// Supplied by driver-manager. Absent when a driver is started by hand, and
+	// then the health topic falls back to the shape that carries no
+	// organization — which the platform still understands.
+	orgID := getEnvInt("ORG_ID", 0)
+
 	var err error
 
 	dbCfg := db.Config{
@@ -169,7 +179,7 @@ func main() {
 		CleanSession:  true,
 		AutoReconnect: true,
 		KeepAlive:     30 * time.Second,
-		LWTTopic:      fmt.Sprintf("sys/health/%d", gatewayID),
+		LWTTopic:      topics.Health(orgID, gatewayID),
 		LWTPayload:    "offline",
 		LWTRetained:   true,
 
@@ -249,7 +259,7 @@ func main() {
 	log.Printf("[DRIVER] Subscribed to settings-reload topic")
 
 	// Subscribe to health events for auto-reload when gateway comes online
-	healthTopic := "sys/health/+"
+	healthTopic := topics.HealthFilter
 	if err := mqttClient.Subscribe(healthTopic, driver.handleHealthMessage); err != nil {
 		log.Printf("[DRIVER] Failed to subscribe to health topic: %v", err)
 	} else {
@@ -1780,7 +1790,7 @@ func valuesEqual(a, b interface{}) bool {
 
 // publishHealth writes the link state to the retained health topic.
 func (d *Driver) publishHealth(status string) {
-	_ = d.mqttClient.PublishWithQoS(fmt.Sprintf("sys/health/%d", d.gatewayID), status, 1, true)
+	_ = d.mqttClient.PublishWithQoS(topics.Health(d.orgID, d.gatewayID), status, 1, true)
 }
 
 // healthLoop republishes the link state on a timer.

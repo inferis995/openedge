@@ -20,6 +20,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
+	"github.com/ralph/industrial-edge-middleware/internal/topics"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -46,7 +47,11 @@ type GatewayConfig struct {
 
 // Driver manages the Redis driver lifecycle
 type Driver struct {
-	gatewayID   int
+	gatewayID int
+	// orgID is the plant this gateway belongs to. Carried so the health
+	// topic can be scoped by organization instead of being readable and
+	// writable by every tenant.
+	orgID       int
 	database    *sql.DB
 	mqttClient  *mqtt.Client
 	redisClient *redis.Client
@@ -93,6 +98,11 @@ func main() {
 		log.Fatalf("Invalid GATEWAY_ID: %v", err)
 	}
 
+	// Supplied by driver-manager. Absent when a driver is started by hand,
+	// and then the health topic falls back to the shape that carries no
+	// organization — which the platform still understands.
+	orgID := getEnvInt("ORG_ID", 0)
+
 	// Connect to PostgreSQL
 	dbCfg := db.Config{
 		Host:     getEnv("DB_HOST", "postgres"),
@@ -123,7 +133,7 @@ func main() {
 		CleanSession:  true,
 		AutoReconnect: true,
 		KeepAlive:     30 * time.Second,
-		LWTTopic:      fmt.Sprintf("sys/health/%d", gatewayID),
+		LWTTopic:      topics.Health(orgID, gatewayID),
 		LWTPayload:    "offline",
 		LWTRetained:   true,
 
@@ -523,7 +533,7 @@ func (d *Driver) run() {
 				status = "error"
 			}
 			d.pollFailMu.Unlock()
-			d.mqttClient.PublishWithQoS(fmt.Sprintf("sys/health/%d", d.gatewayID), status, 1, true)
+			_ = d.mqttClient.PublishWithQoS(topics.Health(d.orgID, d.gatewayID), status, 1, true)
 			d.checkConnection()
 		case <-ticker.C:
 			d.poll()

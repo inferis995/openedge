@@ -21,6 +21,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/s7"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
+	"github.com/ralph/industrial-edge-middleware/internal/topics"
 )
 
 // GatewayConfig holds the loaded gateway configuration
@@ -79,7 +80,11 @@ func retryWithBackoff(operationName string, operation func() error) error {
 
 // Driver manages the S7 driver lifecycle
 type Driver struct {
-	gatewayID  int
+	gatewayID int
+	// orgID is the plant this gateway belongs to. Carried so the health
+	// topic can be scoped by organization instead of being readable and
+	// writable by every tenant.
+	orgID      int
 	database   *sql.DB
 	mqttClient *mqtt.Client
 	s7Client   *s7.Client
@@ -124,6 +129,11 @@ func main() {
 		log.Fatalf("Invalid GATEWAY_ID: %v", err)
 	}
 
+	// Supplied by driver-manager. Absent when a driver is started by hand, and
+	// then the health topic falls back to the shape that carries no
+	// organization — which the platform still understands.
+	orgID := getEnvInt("ORG_ID", 0)
+
 	// Connect to PostgreSQL
 	dbCfg := db.Config{
 		Host:     getEnv("DB_HOST", "localhost"),
@@ -159,7 +169,7 @@ func main() {
 		CleanSession:  true,
 		AutoReconnect: true,
 		KeepAlive:     30 * time.Second,
-		LWTTopic:      fmt.Sprintf("sys/health/%d", gatewayID),
+		LWTTopic:      topics.Health(orgID, gatewayID),
 		LWTPayload:    "offline",
 		LWTRetained:   true,
 
@@ -261,7 +271,7 @@ func main() {
 	log.Printf("Subscribed to write topic: %s", writeTopic)
 
 	// Subscribe to health events for auto-reload when gateway comes online
-	healthTopic := "sys/health/+"
+	healthTopic := topics.HealthFilter
 	if err := mqttClient.Subscribe(healthTopic, driver.handleHealthMessage); err != nil {
 		log.Printf("Failed to subscribe to health topic: %v", err)
 	} else {
@@ -1030,7 +1040,7 @@ func (d *Driver) healthLoop() {
 
 // publishHealthStatus publishes online/offline to MQTT health topic
 func (d *Driver) publishHealthStatus(status string) {
-	healthTopic := fmt.Sprintf("sys/health/%d", d.gatewayID)
+	healthTopic := topics.Health(d.orgID, d.gatewayID)
 	d.mqttClient.PublishWithQoS(healthTopic, status, 1, true)
 	log.Printf("[DRIVER] Health status: %s", status)
 }

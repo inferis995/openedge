@@ -27,6 +27,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	iemqtt "github.com/ralph/industrial-edge-middleware/internal/mqtt"
+	"github.com/ralph/industrial-edge-middleware/internal/topics"
 )
 
 const (
@@ -475,7 +476,7 @@ func (m *Manager) publishGatewayStatus(gatewayID int, status string, errorMsg st
 		statusObj.ContainerID = state.ContainerID
 	}
 
-	topic := fmt.Sprintf("sys/health/%d", gatewayID)
+	topic := topics.Health(m.orgID, gatewayID)
 	_ = m.mqttClient.PublishWithQoS(topic, statusObj, 1, true) // retained
 }
 
@@ -555,6 +556,10 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 		fmt.Sprintf("MQTT_USERNAME=%s", getEnv("MQTT_USERNAME", "")),
 		fmt.Sprintf("MQTT_PASSWORD=%s", getEnv("MQTT_PASSWORD", "")),
 		"SPARKPLUG_ENABLED=true",
+		// The organization, so a driver can publish its health on a topic that
+		// carries it. Without this the driver falls back to the old shape,
+		// which every tenant's broker credentials could read and write.
+		fmt.Sprintf("ORG_ID=%d", m.orgID),
 		"TZ=" + getEnv("TZ", "Europe/Rome"),
 	}
 

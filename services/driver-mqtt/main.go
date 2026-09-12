@@ -20,6 +20,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
+	"github.com/ralph/industrial-edge-middleware/internal/topics"
 )
 
 // TagMapping maps a source MQTT topic to a system publish topic and tag metadata
@@ -61,7 +62,11 @@ type TagPayload struct {
 
 // Driver is the main MQTT-to-MQTT bridge driver
 type Driver struct {
-	gatewayID    int
+	gatewayID int
+	// orgID is the plant this gateway belongs to. Carried so the health
+	// topic can be scoped by organization instead of being readable and
+	// writable by every tenant.
+	orgID        int
 	database     *sql.DB
 	mqttClient   *mqtt.Client // Internal broker (system) — used to publish bridged data
 	sourceClient *mqtt.Client // Optional EXTERNAL broker — used to subscribe to PLC topics.
@@ -133,6 +138,11 @@ func main() {
 		log.Fatalf("[DRIVER-MQTT] Invalid GATEWAY_ID: %v", err)
 	}
 
+	// Supplied by driver-manager. Absent when a driver is started by hand, and
+	// then the health topic falls back to the shape that carries no
+	// organization — which the platform still understands.
+	orgID := getEnvInt("ORG_ID", 0)
+
 	// Connect to database
 	dbCfg := db.Config{
 		Host:     getEnv("DB_HOST", "postgres"),
@@ -163,7 +173,7 @@ func main() {
 		CleanSession:  true,
 		AutoReconnect: true,
 		KeepAlive:     30 * time.Second,
-		LWTTopic:      fmt.Sprintf("sys/health/%d", gatewayID),
+		LWTTopic:      topics.Health(orgID, gatewayID),
 		LWTPayload:    "offline",
 		LWTRetained:   true,
 
@@ -253,7 +263,7 @@ func main() {
 	close(driver.stopChan)
 
 	// Publish offline status on shutdown
-	healthTopic := fmt.Sprintf("sys/health/%d", gatewayID)
+	healthTopic := topics.Health(orgID, gatewayID)
 	mqttClient.PublishWithQoS(healthTopic, "offline", 1, true)
 	log.Println("[DRIVER-MQTT] Shutdown complete")
 }
@@ -1318,7 +1328,7 @@ func (d *Driver) run() {
 			d.setConnectionState(connected)
 
 			if connected {
-				healthTopic := fmt.Sprintf("sys/health/%d", d.gatewayID)
+				healthTopic := topics.Health(d.orgID, d.gatewayID)
 				d.mqttClient.PublishWithQoS(healthTopic, "online", 1, true)
 			}
 
@@ -1346,7 +1356,7 @@ func (d *Driver) setConnectionState(connected bool) {
 		status = "online"
 	}
 
-	topic := fmt.Sprintf("sys/health/%d", d.gatewayID)
+	topic := topics.Health(d.orgID, d.gatewayID)
 	d.mqttClient.PublishWithQoS(topic, status, 1, true)
 	log.Printf("[DRIVER-MQTT] Health status changed to: %s", status)
 }

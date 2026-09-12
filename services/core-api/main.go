@@ -36,6 +36,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	"github.com/ralph/industrial-edge-middleware/internal/telemetry"
+	"github.com/ralph/industrial-edge-middleware/internal/topics"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
@@ -208,7 +209,7 @@ func main() {
 		defer mqttClient.Disconnect(250)
 
 		// Subscribe to gateway health status updates
-		if err := mqttClient.Subscribe("sys/health/#", func(topic string, payload []byte) {
+		if err := mqttClient.Subscribe(topics.HealthFilter, func(topic string, payload []byte) {
 			handleGatewayHealthUpdate(topic, payload, redisClient, database)
 		}); err != nil {
 			slog.Error("CRITICAL: failed to subscribe to gateway health topic — edge status tracking disabled", "error", err)
@@ -1242,17 +1243,14 @@ func parseHealthPayload(payload []byte) (string, bool) {
 func handleGatewayHealthUpdate(topic string, payload []byte, redisClient *redis.Client, db *sql.DB) {
 	log.Printf("[HEALTH] Received health update - topic: %s, payload: %s", topic, string(payload))
 
-	// Parse topic: sys/health/{gateway_id}
-	parts := strings.Split(topic, "/")
-	if len(parts) < 3 {
+	// Both shapes, for as long as a rollout takes. Drivers are updated one
+	// container at a time, so the same broker carries sys/health/{gateway} and
+	// sys/health/{org}/{gateway} at once; understanding only the newer one
+	// would show every not-yet-updated gateway as never having reported, which
+	// looks exactly like a plant that has gone dark.
+	_, gatewayID, ok := topics.ParseHealth(topic)
+	if !ok {
 		log.Printf("Invalid health topic format: %s", topic)
-		return
-	}
-
-	gatewayIDStr := parts[2]
-	gatewayID, err := strconv.Atoi(gatewayIDStr)
-	if err != nil {
-		log.Printf("Invalid gateway ID in health topic: %s", gatewayIDStr)
 		return
 	}
 

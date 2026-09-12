@@ -20,13 +20,18 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
+	"github.com/ralph/industrial-edge-middleware/internal/topics"
 )
 
 const (
 	mqttTopicData      = "data/#"
 	mqttTopicSparkplug = "spBv1.0/#" // Sparkplug B topic
-	mqttTopicHealth    = "sys/health/+"
-	mqttTopicAlarms    = "sys/alarms/#" // Alarm events
+	// A multi-level wildcard, not a single-level one. The health topic now
+	// carries the organization — sys/health/{org}/{gateway} — and "+" matches
+	// exactly one level: this service would have gone silently blind to every
+	// gateway the moment the drivers were updated.
+	mqttTopicHealth = topics.HealthFilter
+	mqttTopicAlarms = "sys/alarms/#" // Alarm events
 )
 
 type HistorianService struct {
@@ -119,9 +124,9 @@ type RealtimeValue struct {
 const (
 	realtimeCacheTTL = 5184000 // 60 days in seconds
 	// Retry configuration for connection attempts
-	maxRetries      = 30                // Maximum number of retry attempts
-	initialDelay    = 2 * time.Second  // Initial delay before first retry
-	maxDelay        = 30 * time.Second // Maximum delay between retries
+	maxRetries   = 30               // Maximum number of retry attempts
+	initialDelay = 2 * time.Second  // Initial delay before first retry
+	maxDelay     = 30 * time.Second // Maximum delay between retries
 )
 
 // retryWithBackoff attempts to execute a function with exponential backoff retry logic.

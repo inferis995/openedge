@@ -47,6 +47,7 @@ import (
 
 	paho "github.com/eclipse/paho.mqtt.golang"
 	_ "github.com/lib/pq"
+	"github.com/ralph/industrial-edge-middleware/internal/topics"
 )
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -137,6 +138,10 @@ type downlinkCmd struct {
 
 type Driver struct {
 	gatewayID int
+	// orgID is the plant this gateway belongs to. Carried so the health
+	// topic can be scoped by organization instead of being readable and
+	// writable by every tenant.
+	orgID     int
 	gateway   GatewayRow
 	cfg       ConnectionConfig
 	tags      []TagRow
@@ -166,6 +171,11 @@ func run() error {
 		return fmt.Errorf("invalid GATEWAY_ID: %w", err)
 	}
 
+	// Supplied by driver-manager. Absent when a driver is started by hand, and
+	// then the health topic falls back to the shape that carries no
+	// organization — which the platform still understands.
+	orgID := getEnvInt("ORG_ID", 0)
+
 	db, err := connectDB()
 	if err != nil {
 		return fmt.Errorf("DB connect: %w", err)
@@ -189,7 +199,7 @@ func run() error {
 		getEnvInt("MQTT_PORT", 1883),
 		fmt.Sprintf("driver-lorawan-%d", gatewayID),
 		"", "", false,
-		fmt.Sprintf("sys/health/%d", gatewayID),
+		topics.Health(orgID, gatewayID),
 		buildOfflineStatus(gatewayID),
 		d.subscribeDownlink, // subscribe to downlink commands from core-api
 	)
@@ -648,7 +658,7 @@ func (d *Driver) publishHealth(status string) {
 		DriverType: "LORAWAN",
 		Timestamp:  time.Now().UnixMilli(),
 	})
-	d.sysClient.Publish(fmt.Sprintf("sys/health/%d", d.gatewayID), 1, true, payload)
+	d.sysClient.Publish(topics.Health(d.orgID, d.gatewayID), 1, true, payload)
 }
 
 func buildOfflineStatus(gatewayID int) string {

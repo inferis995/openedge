@@ -388,8 +388,13 @@ func orgRoleACLs(orgID int, orgName string, siteNames []string) []map[string]int
 	//   RESIDUAL, SHARED ACROSS TENANTS: a tenant can publish or read health for a
 	//   gateway id it does not own.  That is an integrity / liveness-disclosure
 	//   issue, not a control action.
-	a.sendReceive("sys/health/+")
-	a.subscribe("sys/health/#") // core-api; drivers use "sys/health/+", also covered
+	// Both shapes. The old one carries no organization, which is why it could
+	// only ever be granted to everybody: any tenant could read another tenant's
+	// gateway states, or publish a false one. It stays granted only for as long
+	// as drivers that have not been updated are still publishing it.
+	a.sendReceive("sys/health/+", "sys/health/"+org+"/+")
+	// A multi-level wildcard so one subscription covers both shapes.
+	a.subscribe("sys/health/#")
 
 	//   sys/command/reload/{gateway_id}, sys/command/write/{gateway_id},
 	//   sys/command/settings-reload, sys/command/restore-complete and

@@ -16,6 +16,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	opcuaclient "github.com/ralph/industrial-edge-middleware/internal/opcua"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
+	"github.com/ralph/industrial-edge-middleware/internal/topics"
 )
 
 // MQTTClient interface for publishing reload commands
@@ -768,7 +769,7 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 
 		// If explicitly disabled, forcefully publish offline status so historian records gap and event
 		if req.Enabled != nil && !*req.Enabled {
-			healthTopic := fmt.Sprintf("sys/health/%d", gateway.ID)
+			healthTopic := topics.Health(orgID, gateway.ID)
 			h.mqttClient.PublishWithQoS(healthTopic, "offline", 1, true)
 		}
 	}
