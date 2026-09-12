@@ -34,13 +34,28 @@ const (
 	mqttTopicAlarms = "sys/alarms/#" // Alarm events
 )
 
+// valueCache is the part of Redis that the decision to keep a sample depends
+// on: the previous value of a tag and when it was last written.
+//
+// An interface, so the one function that decides whether a reading survives can
+// be exercised without a Redis. That function produces an ABSENCE when it is
+// wrong — a gap in the historian, which reads as a quiet process — and an
+// absence is what nobody goes looking for.
+type valueCache interface {
+	Get(key string) (string, error)
+}
+
 type HistorianService struct {
 	mqttClient  *mqtt.Client
 	cloudClient *mqtt.Client // Secondary client for MQTT Sync (Forwarding)
 	redisClient *redis.Client
-	db          *sql.DB
-	wg          sync.WaitGroup
-	shutdown    chan struct{}
+
+	// cache is redisClient in production. Tests substitute it; nothing else
+	// does.
+	cache    valueCache
+	db       *sql.DB
+	wg       sync.WaitGroup
+	shutdown chan struct{}
 
 	// deviceTagMap tracks which tag IDs have been seen from each Sparkplug
 	// device.  Key = "groupID/edgeNodeID/deviceID", Value = set of tag IDs.
@@ -1119,6 +1134,18 @@ func (s *HistorianService) getTagInfoByAlias(alias, groupID, edgeNodeID string) 
 // shouldStoreValue checks if the value should be stored based on quality and deadband filtering.
 // Quality codes: 0 = GOOD, 1 = UNCERTAIN, 2 = BAD
 // Logic: always store on BAD quality, quality change, or value change exceeding deadband.
+// cacheOrRedis returns the substituted cache when there is one, and the real
+// client otherwise. Written this way rather than assigning cache at
+// construction because the service is built in several places and one of them
+// would have been missed — which would be a nil interface and a panic on the
+// first sample.
+func (s *HistorianService) cacheOrRedis() valueCache {
+	if s.cache != nil {
+		return s.cache
+	}
+	return s.redisClient
+}
+
 func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface{}, newQuality int) bool {
 	// Always store BAD/UNCERTAIN quality to create visible gaps in charts
 	if newQuality > 0 {
@@ -1127,7 +1154,7 @@ func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface
 
 	// Retrieve previous value from Redis for comparison
 	prevValueKey := fmt.Sprintf("prev_value:%d", tagInfo.ID)
-	cached, err := s.redisClient.Get(prevValueKey)
+	cached, err := s.cacheOrRedis().Get(prevValueKey)
 	if err != nil || cached == "" {
 		// No previous value recorded yet — always store the first occurrence
 		return true
@@ -1152,7 +1179,7 @@ func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface
 		// PRODUCTION FIX: Force periodic storage even if value hasn't changed
 		// Check if last store was more than 30 seconds ago
 		lastStoreKey := fmt.Sprintf("last_store:%d", tagInfo.ID)
-		lastStoreStr, _ := s.redisClient.Get(lastStoreKey)
+		lastStoreStr, _ := s.cacheOrRedis().Get(lastStoreKey)
 		if lastStoreStr == "" {
 			// No timestamp recorded, store now
 			return true
@@ -1171,7 +1198,7 @@ func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface
 	}
 	// PRODUCTION FIX: For tags with deadband, also enforce periodic storage (30 seconds)
 	lastStoreKey := fmt.Sprintf("last_store:%d", tagInfo.ID)
-	lastStoreStr, _ := s.redisClient.Get(lastStoreKey)
+	lastStoreStr, _ := s.cacheOrRedis().Get(lastStoreKey)
 	if lastStoreStr == "" {
 		return true
 	}
