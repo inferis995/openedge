@@ -53,3 +53,13 @@ docker ps
 ```
 
 All services should show "healthy" status.
+
+## eu-scaling-alarm-review.sql
+
+Ricognizione di sola lettura da eseguire **prima** di aggiornare un impianto che
+ha tag con la conversione in unità ingegneristiche attiva. Elenca gli allarmi
+che cambiano comportamento e dice come. Vedi `docs/EU_SCALING.md`.
+
+```bash
+psql "$DATABASE_URL" -f scripts/eu-scaling-alarm-review.sql
+```

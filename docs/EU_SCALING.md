@@ -61,9 +61,27 @@ valore invariato.
    ```
 
 2. **Le soglie di allarme cominciano a funzionare come erano state scritte.**
-   Un allarme che era permanentemente attivo perché confrontato con i grezzi si
-   spegne; uno che non scattava mai comincia a scattare. **Vanno riviste le
-   definizioni di allarme sui tag scalati prima di aggiornare un impianto.**
+   La soglia non cambia: cambia il numero con cui viene confrontata. Su un
+   trasmettitore 0..27648 → 0..100 bar, una soglia alta di 80 bar interveniva
+   allo 0,3% del campo di misura e d'ora in poi interviene all'80%. Un allarme
+   che era di fatto sempre attivo si calma, uno che non scattava mai comincia a
+   scattare, e — meno evidente — uno che interveniva a metà campo può diventare
+   molto più sensibile.
+
+   **Prima di aggiornare un impianto con tag scalati, eseguire:**
+
+   ```bash
+   psql "$DATABASE_URL" -f scripts/eu-scaling-alarm-review.sql
+   ```
+
+   È di sola lettura. Elenca, per ogni allarme a soglia su un tag scalato, dove
+   interveniva e dove interverrà come percentuale del campo di misura, il
+   valore grezzo corrispondente alla soglia, e se l'allarme risulta attivo in
+   questo momento. Una seconda sezione elenca gli allarmi booleani su tag con
+   `invert`, il cui stato si ribalta — `invert` non veniva applicato da nessuna
+   parte sul percorso di lettura.
+
+   Su un impianto senza tag scalati non stampa nulla da fare.
 
 3. **La banda morta comincia a valere in unità ingegneristiche.** Una banda di
    0,5 su un tag 0..27648 → 0..100 filtrava prima variazioni di mezzo
