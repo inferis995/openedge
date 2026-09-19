@@ -14,7 +14,7 @@ on:
     branches: [main, master, develop]
 
 env:
-  GO_VERSION: "1.25.13"  # must match the toolchain in go.mod: govulncheck reports against whatever runs
+  GO_VERSION: "1.26.0"  # must match the go directive in go.mod: govulncheck reports against whatever runs
   NODE_VERSION: "22"
   JWT_SECRET: "ci-test-secret-key-minimum-32-chars-ok"
   # The acceptance suite fires requests as fast as the runner allows and
@@ -47,7 +47,14 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2.5.0
+          # Must be built with a Go at least as new as the `go` directive in
+          # go.mod, or it panics before linting anything:
+          #   panic: package requires newer Go version go1.26
+          #          (application built with go1.25)
+          # That is not a lint failure with a line number — it is a crash, and
+          # it kept the go1.26 bump red for five days. Raise this together with
+          # GO_VERSION above, never separately.
+          version: v2.13.2
           # ./test/... too: those packages carry the deployment-configuration
           # and route-coverage checks, and lint that skips them lets style
           # drift into the files whose whole job is catching drift.
