@@ -2,6 +2,20 @@ module github.com/ralph/industrial-edge-middleware
 
 go 1.26.0
 
+// Pinned, again, and for the reason the previous pin recorded before
+// Dependabot's PR #35 removed it along with the comment.
+//
+// go1.26.0 is NOT a safe floor. CI's govulncheck reported 25 call-reachable
+// advisories against it, including the six the old pin named — GO-2026-5026,
+// -5972, -6089, -6090, -6091, -6218 — which are fixed in go1.25.13 and were
+// not in 1.26.0 when it was cut. Raising the `go` directive to 1.26.0 without
+// a toolchain therefore moved the build BACKWARDS in security terms.
+//
+// The pin is what makes the floor a floor. govulncheck reports against
+// whatever toolchain runs it, so GO_VERSION in .github/workflows/*.yml must
+// match this line.
+toolchain go1.26.8
+
 require (
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/eclipse/paho.mqtt.golang v1.5.1

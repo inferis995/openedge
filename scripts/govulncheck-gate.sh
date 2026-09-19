@@ -57,8 +57,23 @@ OUTPUT=$(govulncheck -format json ./... 2>/tmp/govulncheck.err)
 STATUS=$?
 set -e
 
-if [ $STATUS -ne 0 ] && [ $STATUS -ne 3 ] && [ -z "$OUTPUT" ]; then
-  echo "govulncheck failed to run (exit $STATUS):" >&2
+# The `-z "$OUTPUT"` that used to be part of this condition was a hole, and it
+# was the dangerous kind: it made the gate report an all-clear when it had not
+# checked anything.
+#
+# govulncheck prints its config and SBOM preamble to stdout BEFORE it fetches
+# the database. So when the fetch fails — an offline runner, a proxy that
+# refuses vuln.go.dev, an outage — it exits 1 with several hundred bytes
+# already written. OUTPUT is therefore not empty, the guard did not fire, the
+# parser below found no findings in a truncated stream, and the script printed
+# "No call-reachable vulnerabilities" and exited 0.
+#
+# That is worse than having no gate: a gate that cannot fail teaches everyone
+# to trust it. Any exit that is neither 0 (clean) nor 3 (vulnerabilities found)
+# now stops the build, whatever was printed first.
+if [ $STATUS -ne 0 ] && [ $STATUS -ne 3 ]; then
+  echo "govulncheck could not complete (exit $STATUS) — treating as FAILURE," >&2
+  echo "because a scan that did not run is not a scan that found nothing:" >&2
   cat /tmp/govulncheck.err >&2
   exit $STATUS
 fi
