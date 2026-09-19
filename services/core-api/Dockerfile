@@ -14,6 +14,20 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -a -installsuffix cgo -o core-api ./services/core-api
 
 # Runtime stage
+# Deliberately held at 3.22 while the other images move to 3.24.
+#
+# The runtime stage installs postgresql16-client for pg_dump, and 16 is not a
+# free choice: docker-compose runs timescale/timescaledb:latest-pg16, and a
+# pg_dump older than the server refuses to run. Whether Alpine 3.24 still
+# carries postgresql16-client could not be verified when this was written, and
+# the failure would be an apk that cannot resolve the package — visible only at
+# `build.yml`, which runs on release tags, not on pull requests.
+#
+# Staying here costs nothing in security terms: `apk upgrade --no-cache` below
+# pulls 3.22's current patches on every build. Move to 3.24 once someone has
+# confirmed `apk add postgresql16-client` resolves there — or bumped the client
+# to match whatever major 3.24 ships, which is safe in the other direction
+# (a newer pg_dump reads an older server).
 FROM alpine:3.22
 
 # Pick up OS security patches published since the base tag was last rebuilt.

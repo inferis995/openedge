@@ -5,7 +5,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /driver-lorawan ./services/driver-lorawan/
 
-FROM alpine:3.22
+FROM alpine:3.24
 
 # Pick up OS security patches published since the base tag was last rebuilt.
 #

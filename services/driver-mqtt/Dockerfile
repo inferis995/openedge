@@ -19,7 +19,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o driver-mqtt ./services/driver-mqtt
 
 # Runtime stage
-FROM alpine:3.22
+FROM alpine:3.24
 
 # Pick up OS security patches published since the base tag was last rebuilt.
 #
