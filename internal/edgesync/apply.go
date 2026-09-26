@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 )
 
 // Apply mirrors a configuration into the box's own database.
@@ -46,6 +47,9 @@ func Apply(ctx context.Context, db *sql.DB, cfg *Config) error {
 		return err
 	}
 	if err := applyAlarms(ctx, tx, cfg); err != nil {
+		return err
+	}
+	if err := applySettings(ctx, tx, cfg); err != nil {
 		return err
 	}
 	if err := pruneSequences(ctx, tx); err != nil {
@@ -222,4 +226,20 @@ func ids(n int, at func(int) int) []int64 {
 		out[i] = int64(at(i))
 	}
 	return out
+}
+
+// applySettings copies the platform settings the box's drivers read. Only a
+// value the platform actually set is written: a zero leaves the box's own row,
+// or its absence, which the drivers read as the default.
+func applySettings(ctx context.Context, tx *sql.Tx, cfg *Config) error {
+	if cfg.WriteCommandMaxAgeSeconds <= 0 {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO global_settings (key, value) VALUES ('write_command_max_age_seconds', $1)
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+		strconv.Itoa(cfg.WriteCommandMaxAgeSeconds)); err != nil {
+		return fmt.Errorf("applying the command validity: %w", err)
+	}
+	return nil
 }

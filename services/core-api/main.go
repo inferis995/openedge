@@ -1720,17 +1720,23 @@ func handleWriteCommand(topic string, payload []byte, db *sql.DB, mqttClient *mq
 	log.Printf("[WRITE CMD] Found tag - ID: %d, Gateway: %d, Code: %s, Type: %s",
 		tag.ID, tag.GatewayID, tag.Code, tag.DataType)
 
-	// Build the command payload for the driver
-	cmd := struct {
-		TagID    int         `json:"tag_id"`
-		Code     string      `json:"code"`
-		Value    interface{} `json:"value"`
-		DataType string      `json:"data_type"`
-	}{
-		TagID:    tag.ID,
-		Code:     tag.Code,
-		Value:    value,
-		DataType: tag.DataType,
+	// Convert the engineering-unit value the caller sent into what the device
+	// expects, exactly as the web UI, recipes and i3X do. This path used to
+	// skip it, so "50" for a tag scaled 0..27648 → 0..100 reached the register
+	// as 50: the machine at 0.2% while every screen said 50%.
+	deviceValue, scaleErr := handlers.ToDeviceValue(context.Background(), db, tag.ID, value)
+	if scaleErr != nil {
+		log.Printf("[WRITE CMD] REJECTED tag %d: %v", tag.ID, scaleErr)
+		return
+	}
+
+	// The command keeps the moment the caller issued it, when the caller said
+	// so, so a write that sat in a queue upstream expires like any other.
+	cmd := models.NewWriteCommand(tag.ID, tag.Code, deviceValue, tag.DataType)
+	if ts := writeRequest.Timestamp; ts > 0 {
+		cmd.IssuedAt = normalizeMillis(ts)
+	} else if ts := writeRequest.TS; ts > 0 {
+		cmd.IssuedAt = normalizeMillis(ts)
 	}
 
 	cmdPayload, err := json.Marshal(cmd)
@@ -1739,8 +1745,11 @@ func handleWriteCommand(topic string, payload []byte, db *sql.DB, mqttClient *mq
 		return
 	}
 
-	// Publish to the driver on sys/command/write/{gatewayID}
-	driverTopic := fmt.Sprintf("sys/command/write/%d", tag.GatewayID)
+	// cmd/write/{gateway} is the topic every driver listens on. This used to
+	// publish on sys/command/write/{gateway}, which only the OPC UA driver
+	// subscribed to: an external write to an S7, Modbus or MQTT gateway was
+	// logged here as sent and went nowhere.
+	driverTopic := fmt.Sprintf("cmd/write/%d", tag.GatewayID)
 	if err := mqttClient.Publish(driverTopic, string(cmdPayload)); err != nil {
 		log.Printf("[WRITE CMD] Failed to publish to driver: %v", err)
 		return
@@ -2059,4 +2068,14 @@ func runOEECronWorker(db *sql.DB, oee *handlers.OEEHandler, dispatcher *notifica
 			}
 		}
 	}
+}
+
+// normalizeMillis accepts a Unix timestamp in seconds or milliseconds. External
+// callers send both; a seconds value read as milliseconds would date the
+// command to January 1970 and it would be refused as expired every time.
+func normalizeMillis(ts int64) int64 {
+	if ts < 100_000_000_000 { // before 1973 in ms, i.e. this is seconds
+		return ts * 1000
+	}
+	return ts
 }

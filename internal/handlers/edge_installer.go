@@ -30,6 +30,10 @@ func NewEdgeInstallerHandler(db *sql.DB) *EdgeInstallerHandler {
 }
 
 type installerData struct {
+	// AgentID is the box this installer is for. Every download registers a new
+	// one, and the id is what keeps two boxes of one organization apart on the
+	// central broker.
+	AgentID    int
 	OrgID      int
 	OrgName    string
 	OrgSlug    string
@@ -140,6 +144,7 @@ func (h *EdgeInstallerHandler) Download(c *gin.Context) {
 	}
 
 	data := &installerData{
+		AgentID:    agentID,
 		OrgID:      orgID,
 		OrgName:    orgName,
 		OrgSlug:    slugify(orgName),
@@ -360,7 +365,11 @@ bridge_protocol_version mqttv311
 
 remote_username {{.MQTTUser}}
 remote_password {{.MQTTPass}}
-remote_clientid edge-{{.OrgSlug}}
+# One client id per box. It used to be edge-{org}, the same for every box of an
+# organization, and a broker that sees a second connection under a client id
+# already connected closes the first: two boxes would knock each other off the
+# bridge every time either reconnected, forever.
+remote_clientid edge-{{.OrgSlug}}-{{.AgentID}}
 
 # The session — and with it the queue of undelivered messages — survives the
 # link going down. This is what makes a plant with intermittent internet work.
@@ -375,10 +384,18 @@ topic data/# out 1
 topic sys/alarms/# out 1
 topic sys/health/# out 1
 topic spBv1.0/# out 1
+# The driver's answer to a write, which the web UI and recipe loads wait for.
+topic cmd/write/result/+ out 1
 
 # In: what the platform asks the plant to do. One direction each, deliberately:
 # a bridge declared both ways echoes every message back to its own sender.
 topic sys/write/# in 1
+# Write commands to this box's drivers. They were not carried at all: a setpoint
+# sent from the platform to a PLC behind a box never arrived. They are also the
+# reason for the command expiry in internal/commands — with cleansession false
+# the central broker queues them while the link is down, and delivers them all
+# when it returns.
+topic cmd/write/+ in 1
 topic sys/update/# in 1
 topic sys/restart/# in 1
 # The "#" above already covers sys/restart/{org}/{box}; it is spelled out

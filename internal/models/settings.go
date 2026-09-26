@@ -43,25 +43,28 @@ func (m MQTTBrokerMode) IsValid() bool {
 
 // GlobalSettings represents the global system settings
 type GlobalSettings struct {
-	PublishMode           PublishMode    `json:"publish_mode"`
-	RBEHeartbeatSeconds   int            `json:"rbe_heartbeat_seconds"`
-	RBEDeadbandPercent    float64        `json:"rbe_deadband_percent"`
-	StaleThresholdSeconds int            `json:"stale_threshold_seconds"`
-	MQTTBrokerMode        MQTTBrokerMode `json:"mqtt_broker_mode"`
-	MQTTExternalHost      string         `json:"mqtt_external_host"`
-	MQTTExternalPort      int            `json:"mqtt_external_port"`
-	MQTTUsername          string         `json:"mqtt_username"`
-	MQTTPassword          string         `json:"mqtt_password"` // Note: stored as-is, consider encryption in production
-	MQTTClientID          string         `json:"mqtt_client_id"`
+	PublishMode           PublishMode `json:"publish_mode"`
+	RBEHeartbeatSeconds   int         `json:"rbe_heartbeat_seconds"`
+	RBEDeadbandPercent    float64     `json:"rbe_deadband_percent"`
+	StaleThresholdSeconds int         `json:"stale_threshold_seconds"`
+	// WriteCommandMaxAgeSeconds is how long a write command stays executable
+	// after it was issued. Zero means the default; see internal/commands.
+	WriteCommandMaxAgeSeconds int            `json:"write_command_max_age_seconds"`
+	MQTTBrokerMode            MQTTBrokerMode `json:"mqtt_broker_mode"`
+	MQTTExternalHost          string         `json:"mqtt_external_host"`
+	MQTTExternalPort          int            `json:"mqtt_external_port"`
+	MQTTUsername              string         `json:"mqtt_username"`
+	MQTTPassword              string         `json:"mqtt_password"` // Note: stored as-is, consider encryption in production
+	MQTTClientID              string         `json:"mqtt_client_id"`
 }
 
 // GlobalSetting represents a single setting row in the database
 type GlobalSetting struct {
-	Key         string     `json:"key" db:"key"`
-	Value       string     `json:"value" db:"value"`
-	Description string     `json:"description" db:"description"`
-	UpdatedAt   time.Time  `json:"updated_at" db:"updated_at"`
-	UpdatedBy   *int       `json:"updated_by,omitempty" db:"updated_by"`
+	Key         string    `json:"key" db:"key"`
+	Value       string    `json:"value" db:"value"`
+	Description string    `json:"description" db:"description"`
+	UpdatedAt   time.Time `json:"updated_at" db:"updated_at"`
+	UpdatedBy   *int      `json:"updated_by,omitempty" db:"updated_by"`
 }
 
 // PublishMetrics represents statistics about MQTT publishing

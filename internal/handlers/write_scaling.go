@@ -67,3 +67,11 @@ func toDeviceValue(ctx context.Context, db *sql.DB, tagID int, value interface{}
 	}
 	return scaling.Reverse(value, cfg)
 }
+
+// ToDeviceValue is toDeviceValue for callers outside this package: the write
+// path core-api serves on sys/write/#. That path published the caller's number
+// straight to the driver, which is the defect toDeviceValue exists to prevent,
+// on the one route to a PLC that had been left out.
+func ToDeviceValue(ctx context.Context, db *sql.DB, tagID int, value interface{}) (interface{}, error) {
+	return toDeviceValue(ctx, db, tagID, value)
+}

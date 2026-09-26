@@ -70,6 +70,8 @@ func (m *Manager) Load() error {
 		PublishMode:         models.PublishMode(settings["publish_mode"]),
 		RBEHeartbeatSeconds: parseInt(settings["rbe_heartbeat_seconds"], 60),
 		RBEDeadbandPercent:  parseFloat(settings["rbe_deadband_percent"], 0.5),
+
+		WriteCommandMaxAgeSeconds: parseInt(settings["write_command_max_age_seconds"], 0),
 	}
 
 	// Validate publish mode

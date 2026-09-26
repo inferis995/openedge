@@ -26,6 +26,8 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/scaling"
+
+	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
 type writeAck struct {
@@ -431,19 +433,8 @@ func (h *RecipesHandler) Load(c *gin.Context) {
 			continue
 		}
 
-		cmd := struct {
-			TagID    int    `json:"tag_id"`
-			Code     string `json:"code"`
-			Value    string `json:"value"`
-			DataType string `json:"data_type"`
-			RunID    int64  `json:"recipe_run_id"`
-		}{
-			TagID:    v.TagID,
-			Code:     v.TagCode,
-			Value:    devVal,
-			DataType: v.DataType,
-			RunID:    runID,
-		}
+		cmd := models.NewWriteCommand(v.TagID, v.TagCode, devVal, v.DataType)
+		cmd.RecipeRunID = runID
 		payload, _ := json.Marshal(cmd)
 		topic := fmt.Sprintf("cmd/write/%d", v.GatewayID)
 		if err := h.mqttClient.Publish(topic, string(payload)); err != nil {

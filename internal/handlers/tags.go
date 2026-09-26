@@ -983,17 +983,7 @@ func (h *TagsHandler) Write(c *gin.Context) {
 		return
 	}
 
-	cmd := struct {
-		TagID    int         `json:"tag_id"`
-		Code     string      `json:"code"`
-		Value    interface{} `json:"value"`
-		DataType string      `json:"data_type"`
-	}{
-		TagID:    tag.ID,
-		Code:     tag.Code,
-		Value:    deviceValue,
-		DataType: tag.DataType,
-	}
+	cmd := models.NewWriteCommand(tag.ID, tag.Code, deviceValue, tag.DataType)
 
 	payload, _ := json.Marshal(cmd)
 	topic := fmt.Sprintf("cmd/write/%d", tag.GatewayID)

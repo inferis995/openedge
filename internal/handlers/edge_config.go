@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/edgesync"
@@ -104,6 +105,17 @@ func (h *EdgeConfigHandler) Get(c *gin.Context) {
 
 	cfg.AgentID = id
 	cfg.FilterTree(id, agentsInOrg)
+
+	// The command validity set on the platform, so the box's drivers enforce
+	// the same one. A read failure leaves it at zero, which the box treats as
+	// "keep what you have" rather than as a value.
+	var maxAge string
+	if err := h.db.QueryRowContext(c.Request.Context(),
+		`SELECT value FROM global_settings WHERE key = 'write_command_max_age_seconds'`).Scan(&maxAge); err == nil {
+		if n, convErr := strconv.Atoi(strings.TrimSpace(maxAge)); convErr == nil {
+			cfg.WriteCommandMaxAgeSeconds = n
+		}
+	}
 	if cfg.Unassigned > 0 {
 		log.Printf("[EDGE-CONFIG] org %d has %d gateway(s) assigned to no box; nobody is polling them",
 			orgID, cfg.Unassigned)

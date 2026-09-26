@@ -24,6 +24,7 @@ import (
 
 	"github.com/ralph/industrial-edge-middleware/internal/naming"
 
+	"github.com/ralph/industrial-edge-middleware/internal/commands"
 	"github.com/ralph/industrial-edge-middleware/internal/scaling"
 )
 
@@ -106,12 +107,9 @@ type Driver struct {
 }
 
 // WriteCommand represents a write command received via MQTT
-type WriteCommand struct {
-	TagID    int         `json:"tag_id"`
-	Code     string      `json:"code"`
-	Value    interface{} `json:"value"`
-	DataType string      `json:"data_type"`
-}
+// WriteCommand is the shared command body; see internal/models. An alias, so
+// the fields every handler below uses are the ones the publishers stamp.
+type WriteCommand = models.WriteCommand
 
 // WriteResult is published to MQTT to confirm write success/failure
 type WriteResult struct {
@@ -1085,6 +1083,17 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 	if err := json.Unmarshal(payload, &cmd); err != nil {
 		log.Printf("[DRIVER-MQTT] Failed to unmarshal write command: %v", err)
 		d.publishWriteResult(0, false, fmt.Sprintf("Invalid command: %v", err), nil)
+		return
+	}
+
+	// A command is executable only while it is fresh. The bridge of an edge
+	// box queues commands across a dropped link, and one executed hours late
+	// is a decision nobody took; see internal/commands.
+	maxAge := commands.MaxAgeFromDB(context.Background(), d.database)
+	if ok, age := commands.Fresh(cmd.IssuedAt, time.Now(), maxAge); !ok {
+		msg := commands.RefusalMessage(age, maxAge)
+		log.Printf("REFUSED write for tag %d (%s): %s", cmd.TagID, cmd.Code, msg)
+		d.publishWriteResult(cmd.TagID, false, msg, nil)
 		return
 	}
 

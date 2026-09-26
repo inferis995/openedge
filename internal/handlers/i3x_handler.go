@@ -15,6 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/i3x"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
+
+	"github.com/ralph/industrial-edge-middleware/internal/models"
 )
 
 // I3XHandler exposes OpenEdge data via the CESMII i3X Access API standard.
@@ -797,12 +799,7 @@ func (h *I3XHandler) WritePropertyValue(c *gin.Context) {
 		return
 	}
 
-	cmd := struct {
-		TagID    int         `json:"tag_id"`
-		Code     string      `json:"code"`
-		Value    interface{} `json:"value"`
-		DataType string      `json:"data_type"`
-	}{TagID: tagID, Code: code, Value: deviceValue, DataType: dataType}
+	cmd := models.NewWriteCommand(tagID, code, deviceValue, dataType)
 
 	payload, _ := json.Marshal(cmd)
 	topic := fmt.Sprintf("cmd/write/%d", gwID)

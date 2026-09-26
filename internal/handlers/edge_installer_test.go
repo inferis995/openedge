@@ -15,7 +15,8 @@ func pkg(t *testing.T) map[string]string {
 	t.Helper()
 
 	buf, err := buildInstallerZIP(&installerData{
-		OrgID: 7, OrgName: "Acme Manifattura", OrgSlug: "acme-manifattura",
+		AgentID: 42,
+		OrgID:   7, OrgName: "Acme Manifattura", OrgSlug: "acme-manifattura",
 		APIKey: "oe_abcd1234_secret", APIBaseURL: "https://openedge.example.com",
 		MQTTUser: "org-7", MQTTPass: "broker-secret",
 		CloudMQTTHost: "openedge.example.com", CloudMQTTPort: 8883,
@@ -134,6 +135,10 @@ func TestTheBrokerForwardsToTheCentralPlatform(t *testing.T) {
 		"topic sys/alarms/# out",
 		"topic sys/health/# out",
 		"topic sys/write/# in",
+		// Commands to this box's drivers, and their answers. Without these a
+		// setpoint sent from the platform to a PLC behind a box never arrived.
+		"topic cmd/write/+ in",
+		"topic cmd/write/result/+ out",
 	} {
 		if !strings.Contains(bridge, want) {
 			t.Errorf("the bridge is missing %q", want)
@@ -146,6 +151,13 @@ func TestTheBrokerForwardsToTheCentralPlatform(t *testing.T) {
 	if !strings.Contains(bridge, "cleansession false") {
 		t.Error("the bridge uses a clean session — messages published while the link is down " +
 			"would be discarded rather than queued")
+	}
+
+	// One client id per box. The same id for every box of an organization makes
+	// the central broker drop one connection whenever another box connects.
+	if !strings.Contains(bridge, "remote_clientid edge-acme-manifattura-42") {
+		t.Error("the bridge client id does not carry the box id; two boxes of one " +
+			"organization would knock each other off the central broker")
 	}
 
 	// And the main config has to actually read that directory.

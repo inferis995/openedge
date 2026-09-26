@@ -45,6 +45,12 @@ type Config struct {
 	// the assignment is ignored; a number here means somebody has to say which
 	// box polls what, and until they do those gateways are polled by nobody.
 	Unassigned int `json:"unassigned_gateways"`
+
+	// WriteCommandMaxAgeSeconds is the command validity configured on the
+	// platform. The box's drivers read it from the box's own database, so it
+	// has to travel with the rest; a box would otherwise keep the default no
+	// matter what was set in the web UI. Zero means the default.
+	WriteCommandMaxAgeSeconds int `json:"write_command_max_age_seconds,omitempty"`
 }
 
 // MQTTCreds is where the box publishes and with which credentials.

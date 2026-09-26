@@ -26,6 +26,7 @@ import (
 
 	"github.com/ralph/industrial-edge-middleware/internal/naming"
 
+	"github.com/ralph/industrial-edge-middleware/internal/commands"
 	"github.com/ralph/industrial-edge-middleware/internal/scaling"
 )
 
@@ -385,12 +386,9 @@ func (d *Driver) handleHealthMessage(topic string, payload []byte) {
 }
 
 // WriteCommand represents a write command with full tag info
-type WriteCommand struct {
-	TagID    int         `json:"tag_id"`
-	Code     string      `json:"code"`
-	Value    interface{} `json:"value"`
-	DataType string      `json:"data_type"`
-}
+// WriteCommand is the shared command body; see internal/models. An alias, so
+// the fields every handler below uses are the ones the publishers stamp.
+type WriteCommand = models.WriteCommand
 
 func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 	log.Printf("[OPC-UA Driver] Received write command: %s", string(payload))
@@ -398,6 +396,17 @@ func (d *Driver) handleWriteCommand(topic string, payload []byte) {
 	var cmd WriteCommand
 	if err := json.Unmarshal(payload, &cmd); err != nil {
 		log.Printf("[OPC-UA Driver] Failed to unmarshal write command: %v", err)
+		return
+	}
+
+	// A command is executable only while it is fresh. The bridge of an edge
+	// box queues commands across a dropped link, and one executed hours late
+	// is a decision nobody took; see internal/commands.
+	maxAge := commands.MaxAgeFromDB(context.Background(), d.database)
+	if ok, age := commands.Fresh(cmd.IssuedAt, time.Now(), maxAge); !ok {
+		msg := commands.RefusalMessage(age, maxAge)
+		log.Printf("REFUSED write for tag %d (%s): %s", cmd.TagID, cmd.Code, msg)
+		d.publishWriteResult(cmd.TagID, false, msg, nil)
 		return
 	}
 

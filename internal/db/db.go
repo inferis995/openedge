@@ -1113,6 +1113,16 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: failed to seed historian_retention_days: %v", err)
 	}
 
+	// How long a write command stays executable after it was issued. Read by
+	// every driver when a command arrives; see internal/commands.
+	if _, err := db.ExecContext(context.Background(), `
+	INSERT INTO global_settings (key, value, description) VALUES
+		('write_command_max_age_seconds', '30',
+		 'Seconds a write command to a PLC stays valid. An older one is refused, not executed. Minimum 5.')
+	ON CONFLICT (key) DO NOTHING;`); err != nil {
+		log.Printf("Warning: failed to seed write_command_max_age_seconds: %v", err)
+	}
+
 	// MFA recovery codes
 	if _, err := db.ExecContext(context.Background(), `CREATE TABLE IF NOT EXISTS mfa_recovery_codes (
     id SERIAL PRIMARY KEY,
