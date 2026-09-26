@@ -25,6 +25,7 @@ import (
 	"github.com/docker/docker/client"
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
+	"github.com/ralph/industrial-edge-middleware/internal/edgesync"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	iemqtt "github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/topics"
@@ -116,6 +117,13 @@ type Manager struct {
 	// broker is misconfigured.
 	orgID int
 
+	// onBox is true when this driver-manager runs on an edge box: it mirrors
+	// its configuration from the platform (CORE_API_URL is set), and that
+	// mirror already holds only the gateways this box is responsible for. On
+	// the server it is false, and the ownership rule decides which gateways
+	// the server polls itself — see edgesync.ServerGateways.
+	onBox bool
+
 	// Per-image pull cooldown: a registry that keeps failing must not cost
 	// every sync cycle 15 minutes of serial retries, starving the other
 	// gateways. Guarded by pullMu (pre-pull runs outside m.mu).
@@ -190,6 +198,7 @@ func main() {
 		cancel:        cancel,
 		mqttClient:    mqttClient,
 		orgID:         getEnvInt("ORG_ID", 0),
+		onBox:         getEnv("CORE_API_URL", "") != "",
 	}
 
 	// Get or create Docker network
@@ -654,9 +663,16 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 // syncGateways synchronizes container states with database gateway states
 func (m *Manager) syncGateways() error {
 	// Load all gateways from database
+	// The organization and the assigned box come along because, on the server,
+	// they decide whether this driver-manager polls the gateway at all. LEFT
+	// JOINs: a gateway whose area is missing is still one the manager has to
+	// know about, if only to stop its container.
 	query := `
-		SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled
-		FROM gateways
+		SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled,
+		       COALESCE(s.org_id, 0), g.edge_agent_id
+		FROM gateways g
+		LEFT JOIN areas a ON a.id = g.area_id
+		LEFT JOIN sites s ON s.id = a.site_id
 	`
 
 	rows, err := m.database.Query(query)
@@ -667,9 +683,12 @@ func (m *Manager) syncGateways() error {
 	defer rows.Close()
 
 	var gateways []models.Gateway
+	orgs := map[int]int{}
 	for rows.Next() {
 		var g models.Gateway
 		var connConfigBytes []byte
+		var orgOf int
+		var agent sql.NullInt64
 
 		err := rows.Scan(
 			&g.ID,
@@ -679,12 +698,43 @@ func (m *Manager) syncGateways() error {
 			&connConfigBytes,
 			&g.ScanRateMs,
 			&g.Enabled,
+			&orgOf,
+			&agent,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to scan gateway: %w", err)
 		}
+		if agent.Valid {
+			a := int(agent.Int64)
+			g.EdgeAgentID = &a
+		}
+		orgs[g.ID] = orgOf
 
 		gateways = append(gateways, g)
+	}
+
+	// On the server, poll only what no box is responsible for. A gateway that
+	// has just been given to a box drops out of this list, and the cleanup at
+	// the end of this function stops its container exactly as if the gateway
+	// had been deleted: from here on the box polls it, and a second poller
+	// would put every value in history twice — or, for a PLC the server cannot
+	// reach, raise communication-loss alarms about a machine that is fine.
+	if !m.onBox {
+		owned, ownErr := m.serverOwned(gateways, orgs)
+		if ownErr != nil {
+			// Not knowing which gateways belong to a box, polling all of them
+			// could double every reading; polling none would stop the plant.
+			// Keep the containers as they are until the boxes can be read.
+			m.consecutiveErrors++
+			return fmt.Errorf("%s: reading the boxes: %w", ErrCodeDBQuery, ownErr)
+		}
+		gateways = owned
+		// Tell the platform the server polls. Without it, a gateway given to
+		// no box looks polled by nobody on a cloud server — and on this one it
+		// is ours. A failure here costs only that indication.
+		if markErr := edgesync.MarkServerPolling(m.ctx, m.database, time.Now()); markErr != nil {
+			log.Printf("[DRIVER-MANAGER] recording that the server polls: %v", markErr)
+		}
 	}
 
 	// Pre-pull images for enabled gateways BEFORE acquiring the lock.
@@ -795,7 +845,7 @@ func (m *Manager) syncGateways() error {
 			continue
 		}
 		if state.Running {
-			log.Printf("[DRIVER-MANAGER] Gateway %d no longer exists in database, stopping container", id)
+			log.Printf("[DRIVER-MANAGER] Gateway %d is no longer polled here (deleted, or handed to an edge box), stopping container", id)
 			if err := m.stopGatewayContainer(id); err != nil {
 				log.Printf("[DRIVER-MANAGER] ERROR: Failed to stop container for deleted gateway %d: %v", id, err)
 				continue // keep the entry so the stop is retried next cycle
@@ -1420,4 +1470,27 @@ func publishToMQTT(host string, port int, topic string, payload interface{}, qos
 	}
 
 	return nil
+}
+
+// serverOwned narrows the gateways to the ones the server polls, by the same
+// rule the boxes' configuration is built with.
+func (m *Manager) serverOwned(gateways []models.Gateway, orgs map[int]int) ([]models.Gateway, error) {
+	boxesByOrg, err := edgesync.LoadAllBoxes(m.ctx, m.database)
+	if err != nil {
+		return nil, err
+	}
+	return ownedByServer(gateways, orgs, boxesByOrg), nil
+}
+
+// ownedByServer applies the ownership rule organization by organization. A
+// gateway is judged only against the boxes of its own organization: a
+// scope-all box of one tenant must not take another tenant's PLCs.
+func ownedByServer(gateways []models.Gateway, orgs map[int]int, boxesByOrg map[int][]edgesync.Box) []models.Gateway {
+	owned := make([]models.Gateway, 0, len(gateways))
+	for i := range gateways {
+		if edgesync.Owner(&gateways[i], boxesByOrg[orgs[gateways[i].ID]]) == edgesync.Server {
+			owned = append(owned, gateways[i])
+		}
+	}
+	return owned
 }

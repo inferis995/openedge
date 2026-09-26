@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	"github.com/ralph/industrial-edge-middleware/internal/edgesync"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	internalredis "github.com/ralph/industrial-edge-middleware/internal/redis"
@@ -196,19 +197,14 @@ func (h *HealthHandler) EdgeHeartbeat(c *gin.Context) {
 		}
 	}
 
-	var agentsInOrg int
-	if err := h.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM edge_agents WHERE org_id = $1`, orgID).Scan(&agentsInOrg); err != nil {
-		log.Printf("[HEARTBEAT] counting the boxes of org %d: %v", orgID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-		return
-	}
-
-	// A box vouches for the gateways it is responsible for, and for no others.
-	// Refreshing every gateway of the organization is how two dead boxes out of
-	// three were made to look alive by the survivor.
+	// A box vouches for the gateways it polls, and for no others. Refreshing
+	// every gateway of the organization is how two dead boxes out of three were
+	// made to look alive by the survivor — and, now that the server polls too,
+	// how a box would vouch for PLCs it has never been asked to read.
 	var err error
-	if edgesync.ScopeIsWholeOrg(agentID, agentsInOrg) {
+	if agentID == edgesync.Server {
+		// A key minted before boxes had identities: it polls everything, so
+		// it vouches for everything, as it always did.
 		_, err = h.db.ExecContext(ctx,
 			`UPDATE gateways SET last_seen_at = NOW(), agent_version = $1
 			 WHERE area_id IN (
@@ -217,9 +213,13 @@ func (h *HealthHandler) EdgeHeartbeat(c *gin.Context) {
 			   WHERE s.org_id = $2
 			 )`, body.AgentVersion, orgID)
 	} else {
-		_, err = h.db.ExecContext(ctx,
-			`UPDATE gateways SET last_seen_at = NOW(), agent_version = $1
-			 WHERE edge_agent_id = $2`, body.AgentVersion, agentID)
+		var owned []int64
+		owned, err = h.gatewaysOwnedBy(ctx, orgID, agentID)
+		if err == nil && len(owned) > 0 {
+			_, err = h.db.ExecContext(ctx,
+				`UPDATE gateways SET last_seen_at = NOW(), agent_version = $1
+				 WHERE id = ANY($2)`, body.AgentVersion, pq.Array(owned))
+		}
 	}
 	if err != nil {
 		log.Printf("[HEARTBEAT] recording the gateways of org %d: %v", orgID, err)
@@ -228,4 +228,24 @@ func (h *HealthHandler) EdgeHeartbeat(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true, "agent_id": agentID})
+}
+
+// gatewaysOwnedBy returns the ids of the gateways of orgID that box agentID
+// polls, by the same rule the box's configuration is built with.
+func (h *HealthHandler) gatewaysOwnedBy(ctx context.Context, orgID, agentID int) ([]int64, error) {
+	boxes, err := edgesync.LoadBoxes(ctx, h.db, orgID)
+	if err != nil {
+		return nil, err
+	}
+	gateways, err := orgGatewayOwners(ctx, h.db, orgID)
+	if err != nil {
+		return nil, err
+	}
+	var owned []int64
+	for i := range gateways {
+		if edgesync.Owner(&gateways[i], boxes) == agentID {
+			owned = append(owned, int64(gateways[i].ID))
+		}
+	}
+	return owned, nil
 }

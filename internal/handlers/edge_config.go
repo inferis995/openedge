@@ -86,25 +86,23 @@ func (h *EdgeConfigHandler) Get(c *gin.Context) {
 		return
 	}
 
-	// Narrow it to the box that is asking. With one box this changes nothing;
-	// with two it is what stops both of them polling every PLC of the
-	// organization, including the ones on the other site.
+	// Narrow it to the box that is asking: only the gateways it is
+	// responsible for, never one the server or another box polls.
 	agentID, _ := c.Get(middleware.APIKeyAgentContextKey)
 	id, _ := agentID.(int)
 
-	var agentsInOrg int
-	if err := h.db.QueryRowContext(c.Request.Context(),
-		`SELECT COUNT(*) FROM edge_agents WHERE org_id = $1`, orgID).Scan(&agentsInOrg); err != nil {
-		// Counting is what decides whether the assignment applies at all.
-		// Guessing would either strand a lone box or let two fight, so the
+	boxes, err := edgesync.LoadBoxes(c.Request.Context(), h.db, orgID)
+	if err != nil {
+		// The boxes decide what this one is responsible for. Guessing would
+		// either strand PLCs or hand the same PLC to two pollers, so the
 		// request fails instead.
-		log.Printf("[EDGE-CONFIG] counting the boxes of org %d: %v", orgID, err)
+		log.Printf("[EDGE-CONFIG] %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load edge configuration"})
 		return
 	}
 
 	cfg.AgentID = id
-	cfg.FilterTree(id, agentsInOrg)
+	cfg.FilterTree(id, boxes)
 
 	// The command validity set on the platform, so the box's drivers enforce
 	// the same one. A read failure leaves it at zero, which the box treats as
@@ -116,11 +114,6 @@ func (h *EdgeConfigHandler) Get(c *gin.Context) {
 			cfg.WriteCommandMaxAgeSeconds = n
 		}
 	}
-	if cfg.Unassigned > 0 {
-		log.Printf("[EDGE-CONFIG] org %d has %d gateway(s) assigned to no box; nobody is polling them",
-			orgID, cfg.Unassigned)
-	}
-
 	c.JSON(http.StatusOK, cfg)
 }
 

@@ -969,6 +969,12 @@ func main() {
 			// is no way to know which id.
 			edgeAgentsHandler := handlers.NewEdgeAgentsHandler(database)
 			orgEdge.GET("/edge-agents", edgeAgentsHandler.List)
+			// Renaming a box, changing what it polls, and removing it change
+			// who reads which PLC. Administrators only.
+			orgEdge.PUT("/edge-agents/:agentId",
+				middleware.RequireRole(models.RoleAdmin), edgeAgentsHandler.Update)
+			orgEdge.DELETE("/edge-agents/:agentId",
+				middleware.RequireRole(models.RoleAdmin), edgeAgentsHandler.Delete)
 		}
 
 		// User invites — org admins create one-time invite links for new members.

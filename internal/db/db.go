@@ -1025,6 +1025,38 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// A box's scope: what it polls besides the gateways assigned to it. See
+	// internal/edgesync/assignment.go.
+	//
+	// The backfill runs only on the start that adds the column. It freezes the
+	// behavior an existing organization had — its only box took everything —
+	// and must never run again, or it would undo an administrator's choice on
+	// every restart.
+	var scopeExists bool
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT EXISTS (SELECT 1 FROM information_schema.columns
+		               WHERE table_name = 'edge_agents' AND column_name = 'scope')`).Scan(&scopeExists); err != nil {
+		log.Printf("Warning: checking edge_agents.scope: %v", err)
+	} else if !scopeExists {
+		for _, stmt := range []string{
+			`ALTER TABLE edge_agents ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'assigned'
+			   CHECK (scope IN ('assigned', 'all'))`,
+			`UPDATE edge_agents SET scope = 'all'
+			 WHERE org_id IN (SELECT org_id FROM edge_agents GROUP BY org_id HAVING COUNT(*) = 1)`,
+		} {
+			if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+				log.Printf("Warning: edge_agents.scope migration: %v", err)
+			}
+		}
+	}
+	// Two boxes that both take every unassigned gateway would poll the same
+	// PLCs. The API refuses it; this makes it impossible.
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_edge_agents_one_all_per_org
+		   ON edge_agents (org_id) WHERE scope = 'all'`); err != nil {
+		log.Printf("Warning: idx_edge_agents_one_all_per_org: %v", err)
+	}
+
 	// Migration: gateway heartbeat columns
 	//
 	// last_seen_at is written by the edge agent's heartbeat, which is sent once

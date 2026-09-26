@@ -70,35 +70,125 @@ func TestTwoBoxesInOneOrgEachGetOnlyItsOwnGateways(t *testing.T) {
 	}
 }
 
-// Nearly every installation has one box, and nobody should have to assign
-// anything for it to keep working.
-func TestASingleBoxStillGetsEverything(t *testing.T) {
+// Installing a box takes nothing away from the server. This is the case the
+// old rule got wrong: "the organization's only box takes everything" meant a box
+// installed for one PLC the server cannot reach would take every PLC the server
+// already polls, fail to reach them, and raise comm_loss about machines that
+// were fine. A new box polls what it is given, and nothing else.
+func TestANewBoxTakesNothingUntilItIsGivenSomething(t *testing.T) {
 	admin, _ := adminSession(t)
 	db := openDB(t)
 
 	suffix := uniqueSuffix()
-	org := createOrg(t, admin, "agent-solo-"+suffix)
-	a := seedInventoryGateway(t, db, org.ID, "a-"+suffix)
-	b := seedInventoryGateway(t, db, org.ID, "b-"+suffix)
+	org := createOrg(t, admin, "agent-new-"+suffix)
+	onServer := seedInventoryGateway(t, db, org.ID, "server-lan-"+suffix)
+	remote := seedInventoryGateway(t, db, org.ID, "reparto-b-"+suffix)
 
 	key := downloadInstallerKey(t, admin, db, org.ID)
+	agents := listAgents(t, admin, org.ID)
+	if len(agents) != 1 {
+		t.Fatalf("one download registered %d boxes, want 1", len(agents))
+	}
 
 	cfg, err := edgesync.Fetch(context.Background(), apiBase(), key)
 	if err != nil {
 		t.Fatalf("fetching: %v", err)
 	}
+	if len(cfg.Gateways) != 0 {
+		t.Fatalf("a box nobody has given anything to was handed %d gateways; it would "+
+			"poll PLCs the server already polls", len(cfg.Gateways))
+	}
 
+	// Now give it the one PLC the server cannot reach.
+	orgAdmin := createOrgAdmin(t, admin, org.ID, "agent-new-"+suffix, "e2e-Password-"+suffix)
+	assignGateway(t, orgAdmin, remote, agents[0].ID)
+
+	cfg, err = edgesync.Fetch(context.Background(), apiBase(), key)
+	if err != nil {
+		t.Fatalf("fetching after the assignment: %v", err)
+	}
+	assertHasOnly(t, "the box", cfg, remote, []int{onServer})
+	if cfg.Unassigned != 1 {
+		t.Errorf("the configuration reports %d gateways left to the server, want 1 "+
+			"(the one on the server's LAN)", cfg.Unassigned)
+	}
+}
+
+// With the server in the cloud nothing polls a gateway no box was given. A box
+// set to scope "all" takes those, which is what a single box used to do on its
+// own — now as an explicit choice.
+func TestABoxWithScopeAllTakesEveryUnassignedGateway(t *testing.T) {
+	admin, _ := adminSession(t)
+	db := openDB(t)
+
+	suffix := uniqueSuffix()
+	org := createOrg(t, admin, "agent-all-"+suffix)
+	a := seedInventoryGateway(t, db, org.ID, "a-"+suffix)
+	b := seedInventoryGateway(t, db, org.ID, "b-"+suffix)
+
+	key := downloadInstallerKey(t, admin, db, org.ID)
+	box := listAgents(t, admin, org.ID)[0]
+	setScope(t, admin, org.ID, box.ID, "all", 200)
+
+	cfg, err := edgesync.Fetch(context.Background(), apiBase(), key)
+	if err != nil {
+		t.Fatalf("fetching: %v", err)
+	}
 	got := map[int]bool{}
 	for i := range cfg.Gateways {
 		got[cfg.Gateways[i].ID] = true
 	}
 	if !got[a] || !got[b] {
-		t.Fatalf("the only box was given %d gateways and is missing some of its own; "+
-			"a single-box plant must work with nothing assigned", len(cfg.Gateways))
+		t.Fatalf("a box with scope all was given %d gateways and is missing some", len(cfg.Gateways))
 	}
 	if cfg.Unassigned != 0 {
-		t.Errorf("a single-box organization reported %d unassigned gateways; the "+
-			"assignment does not apply there and a warning would only be noise", cfg.Unassigned)
+		t.Errorf("with a scope-all box nothing is left to the server, but %d was reported", cfg.Unassigned)
+	}
+
+	// A second box may not take them too: the same PLC would be polled twice.
+	_ = downloadInstallerKey(t, admin, db, org.ID)
+	boxes := listAgents(t, admin, org.ID)
+	var second int
+	for _, x := range boxes {
+		if x.ID != box.ID {
+			second = x.ID
+		}
+	}
+	setScope(t, admin, org.ID, second, "all", 409)
+}
+
+// Removing a box revokes its key in the same step. Deleting the row alone would
+// turn the key into one with no box behind it — which is treated as a key from
+// before boxes had identities, and polls every gateway of the organization.
+func TestRemovingABoxRevokesItsKeyAndReturnsItsGatewaysToTheServer(t *testing.T) {
+	admin, _ := adminSession(t)
+	db := openDB(t)
+
+	suffix := uniqueSuffix()
+	org := createOrg(t, admin, "agent-del-"+suffix)
+	gw := seedInventoryGateway(t, db, org.ID, "gw-"+suffix)
+
+	key := downloadInstallerKey(t, admin, db, org.ID)
+	box := listAgents(t, admin, org.ID)[0]
+	orgAdmin := createOrgAdmin(t, admin, org.ID, "agent-del-"+suffix, "e2e-Password-"+suffix)
+	assignGateway(t, orgAdmin, gw, box.ID)
+
+	status, body := admin.do("DELETE", fmt.Sprintf("/api/organizations/%d/edge-agents/%d", org.ID, box.ID), nil)
+	if status != 200 {
+		t.Fatalf("removing the box returned %d: %s", status, truncate(body))
+	}
+
+	if cfg, err := edgesync.Fetch(context.Background(), apiBase(), key); err == nil {
+		t.Fatalf("the removed box's key still works and was handed %d gateways; a box "+
+			"still plugged in would go on polling", len(cfg.Gateways))
+	}
+
+	var agent sql.NullInt64
+	if err := db.QueryRow(`SELECT edge_agent_id FROM gateways WHERE id = $1`, gw).Scan(&agent); err != nil {
+		t.Fatalf("reading the gateway: %v", err)
+	}
+	if agent.Valid {
+		t.Errorf("the gateway is still assigned to box %d, which no longer exists", agent.Int64)
 	}
 }
 
@@ -151,6 +241,16 @@ func listAgents(t *testing.T, admin *apiClient, orgID int) []agentRow {
 		t.Fatalf("the box list is not JSON: %v — %s", err, truncate(body))
 	}
 	return out.Agents
+}
+
+func setScope(t *testing.T, admin *apiClient, orgID, agentID int, scope string, want int) {
+	t.Helper()
+	status, body := admin.do("PUT", fmt.Sprintf("/api/organizations/%d/edge-agents/%d", orgID, agentID),
+		map[string]interface{}{"scope": scope})
+	if status != want {
+		t.Fatalf("setting box %d to scope %q returned %d, want %d: %s",
+			agentID, scope, status, want, truncate(body))
+	}
 }
 
 func assignGateway(t *testing.T, admin *apiClient, gatewayID, agentID int) {

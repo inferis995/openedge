@@ -2,73 +2,100 @@ package edgesync
 
 import "github.com/ralph/industrial-edge-middleware/internal/models"
 
-// GatewaysFor decides which gateways a box is responsible for.
+// Every gateway is polled by exactly one thing: its box, or the server.
 //
-// The rule has three cases, and the awkward one is the middle:
+// That sentence is the whole rule, and it is written once, here, because three
+// places have to agree on it: the configuration a box downloads, the heartbeat
+// with which a box vouches for its gateways, and the server's own
+// driver-manager deciding what to poll itself. Two copies of the rule diverge
+// on the first change, and the divergence is a PLC read by two pollers — whose
+// values land twice in history — or by none, which looks like a quiet plant.
 //
-//	a key with no box behind it   -> everything
-//	the organization's only box   -> everything
-//	one of several boxes          -> only what it was given
+// The old rule had a case that made mixing impossible: "the organization's only
+// box takes everything". That was right while the server never polled, and
+// wrong the moment it does: a box installed for one unreachable PLC would have
+// taken every PLC the server already reaches, failed to reach them, and raised
+// communication-loss alarms about equipment that was fine. Taking everything is
+// now something a box is told to do, not something it infers from being alone.
+
+// Server is the owner returned for a gateway no box is responsible for.
+const Server = 0
+
+// A box's scope says what it polls besides the gateways assigned to it.
+const (
+	// ScopeAssigned: only the gateways explicitly given to it. The default,
+	// and the only safe one when the server polls too.
+	ScopeAssigned = "assigned"
+	// ScopeAll: also every gateway of the organization given to no box. For
+	// an installation where the server is in the cloud and polls nothing. At
+	// most one box per organization may have it.
+	ScopeAll = "all"
+)
+
+// Box is an installed box as the rule needs to see it.
+type Box struct {
+	ID    int    `json:"id"`
+	Scope string `json:"scope"`
+}
+
+// ValidScope reports whether s is a scope a box can be given.
+func ValidScope(s string) bool { return s == ScopeAssigned || s == ScopeAll }
+
+// Owner returns the box responsible for a gateway, or Server.
 //
-// The first case exists because every key minted before boxes had identities
-// has no box behind it, and the plants those keys are running must not stop
-// polling the day this ships. They were the organization's only box; they
-// behave as one.
+// A gateway assigned to a box that no longer exists falls through as if it had
+// never been assigned: deleting a box must not leave its PLCs polled by nobody.
+func Owner(gw *models.Gateway, boxes []Box) int {
+	if gw.EdgeAgentID != nil {
+		for _, b := range boxes {
+			if b.ID == *gw.EdgeAgentID {
+				return b.ID
+			}
+		}
+	}
+	for _, b := range boxes {
+		if b.Scope == ScopeAll {
+			return b.ID
+		}
+	}
+	return Server
+}
+
+// GatewaysFor returns the gateways box agentID polls.
 //
-// The second is what keeps a single-box installation — which is nearly all of
-// them — working with nobody having to assign anything.
-//
-// The third is the point. Two boxes that both take every gateway of the
-// organization both try to reach PLCs on the other site, fail, and now that
-// comm_loss exists they raise alarms about equipment that is perfectly fine.
-// Once there are several boxes, each takes only what it was given.
-//
-// A gateway left unassigned in an organization with several boxes is polled by
-// nobody. That is deliberate — the alternative is two boxes fighting over it —
-// and it is why UnassignedIn exists, so it can be said out loud rather than
-// discovered.
-func GatewaysFor(agentID, agentsInOrg int, gateways []models.Gateway) []models.Gateway {
-	if ScopeIsWholeOrg(agentID, agentsInOrg) {
+// agentID zero is a key minted before boxes had identities. It keeps getting
+// every gateway, as it always has: the plants such a key runs must not stop
+// being polled because this rule changed. A box on such a key cannot share an
+// organization with the server polling or with other boxes; re-issuing its
+// installer gives it an identity.
+func GatewaysFor(agentID int, boxes []Box, gateways []models.Gateway) []models.Gateway {
+	if agentID == Server {
 		return gateways
 	}
-
-	mine := make([]models.Gateway, 0, len(gateways))
-	for i := range gateways {
-		if id := gateways[i].EdgeAgentID; id != nil && *id == agentID {
-			mine = append(mine, gateways[i])
-		}
-	}
-	return mine
+	return ownedBy(agentID, boxes, gateways)
 }
 
-// ScopeIsWholeOrg reports whether a box speaks for the whole organization.
-//
-// It is the one decision behind every "which gateways" question, and it is
-// asked from two places that cannot share a loop: the configuration pull, which
-// filters a slice, and the heartbeat, which has to express the same thing as a
-// WHERE clause. Two copies of a three-case rule diverge on the first change, and
-// the divergence would be a box that is handed gateways it does not vouch for —
-// or vouches for gateways it was never handed.
-func ScopeIsWholeOrg(agentID, agentsInOrg int) bool {
-	return agentID == 0 || agentsInOrg <= 1
+// ServerGateways returns the gateways the server itself polls: those no box is
+// responsible for.
+func ServerGateways(boxes []Box, gateways []models.Gateway) []models.Gateway {
+	return ownedBy(Server, boxes, gateways)
 }
 
-// UnassignedIn counts the gateways nobody has been made responsible for.
-//
-// Zero in an organization with one box, because there the rule ignores the
-// assignment entirely. It only becomes a number worth reporting when a second
-// box appears, which is exactly when somebody needs to be told.
-func UnassignedIn(agentsInOrg int, gateways []models.Gateway) int {
-	if agentsInOrg <= 1 {
-		return 0
-	}
-	n := 0
+func ownedBy(owner int, boxes []Box, gateways []models.Gateway) []models.Gateway {
+	out := make([]models.Gateway, 0, len(gateways))
 	for i := range gateways {
-		if gateways[i].EdgeAgentID == nil {
-			n++
+		if Owner(&gateways[i], boxes) == owner {
+			out = append(out, gateways[i])
 		}
 	}
-	return n
+	return out
+}
+
+// ServerOwned counts the gateways left to the server. Whether that is fine
+// depends on whether the server polls: on-prem it does, and these are simply
+// its PLCs; a cloud server does not, and these are polled by nobody.
+func ServerOwned(boxes []Box, gateways []models.Gateway) int {
+	return len(ServerGateways(boxes, gateways))
 }
 
 // FilterTree narrows a configuration to one box.
@@ -82,9 +109,9 @@ func UnassignedIn(agentsInOrg int, gateways []models.Gateway) int {
 // Sites and areas are left whole. They are a handful of rows, they cost
 // nothing, and a box that knows the shape of the plant it sits in produces
 // better logs than one that knows only its own corner.
-func (c *Config) FilterTree(agentID, agentsInOrg int) {
-	c.Unassigned = UnassignedIn(agentsInOrg, c.Gateways)
-	c.Gateways = GatewaysFor(agentID, agentsInOrg, c.Gateways)
+func (c *Config) FilterTree(agentID int, boxes []Box) {
+	c.Unassigned = ServerOwned(boxes, c.Gateways)
+	c.Gateways = GatewaysFor(agentID, boxes, c.Gateways)
 
 	keptGateway := make(map[int]bool, len(c.Gateways))
 	for i := range c.Gateways {

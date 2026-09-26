@@ -9,161 +9,144 @@ import (
 
 func agent(id int) *int { return &id }
 
-// three gateways: one for box 1, one for box 2, one nobody has claimed.
-func threeGateways() []models.Gateway {
-	return []models.Gateway{
-		{ID: 10, Name: "Napoli", EdgeAgentID: agent(1)},
-		{ID: 20, Name: "Milano", EdgeAgentID: agent(2)},
-		{ID: 30, Name: "non assegnato"},
-	}
+func gw(id int, box *int) models.Gateway {
+	return models.Gateway{ID: id, EdgeAgentID: box}
 }
 
-func names(gws []models.Gateway) []string {
-	out := make([]string, 0, len(gws))
+func ids(gws []models.Gateway) map[int]bool {
+	out := map[int]bool{}
 	for i := range gws {
-		out = append(out, gws[i].Name)
+		out[gws[i].ID] = true
 	}
 	return out
 }
 
-func same(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
+func assigned(id int) edgesync.Box { return edgesync.Box{ID: id, Scope: edgesync.ScopeAssigned} }
+func all(id int) edgesync.Box      { return edgesync.Box{ID: id, Scope: edgesync.ScopeAll} }
 
-// Nearly every installation has one box, and nobody should have to assign
-// anything for it to work.
-func TestTheOnlyBoxTakesEverything(t *testing.T) {
-	got := edgesync.GatewaysFor(1, 1, threeGateways())
-	if len(got) != 3 {
-		t.Fatalf("the only box was given %v, want all three", names(got))
+// No boxes: the server polls everything. The installation that never adds a
+// box must work with nothing configured.
+func TestWithNoBoxesTheServerPollsEverything(t *testing.T) {
+	gws := []models.Gateway{gw(1, nil), gw(2, nil)}
+	if got := edgesync.ServerGateways(nil, gws); len(got) != 2 {
+		t.Fatalf("with no boxes the server polls %d of 2 gateways", len(got))
 	}
 }
 
-// The defect this whole thing exists for. Two boxes in one organization each
-// pulled every gateway and each tried to poll the other site's PLCs — which
-// they cannot reach, and which now produce comm_loss alarms about equipment
-// that is perfectly fine.
-func TestWithTwoBoxesEachTakesOnlyItsOwn(t *testing.T) {
-	first := edgesync.GatewaysFor(1, 2, threeGateways())
-	second := edgesync.GatewaysFor(2, 2, threeGateways())
+// The scenario this rule exists for: a server that reaches most PLCs, and one
+// box installed next to a PLC it cannot reach.
+func TestTheServerKeepsItsPLCsAndTheBoxTakesOnlyItsOwn(t *testing.T) {
+	boxes := []edgesync.Box{assigned(7)}
+	gws := []models.Gateway{gw(1, nil), gw(2, nil), gw(3, agent(7))}
 
-	if !same(names(first), []string{"Napoli"}) {
-		t.Errorf("box 1 was given %v, want only Napoli", names(first))
-	}
-	if !same(names(second), []string{"Milano"}) {
-		t.Errorf("box 2 was given %v, want only Milano", names(second))
-	}
+	server := ids(edgesync.ServerGateways(boxes, gws))
+	box := ids(edgesync.GatewaysFor(7, boxes, gws))
 
-	// And neither of them takes the unclaimed one, because both taking it is
-	// the failure being fixed.
-	for _, n := range append(names(first), names(second)...) {
-		if n == "non assegnato" {
-			t.Error("an unassigned gateway was handed to a box in an organization with two")
-		}
+	if !server[1] || !server[2] || server[3] {
+		t.Errorf("the server polls %v, want 1 and 2 only", server)
+	}
+	if !box[3] || box[1] || box[2] {
+		t.Errorf("the box polls %v, want 3 only — the old rule gave a lone box every "+
+			"gateway, including the ones on the server's LAN", box)
 	}
 }
 
-// Every key minted before boxes had identities carries no box. The plants
-// running on those keys must not stop polling the day this ships.
+// A box installed and not yet given anything takes nothing.
+func TestANewBoxTakesNothing(t *testing.T) {
+	boxes := []edgesync.Box{assigned(7)}
+	gws := []models.Gateway{gw(1, nil), gw(2, nil)}
+	if got := edgesync.GatewaysFor(7, boxes, gws); len(got) != 0 {
+		t.Fatalf("a box given nothing polls %d gateways", len(got))
+	}
+}
+
+// Cloud server, which polls nothing: the box with scope "all" takes what no box
+// was given, plus its own.
+func TestABoxWithScopeAllTakesTheUnassigned(t *testing.T) {
+	boxes := []edgesync.Box{all(7), assigned(8)}
+	gws := []models.Gateway{gw(1, nil), gw(2, agent(8)), gw(3, agent(7))}
+
+	got := ids(edgesync.GatewaysFor(7, boxes, gws))
+	if !got[1] || !got[3] || got[2] {
+		t.Errorf("the scope-all box polls %v, want 1 (unassigned) and 3 (its own), not 2", got)
+	}
+	if n := len(edgesync.ServerGateways(boxes, gws)); n != 0 {
+		t.Errorf("with a scope-all box the server still polls %d gateways", n)
+	}
+}
+
+// Deleting a box sets its gateways' edge_agent_id to NULL, but an id can also
+// be left pointing at a box that is not in the list. Either way the gateway
+// must go back to someone, never to nobody.
+func TestAGatewayOfAMissingBoxGoesBackToTheServer(t *testing.T) {
+	gws := []models.Gateway{gw(1, agent(99))}
+	if got := edgesync.ServerGateways([]edgesync.Box{assigned(7)}, gws); len(got) != 1 {
+		t.Fatal("a gateway assigned to a box that does not exist is polled by nobody")
+	}
+}
+
+// A key from before boxes had identities keeps getting everything.
 func TestALegacyKeyKeepsGettingEverything(t *testing.T) {
-	got := edgesync.GatewaysFor(0, 2, threeGateways())
-	if len(got) != 3 {
-		t.Fatalf("a key with no box behind it was given %v, want all three — those "+
-			"installations were working yesterday", names(got))
+	gws := []models.Gateway{gw(1, nil), gw(2, agent(7))}
+	if got := edgesync.GatewaysFor(edgesync.Server, []edgesync.Box{assigned(7)}, gws); len(got) != 2 {
+		t.Fatalf("a legacy key got %d of 2 gateways", len(got))
 	}
 }
 
-// An organization that has boxes registered but none assigned anything yet is
-// the normal state right after the second installer is downloaded.
-func TestNothingIsHandedOutTwiceWhenNothingIsAssigned(t *testing.T) {
-	gws := []models.Gateway{{ID: 10, Name: "a"}, {ID: 20, Name: "b"}}
-
-	first := edgesync.GatewaysFor(1, 2, gws)
-	second := edgesync.GatewaysFor(2, 2, gws)
-
-	if len(first) != 0 || len(second) != 0 {
-		t.Fatalf("with nothing assigned, box 1 got %v and box 2 got %v — they would both "+
-			"poll the same PLCs", names(first), names(second))
+// The whole property, over every combination of a small world: each gateway
+// has exactly one poller. Two would put every value in history twice; none
+// looks like a quiet plant.
+func TestEveryGatewayHasExactlyOnePoller(t *testing.T) {
+	scopes := []string{edgesync.ScopeAssigned, edgesync.ScopeAll}
+	owners := []*int{nil, agent(1), agent(2), agent(3)} // 3 does not exist
+	for _, s1 := range scopes {
+		for _, s2 := range scopes {
+			if s1 == edgesync.ScopeAll && s2 == edgesync.ScopeAll {
+				continue // refused by the API and by a unique index
+			}
+			boxes := []edgesync.Box{{ID: 1, Scope: s1}, {ID: 2, Scope: s2}}
+			for i, o := range owners {
+				g := []models.Gateway{gw(100+i, o)}
+				pollers := len(edgesync.ServerGateways(boxes, g)) +
+					len(edgesync.GatewaysFor(1, boxes, g)) +
+					len(edgesync.GatewaysFor(2, boxes, g))
+				if pollers != 1 {
+					t.Errorf("scopes %s/%s, assigned to %v: %d pollers, want exactly 1",
+						s1, s2, o, pollers)
+				}
+			}
+		}
 	}
 }
 
-// Silence about it would be worse than the ambiguity: somebody has to be told
-// that those gateways are polled by nobody.
-func TestUnassignedGatewaysAreCounted(t *testing.T) {
-	if got := edgesync.UnassignedIn(2, threeGateways()); got != 1 {
-		t.Errorf("unassigned = %d, want 1", got)
-	}
-	// With a single box the assignment is ignored, so there is nothing to warn
-	// about and a warning would only train people to skip warnings.
-	if got := edgesync.UnassignedIn(1, threeGateways()); got != 0 {
-		t.Errorf("unassigned with one box = %d, want 0", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// FilterTree
-// ---------------------------------------------------------------------------
-
-func aTree() *edgesync.Config {
-	return &edgesync.Config{
-		OrgID:    1,
-		Gateways: threeGateways(),
-		Tags: []models.Tag{
-			{ID: 100, GatewayID: 10, Alias: "napoli-temp"},
-			{ID: 200, GatewayID: 20, Alias: "milano-temp"},
-			{ID: 300, GatewayID: 30, Alias: "orfano"},
-		},
-		Alarms: []models.AlarmDefinition{
-			{ID: 1000, TagID: 100},
-			{ID: 2000, TagID: 200},
-			{ID: 3000, TagID: 300},
-		},
-	}
-}
-
-// A tag whose gateway was filtered out cannot be written at all — the foreign
-// key refuses it — and the box would fail to apply the whole configuration,
-// including the part that was correct.
 func TestTagsAndAlarmsFollowTheirGateways(t *testing.T) {
-	cfg := aTree()
-	cfg.FilterTree(1, 2)
-
-	if len(cfg.Gateways) != 1 || cfg.Gateways[0].ID != 10 {
-		t.Fatalf("gateways = %v", names(cfg.Gateways))
+	cfg := &edgesync.Config{
+		Gateways: []models.Gateway{gw(1, agent(7)), gw(2, nil)},
+		Tags:     []models.Tag{{ID: 10, GatewayID: 1}, {ID: 20, GatewayID: 2}},
+		Alarms:   []models.AlarmDefinition{{ID: 100, TagID: 10}, {ID: 200, TagID: 20}},
 	}
-	if len(cfg.Tags) != 1 || cfg.Tags[0].ID != 100 {
-		t.Errorf("the box was given tags that do not belong to its gateways: %+v", cfg.Tags)
+	cfg.FilterTree(7, []edgesync.Box{assigned(7)})
+
+	if len(cfg.Tags) != 1 || cfg.Tags[0].ID != 10 {
+		t.Errorf("tags after filtering: %+v, want only tag 10", cfg.Tags)
 	}
-	if len(cfg.Alarms) != 1 || cfg.Alarms[0].ID != 1000 {
-		t.Errorf("the box was given alarm rules for tags it does not have: %+v", cfg.Alarms)
+	if len(cfg.Alarms) != 1 || cfg.Alarms[0].ID != 100 {
+		t.Errorf("alarms after filtering: %+v, want only alarm 100", cfg.Alarms)
 	}
-}
-
-func TestTheOnlyBoxStillGetsTheWholeTree(t *testing.T) {
-	cfg := aTree()
-	cfg.FilterTree(1, 1)
-
-	if len(cfg.Gateways) != 3 || len(cfg.Tags) != 3 || len(cfg.Alarms) != 3 {
-		t.Fatalf("the only box lost part of its configuration: %d gateways, %d tags, %d alarms",
-			len(cfg.Gateways), len(cfg.Tags), len(cfg.Alarms))
-	}
-}
-
-// The count has to survive the filtering: it is computed over the whole
-// organization, not over what is left afterwards.
-func TestTheUnassignedCountIsAboutTheOrganizationNotTheBox(t *testing.T) {
-	cfg := aTree()
-	cfg.FilterTree(1, 2)
-
 	if cfg.Unassigned != 1 {
-		t.Errorf("unassigned = %d, want 1 — counted before the tree was narrowed", cfg.Unassigned)
+		t.Errorf("Unassigned = %d, want 1: gateway 2 is left to the server", cfg.Unassigned)
+	}
+}
+
+func TestOnlyTheTwoScopesAreValid(t *testing.T) {
+	for _, s := range []string{"assigned", "all"} {
+		if !edgesync.ValidScope(s) {
+			t.Errorf("%q refused", s)
+		}
+	}
+	for _, s := range []string{"", "ALL", "everything", "none"} {
+		if edgesync.ValidScope(s) {
+			t.Errorf("%q accepted", s)
+		}
 	}
 }

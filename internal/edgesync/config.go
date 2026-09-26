@@ -40,10 +40,8 @@ type Config struct {
 	Tags     []models.Tag             `json:"tags"`
 	Alarms   []models.AlarmDefinition `json:"alarms"`
 
-	// Unassigned is how many gateways of this organization no box has been made
-	// responsible for. Always zero where there is a single box, because there
-	// the assignment is ignored; a number here means somebody has to say which
-	// box polls what, and until they do those gateways are polled by nobody.
+	// Unassigned is how many gateways of this organization no box is
+	// responsible for: the server's, if it polls, and nobody's if it does not.
 	Unassigned int `json:"unassigned_gateways"`
 
 	// WriteCommandMaxAgeSeconds is the command validity configured on the
