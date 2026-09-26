@@ -217,6 +217,53 @@ Before the shift starts, not during it:
       it work — the first time somebody discovers this is mid-incident is the
       worst possible time
 
+## 6c. Upgrading to 3.2.0 — three behaviour changes
+
+Skip this on a fresh install. On an installation that is already running, each
+of these changes what the plant sees **without an error to announce it**. Do
+them before the upgrade, with the customer, not after.
+
+### Engineering-unit scaling
+
+Only matters if some tag has `scaling_enabled`. Alarms are now compared against
+engineering units instead of raw counts, `historize_deadband` filters in
+engineering units, and the trend shows a step at the moment of the upgrade.
+
+- [ ] Before upgrading, run the read-only review and keep the output:
+
+      psql "$DATABASE_URL" -f scripts/eu-scaling-alarm-review.sql
+
+- [ ] Go through section 1 of the output with the customer. Rows marked
+      "era SEMPRE attivo" or "interveniva quasi sempre" will clear; rows marked
+      "non scattava MAI" or "comincia a scattare" will start firing. **Also look
+      at "la soglia effettiva si sposta"** — a threshold that becomes ten times
+      more sensitive is the one nobody expects.
+- [ ] Section 2 lists boolean alarms on tags with `invert`: their state flips.
+- [ ] Agree whether to convert the stored history (irreversible — the SQL and
+      its caveats are in `docs/EU_SCALING.md`) or to live with the step.
+- [ ] After the upgrade, confirm a scaled tag shows the same number on a gauge
+      and on its trend.
+
+### driver-mqtt booleans
+
+A BOOL tag receiving a word outside `true/1/on/yes/t/y`, `false/0/off/no/f/n`
+or a number used to read **false**; it now produces no value.
+
+- [ ] After the upgrade: `docker logs <driver-mqtt container> | grep -E "not a recognizable|as BOOL"`.
+      Each line is a tag that was reading a fabricated "off" before. Fix it
+      with a `json_path` or by changing what the device publishes.
+
+### Names containing `/`
+
+- [ ] `SELECT name FROM organizations WHERE name LIKE '%/%' UNION ALL
+      SELECT name FROM sites WHERE name LIKE '%/%' UNION ALL
+      SELECT name FROM areas WHERE name LIKE '%/%' UNION ALL
+      SELECT name FROM gateways WHERE name LIKE '%/%' UNION ALL
+      SELECT alias FROM tags WHERE alias LIKE '%/%';`
+- [ ] If anything comes back: those tags start being historised, and their MQTT
+      topic changes (`/` becomes `-`). Re-point any external subscriber —
+      Ignition, a third-party host — to the new topic.
+
 ## 7. Handover
 
 - [ ] Credentials in the customer's password manager, not in an email
@@ -237,9 +284,19 @@ State these to the customer rather than letting them be discovered:
   which does verify a SHA-256, is the preferred mechanism.
 - **A failed OTA does not roll back.** It reports `apply_failed` and leaves the
   previous version running; recovery is manual.
-- **Topics keyed by gateway id** (`sys/health/+`, `sys/command/#`) cannot be
-  scoped per organization with the current layout. In a multi-tenant
-  installation, holders of another tenant's broker credentials can observe them.
-  Single-tenant on-prem installations are unaffected.
+- **Two topic families are still readable across tenants.** Gateway health now
+  has an organization-scoped shape (`sys/health/{org}/{gateway}`), but the old
+  shape (`sys/health/{gateway}`) is still granted to every tenant so drivers not
+  yet upgraded keep working — any tenant can read or publish it. Commands
+  (`sys/command/#`) are receive-only, so no tenant can send one to another's
+  gateway, but any tenant can observe them. Single-tenant on-prem installations
+  are unaffected.
+- **Traffic on the plant LAN is in cleartext by default.** The web UI is plain
+  HTTP on port 3000 until `make onprem-tls` is run, and the broker listener on
+  18830 has no TLS: gateway and edge-box credentials cross the network in
+  clear. Acceptable on a segregated OT network if stated; not for a customer
+  preparing NIS2 evidence.
+- **The web UI is the least tested part.** One test file for about a hundred
+  components; section 3 and a walk through every page are the real check.
 - **driver-manager holds the Docker socket.** It runs as a non-root user, but
   Docker API access is equivalent to host root; isolate the machine accordingly.

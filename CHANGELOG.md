@@ -7,7 +7,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-09-26
+
+> **Read this before upgrading an installation that is already running.**
+> Three changes alter what an existing plant does, and none of them raises an
+> error to tell you — each one shows up as a value, an alarm or a topic that
+> behaves differently from the day before. The checklist is in
+> `docs/RELEASE-ACCEPTANCE.md`, section 6c.
+>
+> 3.1.0 has a section below but was never tagged or published. Everything in
+> it is part of this release.
+
+### Changed — behaviour an existing installation will notice
+
+- **Engineering-unit scaling now happens in the driver, so alarm thresholds
+  finally mean what was typed.** Scaling used to be applied only in core-api,
+  on the way to Redis and the WebSocket. The historian and the alarm engine
+  both saw the raw value: a gauge read 25.3 bar while the trend of the same tag
+  read 6912, and a high alarm at 80 bar was compared against raw counts —
+  on a 0..27648 transmitter it was exceeded on the first reading and stayed
+  active. From this release every consumer sees engineering units.
+
+  On a tag with `scaling_enabled`, therefore: some alarms that were always
+  active clear, some that never fired start firing, some trip at a different
+  point of the range; `historize_deadband` starts filtering in engineering
+  units; the trend shows a step at the moment of the upgrade, because rows
+  already in `tag_history` stay raw. **Before upgrading, run
+  `scripts/eu-scaling-alarm-review.sql`** (read-only) — it lists every alarm
+  that changes and how. Converting the stored history is left to you, with the
+  SQL in `docs/EU_SCALING.md`, because it is an irreversible rewrite of a
+  hypertable. Payloads now carry `"eu": true`, and core-api converts only those
+  without it, so drivers and core-api can be upgraded in either order.
+
+- **driver-mqtt: one vocabulary for true and false, and a refusal instead of
+  "off".** The same word read differently depending on packaging: `on` inside
+  `{"v":"on"}` was false, a bare `on` was true. Worse, any word outside the list
+  — `OPEN`, `RUNNING`, `abilitato`, `null` — read as **false**, reporting a valve
+  shut or a pump stopped. Now `true/1/on/yes/t/y`, `false/0/off/no/f/n` and any
+  number (non-zero is on) are accepted; anything else produces **no value**
+  and a log line. A BOOL tag that used to sit at false forever will now go
+  quiet instead — check the log after upgrading.
+
+- **A `/` in an organization, site, area, gateway or tag name no longer adds a
+  topic level.** "Linea 1/2" used to publish on a seven-level topic that the
+  historian could not resolve, so the tag was never historised. Those names
+  now reduce to `linea-1-2`. Such tags start being historised, and **their MQTT
+  topic changes**: an external subscriber (Ignition, a third-party host) bound
+  to the old topic stops receiving until it is re-pointed.
+
+### Fixed
+
+- **The vulnerability gate reported "clean" when it had not checked.**
+  govulncheck prints its preamble before fetching the database, so a failed
+  fetch exited 1 with output already written, the guard (`-z "$OUTPUT"`) did
+  not fire, and the gate printed "No call-reachable vulnerabilities". Any exit
+  other than 0 or 3 now fails the build. Closing it showed that removing
+  `toolchain go1.25.13` had moved the build backwards: go1.26.0 carries 25
+  reachable stdlib advisories. The toolchain is pinned to **go1.26.8**.
+- **The historian refuses NaN, infinities and non-positive timestamps.** FLOAT8
+  stores NaN without complaint, and Postgres sorts it above every value, so one
+  uninitialised float register made AVG, MIN and MAX over its window NaN. A
+  negative timestamp buried the row before 1970, where retention deleted it.
+- **Modbus reports tags it can never read.** An address that does not parse,
+  or a type the driver cannot decode (STRING), was skipped in silence on every
+  poll; it is now logged once per tag.
+
+### Security
+
+- Go toolchain **1.26.8** (see above); Docker base images `golang:1.26-alpine`,
+  `alpine:3.24` (core-api held on 3.22 — it needs `postgresql16-client`, whose
+  presence in 3.24 was not verified; `apk upgrade` still applies 3.22's
+  patches), `node:26-alpine`, `nginx:1.31-alpine`.
+- golangci-lint **v2.13.2**: v2.5.0 was built with go1.25 and panics on a 1.26
+  module instead of linting it.
+
+### Dependencies
+
+- React 19 with react-dom and their types; the APIs removed in 19 were checked
+  one by one and none is used. `zod` removed — nothing imported it.
+- 12 Go modules, 31+ frontend packages, 11 GitHub Actions.
+
 ### Added
+
+- **The edge box, for plants with no internet.** A self-contained installer
+  (drivers, broker with bridge to the platform, `cleansession false` so values
+  queue across a link drop) that pulls its configuration from core-api and
+  applies it transactionally. Each box knows which gateways are its own, sends
+  its own heartbeat, accepts only commands addressed to it, and gateways are
+  assigned to a box from the web UI.
+- **Communication-loss and frozen-value alarms.** Judged on the clock, not on
+  an incoming sample — a dead PLC sends nothing, and an alarm that waits for a
+  sample to evaluate never fires.
+- **A gateway that stops answering says so**, as an alarm and a notification.
+  Its health topic now carries the organization (`sys/health/{org}/{gateway}`);
+  the old shape is still accepted during a rollout.
+- **Database health**: failing TimescaleDB jobs, pool saturation and stuck
+  queries raise an alert.
+- **Monthly service report** (availability per gateway, outages merged) and
+  **device inventory** with CSV export.
+- **Backup failures notify**, the scheduled backup checks it can write and
+  warns before the disk runs out.
 
 - **Modbus RTU on a serial line, and RTU over TCP.** The driver spoke Modbus TCP
   and nothing else — the URL was `fmt.Sprintf("tcp://%s:%d", ...)`, hardcoded.
