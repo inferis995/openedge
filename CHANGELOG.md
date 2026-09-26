@@ -10,15 +10,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [3.2.0] - 2026-09-26
 
 > **Read this before upgrading an installation that is already running.**
-> Three changes alter what an existing plant does, and none of them raises an
-> error to tell you — each one shows up as a value, an alarm or a topic that
-> behaves differently from the day before. The checklist is in
-> `docs/RELEASE-ACCEPTANCE.md`, section 6c.
+> Several changes alter what an existing plant does, and none of them raises
+> an error to tell you — each shows up as a value, an alarm, a topic or a
+> machine that behaves differently from the day before. The most dangerous is
+> the first one below. The checklist is in `docs/RELEASE-ACCEPTANCE.md`,
+> section 6c.
 >
 > 3.1.0 has a section below but was never tagged or published. Everything in
 > it is part of this release.
 
 ### Changed — behaviour an existing installation will notice
+
+- **External writes now reach every driver — check who sends them before
+  upgrading.** Writes arriving on `sys/write/{org}/...` (cloud, apps,
+  third-party systems) were published on a topic only the OPC UA driver
+  listened to. To an S7, Modbus or MQTT gateway they were logged as sent and
+  went nowhere. They now reach every driver, converted to device units like
+  every other write. **A system that has been publishing writes for months
+  without effect will start moving machines the moment this is installed.**
+  Find out which systems publish on `sys/write/#` before upgrading.
+
+- **Write commands expire.** A command carries the moment it was issued and a
+  driver refuses one older than the configured validity (30 s by default,
+  System → MQTT, or `openedge settings write-max-age`), answering the operator
+  with the reason. It stops setpoints given while a box's link was down — and
+  every retry of them — from all running when the link returns. It needs the
+  clocks of the server and of any box roughly in sync: a command dated more
+  than the validity in the future is refused as a clock problem. **Run NTP.**
+
+- **Each gateway is polled by its box, or by the server — never two, never
+  none.** The server used to poll every gateway, including those given to a
+  box; the only box of an organization used to take every gateway. Now the
+  server skips gateways assigned to a box, and a new box takes nothing until a
+  gateway is assigned to it. An organization that had exactly one box keeps it
+  taking everything (its scope is set to "all" on upgrade); where the server
+  also polled those gateways, it stops — which removes duplicated values from
+  history.
 
 - **Engineering-unit scaling now happens in the driver, so alarm thresholds
   finally mean what was typed.** Scaling used to be applied only in core-api,
@@ -57,6 +84,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The edge box could never start from an installation.** Its compose pulled
+  `ghcr.io/inferis995/openedge/driver-manager:latest`; the release publishes
+  `openedge-driver-manager:<version>`, and four of the six drivers were not
+  published at all. The box stopped at its first `docker compose pull`. All
+  drivers and the historian are published now; a box is pinned to the version
+  of the core-api that generated its installer.
+- **Commands never reached a box.** Its bridge carried no `cmd/write` in and no
+  result out: a setpoint to a PLC behind a box never arrived.
+- **Two boxes of one organization knocked each other off the broker.** They
+  shared one MQTT client id.
+- **Removing a box left its key working** — as a key with no box behind it,
+  which polls every gateway. Removal now revokes the key in the same step.
+- **Gateway reads never returned the box a gateway is assigned to**, so the web
+  UI showed every gateway as unassigned and saving an edit could move it back
+  to the server; **creating a gateway ignored the box chosen in the form.**
+- **`TZ` never reached the box's driver-manager**, which fell back to
+  Europe/Rome whatever the plant's timezone.
 - **The vulnerability gate reported "clean" when it had not checked.**
   govulncheck prints its preamble before fetching the database, so a failed
   fetch exited 1 with output already written, the guard (`-z "$OUTPUT"`) did
@@ -88,6 +132,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 12 Go modules, 31+ frontend packages, 11 GitHub Actions.
 
 ### Added
+
+- **Who polls which PLC, from the web UI and the CLI.** Organization → Edge
+  shows what the server polls, every box with its state, scope and number of
+  gateways, and warns when a gateway is polled by nobody; boxes can be renamed,
+  given a scope, removed. Gateways get "Who polls it: the server / a box".
+  CLI: `openedge boxes list|scope|rename|remove`, `openedge gateways assign`,
+  `openedge settings write-max-age`.
 
 - **The edge box, for plants with no internet.** A self-contained installer
   (drivers, broker with bridge to the platform, `cleansession false` so values

@@ -217,11 +217,48 @@ Before the shift starts, not during it:
       it work — the first time somebody discovers this is mid-incident is the
       worst possible time
 
-## 6c. Upgrading to 3.2.0 — three behaviour changes
+## 6c. Upgrading to 3.2.0 — behaviour changes
 
 Skip this on a fresh install. On an installation that is already running, each
 of these changes what the plant sees **without an error to announce it**. Do
-them before the upgrade, with the customer, not after.
+them before the upgrade, with the customer, not after. The first one can move
+machines.
+
+### External writes (`sys/write`) — first, before anything else
+
+Writes published on `sys/write/{org}/...` by other systems used to reach only
+OPC UA gateways; to S7, Modbus and MQTT gateways they were logged and lost.
+After the upgrade they are executed.
+
+- [ ] Before upgrading, find out whether anything publishes there:
+
+      docker logs openedge-core-api 2>&1 | grep "\[WRITE CMD\] Received" | tail -20
+
+      Any line means something publishes writes. Logs rotate, so an empty
+      result covers only the retained window: ask the customer too.
+
+- [ ] If something does, agree with the customer what it is and whether those
+      writes should run. If not, withdraw that system's broker credentials
+      **before** upgrading.
+
+### Clocks
+
+Write commands now expire (30 s by default) and a command dated in the future
+is refused as a clock problem.
+
+- [ ] `timedatectl` on the server and on every box: "System clock synchronized:
+      yes". Without NTP, writes to a box whose clock drifts are refused.
+- [ ] After the upgrade, write one setpoint from the UI and see it arrive.
+
+### Boxes
+
+The server now skips gateways assigned to a box, and a new box polls nothing
+until something is assigned to it.
+
+- [ ] Organization → Edge: the server line shows how many gateways it polls,
+      and no "polled by nobody" warning is shown.
+- [ ] For each box, its gateways and scope are what the customer expects.
+
 
 ### Engineering-unit scaling
 
@@ -284,6 +321,10 @@ State these to the customer rather than letting them be discovered:
   which does verify a SHA-256, is the preferred mechanism.
 - **A failed OTA does not roll back.** It reports `apply_failed` and leaves the
   previous version running; recovery is manual.
+- **Nothing in CI installs an edge box.** The images it pulls are checked
+  against what the release publishes, but `install.sh` / `install.ps1` are
+  never run: install one box on a real machine before handing over a release
+  that relies on boxes.
 - **Two topic families are still readable across tenants.** Gateway health now
   has an organization-scoped shape (`sys/health/{org}/{gateway}`), but the old
   shape (`sys/health/{gateway}`) is still granted to every tenant so drivers not
