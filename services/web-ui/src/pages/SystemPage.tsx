@@ -81,6 +81,8 @@ const SystemPage = () => {
     const [publishMode, setPublishMode] = useState<string>('dual');
     const [heartbeat, setHeartbeat] = useState<number>(60);
     const [deadband, setDeadband] = useState<number>(0.5);
+    // Validità dei comandi di scrittura, in secondi. Vedi internal/commands.
+    const [writeMaxAge, setWriteMaxAge] = useState<number>(30);
     const [advancedOpen, setAdvancedOpen] = useState(false);
 
     // MQTT Broker Settings
@@ -195,6 +197,8 @@ const SystemPage = () => {
             setHeartbeat(isNaN(parsedHeartbeat) ? 60 : parsedHeartbeat);
             const parsedDeadband = parseFloat(data.rbe_deadband_percent);
             setDeadband(isNaN(parsedDeadband) ? 0.5 : parsedDeadband);
+            const parsedMaxAge = parseInt(data.write_command_max_age_seconds ?? '');
+            setWriteMaxAge(isNaN(parsedMaxAge) ? 30 : parsedMaxAge);
             setMqttBrokerMode(data.mqtt_broker_mode || 'internal');
             if (data.mqtt_external_host) setMqttExternalHost(data.mqtt_external_host);
             if (data.mqtt_external_port) setMqttExternalPort(parseInt(data.mqtt_external_port, 10) || 1883);
@@ -261,6 +265,7 @@ const SystemPage = () => {
             };
             update.rbe_heartbeat_seconds = heartbeat;
             update.rbe_deadband_percent = deadband;
+            update.write_command_max_age_seconds = writeMaxAge;
 
             if (mqttBrokerMode === 'external') {
                 update.mqtt_external_host = mqttExternalHost;
@@ -867,6 +872,36 @@ const SystemPage = () => {
                                                 </div>
                                             </CollapsibleContent>
                                         </Collapsible>
+
+                                        {/* Validità dei comandi di scrittura */}
+                                        <div className="pt-4 mt-2 border-t flex flex-col gap-2">
+                                            <div className="flex justify-between items-center">
+                                                <Label htmlFor="write_max_age" className="text-sm font-semibold text-foreground">
+                                                    Validità dei comandi verso i PLC
+                                                </Label>
+                                                <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
+                                                    {writeMaxAge} s
+                                                </span>
+                                            </div>
+                                            <Input
+                                                id="write_max_age"
+                                                type="number"
+                                                min={5}
+                                                max={3600}
+                                                value={writeMaxAge}
+                                                onChange={(e) => setWriteMaxAge(parseInt(e.target.value) || 0)}
+                                                // Corretto all'uscita dal campo, non a ogni tasto: altrimenti
+                                                // digitando "15" il primo "1" diventerebbe subito 5.
+                                                onBlur={() => setWriteMaxAge((v) => Math.min(3600, Math.max(5, v || 30)))}
+                                                className="max-w-[8rem]"
+                                            />
+                                            <p className="text-xs text-muted-foreground">
+                                                Un setpoint o un comando più vecchio di così viene rifiutato, non eseguito, e
+                                                l'operatore vede perché. Serve quando il collegamento con una scatola cade: i
+                                                comandi dati nel frattempo non vengono eseguiti ore dopo, al ritorno della
+                                                linea. Da 5 a 3600 secondi; 30 va bene quasi sempre.
+                                            </p>
+                                        </div>
 
                                         {/* DB Retention Section */}
                                         <div className="pt-4 mt-2 border-t flex flex-col gap-3">

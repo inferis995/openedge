@@ -81,11 +81,13 @@ const GatewaysPage = () => {
     const { areas } = useAreas(selectedSiteId); // Get areas for current site
     const { isAdmin, user } = useAuthStore();
 
-    // Le scatole installate per questa organizzazione. Il selettore compare
-    // solo quando sono più d'una: con una sola l'assegnazione viene ignorata
-    // dalla piattaforma, e mostrare un campo che non fa niente è peggio che
-    // non mostrarlo.
+    // Le scatole installate per questa organizzazione, per il selettore "Chi lo
+    // interroga". Senza scatole ogni gateway è del server e il selettore non
+    // compare.
     const [edgeAgents, setEdgeAgents] = useState<EdgeAgent[]>([]);
+    // La scatola che prende tutti i gateway non assegnati, se ce n'è una: in
+    // quel caso "nessuna scatola" non vuol dire "il server".
+    const allBox = edgeAgents.find((a) => a.scope === 'all');
     useEffect(() => {
         const orgId = user?.org_id;
         if (!orgId) return;
@@ -358,6 +360,9 @@ const GatewaysPage = () => {
         setFormData({
             name: gateway.name,
             driver_type: gateway.driver_type,
+            // Chi lo interroga oggi. Senza, il selettore mostrava "server" anche
+            // per un gateway assegnato a una scatola, e salvare lo spostava.
+            edge_agent_id: gateway.edge_agent_id ?? 0,
             ip_address: ip_address,
             endpoint,
             rack,
@@ -506,12 +511,12 @@ const GatewaysPage = () => {
                                     />
                                 </div>
 
-                                {/* Quale scatola interroga questo gateway. Compare solo con più
-                                    di una scatola: con una sola la piattaforma le assegna tutto
-                                    comunque, e un campo che non cambia niente confonde. */}
-                                {edgeAgents.length > 1 && (
+                                {/* Chi interroga questo gateway: il server, oppure una scatola.
+                                    Compare appena esiste una scatola; senza scatole è sempre il
+                                    server e un campo che non cambia niente confonde. */}
+                                {edgeAgents.length > 0 && (
                                     <div className="grid gap-2">
-                                        <Label htmlFor="edge_agent">Scatola che lo interroga</Label>
+                                        <Label htmlFor="edge_agent">Chi lo interroga</Label>
                                         <Select
                                             value={String(formData.edge_agent_id ?? 0)}
                                             onValueChange={(val) => handleInputChange('edge_agent_id', parseInt(val))}
@@ -520,17 +525,22 @@ const GatewaysPage = () => {
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="0">Nessuna — non viene interrogato</SelectItem>
+                                                <SelectItem value="0">
+                                                    {allBox
+                                                        ? `Nessuna scatola assegnata — lo interroga «${allBox.name}»`
+                                                        : 'Il server, direttamente'}
+                                                </SelectItem>
                                                 {edgeAgents.map((a) => (
                                                     <SelectItem key={a.id} value={String(a.id)}>
-                                                        {a.name} ({a.gateways} gateway)
+                                                        Scatola «{a.name}» ({a.gateways} gateway)
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
                                         <p className="text-[11px] text-muted-foreground">
-                                            Con più scatole ognuna interroga solo ciò che le è stato assegnato.
-                                            Un gateway senza scatola non lo interroga nessuno.
+                                            Assegnalo a una scatola solo se il server non raggiunge questo PLC.
+                                            Da quel momento lo interroga la scatola e il server smette di farlo:
+                                            mai due, mai nessuno.
                                         </p>
                                     </div>
                                 )}

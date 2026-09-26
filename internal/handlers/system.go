@@ -10,9 +10,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/ralph/industrial-edge-middleware/internal/commands"
 	"github.com/ralph/industrial-edge-middleware/internal/crypto"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
+	"strconv"
 )
 
 // upsertSetting inserts or updates a setting in global_settings table
@@ -248,19 +250,21 @@ type UpdateSettingsRequest struct {
 	RBEHeartbeatSeconds   *int     `json:"rbe_heartbeat_seconds"`
 	RBEDeadbandPercent    *float64 `json:"rbe_deadband_percent"`
 	StaleThresholdSeconds *int     `json:"stale_threshold_seconds"`
-	MQTTBrokerMode        *string  `json:"mqtt_broker_mode"`
-	MQTTExternalHost      *string  `json:"mqtt_external_host"`
-	MQTTExternalPort      *int     `json:"mqtt_external_port"`
-	MQTTUsername          *string  `json:"mqtt_username"`
-	MQTTPassword          *string  `json:"mqtt_password"`
-	MQTTClientID          *string  `json:"mqtt_client_id"`
-	DBRetentionDays       *int     `json:"db_retention_days"`
-	CloudSyncEnabled      *bool    `json:"cloud_sync_enabled"`
-	CloudMqttHost         *string  `json:"cloud_mqtt_host"`
-	CloudMqttPort         *int     `json:"cloud_mqtt_port"`
-	CloudMqttUsername     *string  `json:"cloud_mqtt_username"`
-	CloudMqttPassword     *string  `json:"cloud_mqtt_password"`
-	CloudMqttTopic        *string  `json:"cloud_mqtt_topic"`
+	// Seconds a write command to a PLC stays executable; see internal/commands.
+	WriteCommandMaxAgeSeconds *int    `json:"write_command_max_age_seconds"`
+	MQTTBrokerMode            *string `json:"mqtt_broker_mode"`
+	MQTTExternalHost          *string `json:"mqtt_external_host"`
+	MQTTExternalPort          *int    `json:"mqtt_external_port"`
+	MQTTUsername              *string `json:"mqtt_username"`
+	MQTTPassword              *string `json:"mqtt_password"`
+	MQTTClientID              *string `json:"mqtt_client_id"`
+	DBRetentionDays           *int    `json:"db_retention_days"`
+	CloudSyncEnabled          *bool   `json:"cloud_sync_enabled"`
+	CloudMqttHost             *string `json:"cloud_mqtt_host"`
+	CloudMqttPort             *int    `json:"cloud_mqtt_port"`
+	CloudMqttUsername         *string `json:"cloud_mqtt_username"`
+	CloudMqttPassword         *string `json:"cloud_mqtt_password"`
+	CloudMqttTopic            *string `json:"cloud_mqtt_topic"`
 	// Notification channel config — flat key→value map of notif_* keys.
 	// Validated to only allow that prefix server-side. Lets the UI add
 	// new channels without bumping the API schema every time.
@@ -316,6 +320,23 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": "Invalid publish_mode. Must be one of: dual, sparkplug_only, legacy_only",
 			})
+			return
+		}
+	}
+
+	// A validity below the minimum would refuse fresh commands; above an hour
+	// it stops protecting anything. Refused here, with the reason, rather than
+	// silently clamped by the drivers.
+	if v := req.WriteCommandMaxAgeSeconds; v != nil {
+		minS := int(commands.MinMaxAge / time.Second)
+		if *v < minS || *v > 3600 {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("write_command_max_age_seconds must be between %d and 3600", minS),
+			})
+			return
+		}
+		if err := h.upsertSetting("write_command_max_age_seconds", strconv.Itoa(*v)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update write_command_max_age_seconds"})
 			return
 		}
 	}

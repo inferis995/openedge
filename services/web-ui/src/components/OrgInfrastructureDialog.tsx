@@ -20,6 +20,7 @@ import {
     Webhook as WebhookIcon, Shield, Plus,
 } from 'lucide-react';
 import { organizationsApi, SSOProvider, SSOProviderInput } from '@/api/organizations';
+import EdgeBoxesPanel from '@/components/EdgeBoxesPanel';
 import { apiKeysApi, ApiKey } from '@/api/apiKeys';
 import { invitesApi } from '@/api/invites';
 import { webhooksApi, Webhook, WEBHOOK_EVENTS, WebhookEvent } from '@/api/webhooks';
@@ -100,12 +101,15 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
 
     // ── Download installer ────────────────────────────────────────────────────
     const [downloading, setDownloading] = useState(false);
+    const [newBoxName, setNewBoxName] = useState('');
 
     const handleDownload = async () => {
         setDownloading(true);
         try {
-            await organizationsApi.downloadEdgeInstaller(org.id, org.name);
-            showApiSuccess('Download started', 'Edge deployment package is downloading');
+            await organizationsApi.downloadEdgeInstaller(org.id, org.name, newBoxName.trim() || undefined);
+            setNewBoxName('');
+            qc.invalidateQueries({ queryKey: ['edge-agents', org.id] });
+            showApiSuccess('Download avviato', 'Il pacchetto della nuova scatola è in download');
         } catch (e) {
             showApiError(e, 'Download failed');
         } finally {
@@ -259,15 +263,38 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
 
                         <div className="rounded-lg border p-4 space-y-3">
                             <div>
-                                <p className="text-sm font-medium">Edge Deployment Package</p>
+                                <p className="text-sm font-medium">Chi interroga i PLC</p>
                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                    Download a ready-to-run ZIP containing docker-compose, .env with pre-filled credentials, and install scripts for Linux and Windows.
+                                    Ogni gateway lo interroga la scatola a cui è assegnato, oppure il server.
+                                    Mai due, mai nessuno.
                                 </p>
                             </div>
-                            <Button onClick={handleDownload} disabled={downloading} className="gap-2">
-                                <Download size={15} />
-                                {downloading ? 'Generating…' : 'Download Edge Package'}
-                            </Button>
+                            <EdgeBoxesPanel orgId={org.id} />
+                        </div>
+
+                        <div className="rounded-lg border p-4 space-y-3">
+                            <div>
+                                <p className="text-sm font-medium">Installa una nuova scatola</p>
+                                <p className="text-xs text-muted-foreground mt-0.5">
+                                    Serve solo vicino a PLC che il server non raggiunge. Lo ZIP contiene
+                                    docker-compose, le credenziali e gli script di installazione per Linux e
+                                    Windows. La scatola nasce senza gateway: dopo, assegnale i suoi dalla
+                                    pagina Gateway.
+                                </p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <Input
+                                    value={newBoxName}
+                                    onChange={(e) => setNewBoxName(e.target.value)}
+                                    placeholder="Nome, es. Scatola reparto B"
+                                    className="max-w-xs"
+                                    aria-label="Nome della nuova scatola"
+                                />
+                                <Button onClick={handleDownload} disabled={downloading} className="gap-2">
+                                    <Download size={15} />
+                                    {downloading ? 'Generazione…' : 'Scarica il pacchetto'}
+                                </Button>
+                            </div>
                         </div>
                     </TabsContent>
 

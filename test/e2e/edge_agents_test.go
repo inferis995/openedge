@@ -103,6 +103,23 @@ func TestANewBoxTakesNothingUntilItIsGivenSomething(t *testing.T) {
 	orgAdmin := createOrgAdmin(t, admin, org.ID, "agent-new-"+suffix, "e2e-Password-"+suffix)
 	assignGateway(t, orgAdmin, remote, agents[0].ID)
 
+	// The web UI reads the assignment back from the gateway. It was never
+	// returned, so every gateway showed as unassigned and an edit could not
+	// show what it was.
+	status, body := orgAdmin.do("GET", fmt.Sprintf("/api/gateways/%d", remote), nil)
+	if status != 200 {
+		t.Fatalf("reading the gateway returned %d: %s", status, truncate(body))
+	}
+	var read struct {
+		EdgeAgentID *int `json:"edge_agent_id"`
+	}
+	if err := json.Unmarshal(body, &read); err != nil {
+		t.Fatalf("the gateway is not JSON: %v", err)
+	}
+	if read.EdgeAgentID == nil || *read.EdgeAgentID != agents[0].ID {
+		t.Errorf("the gateway reads back edge_agent_id=%v, want %d", read.EdgeAgentID, agents[0].ID)
+	}
+
 	cfg, err = edgesync.Fetch(context.Background(), apiBase(), key)
 	if err != nil {
 		t.Fatalf("fetching after the assignment: %v", err)
@@ -217,6 +234,35 @@ func TestAGatewayCannotBeGivenToAnotherTenantsBox(t *testing.T) {
 	if status < 400 {
 		t.Fatalf("a gateway of org %d was assigned to a box of org %d (status %d): %s",
 			mine.ID, theirs.ID, status, truncate(body))
+	}
+}
+
+// The command validity is configurable, within limits that keep it useful: below
+// five seconds fresh commands are refused, above an hour it protects nothing.
+func TestTheCommandValidityIsConfigurableWithinLimits(t *testing.T) {
+	admin, _ := adminSession(t)
+	t.Cleanup(func() {
+		_, _ = admin.do("PUT", "/api/system/settings", map[string]int{"write_command_max_age_seconds": 30})
+	})
+
+	for _, bad := range []int{0, 2, 3601} {
+		if status, _ := admin.do("PUT", "/api/system/settings",
+			map[string]int{"write_command_max_age_seconds": bad}); status != 400 {
+			t.Errorf("a validity of %d seconds was accepted (status %d)", bad, status)
+		}
+	}
+	if status, body := admin.do("PUT", "/api/system/settings",
+		map[string]int{"write_command_max_age_seconds": 60}); status != 200 {
+		t.Fatalf("a validity of 60 seconds was refused (%d): %s", status, truncate(body))
+	}
+	status, body := admin.do("GET", "/api/system/settings", nil)
+	if status != 200 {
+		t.Fatalf("reading the settings returned %d", status)
+	}
+	var got map[string]interface{}
+	_ = json.Unmarshal(body, &got)
+	if fmt.Sprint(got["write_command_max_age_seconds"]) != "60" {
+		t.Errorf("the validity reads back as %v, want 60", got["write_command_max_age_seconds"])
 	}
 }
 

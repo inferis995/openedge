@@ -21,6 +21,9 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// OrgID is the organization this client acts for, 0 when none is configured.
+func (c *Client) OrgID() int { return c.orgID }
+
 // New creates a new API client.
 func New(baseURL, token string, orgID int) *Client {
 	return NewWithOptions(baseURL, token, orgID, false)

@@ -4,6 +4,7 @@ export interface GlobalSettings {
     publish_mode: string;
     rbe_heartbeat_seconds: string;
     rbe_deadband_percent: string;
+    write_command_max_age_seconds?: string;
     mqtt_broker_mode?: string;
     mqtt_external_host?: string;
     mqtt_external_port?: string;
@@ -83,6 +84,8 @@ export interface UpdateSettingsRequest {
     publish_mode?: string;
     rbe_heartbeat_seconds?: number;
     rbe_deadband_percent?: number;
+    // Per quanti secondi un comando di scrittura verso un PLC resta valido.
+    write_command_max_age_seconds?: number;
     mqtt_broker_mode?: string;
     mqtt_external_host?: string;
     mqtt_external_port?: number;

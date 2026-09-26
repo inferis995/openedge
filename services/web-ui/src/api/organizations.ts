@@ -56,9 +56,12 @@ export const organizationsApi = {
         return response.data;
     },
 
-    downloadEdgeInstaller: async (id: number, orgName: string): Promise<void> => {
+    // Ogni download registra una scatola nuova: agentName è il nome con cui
+    // comparirà nell'elenco e nel selettore dei gateway.
+    downloadEdgeInstaller: async (id: number, orgName: string, agentName?: string): Promise<void> => {
         const response = await api.get(`/organizations/${id}/edge-installer`, {
             responseType: 'blob',
+            params: agentName ? { agent_name: agentName } : undefined,
         });
         const url = window.URL.createObjectURL(new Blob([response.data]));
         const link = document.createElement('a');

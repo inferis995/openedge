@@ -3,6 +3,7 @@ package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -49,6 +50,10 @@ type CreateGatewayRequest struct {
 	ConnectionConfig models.ConnectionConfig `json:"connection_config"` // Optional for MQTT
 	ScanRateMs       int                     `json:"scan_rate_ms"`
 	ZeroBased        *bool                   `json:"zero_based"` // Optional, default should be true
+	// EdgeAgentID gives the new gateway to one of the organization's boxes; 0
+	// or absent leaves it to the server. It was accepted only on update, so a
+	// gateway created with a box chosen in the form went to the server.
+	EdgeAgentID *int `json:"edge_agent_id"`
 }
 
 // UpdateGatewayRequest represents the request body for updating a gateway
@@ -222,18 +227,30 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 		zeroBased = *req.ZeroBased
 	}
 
+	var agentArg interface{}
+	if req.EdgeAgentID != nil && *req.EdgeAgentID != 0 {
+		if status, msg := h.checkAgentBelongs(c, *req.EdgeAgentID, orgID); status != 0 {
+			c.JSON(status, gin.H{"error": msg})
+			return
+		}
+		agentArg = *req.EdgeAgentID
+	}
+
 	var gateway models.Gateway
+	var agent sql.NullInt64
 	err = h.db.QueryRow(
-		`INSERT INTO gateways (area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based)
-		 VALUES ($1, $2, $3, $4, $5, TRUE, $6)
-		 RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at`,
+		`INSERT INTO gateways (area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, edge_agent_id)
+		 VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7)
+		 RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at, edge_agent_id`,
 		req.AreaID,
 		req.Name,
 		req.DriverType,
 		req.ConnectionConfig,
 		scanRateMs,
 		zeroBased,
-	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt)
+		agentArg,
+	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt, &agent)
+	gateway.EdgeAgentID = nullableInt(agent)
 
 	if err != nil {
 		log.Printf("Failed to insert new gateway: %v", err)
@@ -310,13 +327,13 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 		}
 
 		rows, err = h.db.Query(
-			"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at FROM gateways WHERE area_id = $1 ORDER BY id",
+			"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at, edge_agent_id FROM gateways WHERE area_id = $1 ORDER BY id",
 			areaID,
 		)
 	} else {
 		// Case 2: List All Gateways for Organization
 		rows, err = h.db.Query(
-			`SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled, g.zero_based, g.created_at 
+			`SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled, g.zero_based, g.created_at, g.edge_agent_id
 			 FROM gateways g
 			 JOIN areas a ON g.area_id = a.id
 			 JOIN sites s ON a.site_id = s.id
@@ -339,10 +356,14 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 	gatewaysWithHealth := []GatewayWithHealth{}
 	for rows.Next() {
 		var gateway models.Gateway
-		if err := rows.Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt); err != nil {
+		var agent sql.NullInt64
+		if err := rows.Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt, &agent); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan gateway"})
 			return
 		}
+		// Which box polls it. It was never returned, so the web UI showed every
+		// gateway as unassigned and an edit could not show what it was.
+		gateway.EdgeAgentID = nullableInt(agent)
 		// Enrich with health status from Redis
 		gatewaysWithHealth = append(gatewaysWithHealth, h.enrichGatewayWithHealth(gateway))
 	}
@@ -379,10 +400,12 @@ func (h *GatewaysHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 
 	var gateway models.Gateway
+	var agent sql.NullInt64
 	err := h.db.QueryRow(
-		"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at FROM gateways WHERE id = $1",
+		"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at, edge_agent_id FROM gateways WHERE id = $1",
 		id,
-	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt)
+	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt, &agent)
+	gateway.EdgeAgentID = nullableInt(agent)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -709,15 +732,8 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 		// to another tenant's box, which would then be handed its address,
 		// its tags and its credentials on the next configuration pull.
 		if *req.EdgeAgentID != 0 {
-			var agentOrgID int
-			agentErr := h.db.QueryRowContext(c.Request.Context(),
-				`SELECT org_id FROM edge_agents WHERE id = $1`, *req.EdgeAgentID).Scan(&agentOrgID)
-			if agentErr == sql.ErrNoRows || (agentErr == nil && agentOrgID != orgID) {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "unknown edge agent for this organization"})
-				return
-			}
-			if agentErr != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify the edge agent"})
+			if status, msg := h.checkAgentBelongs(c, *req.EdgeAgentID, orgID); status != 0 {
+				c.JSON(status, gin.H{"error": msg})
 				return
 			}
 		}
@@ -1013,4 +1029,30 @@ func (h *GatewaysHandler) BrowseNodes(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"nodes": nodes})
+}
+
+func nullableInt(n sql.NullInt64) *int {
+	if !n.Valid {
+		return nil
+	}
+	v := int(n.Int64)
+	return &v
+}
+
+// checkAgentBelongs verifies a box belongs to the organization a gateway is
+// being given to it in. Without it an admin of one tenant could hand their
+// gateway to another tenant's box, which would then be handed its address, its
+// tags and its credentials on the next configuration pull. Returns a zero
+// status when the box is fine.
+func (h *GatewaysHandler) checkAgentBelongs(c *gin.Context, agentID, orgID int) (int, string) {
+	var agentOrgID int
+	err := h.db.QueryRowContext(c.Request.Context(),
+		`SELECT org_id FROM edge_agents WHERE id = $1`, agentID).Scan(&agentOrgID)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && agentOrgID != orgID) {
+		return http.StatusBadRequest, "unknown edge agent for this organization"
+	}
+	if err != nil {
+		return http.StatusInternalServerError, "failed to verify the edge agent"
+	}
+	return 0, ""
 }
