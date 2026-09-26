@@ -91,6 +91,10 @@ type GatewayWithHealth struct {
 	CreatedAt        time.Time               `json:"created_at"`
 	ConnectionStatus string                  `json:"connection_status,omitempty"` // "online" or "offline"
 	LastSeen         *int64                  `json:"last_seen,omitempty"`         // Unix timestamp in milliseconds
+	// EdgeAgentID is the box that polls this gateway; absent means the server.
+	// It was read from the database and then dropped here, so the UI showed
+	// every gateway as the server's and an edit could not show the assignment.
+	EdgeAgentID *int `json:"edge_agent_id,omitempty"`
 }
 
 // getGatewayHealth retrieves the health status for a gateway from Redis
@@ -136,6 +140,7 @@ func (h *GatewaysHandler) enrichGatewayWithHealth(gateway models.Gateway) Gatewa
 		CreatedAt:        gateway.CreatedAt,
 		ConnectionStatus: status,
 		LastSeen:         lastSeen,
+		EdgeAgentID:      gateway.EdgeAgentID,
 	}
 }
 

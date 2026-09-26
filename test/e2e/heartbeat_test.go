@@ -41,7 +41,8 @@ func TestABoxHeartbeatIsAcceptedAndRecorded(t *testing.T) {
 	// A new box takes nothing until a gateway is given to it; this one is. The
 	// other gateway stays with the server, and the box must not vouch for it.
 	box := listAgents(t, admin, org.ID)[0]
-	assignGateway(t, admin, gatewayID, box.ID)
+	orgAdmin := createOrgAdmin(t, admin, org.ID, "hb-"+suffix, "e2e-Password-"+suffix)
+	assignGateway(t, orgAdmin, gatewayID, box.ID)
 
 	before := time.Now().UTC()
 	status, body := postHeartbeat(t, apiKey, `{"agent_version":"e2e-1.0","ts":1}`)
