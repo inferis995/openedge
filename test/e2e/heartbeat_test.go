@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // The heartbeat had never once arrived, on any installation.
@@ -28,8 +30,18 @@ func TestABoxHeartbeatIsAcceptedAndRecorded(t *testing.T) {
 	suffix := uniqueSuffix()
 	org := createOrg(t, admin, "hb-"+suffix)
 	gatewayID := seedInventoryGateway(t, db, org.ID, "hb-plc-"+suffix)
+	serverGateway := seedInventoryGateway(t, db, org.ID, "hb-srv-"+suffix)
+	if _, err := db.Exec(`UPDATE gateways SET last_seen_at = NULL WHERE id = ANY($1)`,
+		pq.Array([]int{gatewayID, serverGateway})); err != nil {
+		t.Fatalf("clearing the gateways' contact time: %v", err)
+	}
 
 	apiKey := downloadInstallerKey(t, admin, db, org.ID)
+
+	// A new box takes nothing until a gateway is given to it; this one is. The
+	// other gateway stays with the server, and the box must not vouch for it.
+	box := listAgents(t, admin, org.ID)[0]
+	assignGateway(t, admin, gatewayID, box.ID)
 
 	before := time.Now().UTC()
 	status, body := postHeartbeat(t, apiKey, `{"agent_version":"e2e-1.0","ts":1}`)
@@ -63,6 +75,16 @@ func TestABoxHeartbeatIsAcceptedAndRecorded(t *testing.T) {
 	if gatewaySeen == nil {
 		t.Error("the gateway's last contact was not refreshed by its own box's heartbeat")
 	}
+
+	var serverSeen *time.Time
+	if err := db.QueryRow(
+		`SELECT last_seen_at FROM gateways WHERE id = $1`, serverGateway).Scan(&serverSeen); err != nil {
+		t.Fatalf("reading the server's gateway back: %v", err)
+	}
+	if serverSeen != nil {
+		t.Error("a box's heartbeat refreshed a gateway the server polls — " +
+			"a PLC nobody reaches would look alive")
+	}
 }
 
 // The organization comes from the key. A box holding one plant's key must not
@@ -81,6 +103,8 @@ func TestAHeartbeatOnlyVouchesForItsOwnPlant(t *testing.T) {
 	}
 
 	myKey := downloadInstallerKey(t, admin, db, mine.ID)
+	// Scope all: the widest a box can be. It still covers only its own plant.
+	setScope(t, admin, mine.ID, listAgents(t, admin, mine.ID)[0].ID, "all", 200)
 
 	// The body names the other organization. It used to be believed.
 	status, body := postHeartbeat(t, myKey,
