@@ -489,23 +489,51 @@ func (m *Manager) publishGatewayStatus(gatewayID int, status string, errorMsg st
 	_ = m.mqttClient.PublishWithQoS(topic, statusObj, 1, true) // retained
 }
 
-// imageNameForDriver returns the Docker image name for a driver type, or "" if unknown.
+// driverServices maps a gateway's driver type to the service that implements
+// it. The service name is both the directory under services/ and the suffix of
+// the image the release publishes (ghcr.io/<owner>/openedge-<service>), which
+// internal/handlers/edge_images_test.go checks against build.yml.
+var driverServices = map[string]string{
+	"S7":         "driver-s7",
+	"MODBUS_TCP": "driver-modbus",
+	"REDIS":      "driver-redis",
+	"MQTT":       "driver-mqtt",
+	"OPC_UA":     "driver-opcua",
+	"LORAWAN":    "driver-lorawan",
+}
+
+// imageNameForDriver returns the Docker image for a driver type, or "" if unknown.
+//
+// Two places run this, and they find their images in different ways.
+//
+// On the server, `make start` builds every driver locally under the names
+// docker-compose.yml gives them (industrial-driver-*:latest). Nothing is
+// pulled, so no registry is consulted.
+//
+// An edge box has no source and builds nothing: its images must come from the
+// registry. It used to ask for exactly these local names, and a name with no
+// registry in it resolves to Docker Hub, where no such image exists — so every
+// driver a box was asked to start failed to pull. The installer now gives the
+// box DRIVER_IMAGE_REGISTRY and DRIVER_IMAGE_TAG, and with them set the image is
+// the published one, at the version of the platform that generated the box.
 func (m *Manager) imageNameForDriver(driverType string) string {
-	switch driverType {
-	case "S7":
-		return "industrial-driver-s7:latest"
-	case "MODBUS_TCP":
-		return "industrial-driver-modbus:latest"
-	case "REDIS":
-		return "industrial-driver-redis:latest"
-	case "MQTT":
-		return "industrial-driver-mqtt:latest"
-	case "OPC_UA":
-		return "industrial-driver-opcua:latest"
-	case "LORAWAN":
-		return "industrial-driver-lorawan:latest"
+	service, ok := driverServices[driverType]
+	if !ok {
+		return ""
 	}
-	return ""
+	return driverImage(service, os.Getenv("DRIVER_IMAGE_REGISTRY"), os.Getenv("DRIVER_IMAGE_TAG"))
+}
+
+// driverImage builds the image reference for a driver service: the locally
+// built name with no registry, the published one with a registry.
+func driverImage(service, registry, tag string) string {
+	if registry == "" {
+		return "industrial-" + service + ":latest"
+	}
+	if tag == "" {
+		tag = "latest"
+	}
+	return registry + service + ":" + tag
 }
 
 // startGatewayContainer starts a driver container for a gateway.

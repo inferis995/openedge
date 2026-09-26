@@ -30,6 +30,11 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 # (a newer pg_dump reads an older server).
 FROM alpine:3.22
 
+# The release this image was built from, set by build.yml. The edge installer
+# pins every box it generates to it; a local build has none and says "latest".
+ARG VERSION=latest
+ENV OPENEDGE_VERSION=${VERSION}
+
 # Pick up OS security patches published since the base tag was last rebuilt.
 #
 # A base tag is a moving pointer, and it moves on the registry's schedule, not

@@ -41,3 +41,19 @@ func TestWithNoBoxesTheServerPollsEverything(t *testing.T) {
 		t.Fatalf("with no boxes the server polls %d of 2", len(got))
 	}
 }
+
+// On the server no registry is set and drivers are the images `make start`
+// built locally. On a box the registry is set and they are the published ones.
+func TestDriverImagesAreLocalOnTheServerAndPublishedOnABox(t *testing.T) {
+	if got := driverImage("driver-s7", "", ""); got != "industrial-driver-s7:latest" {
+		t.Errorf("on the server: %q, want the locally built industrial-driver-s7:latest", got)
+	}
+	got := driverImage("driver-s7", "ghcr.io/inferis995/openedge-", "3.2.0")
+	if got != "ghcr.io/inferis995/openedge-driver-s7:3.2.0" {
+		t.Errorf("on a box: %q, want the published ghcr.io/inferis995/openedge-driver-s7:3.2.0 — "+
+			"a name without a registry resolves to Docker Hub, where it does not exist", got)
+	}
+	if got := driverImage("driver-s7", "ghcr.io/inferis995/openedge-", ""); got != "ghcr.io/inferis995/openedge-driver-s7:latest" {
+		t.Errorf("on a box with no tag: %q", got)
+	}
+}

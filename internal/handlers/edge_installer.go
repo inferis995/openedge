@@ -53,6 +53,10 @@ type installerData struct {
 	// broker used to allow anyone on the factory network to connect.
 	EdgeMQTTUser string
 	EdgeMQTTPass string
+
+	// Where the box pulls its images, and which version. See edgeImages.
+	ImageRegistry string
+	ImageTag      string
 }
 
 // Download generates and streams a ZIP installer package for the given org.
@@ -156,6 +160,9 @@ func (h *EdgeInstallerHandler) Download(c *gin.Context) {
 
 		CloudMQTTHost: mqttPublicHost(),
 		CloudMQTTPort: mqttPublicPort(),
+
+		ImageRegistry: edgeImageRegistry(),
+		ImageTag:      edgeImageTag(),
 
 		EdgeMQTTUser: "edge",
 		EdgeMQTTPass: hex.EncodeToString(localPass),
@@ -444,6 +451,13 @@ CLOUD_MQTT_PASS={{.MQTTPass}}
 # CLOUD_MQTT_PASS=
 {{- end}}
 
+# ── Images ───────────────────────────────────────────────────────────────────
+# The version of the platform that generated this installer. The box's
+# driver-manager and every driver it starts come from the same release, so the
+# box and the server speak the same payloads. Change the tag to upgrade.
+DRIVER_IMAGE_REGISTRY={{.ImageRegistry}}
+DRIVER_IMAGE_TAG={{.ImageTag}}
+
 # ── Misc ─────────────────────────────────────────────────────────────────────
 LOG_FORMAT=json
 # Passed to every driver container: it is what the timestamps an operator reads
@@ -497,7 +511,7 @@ services:
     restart: unless-stopped
 
   driver-manager:
-    image: ghcr.io/inferis995/openedge/driver-manager:latest
+    image: {{.ImageRegistry}}driver-manager:{{.ImageTag}}
     environment:
       DB_HOST: postgres
       DB_PORT: ${DB_PORT:-5432}
@@ -513,6 +527,15 @@ services:
       MQTT_USERNAME: ${EDGE_MQTT_USER:-edge}
       MQTT_PASSWORD: ${EDGE_MQTT_PASS}
       LOG_FORMAT: ${LOG_FORMAT:-json}
+      # Where the drivers this box starts come from. Without them the manager
+      # asks for the names the server builds locally, which exist on no
+      # registry, and every driver fails to pull.
+      DRIVER_IMAGE_REGISTRY: ${DRIVER_IMAGE_REGISTRY}
+      DRIVER_IMAGE_TAG: ${DRIVER_IMAGE_TAG}
+      # Passed on to every driver it starts. Only in .env, it reached nothing:
+      # .env feeds this file's substitutions, not the container, and the
+      # manager fell back to Europe/Rome whatever the plant's timezone was.
+      TZ: ${TZ:-Europe/Rome}
     depends_on:
       postgres:
         condition: service_healthy
@@ -679,3 +702,38 @@ docker compose pull && docker compose up -d  # update to latest
 - Change ` + "`" + `DB_PASSWORD` + "`" + ` from the default value.
 - The API key grants read access to your gateway configuration only.
 `
+
+// The images of an edge box come from the registry, because a box has no
+// source to build them from.
+//
+// The installer used to name ghcr.io/inferis995/openedge/driver-manager:latest.
+// The release publishes ghcr.io/inferis995/openedge-driver-manager:<version> —
+// a dash, not a slash — and never a "latest" under the other path, so every box
+// stopped at its first `docker compose pull`. Nothing in CI ran the installer,
+// and a server built with `make start` compiles its images locally and never
+// noticed.
+
+// defaultEdgeImageRegistry is where build.yml publishes, including the
+// trailing "openedge-" every image name starts with.
+const defaultEdgeImageRegistry = "ghcr.io/inferis995/openedge-"
+
+func edgeImageRegistry() string {
+	if r := strings.TrimSpace(os.Getenv("EDGE_IMAGE_REGISTRY")); r != "" {
+		return r
+	}
+	return defaultEdgeImageRegistry
+}
+
+// edgeImageTag pins a box to the version of the platform that generated it.
+// OPENEDGE_VERSION is baked into the core-api image by the release build; a
+// server built from source has none and hands out "latest", which is the
+// newest release. EDGE_IMAGE_TAG overrides both.
+func edgeImageTag() string {
+	if t := strings.TrimSpace(os.Getenv("EDGE_IMAGE_TAG")); t != "" {
+		return t
+	}
+	if v := strings.TrimPrefix(strings.TrimSpace(os.Getenv("OPENEDGE_VERSION")), "v"); v != "" && v != "latest" {
+		return v
+	}
+	return "latest"
+}

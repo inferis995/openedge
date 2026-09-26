@@ -77,6 +77,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Baked into core-api so the edge installer it serves pins a box to
+          # this release instead of to whatever "latest" becomes later.
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -91,12 +95,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Every image an edge box can be asked to run. A box builds nothing:
+          # a driver missing from this list is a driver no box can start, and
+          # the only symptom is a pull error on the box. driver-s7, -opcua,
+          # -mqtt and -redis were missing, and so was the historian.
+          # internal/handlers/edge_images_test.go checks this list against
+          # the drivers driver-manager knows.
           - service: driver-manager
             path: services/driver-manager
           - service: driver-modbus
             path: services/driver-modbus
           - service: driver-lorawan
             path: services/driver-lorawan
+          - service: driver-s7
+            path: services/driver-s7
+          - service: driver-opcua
+            path: services/driver-opcua
+          - service: driver-mqtt
+            path: services/driver-mqtt
+          - service: driver-redis
+            path: services/driver-redis
+          - service: engine-historian
+            path: services/engine-historian
 
     steps:
       - name: Checkout

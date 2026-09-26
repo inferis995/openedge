@@ -21,6 +21,7 @@ func pkg(t *testing.T) map[string]string {
 		MQTTUser: "org-7", MQTTPass: "broker-secret",
 		CloudMQTTHost: "openedge.example.com", CloudMQTTPort: 8883,
 		EdgeMQTTUser: "edge", EdgeMQTTPass: "local-secret",
+		ImageRegistry: defaultEdgeImageRegistry, ImageTag: "3.2.0",
 		Generated: "2026-09-11T20:00:00Z",
 	})
 	if err != nil {
@@ -71,8 +72,9 @@ func TestTheInstallerSetsEveryVariableTheAgentReads(t *testing.T) {
 		t.Fatalf("reading the config sync: %v", err)
 	}
 
-	// getEnv("NAME", ...) — the only way this agent reads its environment.
-	re := regexp.MustCompile(`getEnv(?:Int)?\("([A-Z0-9_]+)"`)
+	// getEnv("NAME", ...) and os.Getenv("NAME"). This used to match getEnv
+	// only, so a variable read with os.Getenv was not checked at all.
+	re := regexp.MustCompile(`(?:getEnv(?:Int)?|os\.Getenv)\("([A-Z0-9_]+)"`)
 	wanted := map[string]bool{}
 	for _, m := range re.FindAllStringSubmatch(string(source)+string(sync), -1) {
 		wanted[m[1]] = true
@@ -86,7 +88,7 @@ func TestTheInstallerSetsEveryVariableTheAgentReads(t *testing.T) {
 	// contains "NAME=" and would let this test pass over a variable that is
 	// documented and never set — which is the same outcome as not setting it.
 	env := uncommented(files[".env"])
-	compose := uncommented(files["docker-compose.yml"])
+	compose := serviceBlock(t, uncommented(files["docker-compose.yml"]), "driver-manager")
 
 	// Variables the agent reads but that are legitimately left to their
 	// defaults, or supplied by Docker rather than by the installer.
@@ -105,9 +107,10 @@ func TestTheInstallerSetsEveryVariableTheAgentReads(t *testing.T) {
 		if optional[name] {
 			continue
 		}
-		if !definesVariable(env, compose, name) {
-			t.Errorf("driver-manager reads %s, and nothing in the package gives it a value "+
-				"— on a real box that variable is empty", name)
+		if !reachesContainer(env, compose, name) {
+			t.Errorf("driver-manager reads %s, and it does not reach its container: it must be "+
+				"in the service's environment, and a ${%s} there needs a value in .env — on "+
+				"a real box that variable is empty", name, name)
 		}
 	}
 }
@@ -262,6 +265,48 @@ func uncommented(s string) string {
 // through a variable nobody defined yields an empty string. With that rule the
 // test stayed green while .env still carried the old names, which is precisely
 // the defect it exists to catch.
+// serviceBlock returns one service's section of a compose file.
+func serviceBlock(t *testing.T, compose, service string) string {
+	t.Helper()
+	start := strings.Index(compose, "\n  "+service+":\n")
+	if start < 0 {
+		t.Fatalf("service %s not found in the compose file", service)
+	}
+	rest := compose[start+1:]
+	// The next line indented exactly two spaces starts the next service; a
+	// line at column zero starts the next top-level key.
+	next := regexp.MustCompile(`\n(  [a-z][a-z0-9_-]*:\n|[a-z])`).FindStringIndex(rest[1:])
+	if next == nil {
+		return rest
+	}
+	return rest[:next[0]+1]
+}
+
+// reachesContainer reports whether a variable ends up inside the container.
+//
+// The box's compose lists each variable explicitly and has no env_file, so a
+// value that exists only in .env reaches nothing: .env feeds the ${...}
+// substitutions in the compose file, not the container. Counting .env alone —
+// which definesVariable does — let a compose that forgot to pass a variable on
+// pass this test.
+func reachesContainer(env, service, name string) bool {
+	for _, line := range strings.Split(service, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, name+":") {
+			continue
+		}
+		value := strings.TrimSpace(strings.TrimPrefix(trimmed, name+":"))
+		if value == "" {
+			return false
+		}
+		if value == "${"+name+"}" {
+			return definesVariable(env, "", name)
+		}
+		return true // a literal, or ${NAME:-default}
+	}
+	return false
+}
+
 func definesVariable(env, compose, name string) bool {
 	for _, line := range strings.Split(env, "\n") {
 		if strings.HasPrefix(strings.TrimSpace(line), name+"=") {
