@@ -8,7 +8,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
     Activity, Bell, Boxes, Building2, ChefHat, ClipboardList, Clock, Cpu, Factory,
     FileText, Gauge, History, LayoutDashboard, LayoutTemplate, Layers, Lock, MapPin,
-    Network, PackageOpen, Plug, Radio, Server, Settings, Shield, Tags, Target,
+    Network, PackageOpen, Plug, Radio, Rocket, Server, Settings, Shield, Tags, Target,
     TrendingUp, Users, Wrench,
 } from 'lucide-react';
 
@@ -52,6 +52,9 @@ export function navSections(access: NavAccess): NavSection[] {
             key: 'nav.section.overview',
             items: [
                 { key: 'nav.dashboard', path: '/', icon: LayoutDashboard, hint: 'nav.hint.dashboard' },
+                ...(access.isAdmin
+                    ? [{ key: 'nav.setup', path: '/setup', icon: Rocket, hint: 'nav.hint.setup' }]
+                    : []),
             ],
         },
         {

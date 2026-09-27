@@ -1,10 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
     Activity, AlertTriangle, Bell, BellOff, ChefHat, CheckCircle2, Clock, Cpu,
     Database, FileText, Gauge, LogIn, Mail, MessageCircle, Pencil, Radio, ShieldAlert,
-    TrendingDown, TrendingUp, UserCircle, Users, Wifi, Wrench, XCircle, ArrowUpRight,
+    TrendingDown, TrendingUp, UserCircle, Users, Wifi, Wrench, XCircle, ArrowUpRight, Rocket,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { useAuthStore } from '@/stores/useAuthStore';
+import { useGateways } from '@/hooks/useGateways';
 
 import {
     dashboardApi, oeeApi,
@@ -777,6 +780,12 @@ const useDashboard = () => {
 const DashboardPage = () => {
     const { t } = useTranslation();
     const { data, isLoading, isError } = useDashboard();
+    // An installation with no PLC yet: the dashboard has nothing to show, and
+    // a new user does not know that a gateway needs an area, a site and an
+    // organization first. Point them at the guided setup.
+    const { isAdmin } = useAuthStore();
+    const { gateways, isLoading: gatewaysLoading } = useGateways();
+    const empty = isAdmin() && !gatewaysLoading && gateways.length === 0;
 
     if (isLoading && !data) {
         return <div className="p-8 text-center text-muted-foreground">{t('dashboardPage.loading')}</div>;
@@ -791,6 +800,19 @@ const DashboardPage = () => {
                 <h2 className="text-3xl font-bold tracking-tight">{t('nav.dashboard')}</h2>
                 <p className="text-muted-foreground">{t('dashboardPage.subtitle')}</p>
             </div>
+
+            {empty && (
+                <Card className="border-primary/40 bg-primary/5">
+                    <CardContent className="py-5 flex flex-col sm:flex-row sm:items-center gap-4">
+                        <Rocket className="text-primary shrink-0" size={28} />
+                        <div className="flex-1">
+                            <p className="font-semibold">{t('setup.dash_title')}</p>
+                            <p className="text-sm text-muted-foreground">{t('setup.dash_desc')}</p>
+                        </div>
+                        <Button asChild><Link to="/setup">{t('setup.dash_cta')}</Link></Button>
+                    </CardContent>
+                </Card>
+            )}
 
             <StatusBar data={data} />
 

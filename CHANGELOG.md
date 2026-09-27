@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (addresses in that driver's format, a drop-down for the type, an
   instructions sheet) can be downloaded from the same dialog.
   `POST /api/tags/import/file`, `GET /api/tags/import/template`.
+- **Getting started** (`/setup`): from an empty installation to the first
+  values read from a PLC in four steps on one page — organization, site and
+  area; the PLC (Siemens S7, Modbus TCP, OPC UA) with a connection test that
+  says what to check when it fails; the tags, imported from Excel or added by
+  hand; and where to go next. The dashboard offers it while there is no PLC.
 - **MQTT logins for external systems.** Organizations → Infrastructure → MQTT
   creates a read-only broker login for a SCADA, Node-RED or a MES: it reads
   that organization's tag data and alarms, publishes nothing, and can be

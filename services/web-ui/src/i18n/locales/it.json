@@ -128,9 +128,11 @@
             "audit_log": "Chi ha fatto cosa e quando",
             "fleet": "Stato di tutte le installazioni",
             "releases": "Versioni e aggiornamenti",
-            "users": "Persone, ruoli e inviti"
+            "users": "Persone, ruoli e inviti",
+            "setup": "Dall'impianto vuoto ai primi valori dal PLC, passo per passo"
         },
-        "mqtt_reconnecting": "Connessione ai dati in tempo reale persa: riconnessione in corso…"
+        "mqtt_reconnecting": "Connessione ai dati in tempo reale persa: riconnessione in corso…",
+        "setup": "Primi passi"
     },
     "system": {
         "title": "Pannello di sistema",

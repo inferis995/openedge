@@ -6,6 +6,7 @@ import RequireAdmin from '@/components/RequireAdmin';
 
 import OrganizationsPage from '@/pages/OrganizationsPage';
 import DashboardPage from '@/pages/DashboardPage';
+import SetupWizardPage from '@/pages/SetupWizardPage';
 import SitesPage from '@/pages/SitesPage';
 import AreasPage from '@/pages/AreasPage';
 import GatewaysPage from '@/pages/GatewaysPage';
@@ -133,6 +134,7 @@ function App() {
             <Route element={<RequireAuth />}>
                 <Route element={<LayoutWrapper />}>
                     <Route path="/" element={<DashboardPage />} />
+                    <Route path="/setup" element={<SetupWizardPage />} />
                     <Route path="/organizations" element={<OrganizationsPage />} />
                     <Route path="/sites" element={<SitesPage />} />
                     <Route path="/areas" element={<AreasPage />} />

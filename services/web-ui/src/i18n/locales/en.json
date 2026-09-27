@@ -128,9 +128,11 @@
             "audit_log": "Who did what, and when",
             "fleet": "State of every installation",
             "releases": "Versions and updates",
-            "users": "People, roles and invitations"
+            "users": "People, roles and invitations",
+            "setup": "From an empty plant to the first values from a PLC, step by step"
         },
-        "mqtt_reconnecting": "Live data connection lost: reconnecting…"
+        "mqtt_reconnecting": "Live data connection lost: reconnecting…",
+        "setup": "Getting started"
     },
     "system": {
         "title": "System Manager",
