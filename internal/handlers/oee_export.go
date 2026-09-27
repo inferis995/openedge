@@ -27,39 +27,31 @@ func (h *OEEExportHandler) ExportHistoryCSV(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	profileFilter := strings.TrimSpace(c.Query("profile_id"))
-
-	var rows *sql.Rows
-	if profileFilter == "" || profileFilter == "0" {
-		rows, err = h.db.Query(`
-			SELECT p.name, h.bucket_start, h.bucket_size,
-				h.oee, h.availability, h.performance, h.quality,
-				h.planned_min, h.downtime_min,
-				h.pieces_produced, h.pieces_good,
-				COALESCE(s.name,'')
-			FROM oee_history h
-			LEFT JOIN oee_profiles p ON p.id = h.profile_id
-			LEFT JOIN shifts s ON s.id = h.shift_id
-			WHERE h.bucket_start >= $1 AND h.bucket_start < $2
-			ORDER BY h.bucket_start ASC`,
-			from, to,
-		)
-	} else {
-		rows, err = h.db.Query(`
-			SELECT p.name, h.bucket_start, h.bucket_size,
-				h.oee, h.availability, h.performance, h.quality,
-				h.planned_min, h.downtime_min,
-				h.pieces_produced, h.pieces_good,
-				COALESCE(s.name,'')
-			FROM oee_history h
-			LEFT JOIN oee_profiles p ON p.id = h.profile_id
-			LEFT JOIN shifts s ON s.id = h.shift_id
-			WHERE (h.profile_id::text = $1 OR ($1 = '' AND h.profile_id IS NULL))
-			  AND h.bucket_start >= $2 AND h.bucket_start < $3
-			ORDER BY h.bucket_start ASC`,
-			profileFilter, from, to,
-		)
+	// Without a profile the export is every row of the caller's organization
+	// (its profiles and its rollup); it was every row of every organization.
+	// A profile of another organization is not found.
+	pred, arg := "($3::int IS NULL OR h.org_id = $3)", interface{}(oeeOrg(c))
+	if raw := strings.TrimSpace(c.Query("profile_id")); raw != "" && raw != "0" {
+		target, ok := historyTargetOf(c, h.db)
+		if !ok {
+			return
+		}
+		pred, arg = target.where(3)
 	}
+	rows, err := h.db.QueryContext(c.Request.Context(), `
+		SELECT p.name, h.bucket_start, h.bucket_size,
+			h.oee, h.availability, h.performance, h.quality,
+			h.planned_min, h.downtime_min,
+			h.pieces_produced, h.pieces_good,
+			COALESCE(s.name,'')
+		FROM oee_history h
+		LEFT JOIN oee_profiles p ON p.id = h.profile_id
+		LEFT JOIN shifts s ON s.id = h.shift_id
+		WHERE h.bucket_start >= $1 AND h.bucket_start < $2
+		  AND `+pred+`
+		ORDER BY h.bucket_start ASC`,
+		from, to, arg,
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -108,9 +100,12 @@ func (h *OEEExportHandler) ExportByShiftCSV(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	profileFilter := strings.TrimSpace(c.Query("profile_id"))
-
-	baseSQL := `
+	target, ok := historyTargetOf(c, h.db)
+	if !ok {
+		return
+	}
+	pred, arg := target.where(3)
+	rows, err := h.db.QueryContext(c.Request.Context(), `
 		SELECT p.name, h.shift_id, s.name,
 			to_char(date_trunc('day', h.bucket_start), 'YYYY-MM-DD') AS date,
 			AVG(h.oee), AVG(h.availability), AVG(h.performance), AVG(h.quality),
@@ -120,24 +115,12 @@ func (h *OEEExportHandler) ExportByShiftCSV(c *gin.Context) {
 		LEFT JOIN oee_profiles p ON p.id = h.profile_id
 		WHERE h.bucket_size = 'hour'
 		  AND h.bucket_start >= $1 AND h.bucket_start < $2
-		  AND h.shift_id IS NOT NULL`
-
-	var rows *sql.Rows
-	if profileFilter == "" || profileFilter == "0" {
-		rows, err = h.db.Query(baseSQL+`
-			  AND h.profile_id IS NULL
-			GROUP BY p.name, h.shift_id, s.name, date
-			ORDER BY date, h.shift_id`,
-			from, to,
-		)
-	} else {
-		rows, err = h.db.Query(baseSQL+`
-			  AND h.profile_id = $3
-			GROUP BY p.name, h.shift_id, s.name, date
-			ORDER BY date, h.shift_id`,
-			from, to, profileFilter,
-		)
-	}
+		  AND h.shift_id IS NOT NULL
+		  AND `+pred+`
+		GROUP BY p.name, h.shift_id, s.name, date
+		ORDER BY date, h.shift_id`,
+		from, to, arg,
+	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -172,9 +155,8 @@ func (h *OEEExportHandler) ExportByShiftCSV(c *gin.Context) {
 }
 
 func (h *OEEExportHandler) ExportLossTreeCSV(c *gin.Context) {
-	pid := strings.TrimSpace(c.Query("profile_id"))
-	if pid == "" || pid == "0" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "profile_id required"})
+	pid, ok := lossProfileOf(c, h.db, strings.TrimSpace(c.Query("profile_id")))
+	if !ok {
 		return
 	}
 	from, to, err := h.parseRange(c)
@@ -183,7 +165,7 @@ func (h *OEEExportHandler) ExportLossTreeCSV(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.Query(`
+	rows, err := h.db.QueryContext(c.Request.Context(), `
 		SELECT c.code, c.loss_pillar, c.display_label,
 			e.start_at, e.end_at, e.duration_min, e.source, COALESCE(e.notes,'')
 		FROM oee_loss_events e

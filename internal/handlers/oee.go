@@ -27,14 +27,16 @@ package handlers
 import (
 	"context"
 	"database/sql"
-	"github.com/ralph/industrial-edge-middleware/internal/shifts"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
+
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
+	"github.com/ralph/industrial-edge-middleware/internal/shifts"
 )
 
 // OEEHandler espone gli endpoint /api/oee*.
@@ -736,9 +738,13 @@ func (h *OEEHandler) CreateProfile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	orgID, _ := c.Get("organization_id")
-	if orgID == nil {
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required"})
+		return
+	}
+	if !h.profileRefsBelong(c.Request.Context(), orgID, &req) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tag, area or gateway not found in the organization"})
 		return
 	}
 	if req.WindowMinutes <= 0 {
@@ -819,6 +825,15 @@ func (h *OEEHandler) UpdateProfile(c *gin.Context) {
 	// Il predicato org_id fa sì che un profilo di un altro tenant non venga
 	// toccato: 0 righe aggiornate → 404, nessuna modifica cross-org.
 	orgFilter := middleware.GetOrgFilterForQuery(c)
+	current, err := h.loadProfile(id, orgFilter)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	if !h.profileRefsBelong(c.Request.Context(), current.OrgID, &req) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tag, area or gateway not found in the organization"})
+		return
+	}
 	res, err := h.db.Exec(`
 		UPDATE oee_profiles SET
 			name=$2, description=$3, area_id=$4, gateway_id=$5,
@@ -847,6 +862,39 @@ func (h *OEEHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, p)
+}
+
+// profileRefsBelong says whether the tags, area and gateway a profile names
+// are the organization's. They were taken as given: a profile could be built
+// on another organization's counters, and its OEE card, history and loss
+// tree then showed that organization's production.
+func (h *OEEHandler) profileRefsBelong(ctx context.Context, org int, req *ProfileRequest) bool {
+	var tagIDs []int64
+	for _, id := range []*int{req.RunTimeTagID, req.ProducedTagID, req.GoodTagID} {
+		if id != nil && *id > 0 {
+			tagIDs = append(tagIDs, int64(*id))
+		}
+	}
+	var ok bool
+	err := h.db.QueryRowContext(ctx, `
+		SELECT
+			(SELECT count(DISTINCT t.id) FROM tags t
+				JOIN gateways g ON g.id = t.gateway_id
+				JOIN areas a ON a.id = g.area_id
+				JOIN sites s ON s.id = a.site_id
+				WHERE t.id = ANY($2) AND s.org_id = $1)
+				= (SELECT count(DISTINCT x) FROM unnest($2::bigint[]) x)
+			AND ($3::int IS NULL OR EXISTS (
+				SELECT 1 FROM areas a JOIN sites s ON s.id = a.site_id
+				WHERE a.id = $3 AND s.org_id = $1))
+			AND ($4::int IS NULL OR EXISTS (
+				SELECT 1 FROM gateways g
+				JOIN areas a ON a.id = g.area_id
+				JOIN sites s ON s.id = a.site_id
+				WHERE g.id = $4 AND s.org_id = $1))`,
+		org, pq.Array(tagIDs), req.AreaID, req.GatewayID,
+	).Scan(&ok)
+	return err == nil && ok
 }
 
 // DeleteProfile DELETE /api/oee/profiles/:id — admin only.

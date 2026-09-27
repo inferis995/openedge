@@ -102,6 +102,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   organization's lines. A window belongs to its organization now (one with no
   organization is the platform's and applies to all). Custom KPIs are listed,
   computed and editable only on the organization's own tags.
+- **Security:** OEE history, the factory rollup, loss analysis, exports and
+  alert rules were shared across organizations: the history export without a
+  profile returned every organization's rows, any profile id could be read,
+  rollups averaged every organization's lines, and an OEE profile could be
+  built on another organization's tags to read its production. All are scoped
+  to the organization now; rollups are written per organization, attributed to
+  that organization's shifts, and no longer duplicated when the job re-runs.
+  Not yet scoped: the fallback OEE for profiles without tags (it counts
+  alarms and data quality across the installation) and the legacy single-OEE
+  mode's settings.
 - Shift times were read in UTC: a 06:00 shift started at 08:00 in summer in
   Italy, and OEE counted the wrong hours as planned. Deleting the default
   "Pomeriggio" or "Notte" shift brought it back at the next restart.

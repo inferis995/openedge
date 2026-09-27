@@ -15,6 +15,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/notifications"
 )
 
@@ -39,6 +41,7 @@ func NewAlertsHandler(db *sql.DB, dispatcher *notifications.Dispatcher) *AlertsH
 // AlertRule è la row della tabella oee_alert_rules.
 type AlertRule struct {
 	ID               int        `json:"id"`
+	OrgID            *int       `json:"org_id,omitempty"`
 	ProfileID        *int       `json:"profile_id,omitempty"`
 	Name             string     `json:"name"`
 	Metric           string     `json:"metric"`
@@ -65,13 +68,29 @@ type AlertRuleRequest struct {
 	Enabled          *bool   `json:"enabled,omitempty"`
 }
 
-// ListAlertRules GET /api/oee/alert-rules
+const alertRuleColumns = `id, org_id, profile_id, name, metric, op, threshold, sustained_minutes,
+	severity, enabled, last_notified_at, last_state, created_at, updated_at`
+
+func scanAlertRule(sc interface{ Scan(...interface{}) error }) (AlertRule, error) {
+	var r AlertRule
+	err := sc.Scan(
+		&r.ID, &r.OrgID, &r.ProfileID, &r.Name, &r.Metric, &r.Op, &r.Threshold,
+		&r.SustainedMinutes, &r.Severity, &r.Enabled,
+		&r.LastNotifiedAt, &r.LastState, &r.CreatedAt, &r.UpdatedAt,
+	)
+	return r, err
+}
+
+// ListAlertRules GET /api/oee/alert-rules — the caller's organization's
+// rules (every organization's for the global administrator with none
+// selected). The list had no organization: every admin saw, and could
+// change, every organization's rules.
 func (h *AlertsHandler) List(c *gin.Context) {
-	rows, err := h.db.Query(`
-		SELECT id, profile_id, name, metric, op, threshold, sustained_minutes,
-			severity, enabled, last_notified_at, last_state, created_at, updated_at
+	rows, err := h.db.QueryContext(c.Request.Context(), `
+		SELECT `+alertRuleColumns+`
 		FROM oee_alert_rules
-		ORDER BY profile_id NULLS FIRST, id`)
+		WHERE ($1::int IS NULL OR org_id = $1)
+		ORDER BY profile_id NULLS FIRST, id`, oeeOrg(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -79,16 +98,35 @@ func (h *AlertsHandler) List(c *gin.Context) {
 	defer rows.Close()
 	out := []AlertRule{}
 	for rows.Next() {
-		var r AlertRule
-		if err := rows.Scan(
-			&r.ID, &r.ProfileID, &r.Name, &r.Metric, &r.Op, &r.Threshold,
-			&r.SustainedMinutes, &r.Severity, &r.Enabled,
-			&r.LastNotifiedAt, &r.LastState, &r.CreatedAt, &r.UpdatedAt,
-		); err == nil {
+		if r, err := scanAlertRule(rows); err == nil {
 			out = append(out, r)
 		}
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// ruleOrg is the organization a rule on profileID belongs to: the profile's,
+// which must be visible to the caller, or for a factory rule (no profile)
+// the caller's own. A global administrator with no organization selected
+// cannot make a factory rule: it would have no rollup to watch. On false
+// the response is written.
+func (h *AlertsHandler) ruleOrg(c *gin.Context, profileID *int) (int, bool) {
+	if profileID != nil {
+		var org int
+		if err := h.db.QueryRowContext(c.Request.Context(),
+			`SELECT org_id FROM oee_profiles WHERE id = $1 AND ($2::int IS NULL OR org_id = $2)`,
+			*profileID, middleware.GetOrgFilterForQuery(c)).Scan(&org); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "profile not found"})
+			return 0, false
+		}
+		return org, true
+	}
+	org := oeeOrg(c)
+	if org == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required for a factory rule"})
+		return 0, false
+	}
+	return *org, true
 }
 
 // CreateAlertRule POST /api/oee/alert-rules
@@ -109,23 +147,28 @@ func (h *AlertsHandler) Create(c *gin.Context) {
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
+	org, ok := h.ruleOrg(c, req.ProfileID)
+	if !ok {
+		return
+	}
 	var id int
-	err := h.db.QueryRow(`
+	err := h.db.QueryRowContext(c.Request.Context(), `
 		INSERT INTO oee_alert_rules
-			(profile_id, name, metric, op, threshold, sustained_minutes, severity, enabled)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-		req.ProfileID, req.Name, req.Metric, req.Op, req.Threshold,
+			(org_id, profile_id, name, metric, op, threshold, sustained_minutes, severity, enabled)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+		org, req.ProfileID, req.Name, req.Metric, req.Op, req.Threshold,
 		req.SustainedMinutes, req.Severity, enabled,
 	).Scan(&id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	rule, _ := h.loadRule(id)
+	rule, _ := h.loadRule(c, id, nil)
 	c.JSON(http.StatusCreated, rule)
 }
 
-// UpdateAlertRule PUT /api/oee/alert-rules/:id
+// UpdateAlertRule PUT /api/oee/alert-rules/:id — only a rule of the
+// caller's organization, and only onto a profile the caller can see.
 func (h *AlertsHandler) Update(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
@@ -148,18 +191,32 @@ func (h *AlertsHandler) Update(c *gin.Context) {
 	if req.Enabled != nil {
 		enabled = *req.Enabled
 	}
-	if _, err := h.db.Exec(`
+	callerOrg := oeeOrg(c)
+	if _, err = h.loadRule(c, id, callerOrg); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	org, ok := h.ruleOrg(c, req.ProfileID)
+	if !ok {
+		return
+	}
+	res, err := h.db.ExecContext(c.Request.Context(), `
 		UPDATE oee_alert_rules SET
-			profile_id=$2, name=$3, metric=$4, op=$5, threshold=$6,
-			sustained_minutes=$7, severity=$8, enabled=$9, updated_at=NOW()
-		WHERE id=$1`,
-		id, req.ProfileID, req.Name, req.Metric, req.Op, req.Threshold,
-		req.SustainedMinutes, req.Severity, enabled,
-	); err != nil {
+			org_id=$2, profile_id=$3, name=$4, metric=$5, op=$6, threshold=$7,
+			sustained_minutes=$8, severity=$9, enabled=$10, updated_at=NOW()
+		WHERE id=$1 AND ($11::int IS NULL OR org_id=$11)`,
+		id, org, req.ProfileID, req.Name, req.Metric, req.Op, req.Threshold,
+		req.SustainedMinutes, req.Severity, enabled, callerOrg,
+	)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	rule, err := h.loadRule(id)
+	if n, _ := res.RowsAffected(); n == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		return
+	}
+	rule, err := h.loadRule(c, id, nil)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
@@ -167,32 +224,32 @@ func (h *AlertsHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, rule)
 }
 
-// DeleteAlertRule DELETE /api/oee/alert-rules/:id
+// DeleteAlertRule DELETE /api/oee/alert-rules/:id — a rule of another
+// organization is not found (it was deleted, whoever it belonged to).
 func (h *AlertsHandler) Delete(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("id"))
 	if err != nil || id <= 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	if _, err := h.db.Exec(`DELETE FROM oee_alert_rules WHERE id=$1`, id); err != nil {
+	res, err := h.db.ExecContext(c.Request.Context(),
+		`DELETE FROM oee_alert_rules WHERE id=$1 AND ($2::int IS NULL OR org_id=$2)`, id, oeeOrg(c))
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
 	c.Status(http.StatusNoContent)
 }
 
-func (h *AlertsHandler) loadRule(id int) (AlertRule, error) {
-	var r AlertRule
-	err := h.db.QueryRow(`
-		SELECT id, profile_id, name, metric, op, threshold, sustained_minutes,
-			severity, enabled, last_notified_at, last_state, created_at, updated_at
-		FROM oee_alert_rules WHERE id = $1`, id,
-	).Scan(
-		&r.ID, &r.ProfileID, &r.Name, &r.Metric, &r.Op, &r.Threshold,
-		&r.SustainedMinutes, &r.Severity, &r.Enabled,
-		&r.LastNotifiedAt, &r.LastState, &r.CreatedAt, &r.UpdatedAt,
-	)
-	return r, err
+// loadRule reads a rule of org (nil: of any organization).
+func (h *AlertsHandler) loadRule(c *gin.Context, id int, org *int) (AlertRule, error) {
+	return scanAlertRule(h.db.QueryRowContext(c.Request.Context(), `
+		SELECT `+alertRuleColumns+`
+		FROM oee_alert_rules WHERE id = $1 AND ($2::int IS NULL OR org_id = $2)`, id, org))
 }
 
 func validateAlertRule(r AlertRuleRequest) error {
@@ -233,10 +290,17 @@ func EvaluateAlertRules(db *sql.DB, dispatcher *notifications.Dispatcher, now ti
 	if dispatcher == nil {
 		return nil
 	}
-	rows, err := db.Query(`
-		SELECT id, profile_id, name, metric, op, threshold, sustained_minutes,
-			severity, last_notified_at, last_state
-		FROM oee_alert_rules WHERE enabled = true`)
+	ctx := context.Background()
+	// A rule is its organization's: a factory rule was evaluated on the
+	// rollup of every organization's lines and notified with no
+	// organization. A rule on a profile whose org_id is not set yet takes
+	// the profile's.
+	rows, err := db.QueryContext(ctx, `
+		SELECT r.id, COALESCE(r.org_id, p.org_id), r.profile_id, r.name, r.metric, r.op,
+			r.threshold, r.sustained_minutes, r.severity, r.last_notified_at, r.last_state
+		FROM oee_alert_rules r
+		LEFT JOIN oee_profiles p ON p.id = r.profile_id
+		WHERE r.enabled = true`)
 	if err != nil {
 		return err
 	}
@@ -244,7 +308,7 @@ func EvaluateAlertRules(db *sql.DB, dispatcher *notifications.Dispatcher, now ti
 
 	type ruleEval struct {
 		id, sustainedMin                      int
-		profileID                             *int
+		orgID, profileID                      *int
 		name, metric, op, severity, lastState string
 		threshold                             float64
 		lastNotified                          *time.Time
@@ -253,7 +317,7 @@ func EvaluateAlertRules(db *sql.DB, dispatcher *notifications.Dispatcher, now ti
 	for rows.Next() {
 		var r ruleEval
 		if err := rows.Scan(
-			&r.id, &r.profileID, &r.name, &r.metric, &r.op, &r.threshold,
+			&r.id, &r.orgID, &r.profileID, &r.name, &r.metric, &r.op, &r.threshold,
 			&r.sustainedMin, &r.severity, &r.lastNotified, &r.lastState,
 		); err == nil {
 			rules = append(rules, r)
@@ -270,14 +334,18 @@ func EvaluateAlertRules(db *sql.DB, dispatcher *notifications.Dispatcher, now ti
 		var dbRows *sql.Rows
 		var qErr error
 		if r.profileID == nil {
-			dbRows, qErr = db.Query(`
+			// The rule's organization's rollup. A factory rule of no
+			// organization (left from before, on an installation with
+			// several) reads the platform's legacy rollup.
+			dbRows, qErr = db.QueryContext(ctx, `
 				SELECT oee, availability, performance, quality
-				FROM oee_history WHERE profile_id IS NULL AND bucket_size='hour'
-				ORDER BY bucket_start DESC LIMIT $1`,
-				nHours,
+				FROM oee_history
+				WHERE profile_id IS NULL AND org_id IS NOT DISTINCT FROM $1 AND bucket_size='hour'
+				ORDER BY bucket_start DESC LIMIT $2`,
+				r.orgID, nHours,
 			)
 		} else {
-			dbRows, qErr = db.Query(`
+			dbRows, qErr = db.QueryContext(ctx, `
 				SELECT oee, availability, performance, quality
 				FROM oee_history WHERE profile_id = $1 AND bucket_size='hour'
 				ORDER BY bucket_start DESC LIMIT $2`,
@@ -315,7 +383,7 @@ func EvaluateAlertRules(db *sql.DB, dispatcher *notifications.Dispatcher, now ti
 			// Dispatch
 			profileLabel := "Fabbrica (rollup)"
 			if r.profileID != nil {
-				_ = db.QueryRow(`SELECT name FROM oee_profiles WHERE id=$1`,
+				_ = db.QueryRowContext(ctx, `SELECT name FROM oee_profiles WHERE id=$1`,
 					*r.profileID).Scan(&profileLabel)
 			}
 			desc := fmt.Sprintf("Regola \"%s\": %s di %s %s %.1f%% per %d min (valore attuale: %.1f%%)",
@@ -329,19 +397,27 @@ func EvaluateAlertRules(db *sql.DB, dispatcher *notifications.Dispatcher, now ti
 				Value:       lastValue,
 				Description: desc,
 				OccurredAt:  now,
-				OrgID:       0,
+				OrgID:       orgOrZero(r.orgID),
 			})
-			_, _ = db.Exec(`UPDATE oee_alert_rules
+			_, _ = db.ExecContext(ctx, `UPDATE oee_alert_rules
 				SET last_notified_at = $2, last_state = 'violating', updated_at = NOW()
 				WHERE id = $1`, r.id, now)
 		} else if r.lastState == "violating" {
 			// Rientro: passa a normal, niente notifica di "cleared"
-			_, _ = db.Exec(`UPDATE oee_alert_rules
+			_, _ = db.ExecContext(ctx, `UPDATE oee_alert_rules
 				SET last_state = 'normal', updated_at = NOW()
 				WHERE id = $1`, r.id)
 		}
 	}
 	return nil
+}
+
+// orgOrZero is the notification's organization: 0 is the platform's.
+func orgOrZero(org *int) int {
+	if org == nil {
+		return 0
+	}
+	return *org
 }
 
 func pickMetric(o, a, p, q float64, name string) float64 {

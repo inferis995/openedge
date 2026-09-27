@@ -34,10 +34,13 @@ package handlers
 import (
 	"database/sql"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 )
 
 // LossesHandler espone le query del loss tree, Pareto, MTBF/MTTR.
@@ -68,9 +71,8 @@ type LossCategoryAgg struct {
 // Ritorna le categorie ordinate per durata totale decrescente — il
 // "Pareto delle cause". Frontend usa questo per il chart top-N.
 func (h *LossesHandler) LossTree(c *gin.Context) {
-	pid := strings.TrimSpace(c.Query("profile_id"))
-	if pid == "" || pid == "0" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "profile_id required"})
+	pid, ok := lossProfileOf(c, h.db, strings.TrimSpace(c.Query("profile_id")))
+	if !ok {
 		return
 	}
 	from, err := parseHistoryTime(c.Query("from"))
@@ -84,7 +86,7 @@ func (h *LossesHandler) LossTree(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.db.Query(`
+	rows, err := h.db.QueryContext(c.Request.Context(), `
 		SELECT c.id, c.code, c.loss_pillar, c.display_label, c.color,
 			COUNT(e.id), COALESCE(SUM(e.duration_min), 0)
 		FROM oee_loss_categories c
@@ -125,6 +127,29 @@ func (h *LossesHandler) LossTree(c *gin.Context) {
 	})
 }
 
+// lossProfileOf reads the profile a loss or reliability request is about.
+// The loss tree, MTBF/MTTR and the loss export took the id as given, so any
+// user read another organization's breakdowns and planned time by trying
+// ids. A profile of another organization is not found. On false the
+// response is written.
+func lossProfileOf(c *gin.Context, db *sql.DB, raw string) (int, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "0" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "profile_id required"})
+		return 0, false
+	}
+	id, err := strconv.Atoi(raw)
+	if err != nil || id < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid profile_id"})
+		return 0, false
+	}
+	if !profileVisible(c.Request.Context(), db, id, middleware.GetOrgFilterForQuery(c)) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "profile not found"})
+		return 0, false
+	}
+	return id, true
+}
+
 // ReliabilityStats è la risposta del calcolo MTBF/MTTR.
 type ReliabilityStats struct {
 	ProfileID      int     `json:"profile_id"`
@@ -149,9 +174,8 @@ type ReliabilityStats struct {
 // Solo eventi categorizzati come 'breakdown' contano (non setup, non
 // minor_stops — quelli pesano in modo diverso sulla manutenzione preventiva).
 func (h *LossesHandler) MTBFMTTR(c *gin.Context) {
-	pid := c.Param("id")
-	if pid == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "profile id required"})
+	pid, ok := lossProfileOf(c, h.db, c.Param("id"))
+	if !ok {
 		return
 	}
 	from, err := parseHistoryTime(c.Query("from"))
@@ -167,7 +191,7 @@ func (h *LossesHandler) MTBFMTTR(c *gin.Context) {
 
 	var count int
 	var totalRepair float64
-	_ = h.db.QueryRow(`
+	_ = h.db.QueryRowContext(c.Request.Context(), `
 		SELECT COUNT(*), COALESCE(SUM(duration_min), 0)
 		FROM oee_loss_events e
 		JOIN oee_loss_categories c ON c.id = e.category_id
@@ -178,7 +202,7 @@ func (h *LossesHandler) MTBFMTTR(c *gin.Context) {
 	).Scan(&count, &totalRepair)
 
 	var totalPlanned float64
-	_ = h.db.QueryRow(`
+	_ = h.db.QueryRowContext(c.Request.Context(), `
 		SELECT COALESCE(SUM(planned_min), 0)
 		FROM oee_history
 		WHERE profile_id = $1
@@ -195,6 +219,7 @@ func (h *LossesHandler) MTBFMTTR(c *gin.Context) {
 	}
 
 	stats := ReliabilityStats{
+		ProfileID:      pid,
 		FromBucket:     from.Format(time.RFC3339),
 		ToBucket:       to.Format(time.RFC3339),
 		BreakdownCount: count,

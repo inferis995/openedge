@@ -420,6 +420,52 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// An oee_history row belongs to an organization. The factory rollup
+	// (profile_id NULL) averaged every organization's lines into one row per
+	// hour, and every organization read it. A profile row takes its
+	// profile's organization. The existing rollups go to the organization
+	// when there is only one (once); otherwise they stay NULL and only the
+	// global administrator sees them.
+	//
+	// The rollups were also written again on every re-run of the hourly job:
+	// UNIQUE (profile_id, bucket_start, bucket_size) never matches a NULL
+	// profile_id, so the upsert always inserted. The duplicates go (the
+	// newest is kept) before the unique indexes the upsert now conflicts on.
+	oeeHistoryOrg := []struct{ what, stmt string }{
+		{"org_id", `ALTER TABLE oee_history ADD COLUMN IF NOT EXISTS org_id INT REFERENCES organizations(id) ON DELETE CASCADE`},
+		{"profile org backfill", `
+			UPDATE oee_history h SET org_id = p.org_id
+			FROM oee_profiles p
+			WHERE p.id = h.profile_id AND h.org_id IS NULL`},
+		{"rollup org backfill", `
+			WITH done AS (
+				INSERT INTO global_settings (key, value) VALUES ('oee_history_org_backfilled', 'true')
+				ON CONFLICT (key) DO NOTHING RETURNING 1
+			)
+			UPDATE oee_history SET org_id = (SELECT id FROM organizations LIMIT 1)
+			WHERE profile_id IS NULL AND org_id IS NULL AND EXISTS (SELECT 1 FROM done)
+			  AND (SELECT count(*) FROM organizations) = 1`},
+		{"rollup duplicates", `
+			DELETE FROM oee_history a USING oee_history b
+			WHERE a.profile_id IS NULL AND b.profile_id IS NULL
+			  AND a.org_id IS NOT DISTINCT FROM b.org_id
+			  AND a.bucket_start = b.bucket_start AND a.bucket_size = b.bucket_size
+			  AND a.id < b.id`},
+		{"org rollup unique", `
+			CREATE UNIQUE INDEX IF NOT EXISTS uq_oee_history_org_rollup
+			ON oee_history (org_id, bucket_start, bucket_size)
+			WHERE profile_id IS NULL AND org_id IS NOT NULL`},
+		{"platform rollup unique", `
+			CREATE UNIQUE INDEX IF NOT EXISTS uq_oee_history_platform_rollup
+			ON oee_history (bucket_start, bucket_size)
+			WHERE profile_id IS NULL AND org_id IS NULL`},
+	}
+	for _, m := range oeeHistoryOrg {
+		if _, err := db.ExecContext(context.Background(), m.stmt); err != nil {
+			log.Printf("Warning: oee_history %s: %v", m.what, err)
+		}
+	}
+
 	// Migration aggiuntiva: respect_shifts + respect_maintenance per
 	// profilo OEE. Quando true (default), il calcolo Availability divide
 	// per Planned Production Time (PPT = window - pause turni -
@@ -506,6 +552,34 @@ func runAutoMigrations(db *sql.DB) error {
 	for _, stmt := range alertRules {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("oee alert rules migration: %w", err)
+		}
+	}
+
+	// An OEE alert rule belongs to an organization. It had none: every
+	// organization's admin listed, changed and deleted every organization's
+	// rules, and a factory rule was evaluated on the rollup of all of them.
+	// A rule on a profile takes the profile's organization; the factory rules
+	// go to the organization when there is only one (once), otherwise they
+	// stay NULL and only the global administrator sees them.
+	oeeAlertOrg := []struct{ what, stmt string }{
+		{"org_id", `ALTER TABLE oee_alert_rules ADD COLUMN IF NOT EXISTS org_id INT REFERENCES organizations(id) ON DELETE CASCADE`},
+		{"profile org backfill", `
+			UPDATE oee_alert_rules r SET org_id = p.org_id
+			FROM oee_profiles p
+			WHERE p.id = r.profile_id AND r.org_id IS NULL`},
+		{"rollup org backfill", `
+			WITH done AS (
+				INSERT INTO global_settings (key, value) VALUES ('oee_alert_rules_org_backfilled', 'true')
+				ON CONFLICT (key) DO NOTHING RETURNING 1
+			)
+			UPDATE oee_alert_rules SET org_id = (SELECT id FROM organizations LIMIT 1)
+			WHERE profile_id IS NULL AND org_id IS NULL AND EXISTS (SELECT 1 FROM done)
+			  AND (SELECT count(*) FROM organizations) = 1`},
+		{"org index", `CREATE INDEX IF NOT EXISTS idx_oee_alert_rules_org ON oee_alert_rules(org_id)`},
+	}
+	for _, m := range oeeAlertOrg {
+		if _, err := db.ExecContext(context.Background(), m.stmt); err != nil {
+			log.Printf("Warning: oee_alert_rules %s: %v", m.what, err)
 		}
 	}
 
