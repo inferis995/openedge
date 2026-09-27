@@ -24,8 +24,12 @@ type Pool struct {
 
 // Job is one TimescaleDB background job — retention, compression, reorder.
 type Job struct {
-	ID            int
-	Name          string
+	ID   int
+	Name string
+	// Table is the hypertable or continuous aggregate the job works on. The
+	// name alone ("Retention Policy [1010]") does not say which data is
+	// growing, and the id changes every time the policy is re-created.
+	Table         string
 	LastRunStatus string // "Success", "Failed", or empty when it has never run
 	TotalFailures int64
 	LastSuccess   time.Time // zero when it has never succeeded
@@ -146,10 +150,10 @@ func jobIssues(prev, cur *Snapshot, th Thresholds, now time.Time) []Issue {
 				Key:      fmt.Sprintf("job:%d", j.ID),
 				Severity: "critical",
 				Message: fmt.Sprintf(
-					"Il job TimescaleDB %q sta fallendo (%d fallimenti in totale). "+
+					"Il job TimescaleDB %q%s sta fallendo (%d fallimenti in totale). "+
 						"Se è la retention, lo storico cresce senza limite e il disco si "+
 						"riempie; se è la compressione, si riempie più in fretta.",
-					j.Name, j.TotalFailures),
+					j.Name, onTable(j.Table), j.TotalFailures),
 			})
 			continue
 		}
@@ -212,4 +216,11 @@ func roughly(d time.Duration) string {
 		return fmt.Sprintf("%d ore", int(d.Hours()))
 	}
 	return fmt.Sprintf("%d giorni", int(d.Hours()/24))
+}
+
+func onTable(table string) string {
+	if table == "" {
+		return ""
+	}
+	return " su " + table
 }

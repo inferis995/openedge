@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -17,6 +18,7 @@ import (
 
 	_ "github.com/lib/pq"
 
+	"github.com/ralph/industrial-edge-middleware/internal/gatewayhealth"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/redis"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
@@ -353,33 +355,59 @@ func (s *HistorianService) handleHealthMessage(topic string, payload []byte) {
 	default:
 	}
 
-	// Parse topic: sys/health/{gateway_id}
-	parts := strings.Split(topic, "/")
-	if len(parts) < 3 {
+	// Both topic shapes: sys/health/{gateway} and sys/health/{org}/{gateway}.
+	// This read parts[2] as the gateway, which in the newer shape is the
+	// organization — every event was filed against the wrong gateway, and
+	// "offline" marked the wrong gateway's tags BAD.
+	orgID, gatewayID, ok := topics.ParseHealth(topic)
+	if !ok {
 		log.Printf("Invalid health topic format: %s", topic)
 		return
 	}
+	// A bare word from a driver or a JSON object from driver-manager. The whole
+	// JSON object used to be stored as the status and overflowed the column,
+	// so driver failures never reached the event log. An empty payload clears
+	// a deleted gateway's retained status and is not an event.
+	status, ok := gatewayhealth.ParsePayload(payload)
+	if !ok {
+		if len(payload) > 0 {
+			log.Printf("[HISTORIAN] Ignoring health payload on %s: %.120s", topic, payload)
+		}
+		return
+	}
 
-	gatewayIDStr := parts[2]
-	status := string(payload) // "online" or "offline"
-
-	log.Printf("[HISTORIAN] Received health event for Gateway %s: %s", gatewayIDStr, status)
-
-	// Get gateway info to populate tags (Org, Site, etc.) for filtering
-	gatewayID, _ := strconv.Atoi(gatewayIDStr)
+	log.Printf("[HISTORIAN] Received health event for Gateway %d: %s", gatewayID, status)
 
 	// Get gateway name for historical record (survives gateway deletion)
 	var gatewayName string
-	err := s.db.QueryRow(`SELECT name FROM gateways WHERE id = $1`, gatewayID).Scan(&gatewayName)
+	var gatewayOrg int
+	err := s.db.QueryRowContext(context.Background(),
+		`SELECT g.name, COALESCE(s.org_id, 0) FROM gateways g
+		 LEFT JOIN areas a ON a.id = g.area_id
+		 LEFT JOIN sites s ON s.id = a.site_id
+		 WHERE g.id = $1`, gatewayID).Scan(&gatewayName, &gatewayOrg)
 	if err != nil {
-		gatewayName = "[deleted gateway]"
+		// Gone, or unreadable: the event row references the gateway and could
+		// not be written either way.
+		log.Printf("[HISTORIAN] Ignoring health for gateway %d: %v", gatewayID, err)
+		return
+	}
+	// The organization in the topic must be the gateway's own; otherwise one
+	// tenant could write events, and mark tags BAD, for another's gateway.
+	if orgID > 0 && gatewayOrg != orgID {
+		log.Printf("[HISTORIAN] Ignoring health for gateway %d on %s: it belongs to org %d",
+			gatewayID, topic, gatewayOrg)
+		return
 	}
 
 	// Determine message based on status
 	var message string
-	if status == "online" {
+	switch status {
+	case gatewayhealth.StatusOnline:
 		message = "Gateway connected"
-	} else {
+	case gatewayhealth.StatusError:
+		message = "Gateway error"
+	default:
 		message = "Gateway disconnected"
 	}
 
@@ -402,7 +430,9 @@ func (s *HistorianService) handleHealthMessage(topic string, payload []byte) {
 	// This works for all driver types: Modbus, OPC-UA, S7, Redis, MQTT.
 	// When the gateway comes back online, normal data messages will
 	// restore GOOD quality automatically.
-	if status == "offline" {
+	// A driver in error is not reading either: its last values are as stale as
+	// an offline one's.
+	if status == gatewayhealth.StatusOffline || status == gatewayhealth.StatusError {
 		tagIDs, tagErr := s.getGatewayTagIDs(gatewayID)
 		if tagErr != nil {
 			log.Printf("[HISTORIAN] Failed to get tags for offline gateway %d: %v", gatewayID, tagErr)

@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -39,8 +40,11 @@ func TestTheDatabaseHealthCollectorRunsAgainstTheRealDatabase(t *testing.T) {
 			"it is reading, and a watcher built on it would report a healthy database forever.")
 	}
 	for _, j := range snap.Jobs {
-		t.Logf("job %d %q: last=%q failures=%d lastSuccess=%v",
-			j.ID, j.Name, j.LastRunStatus, j.TotalFailures, j.LastSuccess)
+		t.Logf("job %d %q on %q: last=%q failures=%d lastSuccess=%v",
+			j.ID, j.Name, j.Table, j.LastRunStatus, j.TotalFailures, j.LastSuccess)
+		if j.TotalFailures > 0 {
+			logJobErrors(t, db, j.ID)
+		}
 		if j.Name == "" {
 			t.Errorf("job %d came back with no name; the message would not say what broke", j.ID)
 		}
@@ -111,5 +115,30 @@ func TestEveryBackgroundJobIsRead(t *testing.T) {
 			"ones whose columns it cannot parse — which is where a policy that has never "+
 			"run lives, and that is exactly the policy worth watching.",
 			len(snap.Jobs), expected)
+	}
+}
+
+// logJobErrors prints what TimescaleDB recorded about a job's failures. The
+// container logs CI keeps are the last 200 lines, and a policy that fails on
+// its first run fails minutes before them.
+func logJobErrors(t *testing.T, db *sql.DB, jobID int) {
+	t.Helper()
+	rows, err := db.Query(`
+		SELECT COALESCE(proc_name, ''), COALESCE(sqlerrcode, ''), COALESCE(err_message, ''), start_time
+		FROM timescaledb_information.job_errors WHERE job_id = $1
+		ORDER BY start_time DESC LIMIT 3`, jobID)
+	if err != nil {
+		t.Logf("job %d: job_errors not readable: %v", jobID, err)
+		return
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var proc, code, msg string
+		var at time.Time
+		if err := rows.Scan(&proc, &code, &msg, &at); err != nil {
+			t.Logf("job %d: %v", jobID, err)
+			return
+		}
+		t.Logf("job %d failed at %s in %s: [%s] %s", jobID, at.Format(time.RFC3339), proc, code, msg)
 	}
 }

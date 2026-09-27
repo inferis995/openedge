@@ -1215,35 +1215,10 @@ type GatewayHealthStatus struct {
 // handleGatewayHealthUpdate processes gateway health status updates from MQTT
 // Topics: sys/health/{gateway_id}
 // Payload: "online" or "offline"
-// parseHealthPayload reads a status off sys/health/{id}, in either of the two
-// shapes that topic actually carries.
-//
-// The drivers publish a bare word — "online", "offline", "error". driver-manager
-// publishes a JSON GatewayStatus object on the same topic when it starts or
-// stops a container. Only the bare word was ever accepted, and only two of the
-// three words at that: a driver reporting "error" and every message from
-// driver-manager were logged as invalid and dropped. The worst state a gateway
-// can be in was the one state the platform could not see.
+// parseHealthPayload reads a status off sys/health/{id}; see
+// gatewayhealth.ParsePayload, which engine-historian shares.
 func parseHealthPayload(payload []byte) (string, bool) {
-	valid := func(s string) (string, bool) {
-		switch s {
-		case gatewayhealth.StatusOnline, gatewayhealth.StatusOffline, gatewayhealth.StatusError:
-			return s, true
-		}
-		return "", false
-	}
-
-	if s, ok := valid(strings.ToLower(strings.TrimSpace(string(payload)))); ok {
-		return s, true
-	}
-
-	var obj struct {
-		Status string `json:"status"`
-	}
-	if err := json.Unmarshal(payload, &obj); err == nil {
-		return valid(strings.ToLower(strings.TrimSpace(obj.Status)))
-	}
-	return "", false
+	return gatewayhealth.ParsePayload(payload)
 }
 
 func handleGatewayHealthUpdate(topic string, payload []byte, redisClient *redis.Client, db *sql.DB) {

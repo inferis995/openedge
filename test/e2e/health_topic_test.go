@@ -130,3 +130,39 @@ func waitForHealth(t *testing.T, db *sql.DB, gatewayID int, want string) string 
 	}
 	return status
 }
+
+// The gateway event log is written by engine-historian, which read the health
+// topic on its own. It took the third segment as the gateway — the
+// organization, in the current shape — and stored the payload verbatim as the
+// status, so driver-manager's JSON overflowed the column. Every driver failure
+// was lost from the log; the ones that fit were filed against the wrong gateway.
+func TestADriverFailureReachesTheEventLog(t *testing.T) {
+	admin, _ := adminSession(t)
+	db := openDB(t)
+
+	suffix := uniqueSuffix()
+	org := createOrg(t, admin, "health-log-"+suffix)
+	gatewayID := seedInventoryGateway(t, db, org.ID, "health-log-plc-"+suffix)
+
+	// Exactly what driver-manager publishes when it cannot start a container.
+	publishHealth(t, topics.Health(org.ID, gatewayID), fmt.Sprintf(
+		`{"gateway_id":%d,"status":"error","error":"ERR_DRIVER_CREATE: failed to create container: `+
+			`Error response from daemon: No such image: industrial-driver-modbus:latest",`+
+			`"timestamp":%d,"driver_type":"MODBUS_TCP"}`, gatewayID, time.Now().UnixMilli()))
+
+	var n int
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := db.QueryRow(
+			`SELECT count(*) FROM system_events WHERE gateway_id = $1 AND status = 'error'`,
+			gatewayID).Scan(&n); err != nil {
+			t.Fatalf("reading the event log: %v", err)
+		}
+		if n > 0 {
+			return
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	t.Fatalf("driver-manager reported gateway %d in error on %s and the event log has "+
+		"no entry for it", gatewayID, topics.Health(org.ID, gatewayID))
+}

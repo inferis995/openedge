@@ -65,6 +65,7 @@ func collectJobs(ctx context.Context, db *sql.DB) ([]Job, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT j.job_id,
 		       COALESCE(j.application_name, 'job ' || j.job_id::text),
+		       COALESCE(j.hypertable_name::text, ''),
 		       COALESCE(s.last_run_status, ''),
 		       COALESCE(s.total_failures, 0),
 		       CASE WHEN s.last_successful_finish >  '-infinity'::timestamptz
@@ -82,7 +83,7 @@ func collectJobs(ctx context.Context, db *sql.DB) ([]Job, error) {
 	for rows.Next() {
 		var j Job
 		var lastSuccess sql.NullTime
-		if scanErr := rows.Scan(&j.ID, &j.Name, &j.LastRunStatus, &j.TotalFailures, &lastSuccess); scanErr != nil {
+		if scanErr := rows.Scan(&j.ID, &j.Name, &j.Table, &j.LastRunStatus, &j.TotalFailures, &lastSuccess); scanErr != nil {
 			// A row that cannot be read is a job that cannot be watched. It was
 			// worth one log line and a shrug until one of them turned out to be
 			// every policy that had never run — so it is now reported to the

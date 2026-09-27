@@ -84,6 +84,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Driver failures never reached the gateway event log, and other events were
+  filed against the wrong gateway.** engine-historian read the health topic on
+  its own: it took the third segment as the gateway — the organization, since
+  the topic became `sys/health/{org}/{gateway}` — and stored the payload as the
+  status, so driver-manager's JSON overflowed the column and was lost. It now
+  shares core-api's parser, checks the gateway belongs to the organization in
+  the topic, ignores the empty payload of a deleted gateway, and marks a gateway
+  in error's tags BAD as it does an offline one's.
+- **Reading a gateway did not say which box polls it.** The assignment was read
+  from the database and dropped when the response was built.
+- A failing TimescaleDB job is reported with the table it works on.
+
 - **The edge box could never start from an installation.** Its compose pulled
   `ghcr.io/inferis995/openedge/driver-manager:latest`; the release publishes
   `openedge-driver-manager:<version>`, and four of the six drivers were not
