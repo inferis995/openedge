@@ -180,7 +180,13 @@
         "type_pipe": "Tubo",
         "type_label": "Testo",
         "type_image": "Immagine",
-        "type_clock": "Orologio"
+        "type_clock": "Orologio",
+        "type_fan": "Ventilatore",
+        "type_conveyor": "Nastro trasportatore",
+        "type_mixer": "Agitatore",
+        "type_compressor": "Compressore",
+        "type_heater": "Resistenza",
+        "type_silo": "Silo"
     },
     "dashboardPage": {
         "dur_dh": "{{d}}g {{h}}h",

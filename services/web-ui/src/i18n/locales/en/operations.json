@@ -180,7 +180,13 @@
         "type_pipe": "Pipe",
         "type_label": "Label",
         "type_image": "Image",
-        "type_clock": "Clock"
+        "type_clock": "Clock",
+        "type_fan": "Fan",
+        "type_conveyor": "Conveyor",
+        "type_mixer": "Mixer",
+        "type_compressor": "Compressor",
+        "type_heater": "Heater",
+        "type_silo": "Silo"
     },
     "dashboardPage": {
         "dur_dh": "{{d}}d {{h}}h",

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useId } from 'react';
 import { SynopticWidget } from '@/api/synoptics';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
@@ -173,6 +173,107 @@ function MotorSymbol({ on, color, showStatus }: { on: boolean; color: string; sh
     );
 }
 
+// ── More plant symbols ──────────────────────────────────────────────────────
+// Drawn and animated like the pump: the colour follows the running state, and
+// the moving part only moves while the tag says the machine runs, so a stopped
+// fan on the mimic is a stopped fan in the plant.
+
+const SPIN_CSS = `@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes belt { from { stroke-dashoffset: 0; } to { stroke-dashoffset: -20; } }`;
+
+function FanSymbol({ on, color }: { on: boolean; color: string }) {
+    const c = on ? color : '#64748b';
+    return (
+        <svg viewBox="0 0 100 100" className="w-full h-full">
+            <circle cx="50" cy="50" r="42" fill="#1e293b" stroke={on ? color : '#475569'} strokeWidth="4" />
+            <g style={on ? { transformOrigin: '50px 50px', animation: 'spin 1s linear infinite' } : {}}>
+                {[0, 120, 240].map((a) => (
+                    <ellipse key={a} cx="50" cy="28" rx="9" ry="20" fill={c} transform={`rotate(${a} 50 50)`} />
+                ))}
+            </g>
+            <circle cx="50" cy="50" r="6" fill="#0f172a" stroke={c} strokeWidth="2" />
+            <style>{SPIN_CSS}</style>
+        </svg>
+    );
+}
+
+function ConveyorSymbol({ on, color }: { on: boolean; color: string }) {
+    const c = on ? color : '#64748b';
+    return (
+        <svg viewBox="0 0 160 60" className="w-full h-full" preserveAspectRatio="none">
+            <rect x="14" y="16" width="132" height="28" rx="14" fill="#1e293b" stroke={c} strokeWidth="3"
+                strokeDasharray="10 10" style={on ? { animation: 'belt 0.6s linear infinite' } : {}} />
+            {[30, 80, 130].map((x) => (
+                <g key={x} style={on ? { transformOrigin: `${x}px 30px`, animation: 'spin 1.2s linear infinite' } : {}}>
+                    <circle cx={x} cy="30" r="9" fill="#0f172a" stroke={c} strokeWidth="2" />
+                    <line x1={x} y1="22" x2={x} y2="38" stroke={c} strokeWidth="2" />
+                </g>
+            ))}
+            <line x1="14" y1="54" x2="146" y2="54" stroke="#475569" strokeWidth="3" />
+            <style>{SPIN_CSS}</style>
+        </svg>
+    );
+}
+
+function MixerSymbol({ on, color }: { on: boolean; color: string }) {
+    const c = on ? color : '#64748b';
+    return (
+        <svg viewBox="0 0 100 120" className="w-full h-full">
+            <rect x="40" y="2" width="20" height="14" rx="2" fill="#475569" />
+            <text x="50" y="13" textAnchor="middle" fontSize="9" fontWeight="bold" fill="#0f172a">M</text>
+            <path d="M14 22 H86 V96 Q86 114 68 114 H32 Q14 114 14 96 Z" fill="#1e293b" stroke="#475569" strokeWidth="3" />
+            <line x1="50" y1="16" x2="50" y2="92" stroke={c} strokeWidth="4" />
+            <g style={on ? { transformOrigin: '50px 92px', animation: 'spin 1.4s linear infinite' } : {}}>
+                <rect x="30" y="88" width="40" height="8" rx="3" fill={c} />
+            </g>
+            <style>{SPIN_CSS}</style>
+        </svg>
+    );
+}
+
+function CompressorSymbol({ on, color }: { on: boolean; color: string }) {
+    const c = on ? color : '#64748b';
+    return (
+        <svg viewBox="0 0 100 100" className="w-full h-full">
+            <circle cx="50" cy="50" r="38" fill="#1e293b" stroke={on ? color : '#475569'} strokeWidth="4"
+                className={on ? 'animate-pulse' : ''} />
+            <line x1="22" y1="28" x2="78" y2="40" stroke={c} strokeWidth="4" />
+            <line x1="22" y1="72" x2="78" y2="60" stroke={c} strokeWidth="4" />
+            <rect x="2" y="44" width="14" height="12" fill="#475569" />
+            <rect x="84" y="44" width="14" height="12" fill="#475569" />
+        </svg>
+    );
+}
+
+function HeaterSymbol({ on, color }: { on: boolean; color: string }) {
+    const c = on ? color : '#64748b';
+    return (
+        <svg viewBox="0 0 100 100" className="w-full h-full">
+            <rect x="10" y="20" width="80" height="60" rx="6" fill="#1e293b" stroke={on ? color : '#475569'} strokeWidth="4" />
+            <path d="M18 50 L28 34 L38 66 L48 34 L58 66 L68 34 L78 66 L84 50" fill="none" stroke={c} strokeWidth="4"
+                strokeLinejoin="round" className={on ? 'animate-pulse' : ''}
+                style={on ? { filter: `drop-shadow(0 0 4px ${color})` } : {}} />
+        </svg>
+    );
+}
+
+function SiloSymbol({ pct, color }: { pct: number; color: string }) {
+    // Body 10..80, cone 80..112. The fill is clipped to the silo's outline.
+    const top = 112 - (Math.max(0, Math.min(100, pct)) / 100) * 102;
+    const clipId = `silo-${useId().replace(/:/g, '')}`;
+    return (
+        <svg viewBox="0 0 100 120" className="w-full h-full" preserveAspectRatio="none">
+            <defs>
+                <clipPath id={clipId}><path d="M18 10 H82 V80 L56 112 H44 L18 80 Z" /></clipPath>
+            </defs>
+            <path d="M18 10 H82 V80 L56 112 H44 L18 80 Z" fill="#1e293b" />
+            <rect x="0" y={top} width="100" height={120 - top} fill={color} opacity="0.85" clipPath={`url(#${clipId})`} />
+            <path d="M18 10 H82 V80 L56 112 H44 L18 80 Z" fill="none" stroke="#475569" strokeWidth="3" />
+            <path d="M18 10 Q50 -2 82 10" fill="#1e293b" stroke="#475569" strokeWidth="3" />
+        </svg>
+    );
+}
+
 function GaugeSymbol({ n, min, max, color, label, decimals, cfg }: {
     n: number | null; min: number; max: number; color: string; label: string; decimals?: number;
     cfg?: SynopticWidget['config'];
@@ -239,8 +340,8 @@ function BargraphSymbol({ pct, color, vertical, showBarValue, value, decimals, u
     );
 }
 
-function PipeSymbol({ color, pipeShape, cfg, flowOn }: {
-    color: string; pipeShape?: string; cfg?: SynopticWidget['config']; flowOn?: boolean;
+function PipeSymbol({ color, pipeShape, cfg, flowOn, w, h }: {
+    color: string; pipeShape?: string; cfg?: SynopticWidget['config']; flowOn?: boolean; w?: number; h?: number;
 }) {
     const stroke = color || '#475569';
     const sw = cfg?.strokeWidth ?? 20;
@@ -256,6 +357,32 @@ function PipeSymbol({ color, pipeShape, cfg, flowOn }: {
         if (shape === 'cross') return 'M 0 50 L 100 50 M 50 0 L 50 100';
         return 'M 0 50 L 100 50';
     })();
+
+    // A straight pipe runs the whole length of its box. It was drawn in a
+    // square viewBox fitted into the box, so a long thin pipe (120×14) came out
+    // as a 14-pixel stub in the middle. The thickness stays what it was:
+    // strokeWidth percent of the box's short side.
+    if (shape === 'straight' && w && h && w !== h) {
+        const horiz = w > h;
+        const len = horiz ? w : h;
+        const thick = Math.max(2, (sw / 100) * Math.min(w, h));
+        const mid = (horiz ? h : w) / 2;
+        const d = horiz ? `M 0 ${mid} L ${len} ${mid}` : `M ${mid} 0 L ${mid} ${len}`;
+        const pipeId = `pipe-${animDir}`;
+        return (
+            <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-full" preserveAspectRatio="none">
+                <path d={d} fill="none" stroke={stroke} strokeWidth={thick} strokeLinecap="round" />
+                {flowOn && (
+                    <>
+                        <style>{`@keyframes ${pipeId} { from { stroke-dashoffset: ${animOffset.split(';')[0]}; } to { stroke-dashoffset: ${animOffset.split(';')[1]}; } }`}</style>
+                        <path d={d} fill="none" stroke={flowColor} strokeWidth={thick * 0.4}
+                            strokeDasharray="8 8" strokeLinecap="round" opacity="0.7"
+                            style={{ animation: `${pipeId} 0.8s linear infinite` }} />
+                    </>
+                )}
+            </svg>
+        );
+    }
 
     return (
         <svg viewBox="0 0 100 100" className="w-full h-full" preserveAspectRatio="xMidYMid meet">
@@ -688,6 +815,44 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
                 </div>
             );
         }
+        case 'fan':
+        case 'conveyor':
+        case 'mixer':
+        case 'compressor':
+        case 'heater': {
+            const on = live === undefined ? true : isOn(n, cfg);
+            const color = resolveBinaryColor(on, cfg, alarm);
+            const Sym = { fan: FanSymbol, conveyor: ConveyorSymbol, mixer: MixerSymbol, compressor: CompressorSymbol, heater: HeaterSymbol }[widget.type];
+            return (
+                <div className={cn('w-full h-full flex flex-col', blinkClass)}>
+                    <div className="flex-1 min-h-0"><Sym on={on} color={color} /></div>
+                    {(cfg.showStatus || widget.label) && (
+                        <span className="text-[9px] text-center truncate" style={{ color: cfg.showStatus ? color : '#cbd5e1' }}>
+                            {widget.label}{widget.label && cfg.showStatus ? ' · ' : ''}{cfg.showStatus ? (on ? 'RUN' : 'STOP') : ''}
+                        </span>
+                    )}
+                </div>
+            );
+        }
+        case 'silo': {
+            const min = cfg.min ?? 0, max = cfg.max ?? 100;
+            const color = resolveNumericColor(n, cfg, alarm);
+            const pct = n === null ? (live === undefined ? 60 : 0) : ((n - min) / ((max - min) || 1)) * 100;
+            const clamped = Math.max(0, Math.min(100, pct));
+            return (
+                <div className={cn('w-full h-full flex flex-col', blinkClass)}>
+                    <div className="flex-1 relative min-h-0">
+                        <SiloSymbol pct={clamped} color={color} />
+                        {(cfg.showPercentage || cfg.showValue) && n !== null && (
+                            <span className="absolute inset-0 flex items-center justify-center text-xs text-white font-mono font-bold">
+                                {cfg.showPercentage ? `${clamped.toFixed(0)}%` : `${n.toFixed(cfg.decimals ?? 1)}${cfg.unit ? ` ${cfg.unit}` : ''}`}
+                            </span>
+                        )}
+                    </div>
+                    {widget.label && <span className="text-[9px] text-slate-300 text-center truncate">{widget.label}</span>}
+                </div>
+            );
+        }
         case 'pipe': {
             const flowTagValue = num(liveSecondary?.value);
             const flowOn = cfg.flowEnabled ? (
@@ -697,6 +862,8 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
                 <PipeSymbol color={cfg.color || '#475569'}
                     pipeShape={cfg.pipeShape as string | undefined}
                     cfg={cfg}
+                    w={widget.w}
+                    h={widget.h}
                     flowOn={live === undefined ? false : flowOn} />
             );
         }
@@ -762,6 +929,12 @@ export const WIDGET_CATALOG: { type: SynopticWidget['type']; label: string; need
     { type: 'pump',     label: 'synopticWidget.type_pump',     needsTag: true,  defaultW: 70,  defaultH: 70 },
     { type: 'valve',    label: 'synopticWidget.type_valve',    needsTag: true,  defaultW: 70,  defaultH: 70 },
     { type: 'motor',    label: 'synopticWidget.type_motor',    needsTag: true,  defaultW: 80,  defaultH: 70 },
+    { type: 'fan',        label: 'synopticWidget.type_fan',        needsTag: true,  defaultW: 70,  defaultH: 80 },
+    { type: 'conveyor',   label: 'synopticWidget.type_conveyor',   needsTag: true,  defaultW: 160, defaultH: 60 },
+    { type: 'mixer',      label: 'synopticWidget.type_mixer',      needsTag: true,  defaultW: 80,  defaultH: 100 },
+    { type: 'compressor', label: 'synopticWidget.type_compressor', needsTag: true,  defaultW: 70,  defaultH: 80 },
+    { type: 'heater',     label: 'synopticWidget.type_heater',     needsTag: true,  defaultW: 80,  defaultH: 70 },
+    { type: 'silo',       label: 'synopticWidget.type_silo',       needsTag: true,  defaultW: 80,  defaultH: 120 },
     { type: 'button',   label: 'synopticWidget.type_button',   needsTag: true,  defaultW: 90,  defaultH: 44 },
     { type: 'setpoint', label: 'synopticWidget.type_setpoint', needsTag: true,  defaultW: 110, defaultH: 70 },
     { type: 'pipe',     label: 'synopticWidget.type_pipe',     needsTag: false, defaultW: 120, defaultH: 14 },

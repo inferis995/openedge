@@ -10,6 +10,12 @@ export type SynopticWidgetType =
     | 'pump'        // pump symbol, color/spin by running state
     | 'valve'       // valve symbol, open/closed by state
     | 'motor'       // motor symbol, running by state
+    | 'fan'         // fan, blades spin while running
+    | 'conveyor'    // conveyor belt, rollers move while running
+    | 'mixer'       // tank agitator, paddle turns while running
+    | 'compressor'  // compressor, pulses while running
+    | 'heater'      // electric heater, glows while on
+    | 'silo'        // silo/hopper with conical bottom, level 0..100
     | 'pipe'        // static pipe segment (no tag)
     | 'label'       // static text
     | 'bargraph'    // horizontal/vertical linear bar

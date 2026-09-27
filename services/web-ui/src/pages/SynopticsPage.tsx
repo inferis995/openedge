@@ -25,6 +25,7 @@ import { SynopticWidgetView } from '@/components/synoptics/SynopticWidget';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
 import { useTranslation } from 'react-i18next';
+import { SYNOPTIC_TEMPLATES, templateLayout, type SynopticTemplateId } from '@/components/synoptics/templates';
 
 // Scope of the currently selected tree node — drives the right-hand panel and
 // pre-fills the "new synoptic" dialog so a page is filed under the right line.
@@ -91,6 +92,7 @@ const SynopticsPage = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
+    const [template, setTemplate] = useState<SynopticTemplateId>('blank');
     const [formSiteId, setFormSiteId] = useState<string>('none');
     const [formAreaId, setFormAreaId] = useState<string>('none');
 
@@ -154,7 +156,7 @@ const SynopticsPage = () => {
                 name: name.trim(), description,
                 site_id: formSiteId === 'none' ? null : Number(formSiteId),
                 area_id: formAreaId === 'none' ? null : Number(formAreaId),
-                background_color: '#0f172a', canvas_w: 1280, canvas_h: 720, layout: [],
+                background_color: '#0f172a', canvas_w: 1280, canvas_h: 720, layout: templateLayout(template),
             });
             setIsOpen(false);
             navigate(`/synoptics/${id}/edit`);
@@ -299,6 +301,19 @@ const SynopticsPage = () => {
                         <div className="grid gap-2">
                             <Label htmlFor="syn-desc">{t('synopticsPage.description')}</Label>
                             <Input id="syn-desc" value={description} onChange={e => setDescription(e.target.value)} placeholder={t('synopticsPage.optional')} />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label className="text-xs">{t('synopticTemplates.pick')}</Label>
+                            <div className="grid grid-cols-2 gap-2">
+                                {SYNOPTIC_TEMPLATES.map((id) => (
+                                    <button key={id} type="button" onClick={() => setTemplate(id)}
+                                        className={`rounded-md border p-2.5 text-left text-xs transition-colors ${template === id ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'}`}>
+                                        <p className="font-medium text-sm">{t(`synopticTemplates.${id}`)}</p>
+                                        <p className="text-muted-foreground">{t(`synopticTemplates.${id}_desc`)}</p>
+                                    </button>
+                                ))}
+                            </div>
+                            {template !== 'blank' && <p className="text-xs text-muted-foreground">{t('synopticTemplates.after')}</p>}
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="grid gap-2">

@@ -31,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (addresses in that driver's format, a drop-down for the type, an
   instructions sheet) can be downloaded from the same dialog.
   `POST /api/tags/import/file`, `GET /api/tags/import/template`.
+- **Six more synoptic symbols** — fan, conveyor, mixer, compressor and heater,
+  animated while their tag says they run, and a silo with its level.
+- **Synoptic page templates:** a new page can start from a line overview, a
+  machine detail or a tanks-and-pumps layout, with the symbols in place and
+  labelled, ready to bind to tags.
 - **Shifts on a week calendar**, with night shifts drawn across midnight, the
   current time, the days nobody covers, and ready-made patterns (3 or 2 shifts
   Monday–Friday, day shift, continuous 3×8 and 2×12) created in one click.
@@ -69,6 +74,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing: the error went to the browser console. A failed write of a value to
   the PLC from the tag list said nothing either, and a non-numeric value was
   sent as NaN.
+- A straight synoptic pipe was drawn in a square fitted into its box, so a
+  long thin pipe showed as a stub in the middle. It runs the whole length now,
+  at the same thickness.
 - Error messages replaced the server's explanation with a fixed "Server Error"
   or "Not Found" in English.
 - The tag export refused a global administrator who had not picked an

@@ -30,6 +30,9 @@ import { SynopticWidgetView, WIDGET_CATALOG, LiveValue } from '@/components/syno
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
 
+// Symbols that show a running/stopped state, like the pump and the motor.
+const BINARY_SYMBOLS: string[] = ['fan', 'conveyor', 'mixer', 'compressor', 'heater'];
+
 // Searchable tag combobox for the properties panel
 function TagCombobox({
     tags,
@@ -351,7 +354,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         const w: SynopticWidget = {
             id: uid(), type, x: 40, y: 40, w: meta.defaultW, h: meta.defaultH,
             label: type === 'label' ? tr('synopticWidget.label_default') : '',
-            config: type === 'gauge' || type === 'tank' ? { min: 0, max: 100 } : {},
+            config: type === 'gauge' || type === 'tank' || type === 'silo' ? { min: 0, max: 100 } : {},
         };
         setWidgets(prev => {
             const next = [...prev, w];
@@ -403,7 +406,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                     if (tag.eu_unit) configPatch.unit = tag.eu_unit;
                     if (tag.eu_decimals != null) configPatch.decimals = tag.eu_decimals;
                 }
-                if (w.type === 'gauge' || w.type === 'tank' || w.type === 'bargraph') {
+                if (w.type === 'gauge' || w.type === 'tank' || w.type === 'silo' || w.type === 'bargraph') {
                     if (tag.scaling_eu_min != null) configPatch.min = tag.scaling_eu_min;
                     if (tag.scaling_eu_max != null) configPatch.max = tag.scaling_eu_max;
                 }
@@ -1038,7 +1041,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     </div>
                                 )}
 
-                                {(selected.type === 'gauge' || selected.type === 'tank' || selected.type === 'bargraph') && (
+                                {(selected.type === 'gauge' || selected.type === 'tank' || selected.type === 'silo' || selected.type === 'bargraph') && (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                         <div className="grid gap-1">
                                             <Label className="text-xs">Min</Label>
@@ -1117,14 +1120,14 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     </div>
                                 )}
 
-                                {(selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor' || selected.type === 'button') && (
+                                {(selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor' || selected.type === 'button' || BINARY_SYMBOLS.includes(selected.type)) && (
                                     <div className="grid gap-1">
                                         <Label className="text-xs">{tr('synopticEditor.on_value')}</Label>
                                         <Input className="h-10 sm:h-8 text-xs" type="number" value={selected.config?.onValue ?? 1} onChange={e => patchConfig(selected.id, { onValue: parseFloat(e.target.value) || 0 })} />
                                     </div>
                                 )}
 
-                                {(selected.type === 'label' || selected.type === 'pipe' || selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor' || selected.type === 'button' || selected.type === 'bargraph') && (
+                                {(selected.type === 'label' || selected.type === 'pipe' || selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor' || selected.type === 'button' || BINARY_SYMBOLS.includes(selected.type) || selected.type === 'bargraph') && (
                                     <div className="grid gap-1">
                                         <Label className="text-xs">{tr('synopticEditor.color')}</Label>
                                         <input type="color" value={String(selected.config?.color ?? '#10b981')} onChange={e => patchConfig(selected.id, { color: e.target.value })} className="h-10 sm:h-8 w-full rounded border bg-transparent" />
@@ -1139,7 +1142,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 )}
 
                                 {/* ── colorOn / colorOff for binary widgets ── */}
-                                {(selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor' || selected.type === 'button') && (
+                                {(selected.type === 'indicator' || selected.type === 'pump' || selected.type === 'valve' || selected.type === 'motor' || selected.type === 'button' || BINARY_SYMBOLS.includes(selected.type)) && (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t">
                                         <div className="grid gap-1">
                                             <Label className="text-xs">{tr('synopticEditor.color_on')}</Label>
@@ -1153,7 +1156,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 )}
 
                                 {/* ── colorBands for numeric widgets ── */}
-                                {(selected.type === 'value' || selected.type === 'gauge' || selected.type === 'bargraph' || selected.type === 'tank') && (
+                                {(selected.type === 'value' || selected.type === 'gauge' || selected.type === 'bargraph' || selected.type === 'tank' || selected.type === 'silo') && (
                                     <div className="space-y-1 pt-1 border-t">
                                         <div className="flex items-center justify-between">
                                             <Label className="text-xs">{tr('synopticEditor.color_bands')}</Label>
