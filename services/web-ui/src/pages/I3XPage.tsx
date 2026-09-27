@@ -52,6 +52,8 @@ import {
 } from '@/api/i3x';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { toast } from 'sonner';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
 
 // ─── Quality helpers ────────────────────────────────────────────────────────
 
@@ -490,10 +492,13 @@ export default function I3XPage() {
         // Enter — muscle memory — used to move a real actuator with no dialog,
         // no undo and no bounds, unlike the synoptic setpoint widget and the
         // recipe loader, which both confirm first.
-        if (!window.confirm(
-            `Scrivere ${editValue} su "${prop.name}"?\n\n` +
-            'Il valore verrà inviato al PLC e agirà sull\'impianto.'
-        )) {
+        // The dialog focuses "Cancel" first, so the same stray Enter backs out.
+        if (!(await confirmAction({
+            title: i18n.t('ask.write_value', { value: editValue, name: prop.name }),
+            description: i18n.t('ask.write_value_desc'),
+            confirmLabel: i18n.t('ask.write'),
+            destructive: true,
+        }))) {
             return;
         }
 

@@ -32,6 +32,8 @@ import { OEEShiftMatrix } from '@/components/oee/OEEShiftMatrix';
 import { OEELossPareto } from '@/components/oee/OEELossPareto';
 import { OEEAlertRules } from '@/components/oee/OEEAlertRules';
 import { OEEHierarchyView } from '@/components/oee/OEEHierarchyView';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
 
 // OEEProfilesPage — gestione multi-profilo OEE.
 // Vista a 2 livelli: lista profili (table) + dialog editor (wizard riusato
@@ -521,7 +523,7 @@ const OEEProfilesPage = () => {
     });
 
     const handleDelete = async (p: OEEProfile) => {
-        if (!confirm(`Eliminare il profilo "${p.name}"? L'azione è irreversibile.`)) return;
+        if (!(await confirmAction({ title: i18n.t('ask.delete_named', { name: p.name }), description: i18n.t('ask.irreversible'), destructive: true }))) return;
         try {
             await oeeApi.deleteProfile(p.id);
             toast.success('Profilo eliminato.');

@@ -18,6 +18,11 @@ import {
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
+import { EmptyState } from '@/components/ui/empty-state';
+import { ChefHat as ChefHatIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 // Status badge for recipe runs. Maps the backend status enum to a
 // neutral Tailwind palette so future statuses fall through to "slate".
@@ -34,6 +39,7 @@ const statusBadge = (s: string): { label: string; cls: string } => {
 interface ValueRow { tag_id: number; value: string; }
 
 const RecipesPage = () => {
+    const { t: tr } = useTranslation();
     const queryClient = useQueryClient();
     const { isAdmin } = useAuthStore();
 
@@ -101,8 +107,8 @@ const RecipesPage = () => {
         onError: (e) => showApiError(e, 'Failed to delete'),
     });
 
-    const handleDelete = (r: Recipe) => {
-        if (confirm(`Delete recipe "${r.name}"? Past runs stay in the history.`)) {
+    const handleDelete = async (r: Recipe) => {
+        if (await confirmAction({ title: i18n.t('ask.delete_named', { name: r.name }), description: i18n.t('ask.delete_recipe_desc'), destructive: true })) {
             deleteMutation.mutate(r.id);
         }
     };
@@ -206,7 +212,14 @@ const RecipesPage = () => {
                         {isLoading ? (
                             <TableRow><TableCell colSpan={6} className="h-24 text-center">Loading…</TableCell></TableRow>
                         ) : recipes.length === 0 ? (
-                            <TableRow><TableCell colSpan={6} className="h-24 text-center">No recipes yet.</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={6}>
+                                <EmptyState
+                                    icon={ChefHatIcon}
+                                    title={tr('empty.recipes_title')}
+                                    description={tr('empty.recipes_desc')}
+                                    action={isAdmin() ? <Button onClick={openCreate}>{tr('empty.recipes_create')}</Button> : undefined}
+                                />
+                            </TableCell></TableRow>
                         ) : (
                             recipes.map((r) => (
                                 <TableRow key={r.id}>

@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { organizationsApi } from '@/api/organizations';
 import { CreateOrganizationDto } from '@/types';
 import { showApiError, showApiSuccess, formatApiError } from '@/lib/api-error-handler';
+import i18n from '@/i18n';
 
 export const useOrganizations = () => {
     const queryClient = useQueryClient();
@@ -17,10 +18,10 @@ export const useOrganizations = () => {
         mutationFn: (data: CreateOrganizationDto) => organizationsApi.create(data),
         onSuccess: (_, variables) => {
             queryClient.invalidateQueries({ queryKey: ['organizations'] });
-            showApiSuccess('Organization created', `"${variables.name}" has been created successfully`);
+            showApiSuccess(i18n.t('feedback.org_created', { name: variables.name }));
         },
         onError: (error) => {
-            showApiError(error, 'Failed to create organization');
+            showApiError(error, i18n.t('feedback.create_org_failed'));
         },
     });
 
@@ -29,10 +30,10 @@ export const useOrganizations = () => {
             organizationsApi.update(id, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['organizations'] });
-            showApiSuccess('Organization updated', 'The organization has been updated successfully');
+            showApiSuccess(i18n.t('feedback.saved'));
         },
         onError: (error) => {
-            showApiError(error, 'Failed to update organization');
+            showApiError(error, i18n.t('feedback.update_org_failed'));
         },
     });
 
@@ -40,10 +41,10 @@ export const useOrganizations = () => {
         mutationFn: (id: number) => organizationsApi.delete(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['organizations'] });
-            showApiSuccess('Organization deleted', 'The organization has been removed');
+            showApiSuccess(i18n.t('feedback.org_deleted'));
         },
         onError: (error) => {
-            showApiError(error, 'Failed to delete organization');
+            showApiError(error, i18n.t('feedback.delete_org_failed'));
         },
     });
 

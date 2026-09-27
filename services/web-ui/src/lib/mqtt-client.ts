@@ -1,6 +1,7 @@
 import mqtt, { type MqttClient } from 'mqtt';
 import { toast } from 'sonner';
 import { mqttCredentialsApi } from '@/api/mqttCredentials';
+import i18n from '@/i18n';
 
 class MQTTClientService {
     private client: MqttClient | null = null;
@@ -64,7 +65,7 @@ class MQTTClientService {
             this.client.on('offline', () => {
                 console.warn('MQTT client offline');
                 if (!this.isManuallyDisconnected) {
-                    toast.warning('MQTT connection lost. Reconnecting...');
+                    toast.warning(i18n.t('nav.mqtt_reconnecting'));
                 }
             });
 

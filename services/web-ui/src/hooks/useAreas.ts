@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { areasApi } from '@/api/areas';
 import { CreateAreaDto } from '@/types';
+import { showApiError } from '@/lib/api-error-handler';
+import i18n from '@/i18n';
 
 export const useAreas = (siteId?: number | null) => {
     const queryClient = useQueryClient();
@@ -12,6 +14,7 @@ export const useAreas = (siteId?: number | null) => {
     });
 
     const createMutation = useMutation({
+        onError: (e) => showApiError(e, i18n.t('feedback.create_area_failed')),
         mutationFn: (data: CreateAreaDto) => areasApi.create(data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['areas'] });
@@ -19,6 +22,7 @@ export const useAreas = (siteId?: number | null) => {
     });
 
     const deleteMutation = useMutation({
+        onError: (e) => showApiError(e, i18n.t('feedback.delete_area_failed')),
         mutationFn: (id: number) => areasApi.delete(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['areas'] });
@@ -26,6 +30,7 @@ export const useAreas = (siteId?: number | null) => {
     });
 
     const updateMutation = useMutation({
+        onError: (e) => showApiError(e, i18n.t('feedback.update_area_failed')),
         mutationFn: ({ id, data }: { id: number; data: { name: string } }) => areasApi.update(id, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['areas'] });

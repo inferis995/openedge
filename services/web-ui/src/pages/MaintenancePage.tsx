@@ -14,6 +14,8 @@ import {
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
 
 // Helper LOCAL ↔ RFC3339: gli input datetime-local lavorano in fuso locale;
 // l'API vuole UTC RFC3339. Conversione esplicita per evitare drift.
@@ -94,8 +96,8 @@ const MaintenancePage = () => {
         onError: (e) => showApiError(e, 'Eliminazione fallita'),
     });
 
-    const handleDelete = (w: MaintenanceWindow) => {
-        if (confirm(`Eliminare la finestra "${w.title}"?`)) {
+    const handleDelete = async (w: MaintenanceWindow) => {
+        if (await confirmAction({ title: i18n.t('ask.delete_named', { name: w.title }), destructive: true })) {
             deleteMutation.mutate(w.id);
         }
     };

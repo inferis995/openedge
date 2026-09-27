@@ -9,6 +9,8 @@ import { organizationsApi } from '@/api/organizations';
 import { sitesApi } from '@/api/sites';
 import { areasApi } from '@/api/areas';
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+import { findNavItem, navSections } from '@/components/layout/navigation';
 
 interface HeaderProps {
     /** Opens the navigation drawer. Only rendered under md, where the sidebar
@@ -21,7 +23,8 @@ const Header = ({ onMenuClick }: HeaderProps) => {
     const location = useLocation();
 
     const { isMqttConnected, connectMqtt } = useMqttStore();
-    const { isOrgScoped } = useAuthStore();
+    const { isOrgScoped, isAdmin, isGlobalAdmin } = useAuthStore();
+    const { t } = useTranslation();
 
     // Get navigation context
     const { selectedOrgId, selectedSiteId, selectedAreaId, clearSelection } = useNavigationStore();
@@ -50,17 +53,36 @@ const Header = ({ onMenuClick }: HeaderProps) => {
         connectMqtt();
     }, [connectMqtt]);
 
+    // Home › section › page › detail, in the user's language. It used to
+    // capitalise the URL: "Udt › Types › 4", "Oee-profiles".
     const getBreadcrumbs = () => {
         const path = location.pathname;
-        const parts = path.split('/').filter(Boolean);
+        const sections = navSections({
+            isAdmin: isAdmin(),
+            isGlobalAdmin: isGlobalAdmin(),
+            isOrgScoped: isOrgScoped(),
+        });
+        const crumbs = [{ name: t('nav.home'), path: '/' }];
+        if (path === '/') return crumbs;
 
-        const crumbs = [
-            { name: 'Home', path: '/' },
-            ...parts.map((part, index) => {
-                const url = `/${parts.slice(0, index + 1).join('/')}`;
-                return { name: part.charAt(0).toUpperCase() + part.slice(1), path: url };
-            })
-        ];
+        const item = findNavItem(sections, path);
+        if (!item) {
+            const own: Record<string, string> = { '/profile': 'nav.profile' };
+            crumbs.push({ name: own[path] ? t(own[path]) : t('nav.page'), path });
+            return crumbs;
+        }
+        const section = sections.find((s) => s.items.includes(item));
+        if (section && section.items.length > 1) {
+            crumbs.push({ name: t(section.key), path: item.path });
+        }
+        crumbs.push({ name: t(item.key), path: item.path });
+        if (path !== item.path) {
+            const rest = path.slice(item.path.length + 1).split('/');
+            crumbs.push({
+                name: rest[rest.length - 1] === 'edit' ? t('nav.editing') : t('nav.detail'),
+                path,
+            });
+        }
         return crumbs;
     };
 
@@ -72,7 +94,7 @@ const Header = ({ onMenuClick }: HeaderProps) => {
                 <button
                     type="button"
                     onClick={onMenuClick}
-                    aria-label="Apri il menu"
+                    aria-label={t('nav.open_menu')}
                     className="md:hidden -ml-1 p-2 text-muted-foreground hover:text-foreground shrink-0"
                 >
                     <Menu size={22} />
@@ -82,7 +104,7 @@ const Header = ({ onMenuClick }: HeaderProps) => {
                     phone, so only the last one — where you are — survives there. */}
                 <div className="flex items-center gap-2 text-sm text-muted-foreground md:mr-4 min-w-0">
                     {breadcrumbs.map((crumb, index) => (
-                        <div key={crumb.path} className={cn(
+                        <div key={`${index}-${crumb.path}`} className={cn(
                             "items-center gap-2",
                             index === breadcrumbs.length - 1 ? "flex min-w-0" : "hidden md:flex"
                         )}>
@@ -103,7 +125,7 @@ const Header = ({ onMenuClick }: HeaderProps) => {
                 {/* Context Indicator (Professional Badge) */}
                 {(selectedOrgId || selectedSiteId || selectedAreaId) && (
                     <div className="hidden md:flex items-center bg-secondary text-secondary-foreground clip-chamfer-sm px-4 py-1.5 border border-border">
-                        <span className="text-[10px] font-bold text-muted-foreground mr-2 uppercase tracking-wider">Context:</span>
+                        <span className="text-[10px] font-bold text-muted-foreground mr-2 uppercase tracking-wider">{t('nav.context')}</span>
 
                         <div className="flex items-center gap-1 text-sm font-medium">
                             {org && (
@@ -139,7 +161,7 @@ const Header = ({ onMenuClick }: HeaderProps) => {
                             <button
                                 onClick={clearSelection}
                                 className="ml-3 p-0.5 clip-hex hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
-                                title="Clear Context Filter"
+                                title={t('nav.clear_context')}
                             >
                                 <X size={14} />
                             </button>
@@ -154,7 +176,7 @@ const Header = ({ onMenuClick }: HeaderProps) => {
                     it ran off the right edge — so only the light stays there,
                     with the words in its tooltip. */}
                 <div
-                    title={isMqttConnected ? 'MQTT Connected' : 'MQTT Disconnected'}
+                    title={isMqttConnected ? t('nav.mqtt_connected_hint') : t('nav.mqtt_disconnected_hint')}
                     className={cn(
                         "flex items-center gap-2 px-2 md:px-3 py-1.5 clip-chamfer-sm text-[10px] font-bold uppercase tracking-wider border",
                         isMqttConnected
@@ -166,7 +188,7 @@ const Header = ({ onMenuClick }: HeaderProps) => {
                         isMqttConnected ? "bg-[#10B981] animate-pulse" : "bg-destructive"
                     )}></span>
                     <span className="hidden sm:inline">
-                        {isMqttConnected ? 'MQTT Connected' : 'MQTT Disconnected'}
+                        {isMqttConnected ? t('nav.mqtt_connected') : t('nav.mqtt_disconnected')}
                     </span>
                 </div>
             </div>

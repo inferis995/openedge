@@ -22,6 +22,8 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { SynopticWidgetView } from '@/components/synoptics/SynopticWidget';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
 
 // Scope of the currently selected tree node — drives the right-hand panel and
 // pre-fills the "new synoptic" dialog so a page is filed under the right line.
@@ -161,7 +163,7 @@ const SynopticsPage = () => {
 
     const handleDelete = async (e: React.MouseEvent, id: number) => {
         e.stopPropagation();
-        if (!confirm('Eliminare questo sinottico?')) return;
+        if (!(await confirmAction({ title: i18n.t('ask.delete_synoptic'), description: i18n.t('ask.irreversible'), destructive: true }))) return;
         await synopticsApi.remove(id);
         load();
     };

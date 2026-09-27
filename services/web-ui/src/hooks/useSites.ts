@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { sitesApi } from '@/api/sites';
 import { CreateSiteDto } from '@/types';
+import { showApiError } from '@/lib/api-error-handler';
+import i18n from '@/i18n';
 
 export const useSites = (orgId?: number | null) => {
     const queryClient = useQueryClient();
@@ -14,6 +16,7 @@ export const useSites = (orgId?: number | null) => {
     });
 
     const createMutation = useMutation({
+        onError: (e) => showApiError(e, i18n.t('feedback.create_site_failed')),
         mutationFn: (data: CreateSiteDto) => sitesApi.create(data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['sites'] });
@@ -21,6 +24,7 @@ export const useSites = (orgId?: number | null) => {
     });
 
     const deleteMutation = useMutation({
+        onError: (e) => showApiError(e, i18n.t('feedback.delete_site_failed')),
         mutationFn: (id: number) => sitesApi.delete(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['sites'] });
@@ -28,6 +32,7 @@ export const useSites = (orgId?: number | null) => {
     });
 
     const updateMutation = useMutation({
+        onError: (e) => showApiError(e, i18n.t('feedback.update_site_failed')),
         mutationFn: ({ id, data }: { id: number; data: { name: string } }) => sitesApi.update(id, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['sites'] });

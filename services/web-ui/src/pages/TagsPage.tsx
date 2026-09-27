@@ -48,6 +48,13 @@ import { Plus, Trash2, Edit2, Database, Upload, Download, ArrowUp, ArrowDown, Ch
 import { CreateTagDto, OpcUaNode } from '@/types';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
+import { toast } from 'sonner';
+import { showApiError } from '@/lib/api-error-handler';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Tags as TagsIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface CurrentValue {
     value: any;
@@ -61,6 +68,7 @@ function SortIcon({ field, current, dir }: { field: string; current: string | nu
 }
 
 const TagsPage = () => {
+    const { t: tr } = useTranslation();
     const [searchParams] = useSearchParams();
     const gatewayIdParam = searchParams.get('gateway_id');
     const [selectedGatewayId, setSelectedGatewayId] = useState<string>(gatewayIdParam || 'all');
@@ -108,10 +116,18 @@ const TagsPage = () => {
             } else if (writeDialogTag.dataType === 'REAL') {
                 value = parseFloat(writeValue);
             }
+            // parseInt("abc") is NaN, and NaN went to the PLC.
+            if (typeof value === 'number' && Number.isNaN(value)) {
+                toast.warning(i18n.t('tags.write_not_a_number', { type: writeDialogTag.dataType }));
+                return;
+            }
             await tagsApi.writeTag(writeDialogTag.id, { value });
+            toast.success(i18n.t('tags.write_sent'));
             setWriteDialogTag(null);
         } catch (err) {
-            console.error('Write failed:', err);
+            // The write used to fail with nothing on screen: the operator saw
+            // the dialog stay open and could not tell why.
+            showApiError(err, i18n.t('tags.write_failed'));
         } finally {
             setWriteLoading(false);
         }
@@ -203,7 +219,7 @@ const TagsPage = () => {
             URL.revokeObjectURL(url);
         } catch (error) {
             console.error('Export failed:', error);
-            alert('Export failed: ' + String(error));
+            toast.error(i18n.t('tags.export_failed'), { description: String(error) });
         }
     };
 
@@ -393,7 +409,7 @@ const TagsPage = () => {
             } else {
                 // Create mode
                 if (!selectedGatewayId || selectedGatewayId === 'all') {
-                    alert('Please select a specific gateway to create a tag.'); // Simple validation
+                    toast.warning(i18n.t('tags.pick_gateway'));
                     return;
                 }
                 if (!formData.code) return;
@@ -583,7 +599,7 @@ const TagsPage = () => {
         if (formData.code && formData.data_type) {
             const overlapError = checkAddressOverlap(formData.code, formData.data_type);
             if (overlapError) {
-                if (!confirm(`Warning: ${overlapError}\n\nDo you want to proceed anyway?`)) {
+                if (!(await confirmAction({ title: i18n.t('tags.overlap_title'), description: overlapError, confirmLabel: i18n.t('tags.overlap_proceed') }))) {
                     return;
                 }
             }
@@ -593,7 +609,7 @@ const TagsPage = () => {
 
     const handleDelete = async (e: React.MouseEvent, id: number) => {
         e.stopPropagation();
-        if (confirm('Are you sure you want to delete this tag?')) {
+        if (await confirmAction({ title: i18n.t('ask.delete_tag'), description: i18n.t('ask.delete_tag_desc'), destructive: true })) {
             await remove(id);
         }
     };
@@ -614,7 +630,7 @@ const TagsPage = () => {
     };
 
     const handleBatchDelete = async () => {
-        if (!confirm(`Delete ${selectedTagIds.length} tags?`)) return;
+        if (!(await confirmAction({ title: i18n.t('ask.delete_tags', { count: selectedTagIds.length }), description: i18n.t('ask.delete_tag_desc'), destructive: true }))) return;
 
         // Execute all deletions in parallel for instant UI update
         await Promise.all(selectedTagIds.map(id => remove(id)));
@@ -684,7 +700,7 @@ const TagsPage = () => {
             window.location.reload(); // Simple reload to get new order
         } catch (error) {
             console.error("Failed to reorder tags", error);
-            alert("Failed to reorder tags");
+            toast.error(i18n.t('tags.reorder_failed'));
         }
         }
     };
@@ -709,7 +725,7 @@ const TagsPage = () => {
             window.location.reload();
         } catch (error) {
             console.error("Failed to reorder tag", error);
-            alert("Failed to reorder tag");
+            toast.error(i18n.t('tags.reorder_failed'));
         }
     };
 
@@ -1406,8 +1422,12 @@ const TagsPage = () => {
                     <TableBody>
                         {tagsList.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center">
-                                    No tags found. {selectedGatewayId && selectedGatewayId !== 'all' ? 'Create one for the selected gateway.' : 'Select a gateway to view tags.'}
+                                <TableCell colSpan={7}>
+                                    <EmptyState
+                                        icon={TagsIcon}
+                                        title={tr('empty.tags_title')}
+                                        description={selectedGatewayId && selectedGatewayId !== 'all' ? tr('empty.tags_desc') : tr('empty.tags_pick_gateway')}
+                                    />
                                 </TableCell>
                             </TableRow>
                         ) : (

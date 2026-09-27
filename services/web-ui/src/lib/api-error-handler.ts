@@ -1,5 +1,6 @@
 import { toast } from 'sonner';
 import axios, { AxiosError } from 'axios';
+import i18n from '@/i18n';
 
 export interface ApiError {
     message: string;
@@ -8,7 +9,10 @@ export interface ApiError {
 }
 
 /**
- * Format API error for display
+ * Format API error for display.
+ *
+ * The server's own message wins whenever there is one: "the site still has
+ * areas" tells the user what to do, "Server error - please try again" does not.
  */
 export function formatApiError(error: unknown): ApiError {
     if (axios.isAxiosError(error)) {
@@ -23,7 +27,7 @@ export function formatApiError(error: unknown): ApiError {
         }
 
         if (axiosError.request) {
-            return { message: 'Network error - please check your connection', code: 'NETWORK_ERROR' };
+            return { message: i18n.t('errors.network'), code: 'NETWORK_ERROR' };
         }
     }
 
@@ -31,75 +35,32 @@ export function formatApiError(error: unknown): ApiError {
         return { message: error.message };
     }
 
-    return { message: 'An unexpected error occurred' };
+    return { message: i18n.t('errors.unexpected') };
 }
 
 /**
  * Get default error message by HTTP status code
  */
 function getDefaultErrorMessage(status: number): string {
-    switch (status) {
-        case 400:
-            return 'Invalid request - please check your input';
-        case 401:
-            return 'Authentication required';
-        case 403:
-            return 'Access denied - check your organization selection';
-        case 404:
-            return 'Resource not found';
-        case 409:
-            return 'Conflict - this resource may already exist';
-        case 422:
-            return 'Validation error - please check your input';
-        case 429:
-            return 'Too many requests - please try again later';
-        case 500:
-            return 'Server error - please try again';
-        case 502:
-        case 503:
-            return 'Service temporarily unavailable';
-        case 504:
-            return 'Request timeout - please try again';
-        default:
-            return `Request failed with status ${status}`;
-    }
+    const known = [400, 401, 403, 404, 409, 422, 429, 500, 502, 503, 504];
+    if (known.includes(status)) return i18n.t(`errors.status_${status}`);
+    return i18n.t('errors.status_other', { status });
 }
 
 /**
- * Show toast notification for API error
+ * Show toast notification for API error.
+ *
+ * It used to replace the server's explanation with a fixed "Server Error /
+ * Please try again later" for every 5xx and a fixed "Not Found" for every 404,
+ * in English, so the one sentence that said what went wrong never reached the
+ * user.
  */
 export function showApiError(error: unknown, context?: string): void {
-    const { message, status } = formatApiError(error);
-
-    const contextPrefix = context ? `${context}: ` : '';
-
-    // Check for specific error types to show appropriate toast style
-    if (status === 403) {
-        toast.error(`${contextPrefix}Access Denied`, {
-            description: 'Check your organization selection',
-            duration: 5000,
-        });
-    } else if (status === 404) {
-        toast.error(`${contextPrefix}Not Found`, {
-            description: 'The requested resource does not exist',
-            duration: 4000,
-        });
-    } else if (status && status >= 500) {
-        toast.error(`${contextPrefix}Server Error`, {
-            description: 'Please try again later',
-            duration: 5000,
-        });
-    } else if ((error as ApiError)?.code === 'NETWORK_ERROR') {
-        toast.error(`${contextPrefix}Network Error`, {
-            description: 'Check your internet connection',
-            duration: 6000,
-        });
-    } else {
-        toast.error(`${contextPrefix}Error`, {
-            description: message,
-            duration: 4000,
-        });
-    }
+    const { message, code } = formatApiError(error);
+    toast.error(context || i18n.t('errors.title'), {
+        description: message,
+        duration: code === 'NETWORK_ERROR' ? 6000 : 5000,
+    });
 }
 
 /**

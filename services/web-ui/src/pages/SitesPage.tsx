@@ -32,6 +32,11 @@ import {
 } from '@/components/ui/select';
 import { Factory, Plus, Trash2, ChevronRight, Building2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Factory as FactoryIcon } from 'lucide-react';
 
 const SitesPage = () => {
     const navigate = useNavigate();
@@ -39,6 +44,7 @@ const SitesPage = () => {
     const { sites, isLoading, create, remove, update } = useSites(selectedOrgId);
     const { organizations } = useOrganizations();
     const { isAdmin } = useAuthStore();
+    const { t } = useTranslation();
 
     const [isOpen, setIsOpen] = useState(false);
     const [isEditOpen, setIsEditOpen] = useState(false);
@@ -64,7 +70,7 @@ const SitesPage = () => {
 
     const handleDelete = async (e: React.MouseEvent, id: number) => {
         e.stopPropagation();
-        if (confirm('Are you sure you want to delete this site?')) {
+        if (await confirmAction({ title: i18n.t('ask.delete_site'), description: i18n.t('ask.delete_site_desc'), destructive: true })) {
             try {
                 await remove(id);
             } catch (error) {
@@ -103,9 +109,9 @@ const SitesPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight">Sites</h2>
+                    <h2 className="text-2xl font-bold tracking-tight">{t('nav.sites')}</h2>
                     <p className="text-muted-foreground">
-                        Manage production sites and facilities.
+                        {t('sites.subtitle')}
                     </p>
                 </div>
                 {isAdmin() && (
@@ -113,25 +119,25 @@ const SitesPage = () => {
                         <Dialog open={isOpen} onOpenChange={setIsOpen}>
                             <DialogTrigger asChild>
                                 <Button className="gap-2">
-                                    <Plus size={16} /> Add Site
+                                    <Plus size={16} /> {t('sites.add')}
                                 </Button>
                             </DialogTrigger>
                             <DialogContent>
                                 <DialogHeader>
-                                    <DialogTitle>Create Site</DialogTitle>
+                                    <DialogTitle>{t('sites.create_title')}</DialogTitle>
                                     <DialogDescription>
-                                        Enter the details for the new site.
+                                        {t('empty.sites_desc')}
                                     </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
                                     <div className="grid gap-2">
-                                        <Label htmlFor="org">Organization</Label>
+                                        <Label htmlFor="org">{t('common.organization')}</Label>
                                         <Select
                                             value={selectedOrgForCreate}
                                             onValueChange={setSelectedOrgForCreate}
                                         >
                                             <SelectTrigger>
-                                                <SelectValue placeholder="Select Organization" />
+                                                <SelectValue placeholder={t('common.select_organization')} />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {organizations.map((org) => (
@@ -143,17 +149,17 @@ const SitesPage = () => {
                                         </Select>
                                     </div>
                                     <div className="grid gap-2">
-                                        <Label htmlFor="name">Site Name</Label>
+                                        <Label htmlFor="name">{t('sites.name')}</Label>
                                         <Input
                                             id="name"
                                             value={newSiteName}
                                             onChange={(e) => setNewSiteName(e.target.value)}
-                                            placeholder="e.g. Milano Production Plant"
+                                            placeholder={t('sites.name_placeholder')}
                                         />
                                     </div>
                                 </div>
                                 <DialogFooter>
-                                    <Button onClick={handleCreate}>Create</Button>
+                                    <Button onClick={handleCreate}>{t('common.create')}</Button>
                                 </DialogFooter>
                             </DialogContent>
                         </Dialog>
@@ -161,24 +167,24 @@ const SitesPage = () => {
                         <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
                             <DialogContent>
                                 <DialogHeader>
-                                    <DialogTitle>Edit Site</DialogTitle>
+                                    <DialogTitle>{t('sites.edit_title')}</DialogTitle>
                                     <DialogDescription>
-                                        Update the name of the site.
+                                        {t('sites.edit_desc')}
                                     </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
                                     <div className="grid gap-2">
-                                        <Label htmlFor="edit-name">Site Name</Label>
+                                        <Label htmlFor="edit-name">{t('sites.name')}</Label>
                                         <Input
                                             id="edit-name"
                                             value={editingSite?.name || ''}
                                             onChange={(e) => setEditingSite(prev => prev ? { ...prev, name: e.target.value } : null)}
-                                            placeholder="e.g. Milano Production Plant"
+                                            placeholder={t('sites.name_placeholder')}
                                         />
                                     </div>
                                 </div>
                                 <DialogFooter>
-                                    <Button onClick={handleUpdate}>Save Changes</Button>
+                                    <Button onClick={handleUpdate}>{t('common.save')}</Button>
                                 </DialogFooter>
                             </DialogContent>
                         </Dialog>
@@ -191,17 +197,24 @@ const SitesPage = () => {
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-[80px]">ID</TableHead>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Organization</TableHead>
-                            <TableHead>Created At</TableHead>
-                            {isAdmin() && <TableHead className="text-right">Actions</TableHead>}
+                            <TableHead>{t('common.name')}</TableHead>
+                            <TableHead>{t('common.organization')}</TableHead>
+                            <TableHead>{t('common.created_at')}</TableHead>
+                            {isAdmin() && <TableHead className="text-right">{t('common.actions')}</TableHead>}
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {sites.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={5} className="h-24 text-center">
-                                    No sites found. {selectedOrgId ? 'Create one for the selected organization.' : 'Select an organization to filter or create a new site.'}
+                                <TableCell colSpan={5}>
+                                    <EmptyState
+                                        icon={FactoryIcon}
+                                        title={t('empty.sites_title')}
+                                        description={selectedOrgId ? t('empty.sites_desc') : t('empty.sites_pick_org')}
+                                        action={selectedOrgId && isAdmin() ? (
+                                            <Button onClick={() => setIsOpen(true)}>{t('empty.sites_create')}</Button>
+                                        ) : undefined}
+                                    />
                                 </TableCell>
                             </TableRow>
                         ) : (
@@ -224,7 +237,7 @@ const SitesPage = () => {
                                                 {orgName}
                                             </div>
                                         </TableCell>
-                                        <TableCell>{new Date(site.created_at).toLocaleDateString()}</TableCell>
+                                        <TableCell>{new Date(site.created_at).toLocaleDateString(i18n.language)}</TableCell>
                                         {isAdmin() && (
                                             <TableCell className="text-right">
                                                 <div className="flex items-center justify-end gap-2">
@@ -233,7 +246,7 @@ const SitesPage = () => {
                                                         size="sm"
                                                         onClick={(e) => handleEdit(e, site)}
                                                     >
-                                                        Edit
+                                                        {t('common.edit')}
                                                     </Button>
                                                     <Button
                                                         variant="ghost"

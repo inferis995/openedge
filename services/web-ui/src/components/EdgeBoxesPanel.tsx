@@ -12,6 +12,8 @@ import {
 import { AlertTriangle, Check, Pencil, Server, Trash2, X } from 'lucide-react';
 import { edgeAgentsApi, EdgeAgent, EdgeAgentScope } from '@/api/edgeAgents';
 import { showApiSuccess, showApiError } from '@/lib/api-error-handler';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
 
 // Una scatola che non si fa sentire da più di tanto è considerata offline.
 // Il suo heartbeat parte ogni 30 secondi.
@@ -176,8 +178,8 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
                                     <TableCell className="text-right tabular-nums">{a.gateways}</TableCell>
                                     <TableCell className="text-right">
                                         <Button size="icon" variant="ghost" aria-label="Rimuovi scatola"
-                                            onClick={() => {
-                                                if (confirm(`Rimuovere "${a.name}"? La sua chiave viene revocata subito e i suoi ${a.gateways} gateway tornano al server.`)) {
+                                            onClick={async () => {
+                                                if (await confirmAction({ title: i18n.t('ask.remove_box', { name: a.name }), description: i18n.t('ask.remove_box_desc', { count: a.gateways }), confirmLabel: i18n.t('ask.remove'), destructive: true })) {
                                                     remove.mutate(a.id);
                                                 }
                                             }}>

@@ -18,6 +18,8 @@ import {
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
 
 // OEEAlertRules — gestione delle regole "OEE Linea A < 70% per 60min → email".
 // Valutate dal cron worker ogni 5 minuti su oee_history.
@@ -53,7 +55,7 @@ export const OEEAlertRules = ({ profiles }: Props) => {
     });
 
     const handleDelete = async (r: OEEAlertRule) => {
-        if (!confirm(`Eliminare la regola "${r.name}"?`)) return;
+        if (!(await confirmAction({ title: i18n.t('ask.delete_named', { name: r.name }), destructive: true }))) return;
         try {
             await oeeApi.deleteAlertRule(r.id);
             toast.success('Regola eliminata.');

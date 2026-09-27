@@ -34,6 +34,8 @@ import {
 import { Users, Plus, Trash2, Pencil, Shield, User as UserIcon, Building2, Network, MapPin, Layers, KeyRound } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Site, Area } from '@/types';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
 
 // ---------- scope selector sub-component ----------
 
@@ -327,7 +329,7 @@ const UsersPage = () => {
             setError('Cannot delete your own account');
             return;
         }
-        if (confirm(`Are you sure you want to delete user "${user.username}"?`)) {
+        if (await confirmAction({ title: i18n.t('ask.delete_user', { name: user.username }), description: i18n.t('ask.delete_user_desc'), destructive: true })) {
             try {
                 await usersApi.delete(user.id);
                 fetchUsers();

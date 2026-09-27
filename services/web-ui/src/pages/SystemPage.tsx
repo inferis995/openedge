@@ -25,6 +25,8 @@ import {
     HardDrive, Server, Network, Eye, EyeOff, User, Key, Shield, Plus, Copy
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
 
 const PUBLISH_MODES = [
     {
@@ -319,7 +321,7 @@ const SystemPage = () => {
     const handleRestore = async (e: React.ChangeEvent<HTMLInputElement>) => {
         if (!e.target.files || !e.target.files[0]) return;
         const file = e.target.files[0];
-        if (confirm('ATTENZIONE: Il ripristino sovrascriverà la configurazione attuale. Questa operazione non può essere annullata. Continuare?')) {
+        if (await confirmAction({ title: i18n.t('ask.restore'), description: i18n.t('ask.restore_desc'), confirmLabel: i18n.t('ask.restore_go'), destructive: true })) {
             setLoading(true);
             setMessage({ type: 'success', text: 'Ripristino in corso...' });
             try {
@@ -338,7 +340,7 @@ const SystemPage = () => {
     };
 
     const handlePostRestore = async () => {
-        if (!confirm('Questo riavvierà tutti i servizi nell\'ordine corretto. Continuare?')) return;
+        if (!(await confirmAction({ title: i18n.t('ask.restart_services'), description: i18n.t('ask.restart_services_desc'), confirmLabel: i18n.t('ask.restart') }))) return;
 
         setPostRestoreLoading(true);
         setPostRestoreResults(null);
@@ -387,7 +389,7 @@ const SystemPage = () => {
     };
 
     const handleDeleteBackup = async (filename: string) => {
-        if (confirm(`Eliminare il backup ${filename}?`)) {
+        if (await confirmAction({ title: i18n.t('ask.delete_named', { name: filename }), description: i18n.t('ask.irreversible'), destructive: true })) {
             try {
                 await systemApi.deleteBackup(filename);
                 setBackupList(backupList.filter(b => b.filename !== filename));

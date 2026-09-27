@@ -26,6 +26,8 @@ import { invitesApi } from '@/api/invites';
 import { webhooksApi, Webhook, WEBHOOK_EVENTS, WebhookEvent } from '@/api/webhooks';
 import { showApiSuccess, showApiError } from '@/lib/api-error-handler';
 import { toast } from 'sonner';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
 
 interface Props {
     org: { id: number; name: string };
@@ -376,8 +378,8 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                                         variant="ghost"
                                                         size="icon"
                                                         className="h-9 sm:h-7 w-9 sm:w-7 text-red-500 hover:text-red-600 hover:bg-red-500/10"
-                                                        onClick={() => {
-                                                            if (confirm('Revoke this API key? Edge managers using it will lose access.')) {
+                                                        onClick={async () => {
+                                                            if (await confirmAction({ title: i18n.t('ask.revoke_key'), description: i18n.t('ask.revoke_key_desc'), confirmLabel: i18n.t('ask.revoke'), destructive: true })) {
                                                                 revokeKeyMutation.mutate(k.id);
                                                             }
                                                         }}
@@ -623,8 +625,8 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                                         </Button>
                                                         <Button variant="ghost" size="icon"
                                                             className="h-9 sm:h-7 w-9 sm:w-7 text-destructive hover:text-destructive"
-                                                            onClick={() => {
-                                                                if (confirm(`Remove ${p.provider} SSO?`)) {
+                                                            onClick={async () => {
+                                                                if (await confirmAction({ title: i18n.t('ask.remove_sso', { provider: p.provider }), description: i18n.t('ask.remove_sso_desc'), confirmLabel: i18n.t('ask.remove'), destructive: true })) {
                                                                     deleteSSOMutation.mutate(p.provider);
                                                                 }
                                                             }}>

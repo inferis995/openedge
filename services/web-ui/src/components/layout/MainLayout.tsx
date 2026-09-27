@@ -2,6 +2,8 @@ import { useState } from 'react';
 import Sidebar from './Sidebar';
 import Header from './Header';
 import UpdateNotificationBanner from './UpdateNotificationBanner';
+import QuickSearch from './QuickSearch';
+import ConfirmHost from '@/components/ConfirmHost';
 import { Toaster } from 'sonner';
 
 interface MainLayoutProps {
@@ -33,7 +35,9 @@ const MainLayout = ({ children }: MainLayoutProps) => {
                     </div>
                 </main>
             </div>
-            <Toaster position="top-right" richColors />
+            <Toaster position="top-right" richColors closeButton />
+            <QuickSearch />
+            <ConfirmHost />
         </div>
     );
 };

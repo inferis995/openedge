@@ -23,6 +23,8 @@ import { useNavigate } from 'react-router-dom';
 import { organizationsApi } from '@/api/organizations';
 import OrgInfrastructureDialog from '@/components/OrgInfrastructureDialog';
 import { Organization } from '@/types';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
 
 // Small hook: fetch edge status for a single org (used inline in the row)
 function useEdgeStatus(orgId: number, enabled: boolean) {
@@ -87,7 +89,7 @@ const OrganizationsPage = () => {
 
     const handleDelete = async (e: React.MouseEvent, id: number) => {
         e.stopPropagation();
-        if (confirm('Delete this organization? This action cannot be undone.')) {
+        if (await confirmAction({ title: i18n.t('ask.delete_org'), description: i18n.t('ask.delete_org_desc'), destructive: true })) {
             await remove(id);
         }
     };

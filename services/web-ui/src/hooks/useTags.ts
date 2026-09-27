@@ -2,6 +2,8 @@ import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { tagsApi } from '@/api/tags';
 import { CreateTagDto } from '@/types';
+import { showApiError } from '@/lib/api-error-handler';
+import i18n from '@/i18n';
 
 export const useTags = (gatewayId?: number | null) => {
     const queryClient = useQueryClient();
@@ -19,6 +21,7 @@ export const useTags = (gatewayId?: number | null) => {
     });
 
     const createMutation = useMutation({
+        onError: (e) => showApiError(e, i18n.t('feedback.create_tag_failed')),
         mutationFn: (data: CreateTagDto) => tagsApi.create(data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['tags'] });
@@ -26,6 +29,7 @@ export const useTags = (gatewayId?: number | null) => {
     });
 
     const updateMutation = useMutation({
+        onError: (e) => showApiError(e, i18n.t('feedback.update_tag_failed')),
         mutationFn: ({ id, data }: { id: number; data: Partial<CreateTagDto> }) =>
             tagsApi.update(id, data),
         onSuccess: () => {
@@ -34,6 +38,7 @@ export const useTags = (gatewayId?: number | null) => {
     });
 
     const deleteMutation = useMutation({
+        onError: (e) => showApiError(e, i18n.t('feedback.delete_tag_failed')),
         mutationFn: (id: number) => tagsApi.delete(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['tags'] });

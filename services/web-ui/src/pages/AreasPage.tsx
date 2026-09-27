@@ -33,6 +33,11 @@ import {
 } from '@/components/ui/select';
 import { MapPin, Plus, Trash2, ChevronRight, Factory } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
+import { EmptyState } from '@/components/ui/empty-state';
+import { MapPin as MapPinIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 const AreasPage = () => {
     const navigate = useNavigate();
@@ -40,6 +45,7 @@ const AreasPage = () => {
     const { areas, isLoading, create, remove, update } = useAreas(selectedSiteId);
     const { sites } = useSites(selectedOrgId); // Get sites for current org to map names
     const { isAdmin } = useAuthStore();
+    const { t } = useTranslation();
 
     const [isOpen, setIsOpen] = useState(false);
     const [isEditOpen, setIsEditOpen] = useState(false);
@@ -82,7 +88,7 @@ const AreasPage = () => {
 
     const handleDelete = async (e: React.MouseEvent, id: number) => {
         e.stopPropagation();
-        if (confirm('Are you sure you want to delete this area?')) {
+        if (await confirmAction({ title: i18n.t('ask.delete_area'), description: i18n.t('ask.delete_area_desc'), destructive: true })) {
             try {
                 await remove(id);
             } catch (error) {
@@ -121,9 +127,9 @@ const AreasPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight">Areas</h2>
+                    <h2 className="text-2xl font-bold tracking-tight">{t('nav.areas')}</h2>
                     <p className="text-muted-foreground">
-                        Define logical areas within sites (e.g. Line 1, Warehouse).
+                        {t('areas.subtitle')}
                     </p>
                 </div>
                 {isAdmin() && (
@@ -131,25 +137,25 @@ const AreasPage = () => {
                         <Dialog open={isOpen} onOpenChange={setIsOpen}>
                             <DialogTrigger asChild>
                                 <Button className="gap-2">
-                                    <Plus size={16} /> Add Area
+                                    <Plus size={16} /> {t('areas.add')}
                                 </Button>
                             </DialogTrigger>
                             <DialogContent>
                                 <DialogHeader>
-                                    <DialogTitle>Create Area</DialogTitle>
+                                    <DialogTitle>{t('areas.create_title')}</DialogTitle>
                                     <DialogDescription>
-                                        Enter the details for the new area.
+                                        {t('empty.areas_desc')}
                                     </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
                                     <div className="grid gap-2">
-                                        <Label htmlFor="site">Site</Label>
+                                        <Label htmlFor="site">{t('common.site')}</Label>
                                         <Select
                                             value={selectedSiteForCreate}
                                             onValueChange={setSelectedSiteForCreate}
                                         >
                                             <SelectTrigger>
-                                                <SelectValue placeholder="Select Site" />
+                                                <SelectValue placeholder={t('common.select_site')} />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {sites.map((site) => (
@@ -161,17 +167,17 @@ const AreasPage = () => {
                                         </Select>
                                     </div>
                                     <div className="grid gap-2">
-                                        <Label htmlFor="name">Area Name</Label>
+                                        <Label htmlFor="name">{t('areas.name')}</Label>
                                         <Input
                                             id="name"
                                             value={newAreaName}
                                             onChange={(e) => setNewAreaName(e.target.value)}
-                                            placeholder="e.g. Assembly Line 1"
+                                            placeholder={t('areas.name_placeholder')}
                                         />
                                     </div>
                                 </div>
                                 <DialogFooter>
-                                    <Button onClick={handleCreate}>Create</Button>
+                                    <Button onClick={handleCreate}>{t('common.create')}</Button>
                                 </DialogFooter>
                             </DialogContent>
                         </Dialog>
@@ -179,24 +185,24 @@ const AreasPage = () => {
                         <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
                             <DialogContent>
                                 <DialogHeader>
-                                    <DialogTitle>Edit Area</DialogTitle>
+                                    <DialogTitle>{t('areas.edit_title')}</DialogTitle>
                                     <DialogDescription>
-                                        Update the name of the area.
+                                        {t('areas.edit_desc')}
                                     </DialogDescription>
                                 </DialogHeader>
                                 <div className="grid gap-4 py-4">
                                     <div className="grid gap-2">
-                                        <Label htmlFor="edit-name">Area Name</Label>
+                                        <Label htmlFor="edit-name">{t('areas.name')}</Label>
                                         <Input
                                             id="edit-name"
                                             value={editingArea?.name || ''}
                                             onChange={(e) => setEditingArea(prev => prev ? { ...prev, name: e.target.value } : null)}
-                                            placeholder="e.g. Assembly Line 1"
+                                            placeholder={t('areas.name_placeholder')}
                                         />
                                     </div>
                                 </div>
                                 <DialogFooter>
-                                    <Button onClick={handleUpdate}>Save Changes</Button>
+                                    <Button onClick={handleUpdate}>{t('common.save')}</Button>
                                 </DialogFooter>
                             </DialogContent>
                         </Dialog>
@@ -209,17 +215,24 @@ const AreasPage = () => {
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-[80px]">ID</TableHead>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Site</TableHead>
-                            <TableHead>Created At</TableHead>
-                            {isAdmin() && <TableHead className="text-right">Actions</TableHead>}
+                            <TableHead>{t('common.name')}</TableHead>
+                            <TableHead>{t('common.site')}</TableHead>
+                            <TableHead>{t('common.created_at')}</TableHead>
+                            {isAdmin() && <TableHead className="text-right">{t('common.actions')}</TableHead>}
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {areas.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={5} className="h-24 text-center">
-                                    No areas found. {selectedSiteId ? 'Create one for the selected site.' : 'Select a site to filter or create a new area.'}
+                                <TableCell colSpan={5}>
+                                    <EmptyState
+                                        icon={MapPinIcon}
+                                        title={t('empty.areas_title')}
+                                        description={selectedSiteId ? t('empty.areas_desc') : t('empty.areas_pick_site')}
+                                        action={selectedSiteId
+                                            ? (isAdmin() ? <Button onClick={() => setIsOpen(true)}>{t('empty.areas_create')}</Button> : undefined)
+                                            : <Button variant="outline" onClick={() => navigate('/sites')}>{t('empty.go_sites')}</Button>}
+                                    />
                                 </TableCell>
                             </TableRow>
                         ) : (
@@ -242,7 +255,7 @@ const AreasPage = () => {
                                                 {siteName}
                                             </div>
                                         </TableCell>
-                                        <TableCell>{new Date(area.created_at).toLocaleDateString()}</TableCell>
+                                        <TableCell>{new Date(area.created_at).toLocaleDateString(i18n.language)}</TableCell>
                                         {isAdmin() && (
                                             <TableCell className="text-right">
                                                 <div className="flex items-center justify-end gap-2">
@@ -251,7 +264,7 @@ const AreasPage = () => {
                                                         size="sm"
                                                         onClick={(e) => handleEdit(e, area)}
                                                     >
-                                                        Edit
+                                                        {t('common.edit')}
                                                     </Button>
                                                     <Button
                                                         variant="ghost"

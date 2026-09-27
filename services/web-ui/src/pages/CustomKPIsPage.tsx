@@ -20,6 +20,8 @@ import {
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
 
 const CustomKPIsPage = () => {
     const qc = useQueryClient();
@@ -172,7 +174,7 @@ const CustomKPIsPage = () => {
                                             </Button>
                                             <Button variant="ghost" size="icon" title="Elimina"
                                                 className="h-10 sm:h-8 w-10 sm:w-8 text-red-500"
-                                                onClick={() => { if (confirm(`Eliminare KPI "${k.name}"?`)) deleteMutation.mutate(k.id); }}>
+                                                onClick={async () => { if (await confirmAction({ title: i18n.t('ask.delete_named', { name: k.name }), destructive: true })) deleteMutation.mutate(k.id); }}>
                                                 <Trash2 size={16} />
                                             </Button>
                                         </div>

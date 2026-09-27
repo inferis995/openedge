@@ -36,6 +36,11 @@ import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { CreateGatewayDto, Gateway } from '@/types';
 import { LoRaWANDevicesPanel } from '@/components/lorawan/LoRaWANDevicesPanel';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Cpu as CpuIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 // Extended DTO to include UI-specific fields or fields not yet in shared types
 interface ExtendedCreateGatewayDto extends Omit<CreateGatewayDto, 'connection_config'> {
@@ -75,6 +80,7 @@ interface ExtendedCreateGatewayDto extends Omit<CreateGatewayDto, 'connection_co
 }
 
 const GatewaysPage = () => {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const { selectedAreaId, selectedSiteId } = useNavigationStore();
     const { gateways, isLoading, create, remove, testConnection, update, isUpdating } = useGateways(selectedAreaId);
@@ -402,7 +408,7 @@ const GatewaysPage = () => {
 
     const handleDelete = async (e: React.MouseEvent, id: number) => {
         e.stopPropagation();
-        if (confirm('Are you sure you want to delete this gateway?')) {
+        if (await confirmAction({ title: i18n.t('ask.delete_gateway'), description: i18n.t('ask.delete_gateway_desc'), destructive: true })) {
             await remove(id);
         }
     };
@@ -1050,10 +1056,19 @@ const GatewaysPage = () => {
                     <TableBody>
                         {filteredGateways.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7} className="h-24 text-center">
-                                    {gateways.length === 0
-                                        ? (selectedAreaId ? 'Create one for the selected area.' : 'Select an area to filter or add a new gateway.')
-                                        : 'Nessun gateway corrisponde alla ricerca.'}
+                                <TableCell colSpan={7}>
+                                    {gateways.length === 0 ? (
+                                        <EmptyState
+                                            icon={CpuIcon}
+                                            title={t('empty.gateways_title')}
+                                            description={selectedAreaId ? t('empty.gateways_desc') : t('empty.gateways_pick_area')}
+                                            action={!selectedAreaId
+                                                ? <Button variant="outline" onClick={() => navigate('/areas')}>{t('empty.go_areas')}</Button>
+                                                : undefined}
+                                        />
+                                    ) : (
+                                        <p className="h-16 flex items-center justify-center text-muted-foreground">{t('empty.no_match')}</p>
+                                    )}
                                 </TableCell>
                             </TableRow>
                         ) : (

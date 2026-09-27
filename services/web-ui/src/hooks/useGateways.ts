@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { gatewaysApi } from '@/api/gateways';
 import { CreateGatewayDto } from '@/types';
+import { showApiError } from '@/lib/api-error-handler';
+import i18n from '@/i18n';
 
 export const useGateways = (areaId?: number | null) => {
     const queryClient = useQueryClient();
@@ -19,6 +21,7 @@ export const useGateways = (areaId?: number | null) => {
     });
 
     const createMutation = useMutation({
+        onError: (e) => showApiError(e, i18n.t('feedback.create_gateway_failed')),
         mutationFn: (data: CreateGatewayDto) => gatewaysApi.create(data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['gateways'] });
@@ -26,6 +29,7 @@ export const useGateways = (areaId?: number | null) => {
     });
 
     const deleteMutation = useMutation({
+        onError: (e) => showApiError(e, i18n.t('feedback.delete_gateway_failed')),
         mutationFn: (id: number) => gatewaysApi.delete(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['gateways'] });
@@ -33,6 +37,7 @@ export const useGateways = (areaId?: number | null) => {
     });
 
     const updateMutation = useMutation({
+        onError: (e) => showApiError(e, i18n.t('feedback.update_gateway_failed')),
         mutationFn: ({ id, data }: { id: number; data: Partial<CreateGatewayDto> }) => gatewaysApi.update(id, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['gateways'] });

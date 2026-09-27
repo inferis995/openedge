@@ -19,6 +19,11 @@ import {
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import { confirmAction } from '@/lib/confirm';
+import i18n from '@/i18n';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Clock as ClockIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 // Mostra "Lun-Ven" se i weekdays sono 1..5, "Sab-Dom" se 0+6, altrimenti
 // la lista esplicita. Più leggibile dei badge singoli quando i pattern
@@ -34,6 +39,7 @@ const formatWeekdays = (weekdays: number[]): string => {
 };
 
 const ShiftsPage = () => {
+    const { t } = useTranslation();
     const qc = useQueryClient();
 
     const { data: shifts = [], isLoading } = useQuery({
@@ -95,8 +101,8 @@ const ShiftsPage = () => {
         onError: (e) => showApiError(e, 'Eliminazione fallita'),
     });
 
-    const handleDelete = (s: Shift) => {
-        if (confirm(`Eliminare il turno "${s.name}"? Le assegnazioni operatori verranno rimosse insieme.`)) {
+    const handleDelete = async (s: Shift) => {
+        if (await confirmAction({ title: i18n.t('ask.delete_named', { name: s.name }), description: i18n.t('ask.delete_shift_desc'), destructive: true })) {
             deleteMutation.mutate(s.id);
         }
     };
@@ -137,7 +143,14 @@ const ShiftsPage = () => {
                         {isLoading ? (
                             <TableRow><TableCell colSpan={6} className="h-20 text-center">Caricamento…</TableCell></TableRow>
                         ) : shifts.length === 0 ? (
-                            <TableRow><TableCell colSpan={6} className="h-20 text-center">Nessun turno definito.</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={6}>
+                                <EmptyState
+                                    icon={ClockIcon}
+                                    title={t('empty.shifts_title')}
+                                    description={t('empty.shifts_desc')}
+                                    action={<Button onClick={openCreate}>{t('empty.shifts_create')}</Button>}
+                                />
+                            </TableCell></TableRow>
                         ) : shifts.map((s) => (
                             <TableRow key={s.id}>
                                 <TableCell className="font-medium">{s.id}</TableCell>
