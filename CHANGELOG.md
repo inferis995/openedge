@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-09-27
+
 > **Read before upgrading a multi-organization server.**
 > The broker now denies receiving by default; a client receives only what a
 > role grants it. That is what every organization's role was written for, but
