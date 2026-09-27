@@ -25,6 +25,8 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Clock as ClockIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/useAuthStore';
+import ShiftCalendar from '@/components/shifts/ShiftCalendar';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 // Mostra "Lun-Ven" se i weekdays sono 1..5, "Sab-Dom" se 0+6, altrimenti
 // la lista esplicita. Più leggibile dei badge singoli quando i pattern
@@ -109,6 +111,48 @@ const ShiftsPage = () => {
         }
     };
 
+    // Ready-made patterns: the three or four shift systems nearly every
+    // plant uses, created in one go instead of typed in shift by shift.
+    const TEMPLATES: Record<string, { key: string; start: string; end: string; days: number[] }[]> = {
+        three_weekdays: [
+            { key: 'morning', start: '06:00', end: '14:00', days: [1, 2, 3, 4, 5] },
+            { key: 'afternoon', start: '14:00', end: '22:00', days: [1, 2, 3, 4, 5] },
+            { key: 'night', start: '22:00', end: '06:00', days: [1, 2, 3, 4, 5] },
+        ],
+        two_weekdays: [
+            { key: 'morning', start: '06:00', end: '14:00', days: [1, 2, 3, 4, 5] },
+            { key: 'afternoon', start: '14:00', end: '22:00', days: [1, 2, 3, 4, 5] },
+        ],
+        day: [{ key: 'day', start: '08:00', end: '17:00', days: [1, 2, 3, 4, 5] }],
+        continuous_3x8: [
+            { key: 'morning', start: '06:00', end: '14:00', days: [0, 1, 2, 3, 4, 5, 6] },
+            { key: 'afternoon', start: '14:00', end: '22:00', days: [0, 1, 2, 3, 4, 5, 6] },
+            { key: 'night', start: '22:00', end: '06:00', days: [0, 1, 2, 3, 4, 5, 6] },
+        ],
+        continuous_2x12: [
+            { key: 'day12', start: '07:00', end: '19:00', days: [0, 1, 2, 3, 4, 5, 6] },
+            { key: 'night12', start: '19:00', end: '07:00', days: [0, 1, 2, 3, 4, 5, 6] },
+        ],
+    };
+    const applyTemplate = async (id: string) => {
+        const list = TEMPLATES[id];
+        if (!list || !(await confirmAction({
+            title: t('shiftsPage.tpl_confirm', { name: t(`shiftsPage.tpl_${id}`) }),
+            description: t('shiftsPage.tpl_confirm_desc', { count: list.length }),
+            confirmLabel: t('shiftsPage.tpl_apply'),
+        }))) return;
+        try {
+            for (const s of list) {
+                await shiftsApi.create({ name: t(`shiftsPage.tpl_name_${s.key}`), start_time: s.start, end_time: s.end, weekdays: s.days, active: true });
+            }
+            showApiSuccess(t('shiftsPage.saved'));
+        } catch (e) {
+            showApiError(e, t('shiftsPage.save_failed'));
+        } finally {
+            void qc.invalidateQueries({ queryKey: ['shifts'] });
+        }
+    };
+
     // Assegnamenti operatori — apre un secondo dialog dedicato.
     const [assignShift, setAssignShift] = useState<Shift | null>(null);
 
@@ -123,10 +167,24 @@ const ShiftsPage = () => {
                         {t('shiftsPage.subtitle')}
                     </p>
                 </div>
-                <Button onClick={openCreate} className="gap-2">
-                    <Plus size={16} /> {t('shiftsPage.new')}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                    <Select value="" onValueChange={(v) => void applyTemplate(v)}>
+                        <SelectTrigger className="w-auto gap-2"><SelectValue placeholder={t('shiftsPage.tpl_pick')} /></SelectTrigger>
+                        <SelectContent>
+                            {Object.keys(TEMPLATES).map((id) => (
+                                <SelectItem key={id} value={id}>{t(`shiftsPage.tpl_${id}`)}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Button onClick={openCreate} className="gap-2">
+                        <Plus size={16} /> {t('shiftsPage.new')}
+                    </Button>
+                </div>
             </div>
+
+            {shifts.length > 0 && (
+                <ShiftCalendar shifts={shifts} onSelect={(s) => { if (!s.platform || isGlobalAdmin()) openEdit(s); }} />
+            )}
 
             <div className="rounded-md border bg-card">
                 <Table>

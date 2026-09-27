@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (addresses in that driver's format, a drop-down for the type, an
   instructions sheet) can be downloaded from the same dialog.
   `POST /api/tags/import/file`, `GET /api/tags/import/template`.
+- **Shifts on a week calendar**, with night shifts drawn across midnight, the
+  current time, the days nobody covers, and ready-made patterns (3 or 2 shifts
+  Monday–Friday, day shift, continuous 3×8 and 2×12) created in one click.
 - **Getting started** (`/setup`): from an empty installation to the first
   values read from a PLC in four steps on one page — organization, site and
   area; the PLC (Siemens S7, Modbus TCP, OPC UA) with a connection test that
