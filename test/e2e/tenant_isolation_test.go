@@ -91,3 +91,61 @@ func TestTheDashboardShowsOnlyTheCallersOrganization(t *testing.T) {
 		t.Error("the organization's own alarm is missing from its dashboard")
 	}
 }
+
+// A maintenance window silenced every organization's alarm notifications and
+// took the hours out of every organization's OEE; a custom KPI could be built
+// on another organization's tag and read its data.
+func TestMaintenanceAndCustomKPIsBelongToTheirOrganization(t *testing.T) {
+	admin, _ := adminSession(t)
+	db := openDB(t)
+	suffix := uniqueSuffix()
+	a := createOrg(t, admin, "maint-a-"+suffix)
+	b := createOrg(t, admin, "maint-b-"+suffix)
+	adminA := createOrgAdmin(t, admin, a.ID, "maint-a-"+suffix, "e2e-Password-"+suffix)
+	adminB := createOrgAdmin(t, admin, b.ID, "maint-b-"+suffix, "e2e-Password-"+suffix)
+
+	title := "Fermo A " + suffix
+	status, body := adminA.do(http.MethodPost, "/api/maintenance", map[string]interface{}{
+		"title": title, "start_at": "2020-01-01T00:00:00Z", "end_at": "2099-01-01T00:00:00Z",
+	})
+	if status != http.StatusCreated {
+		t.Fatalf("creating a maintenance window returned %d: %s", status, truncate(body))
+	}
+	var w struct{ ID int }
+	_ = json.Unmarshal(body, &w)
+
+	_, list := adminB.do(http.MethodGet, "/api/maintenance", nil)
+	if strings.Contains(string(list), title) {
+		t.Error("another organization sees the maintenance window")
+	}
+	if status, _ := adminB.do(http.MethodDelete, fmt.Sprintf("/api/maintenance/%d", w.ID), nil); status == http.StatusNoContent {
+		t.Fatal("another organization deleted the maintenance window")
+	}
+	// It is running now: organization B's dashboard must not show it.
+	_, dash := adminB.do(http.MethodGet, "/api/dashboard/overview", nil)
+	if strings.Contains(string(dash), title) {
+		t.Error("another organization's dashboard shows the maintenance banner")
+	}
+
+	gw := seedInventoryGateway(t, db, a.ID, "kpi-plc-"+suffix)
+	var tagID int
+	if err := db.QueryRow(`INSERT INTO tags (gateway_id, code, alias, data_type) VALUES ($1, 'DB1.DBD4', 'kpi-tag', 'REAL') RETURNING id`,
+		gw).Scan(&tagID); err != nil {
+		t.Fatal(err)
+	}
+	if status, body := adminB.do(http.MethodPost, "/api/custom-kpis", map[string]interface{}{
+		"name": "stolen-" + suffix, "tag_id": tagID, "aggregation": "avg",
+	}); status == http.StatusCreated {
+		t.Fatalf("a KPI was created on another organization's tag: %s", truncate(body))
+	}
+	name := "kpi-" + suffix
+	if status, body := adminA.do(http.MethodPost, "/api/custom-kpis", map[string]interface{}{
+		"name": name, "tag_id": tagID, "aggregation": "avg",
+	}); status != http.StatusCreated {
+		t.Fatalf("creating a KPI on the organization's own tag returned %d: %s", status, truncate(body))
+	}
+	_, kpis := adminB.do(http.MethodGet, "/api/custom-kpis", nil)
+	if strings.Contains(string(kpis), name) {
+		t.Error("another organization sees the custom KPI")
+	}
+}

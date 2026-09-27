@@ -96,6 +96,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the organization when there is only one, otherwise they stay as platform
   defaults, which apply to an organization until it creates its own. Only
   people of the same organization can be assigned.
+- **Security:** a maintenance window created by one organization silenced
+  every organization's alarm notifications while it ran, removed the hours
+  from every organization's OEE and was recorded as a setup loss on every
+  organization's lines. A window belongs to its organization now (one with no
+  organization is the platform's and applies to all). Custom KPIs are listed,
+  computed and editable only on the organization's own tags.
 - Shift times were read in UTC: a 06:00 shift started at 08:00 in summer in
   Italy, and OEE counted the wrong hours as planned. Deleting the default
   "Pomeriggio" or "Notte" shift brought it back at the next restart.

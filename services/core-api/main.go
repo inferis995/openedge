@@ -396,8 +396,8 @@ func main() {
 	// notifiche durante una finestra attiva ma continua a registrare
 	// l'allarme in DB. Closure cattura il db handle (handlers.IsInMaintenance
 	// resta puro — niente package state).
-	notifDispatcher.MaintenanceCheck = func() bool {
-		return handlers.IsInMaintenance(database)
+	notifDispatcher.MaintenanceCheck = func(orgID int) bool {
+		return handlers.IsInMaintenance(database, orgID)
 	}
 
 	// Create users handler

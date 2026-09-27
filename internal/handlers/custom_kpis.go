@@ -54,13 +54,17 @@ type CreateCustomKPIRequest struct {
 }
 
 // List restituisce tutte le custom KPI configurate, con alias del tag.
+//
+// A KPI is its tag's organization's: the list showed every organization's.
 func (h *CustomKPIsHandler) List(c *gin.Context) {
-	rows, err := h.db.Query(`
+	sc := dashScopeOf(c)
+	rows, err := h.db.QueryContext(c.Request.Context(), `
 		SELECT k.id, k.name, k.tag_id, COALESCE(t.alias, ''), k.aggregation,
 		       k.window_minutes, COALESCE(k.unit,''), k.multiplier, k.good_when,
 		       k.target_value, k.active
 		FROM custom_kpis k
 		LEFT JOIN tags t ON t.id = k.tag_id
+		WHERE `+sc.tags("k.tag_id")+`
 		ORDER BY k.name`)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list custom KPIs"})
@@ -105,6 +109,9 @@ func (h *CustomKPIsHandler) Create(c *gin.Context) {
 	windowMin := req.WindowMinutes
 	if windowMin <= 0 {
 		windowMin = 1440 // 24h default
+	}
+	if !h.tagInScope(c, req.TagID) {
+		return
 	}
 	var id int
 	err := h.db.QueryRow(`
@@ -153,11 +160,14 @@ func (h *CustomKPIsHandler) Update(c *gin.Context) {
 	if windowMin <= 0 {
 		windowMin = 1440
 	}
+	if !h.tagInScope(c, req.TagID) {
+		return
+	}
 	res, err := h.db.Exec(`
 		UPDATE custom_kpis SET name=$1, tag_id=$2, aggregation=$3, window_minutes=$4,
 		                       unit=$5, multiplier=$6, good_when=$7,
 		                       target_value=$8, active=$9
-		WHERE id=$10`,
+		WHERE id=$10 AND `+dashScopeOf(c).tags("tag_id"),
 		req.Name, req.TagID, req.Aggregation, windowMin, req.Unit,
 		mult, goodWhen, req.TargetValue, active, id,
 	)
@@ -179,7 +189,7 @@ func (h *CustomKPIsHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid id"})
 		return
 	}
-	res, err := h.db.Exec(`DELETE FROM custom_kpis WHERE id = $1`, id)
+	res, err := h.db.ExecContext(c.Request.Context(), `DELETE FROM custom_kpis WHERE id = $1 AND `+dashScopeOf(c).tags("tag_id"), id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete"})
 		return
@@ -189,6 +199,18 @@ func (h *CustomKPIsHandler) Delete(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// tagInScope refuses a tag of another organization: a KPI on it would compute
+// and show that organization's data. Writes the response when refusing.
+func (h *CustomKPIsHandler) tagInScope(c *gin.Context, tagID int) bool {
+	var ok bool
+	if err := h.db.QueryRowContext(c.Request.Context(),
+		`SELECT EXISTS (SELECT 1 FROM tags WHERE id = $1 AND `+dashScopeOf(c).tags("id")+`)`, tagID).Scan(&ok); err != nil || !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tag not found"})
+		return false
+	}
+	return true
 }
 
 // EvaluateAll calcola TUTTE le custom KPI attive in una sola passata.

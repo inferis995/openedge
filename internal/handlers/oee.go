@@ -964,7 +964,7 @@ func (h *OEEHandler) computePPT(start, end time.Time, cfg oeeConfig) float64 {
 		totalMin = windowMin
 	}
 	if cfg.RespectMaintenance {
-		maintMin := h.sumMaintenanceIntersections(start, end)
+		maintMin := h.sumMaintenanceIntersections(start, end, cfg.OrgID)
 		totalMin -= maintMin
 		if totalMin < 0 {
 			totalMin = 0
@@ -976,11 +976,12 @@ func (h *OEEHandler) computePPT(start, end time.Time, cfg oeeConfig) float64 {
 // sumMaintenanceIntersections somma le durate delle finestre di
 // manutenzione che intersecano [start, end]. Una finestra che inizia
 // prima/termina dopo conta solo per la parte interna alla finestra.
-func (h *OEEHandler) sumMaintenanceIntersections(start, end time.Time) float64 {
+func (h *OEEHandler) sumMaintenanceIntersections(start, end time.Time, orgID int) float64 {
 	rows, err := h.db.Query(`
 		SELECT start_at, end_at FROM maintenance_windows
-		WHERE start_at < $2 AND end_at > $1`,
-		start, end,
+		WHERE start_at < $2 AND end_at > $1
+		  AND ($3 = 0 OR org_id = $3 OR org_id IS NULL)`,
+		start, end, orgID,
 	)
 	if err != nil {
 		return 0

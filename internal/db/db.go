@@ -319,6 +319,26 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// A maintenance window belongs to an organization. It did not: one
+	// company's window silenced EVERY company's alarm notifications while it
+	// ran, and took the hours out of every company's OEE. A window with no
+	// organization is the platform's (the global administrator's) and applies
+	// to all. The existing ones go to the organization when there is only one.
+	if _, err := db.ExecContext(context.Background(),
+		`ALTER TABLE maintenance_windows ADD COLUMN IF NOT EXISTS org_id INT REFERENCES organizations(id) ON DELETE CASCADE`); err != nil {
+		log.Printf("Warning: maintenance_windows org_id: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `
+		WITH done AS (
+			INSERT INTO global_settings (key, value) VALUES ('maintenance_org_backfilled', 'true')
+			ON CONFLICT (key) DO NOTHING RETURNING 1
+		)
+		UPDATE maintenance_windows SET org_id = (SELECT id FROM organizations LIMIT 1)
+		WHERE org_id IS NULL AND EXISTS (SELECT 1 FROM done)
+		  AND (SELECT count(*) FROM organizations) = 1`); err != nil {
+		log.Printf("Warning: maintenance_windows org backfill: %v", err)
+	}
+
 	// Migration: OEE profiles. Multi-linea/multi-reparto — ogni profilo è
 	// un'unità di misura OEE indipendente (una linea, una macchina, un
 	// reparto). Il fallback ai settings globali oee_* resta attivo finché

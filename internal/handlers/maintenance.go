@@ -10,7 +10,9 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -54,15 +56,16 @@ type CreateMaintenanceRequest struct {
 // in corso adesso — usato dal widget dashboard.
 func (h *MaintenanceHandler) List(c *gin.Context) {
 	onlyActive := c.Query("active") == "true"
+	sc := dashScopeOf(c)
 	query := `
 		SELECT id, title, start_at, end_at, COALESCE(reason, ''), created_by, created_at
-		FROM maintenance_windows`
+		FROM maintenance_windows WHERE (` + sc.orgCol("org_id") + ` OR org_id IS NULL)`
 	if onlyActive {
-		query += ` WHERE NOW() BETWEEN start_at AND end_at`
+		query += ` AND NOW() BETWEEN start_at AND end_at`
 	}
 	query += ` ORDER BY start_at DESC`
 
-	rows, err := h.db.Query(query)
+	rows, err := h.db.QueryContext(c.Request.Context(), query)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list maintenance windows"})
 		return
@@ -94,11 +97,20 @@ func (h *MaintenanceHandler) Create(c *gin.Context) {
 		return
 	}
 	actor := actorID(c)
+	// The caller's organization's; a global admin with none selected creates
+	// a platform-wide window.
+	var org interface{}
+	if orgID, ok := middleware.GetOrganizationID(c); ok {
+		org = orgID
+	} else if !middleware.IsGlobalAdmin(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context required"})
+		return
+	}
 	var id int
 	err = h.db.QueryRow(`
-		INSERT INTO maintenance_windows (title, start_at, end_at, reason, created_by)
-		VALUES ($1, $2, $3, NULLIF($4, ''), $5) RETURNING id`,
-		req.Title, start, end, req.Reason, nullableID(actor),
+		INSERT INTO maintenance_windows (title, start_at, end_at, reason, created_by, org_id)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6) RETURNING id`,
+		req.Title, start, end, req.Reason, nullableID(actor), org,
 	).Scan(&id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create maintenance window"})
@@ -127,7 +139,7 @@ func (h *MaintenanceHandler) Update(c *gin.Context) {
 	res, err := h.db.Exec(`
 		UPDATE maintenance_windows SET title = $1, start_at = $2, end_at = $3,
 		                               reason = NULLIF($4, '')
-		WHERE id = $5`,
+		WHERE id = $5 AND `+ownMaintenance(c),
 		req.Title, start, end, req.Reason, id,
 	)
 	if err != nil {
@@ -149,7 +161,7 @@ func (h *MaintenanceHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid id"})
 		return
 	}
-	res, err := h.db.Exec(`DELETE FROM maintenance_windows WHERE id = $1`, id)
+	res, err := h.db.ExecContext(c.Request.Context(), `DELETE FROM maintenance_windows WHERE id = $1 AND `+ownMaintenance(c), id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete"})
 		return
@@ -168,18 +180,38 @@ func (h *MaintenanceHandler) Delete(c *gin.Context) {
 // Restituisce false su errore DB — fail-open: meglio una notifica di
 // troppo durante un problema DB che silenziare allarmi reali. Logica
 // "fail open" è la convenzione industriale per i sistemi di alerting.
-func IsInMaintenance(db *sql.DB) bool {
+//
+// orgID is the alarm's organization: its own windows and the platform's
+// count, another organization's do not. 0 (an event with no organization,
+// on-prem) is silenced by any window, as before.
+func IsInMaintenance(db *sql.DB, orgID int) bool {
 	if db == nil {
 		return false
 	}
 	var n int
-	err := db.QueryRow(`
+	err := db.QueryRowContext(context.Background(), `
 		SELECT COUNT(*) FROM maintenance_windows
-		WHERE NOW() BETWEEN start_at AND end_at`).Scan(&n)
+		WHERE NOW() BETWEEN start_at AND end_at
+		  AND ($1 = 0 OR org_id = $1 OR org_id IS NULL)`, orgID).Scan(&n)
 	if err != nil {
 		return false
 	}
 	return n > 0
+}
+
+// ownMaintenance limits an update or delete to the caller's own windows; the
+// platform's belong to the global administrator.
+func ownMaintenance(c *gin.Context) string {
+	if middleware.IsGlobalAdmin(c) {
+		if orgID, ok := middleware.GetOrganizationID(c); ok {
+			return fmt.Sprintf("(org_id = %d OR org_id IS NULL)", orgID)
+		}
+		return "TRUE"
+	}
+	if orgID, ok := middleware.GetOrganizationID(c); ok {
+		return fmt.Sprintf("org_id = %d", orgID)
+	}
+	return "FALSE"
 }
 
 // ── helpers privati ────────────────────────────────────────────────────────

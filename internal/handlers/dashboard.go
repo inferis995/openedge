@@ -180,7 +180,7 @@ func (h *DashboardHandler) Overview(c *gin.Context) {
 	resp.KPI = h.applyTargets(h.kpis(sc))
 	resp.KPI = append(resp.KPI, EvaluateAllFor(h.db, sc)...)
 	resp.Shift = h.currentShift(c.Request.Context(), sc)
-	resp.Maintenance = h.currentMaintenance()
+	resp.Maintenance = h.currentMaintenance(sc)
 	if h.OEE != nil {
 		o := h.OEE.overviewFor(sc.orgPtr())
 		resp.OEE = &o
@@ -191,13 +191,13 @@ func (h *DashboardHandler) Overview(c *gin.Context) {
 // currentMaintenance ritorna la prima finestra in corso adesso o nil.
 // Solo per il widget dashboard — la pagina dedicata usa
 // /api/maintenance per la lista completa.
-func (h *DashboardHandler) currentMaintenance() *MaintenanceBlock {
+func (h *DashboardHandler) currentMaintenance(sc dashScope) *MaintenanceBlock {
 	var w MaintenanceBlock
 	var reason sql.NullString
 	err := h.db.QueryRow(`
 		SELECT id, title, start_at, end_at, reason
 		FROM maintenance_windows
-		WHERE NOW() BETWEEN start_at AND end_at
+		WHERE NOW() BETWEEN start_at AND end_at AND (`+sc.orgCol("org_id")+` OR org_id IS NULL)
 		ORDER BY start_at LIMIT 1`,
 	).Scan(&w.ID, &w.Title, &w.StartAt, &w.EndAt, &reason)
 	if err != nil {

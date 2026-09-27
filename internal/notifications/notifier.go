@@ -64,7 +64,9 @@ type Dispatcher struct {
 	// Dispatch silenzia le notifiche (gli allarmi restano in DB però).
 	// Usata per integrare maintenance_windows senza creare un import
 	// cycle handlers ↔ notifications.
-	MaintenanceCheck func() bool
+	// It gets the event's organization: a window silences its own
+	// organization's alarms, not everybody's.
+	MaintenanceCheck func(orgID int) bool
 
 	// Settings are re-fetched on this cadence so the admin UI doesn't
 	// require a restart to apply changes.
@@ -111,7 +113,7 @@ func (d *Dispatcher) Dispatch(e Event) {
 	// Maintenance window check — silenziamo le notifiche durante le
 	// finestre di manutenzione programmata. Il check è fail-open: se la
 	// callback non è settata o crasha, l'evento esce comunque.
-	if d.MaintenanceCheck != nil && d.MaintenanceCheck() {
+	if d.MaintenanceCheck != nil && d.MaintenanceCheck(e.OrgID) {
 		log.Printf("[NOTIF] maintenance window active, skipping alarm %d (%s)", e.AlarmID, e.Severity)
 		return
 	}

@@ -303,7 +303,7 @@ func PopulateLossEvents(db *sql.DB, now time.Time) error {
 
 	// ── 2. Maintenance windows che si intersecano con [windowStart, now] ─
 	maintRows, err := db.Query(`
-		SELECT id, title, start_at, end_at, COALESCE(reason,'')
+		SELECT id, title, start_at, end_at, COALESCE(reason,''), COALESCE(org_id, 0)
 		FROM maintenance_windows
 		WHERE start_at < $2 AND end_at > $1`,
 		windowStart, now,
@@ -317,11 +317,12 @@ func PopulateLossEvents(db *sql.DB, now time.Time) error {
 		startAt time.Time
 		endAt   time.Time
 		reason  string
+		orgID   int // 0 = the platform's, for every organization
 	}
 	var maints []maintRow
 	for maintRows.Next() {
 		var m maintRow
-		if err := maintRows.Scan(&m.id, &m.title, &m.startAt, &m.endAt, &m.reason); err == nil {
+		if err := maintRows.Scan(&m.id, &m.title, &m.startAt, &m.endAt, &m.reason, &m.orgID); err == nil {
 			maints = append(maints, m)
 		}
 	}
@@ -343,6 +344,11 @@ func PopulateLossEvents(db *sql.DB, now time.Time) error {
 			continue
 		}
 		for _, p := range profiles {
+			// A window is its organization's: it was recorded as a loss on
+			// every organization's lines.
+			if m.orgID != 0 && m.orgID != p.orgID {
+				continue
+			}
 			if _, err := db.Exec(`
 				INSERT INTO oee_loss_events
 					(profile_id, category_id, start_at, end_at, duration_min, source, source_ref, notes)
@@ -365,6 +371,7 @@ func PopulateLossEvents(db *sql.DB, now time.Time) error {
 // allarmi.
 type profileLite struct {
 	id         int
+	orgID      int
 	gatewayIDs map[int]bool // set di gateway_id dei tag OEE del profilo
 }
 
@@ -373,7 +380,7 @@ func loadEnabledProfilesForLosses(db *sql.DB) ([]profileLite, error) {
 	// Risultato: una riga per profilo con i tre gateway (NULL se tag non
 	// configurato).
 	rows, err := db.Query(`
-		SELECT p.id,
+		SELECT p.id, p.org_id,
 			rt.gateway_id, pt.gateway_id, gt.gateway_id
 		FROM oee_profiles p
 		LEFT JOIN tags rt ON rt.id = p.run_time_tag_id
@@ -386,9 +393,9 @@ func loadEnabledProfilesForLosses(db *sql.DB) ([]profileLite, error) {
 	defer rows.Close()
 	var out []profileLite
 	for rows.Next() {
-		var id int
+		var id, orgID int
 		var rtGw, ptGw, gtGw sql.NullInt64
-		if err := rows.Scan(&id, &rtGw, &ptGw, &gtGw); err != nil {
+		if err := rows.Scan(&id, &orgID, &rtGw, &ptGw, &gtGw); err != nil {
 			continue
 		}
 		gws := map[int]bool{}
@@ -401,7 +408,7 @@ func loadEnabledProfilesForLosses(db *sql.DB) ([]profileLite, error) {
 		if gtGw.Valid {
 			gws[int(gtGw.Int64)] = true
 		}
-		out = append(out, profileLite{id: id, gatewayIDs: gws})
+		out = append(out, profileLite{id: id, orgID: orgID, gatewayIDs: gws})
 	}
 	return out, nil
 }
