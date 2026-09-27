@@ -322,3 +322,27 @@ export const systemApi = {
         return response.data;
     },
 };
+
+export interface MqttProbeResult {
+    ok: boolean;
+    scheme: 'tcp' | 'ssl';
+    /** dns | refused | timeout | tls | auth | error */
+    code?: string;
+    message?: string;
+    latency_ms: number;
+}
+
+/**
+ * Tries a broker before its settings are saved. An empty password means "the
+ * one already saved" — the page never receives it.
+ */
+export async function testMqttBroker(req: {
+    target: 'cloud' | 'external';
+    host: string;
+    port: number;
+    username?: string;
+    password?: string;
+}): Promise<MqttProbeResult> {
+    const { data } = await api.post('/system/mqtt/test', req);
+    return data;
+}

@@ -29,6 +29,7 @@ import { toast } from 'sonner';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
 import { useTranslation } from 'react-i18next';
+import MqttClientsPanel from '@/components/MqttClientsPanel';
 
 interface Props {
     org: { id: number; name: string };
@@ -220,11 +221,12 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                 </DialogHeader>
 
                 <Tabs defaultValue="edge" className="mt-2">
-                    <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+                    <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
                         <TabsTrigger value="edge">{t('orgInfra.tab_edge')}</TabsTrigger>
                         <TabsTrigger value="apikeys">{t('orgInfra.tab_keys')}</TabsTrigger>
                         <TabsTrigger value="invites">{t('orgInfra.tab_invites')}</TabsTrigger>
                         <TabsTrigger value="webhooks">{t('orgInfra.tab_webhooks')}</TabsTrigger>
+                        <TabsTrigger value="mqtt">{t('mqttClients.tab')}</TabsTrigger>
                         <TabsTrigger value="sso">SSO</TabsTrigger>
                     </TabsList>
 
@@ -583,6 +585,10 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                         )}
                     </TabsContent>
                     {/* ── SSO TAB ──────────────────────────────────────────── */}
+                    <TabsContent value="mqtt" className="space-y-4 pt-4">
+                        <MqttClientsPanel orgId={org.id} />
+                    </TabsContent>
+
                     <TabsContent value="sso" className="space-y-4 pt-4">
                         <p className="text-sm text-muted-foreground">
                             {t('orgInfra.sso_intro')}

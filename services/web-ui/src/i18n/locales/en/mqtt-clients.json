@@ -1,0 +1,23 @@
+{
+    "mqttClients": {
+        "tab": "MQTT",
+        "intro": "MQTT credentials for the external systems that need this organization's data: a SCADA, Node-RED, a MES. They are read-only: they see this organization's tag values and alarms, and cannot write anything to the broker.",
+        "what_for": "What it is for",
+        "what_for_ph": "e.g. Node-RED line 1, control room SCADA",
+        "create": "Create credentials",
+        "once": "Copy the password now: it will not be shown again. If you lose it, revoke these credentials and create new ones.",
+        "broker": "Broker",
+        "username": "User",
+        "password": "Password",
+        "topics": "Topics",
+        "copy": "Copy",
+        "copied": "Copied",
+        "copy_failed": "Could not copy: select the text and copy it by hand",
+        "saved_it": "Done, I saved it",
+        "empty_title": "No credentials yet",
+        "empty_desc": "No external system has MQTT access to this organization's data yet.",
+        "revoke": "Revoke",
+        "revoke_title": "Revoke the credentials “{{name}}”?",
+        "revoke_desc": "The system using them will no longer be able to connect to the broker."
+    }
+}

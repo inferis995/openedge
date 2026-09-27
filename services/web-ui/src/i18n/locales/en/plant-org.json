@@ -176,7 +176,7 @@
         "sso_removed": "SSO provider removed",
         "sso_remove_failed": "Failed to remove SSO provider",
         "title": "Infrastructure: {{name}}",
-        "subtitle": "Edge boxes, API keys, invites, webhooks and SSO for this organization.",
+        "subtitle": "Edge boxes, API keys, invites, webhooks, MQTT access and SSO for this organization.",
         "tab_edge": "Edge",
         "tab_keys": "API keys",
         "tab_invites": "Invite users",

@@ -176,7 +176,7 @@
         "sso_removed": "Provider SSO rimosso",
         "sso_remove_failed": "Impossibile rimuovere il provider SSO",
         "title": "Infrastruttura: {{name}}",
-        "subtitle": "Scatole edge, chiavi API, inviti, webhook e accesso SSO di questa organizzazione.",
+        "subtitle": "Scatole edge, chiavi API, inviti, webhook, accesso MQTT e SSO di questa organizzazione.",
         "tab_edge": "Edge",
         "tab_keys": "Chiavi API",
         "tab_invites": "Invita utenti",

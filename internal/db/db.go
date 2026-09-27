@@ -498,6 +498,21 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// MQTT logins for external systems (a SCADA, Node-RED, a MES) reading one
+	// organization's data. Read-only on the broker; the password is shown once
+	// when the login is made and never stored here.
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS mqtt_external_clients (
+			id          SERIAL PRIMARY KEY,
+			org_id      INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			username    TEXT NOT NULL UNIQUE,
+			description TEXT NOT NULL DEFAULT '',
+			created_by  INT,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		return fmt.Errorf("mqtt_external_clients migration: %w", err)
+	}
+
 	// Migration: org API keys for edge-to-cloud auth (X-API-Key header).
 	orgApiKeys := []string{
 		`CREATE TABLE IF NOT EXISTS org_api_keys (

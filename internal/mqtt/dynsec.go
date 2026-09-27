@@ -637,3 +637,42 @@ func (d *DynsecClient) DeleteOrgViewer(orgID int, username string) error {
 
 // OrgViewerUsername is the MQTT username the web UI signs in with.
 func OrgViewerUsername(orgID int) string { return fmt.Sprintf("org-%d-ui", orgID) }
+
+// ── Identities for external systems ──────────────────────────────────────────
+
+// CreateExternalReader gives a SCADA, a Node-RED flow or a MES its own MQTT
+// login to read an organization's data.
+//
+// It carries the same read-only role as the web UI's identity (uiViewerACLs):
+// tag data, edge-originated Sparkplug and alarms of this organization, and not
+// one publish. Sharing the role means a site added later widens both at once,
+// through UpdateOrgViewerRole. Each system gets its own client, so one can be
+// revoked without touching the others or the browsers.
+func (d *DynsecClient) CreateExternalReader(orgID int, orgName, username, password string, siteNames ...string) error {
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
+
+	roleName := fmt.Sprintf("org-%d-ui-role", orgID)
+	acls := uiViewerACLs(orgID, orgName, siteNames)
+	return d.send([]map[string]interface{}{
+		{"command": "createRole", "rolename": roleName, "acls": acls},
+		{"command": "modifyRole", "rolename": roleName, "acls": acls},
+		{
+			"command":  "createClient",
+			"username": username,
+			"password": password,
+			"roles":    []map[string]interface{}{{"rolename": roleName}},
+		},
+		{"command": "setClientPassword", "username": username, "password": password},
+	}, newCorrID())
+}
+
+// DeleteExternalReader revokes one external system's login. The role stays:
+// the web UI and the other systems still use it.
+func (d *DynsecClient) DeleteExternalReader(username string) error {
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
+	return d.send([]map[string]interface{}{
+		{"command": "deleteClient", "username": username},
+	}, newCorrID())
+}

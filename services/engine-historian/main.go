@@ -650,6 +650,7 @@ func (s *HistorianService) setupCloudClient() {
 	cloud := mqtt.NewClient(mqtt.Config{
 		Host:     host,
 		Port:     port,
+		Scheme:   mqtt.SchemeForPort(port),
 		Username: username,
 		Password: password,
 		ClientID: cloudClientID,
@@ -733,6 +734,7 @@ func (s *HistorianService) maintainCloudConnection(host string, port int, userna
 			cloud := mqtt.NewClient(mqtt.Config{
 				Host:     host,
 				Port:     port,
+				Scheme:   mqtt.SchemeForPort(port),
 				Username: username,
 				Password: password,
 				ClientID: cloudClientID,

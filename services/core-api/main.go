@@ -279,6 +279,7 @@ func main() {
 		cloudMqttCfg := mqtt.Config{
 			Host:          cloudConfig.Host,
 			Port:          cloudConfig.Port,
+			Scheme:        mqtt.SchemeForPort(cloudConfig.Port),
 			ClientID:      fmt.Sprintf("core-api-cloud-%d", time.Now().Unix()),
 			CleanSession:  true,
 			AutoReconnect: true,
@@ -621,17 +622,24 @@ func main() {
 		system := api.Group("/system")
 		system.Use(middleware.RequireAuth)
 		{
-			system.POST("/reload", middleware.RequireRole(models.RoleAdmin), systemHandler.Reload)
+			system.POST("/reload", middleware.RequireGlobalAdmin(), systemHandler.Reload)
 			// GET /system/settings used to be open to any authenticated user AND
-			// returned decrypted broker/cloud passwords — a credential leak. Gate
-			// to admin only; the handler also masks passwords (returns empty).
-			system.GET("/settings", middleware.RequireRole(models.RoleAdmin), systemHandler.GetSettings)
-			system.PUT("/settings", middleware.RequireRole(models.RoleAdmin), systemHandler.UpdateSettings)
+			// returned decrypted broker/cloud passwords — a credential leak.
+			//
+			// Then it was gated to RequireRole(admin), which an ORGANIZATION's
+			// admin also passes. These settings are the platform's, not an
+			// organization's: one tenant's admin could point the cloud sync at
+			// a broker of their own and receive every tenant's data, or switch
+			// the broker off for all of them. Global admin only, like backup.
+			system.GET("/settings", middleware.RequireGlobalAdmin(), systemHandler.GetSettings)
+			system.PUT("/settings", middleware.RequireGlobalAdmin(), systemHandler.UpdateSettings)
+			// Tries a broker the settings page is about to save.
+			system.POST("/mqtt/test", middleware.RequireGlobalAdmin(), systemHandler.TestMQTTBroker)
 			system.GET("/metrics", systemHandler.GetMetrics)
 			// Fire a synthetic alarm to every configured notification channel.
 			// Operator-facing "is my SMTP / Telegram setup actually working?"
 			// button — returns per-channel success/error.
-			system.POST("/notifications/test", middleware.RequireRole(models.RoleAdmin), notificationsHandler.SendTest)
+			system.POST("/notifications/test", middleware.RequireGlobalAdmin(), notificationsHandler.SendTest)
 			// Hardware + service health snapshot. Used by the System /
 			// Diagnostics page so an operator can see disk fill, CPU load,
 			// link errors and the postgres/redis ping in one place.
@@ -978,6 +986,17 @@ func main() {
 				middleware.RequireRole(models.RoleAdmin), edgeAgentsHandler.Update)
 			orgEdge.DELETE("/edge-agents/:agentId",
 				middleware.RequireRole(models.RoleAdmin), edgeAgentsHandler.Delete)
+		}
+
+		// MQTT logins for an organization's external systems (SCADA, Node-RED,
+		// MES): read-only on the broker, one per system, revocable.
+		mqttClientsHandler := handlers.NewMQTTExternalClientsHandler(database, dynsecClient)
+		orgMQTT := api.Group("/organizations/:id/mqtt-clients")
+		orgMQTT.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin), middleware.RequireOrgParam("id"))
+		{
+			orgMQTT.GET("", mqttClientsHandler.List)
+			orgMQTT.POST("", mqttClientsHandler.Create)
+			orgMQTT.DELETE("/:clientId", mqttClientsHandler.Delete)
 		}
 
 		// User invites — org admins create one-time invite links for new members.

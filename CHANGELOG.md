@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (addresses in that driver's format, a drop-down for the type, an
   instructions sheet) can be downloaded from the same dialog.
   `POST /api/tags/import/file`, `GET /api/tags/import/template`.
+- **MQTT logins for external systems.** Organizations → Infrastructure → MQTT
+  creates a read-only broker login for a SCADA, Node-RED or a MES: it reads
+  that organization's tag data and alarms, publishes nothing, and can be
+  revoked on its own. The password is shown once. Until now the only way in
+  was editing Mosquitto's dynamic-security file.
+  `GET/POST/DELETE /api/organizations/:id/mqtt-clients`.
+- **"Test connection" for the external broker and the cloud sync,** before
+  saving, with the reason in words (address not found, port closed, firewall,
+  TLS, password). `POST /api/system/mqtt/test`.
+- The MQTT settings explain how another system reads the data: broker
+  address, topic layout, message content, Sparkplug, gateway state. The
+  system page's tabs can be linked to (`/system?tab=backup`).
 - **Tags export as Excel or CSV** with every column
   (`GET /api/tags/export?format=xlsx|csv`), alongside the PLC declaration text.
 - **The web UI in Italian and English, all of it.** Until now the sidebar and
@@ -44,6 +56,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The tag export refused a global administrator who had not picked an
   organization (400, "X-Organization-ID header required").
 - Password hints said six characters; the server requires twelve.
+- **Security:** an organization's administrator could read and change the
+  platform settings — broker, cloud sync, retention, notification channels —
+  which belong to the whole installation: pointing the cloud sync at a broker
+  of their own sent every organization's data there. Settings, reload and the
+  notification test are for the global administrator only.
+- The cloud sync always connected in plain TCP, so a cloud broker that speaks
+  only TLS on 8883 — nearly all of them — never connected. Port 8883 now uses
+  TLS, in the historian and in core-api.
+- Deleting an organization left its web UI login active on the broker.
 - **Security:** the trend chart's tooltip put the tag alias and a STRING
   tag's value into HTML unescaped: anyone able to name a tag could run script
   in the browser of whoever hovered the chart. Both are escaped.

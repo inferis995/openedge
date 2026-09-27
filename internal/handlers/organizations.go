@@ -363,6 +363,28 @@ func (h *OrganizationsHandler) Delete(c *gin.Context) {
 			fmt.Printf("[ORG] WARNING: failed to delete MQTT user for org %d: %v\n", idInt, dynsecErr)
 			// Continue — org_mqtt_credentials will cascade-delete with the org
 		}
+		// The browser's read-only login and every external system's went on
+		// working after their organization was gone: only the edge login was
+		// removed. The rows cascade; the broker does not.
+		if vErr := h.dynsecClient.DeleteOrgViewer(idInt, mqtt.OrgViewerUsername(idInt)); vErr != nil {
+			fmt.Printf("[ORG] WARNING: failed to delete the UI MQTT login for org %d: %v\n", idInt, vErr)
+		}
+		if rows, qErr := h.db.QueryContext(c.Request.Context(),
+			`SELECT username FROM mqtt_external_clients WHERE org_id = $1`, idInt); qErr == nil {
+			var names []string
+			for rows.Next() {
+				var u string
+				if rows.Scan(&u) == nil {
+					names = append(names, u)
+				}
+			}
+			_ = rows.Close()
+			for _, u := range names {
+				if dErr := h.dynsecClient.DeleteExternalReader(u); dErr != nil {
+					fmt.Printf("[ORG] WARNING: failed to delete MQTT login %s: %v\n", u, dErr)
+				}
+			}
+		}
 	}
 
 	// Manual Cascade Delete Transaction

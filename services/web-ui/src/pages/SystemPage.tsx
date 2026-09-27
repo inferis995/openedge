@@ -29,6 +29,9 @@ import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
 import apiClient from '@/api/client';
 import { showApiError } from '@/lib/api-error-handler';
+import MqttConnectGuide from '@/components/system/MqttConnectGuide';
+import MqttProbeButton from '@/components/system/MqttProbeButton';
+import { useSearchParams } from 'react-router-dom';
 
 const PUBLISH_MODES = [
     {
@@ -74,7 +77,16 @@ const formatDate = (dateStr: string): string => {
     });
 };
 
+const SYSTEM_TABS = ['mqtt', 'notifications', 'backup', 'kpi', 'integrations', 'database', 'sso'];
+
 const SystemPage = () => {
+    // The open tab lives in the URL (?tab=backup), so a link — from the quick
+    // search, from a message, from another page — can open the right one, and
+    // a reload keeps it.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const requested = searchParams.get('tab') ?? 'mqtt';
+    const tab = SYSTEM_TABS.includes(requested) ? requested : 'mqtt';
+    const setTab = (v: string) => setSearchParams((p) => { p.set('tab', v); return p; }, { replace: true });
     const { t } = useTranslation();
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
@@ -450,7 +462,7 @@ const SystemPage = () => {
                 {/* Tabs: 4 aree funzionali (MQTT, Notifiche, Backup, Target KPI).
                     Prima era una grid 2-colonne con backup duplicato in 4 punti —
                     ora ogni tab è single-column, layout uniforme, niente duplicati. */}
-                <Tabs defaultValue="mqtt">
+                <Tabs value={tab} onValueChange={setTab}>
                     <TabsList className="flex-wrap h-auto">
                         <TabsTrigger value="mqtt">{t('system.tab_mqtt')}</TabsTrigger>
                         <TabsTrigger value="notifications">{t('system.tab_notifications')}</TabsTrigger>
@@ -464,6 +476,11 @@ const SystemPage = () => {
                     </TabsList>
 
                     <TabsContent value="mqtt" className="space-y-6 mt-4">
+                        <MqttConnectGuide
+                            brokerMode={mqttBrokerMode === 'external' ? 'external' : 'internal'}
+                            externalHost={mqttExternalHost}
+                            externalPort={mqttExternalPort}
+                        />
                         {/* MQTT Broker Configuration */}
                         <Card className="border-border shadow-sm bg-card">
                             <CardHeader className="pb-4 border-b border-border">
@@ -621,6 +638,14 @@ const SystemPage = () => {
                                                     </div>
                                                 </div>
 
+                                                <MqttProbeButton
+                                                    target="external"
+                                                    host={mqttExternalHost}
+                                                    port={mqttExternalPort}
+                                                    username={mqttUsername}
+                                                    password={mqttPassword}
+                                                />
+
                                                 <p className="text-xs text-destructive flex items-center gap-1.5">
                                                     <AlertTriangle className="h-3 w-3 flex-shrink-0" />
                                                     {t('systemPage.restart_needed')}
@@ -754,6 +779,16 @@ const SystemPage = () => {
                                                 <>{t('systemPage.cloud_no_prefix_hint')} <code>spBv1.0/DDATA/...</code>)</>
                                             )}
                                         </p>
+                                    </div>
+
+                                    <div className="pt-3">
+                                        <MqttProbeButton
+                                            target="cloud"
+                                            host={cloudMqttHost}
+                                            port={cloudMqttPort}
+                                            username={cloudMqttUsername}
+                                            password={cloudMqttPassword}
+                                        />
                                     </div>
                                 </CardContent>
                         </Card>
@@ -1168,15 +1203,15 @@ const SystemPage = () => {
                                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                             <div className="bg-muted/40 rounded-lg p-3 space-y-1">
                                                 <p className="text-xs text-muted-foreground">{t('systemPage.db_size')}</p>
-                                                <p className="text-lg font-semibold text-foreground font-mono">{dbStats.db_size_mb.toFixed(1)} MB</p>
+                                                <p className="text-lg font-semibold text-foreground font-mono">{(dbStats.db_size_mb ?? 0).toFixed(1)} MB</p>
                                             </div>
                                             <div className="bg-muted/40 rounded-lg p-3 space-y-1">
                                                 <p className="text-xs text-muted-foreground">{t('systemPage.historian_rows')}</p>
-                                                <p className="text-lg font-semibold text-foreground font-mono">{dbStats.historian_rows.toLocaleString(i18n.language)}</p>
+                                                <p className="text-lg font-semibold text-foreground font-mono">{(dbStats.historian_rows ?? 0).toLocaleString(i18n.language)}</p>
                                             </div>
                                             <div className="bg-muted/40 rounded-lg p-3 space-y-1">
                                                 <p className="text-xs text-muted-foreground">{t('systemPage.historian_size')}</p>
-                                                <p className="text-lg font-semibold text-foreground font-mono">{dbStats.historian_size_mb.toFixed(1)} MB</p>
+                                                <p className="text-lg font-semibold text-foreground font-mono">{(dbStats.historian_size_mb ?? 0).toFixed(1)} MB</p>
                                             </div>
                                             {dbStats.oldest_ts && (
                                                 <div className="bg-muted/40 rounded-lg p-3 space-y-1">
@@ -1208,7 +1243,7 @@ const SystemPage = () => {
                                                                 <tr key={i} className="hover:bg-muted/20">
                                                                     <td className="px-3 py-2 font-mono text-foreground">{t.table}</td>
                                                                     <td className="px-3 py-2 text-right text-muted-foreground">{t.rows.toLocaleString(i18n.language)}</td>
-                                                                    <td className="px-3 py-2 text-right text-muted-foreground">{t.size_mb.toFixed(2)}</td>
+                                                                    <td className="px-3 py-2 text-right text-muted-foreground">{(t.size_mb ?? 0).toFixed(2)}</td>
                                                                 </tr>
                                                             ))}
                                                         </tbody>
