@@ -5,6 +5,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Download, X, GripVertical } from 'lucide-react';
 import { TrendDataPoint, TagWithHierarchy, TAG_COLORS } from '@/types/trend';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 
 interface TrendDataTableProps {
     data: Map<number, TrendDataPoint[]>;
@@ -28,6 +29,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
     onClose,
     height = 200,
 }) => {
+    const { t: tr, i18n } = useTranslation();
     const selectedTags = useMemo(() => {
         return selectedTagIds
             .map(id => tags.find(t => t.id === id))
@@ -78,8 +80,8 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
             const date = new Date(ts);
             const row: TableRow = {
                 timestamp: ts,
-                date: date.toLocaleDateString('it-IT'),
-                time: date.toLocaleTimeString('it-IT', {
+                date: date.toLocaleDateString(i18n.language),
+                time: date.toLocaleTimeString(i18n.language, {
                     hour: '2-digit',
                     minute: '2-digit',
                     second: '2-digit',
@@ -110,14 +112,14 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
 
         // Return most recent first
         return rows.reverse().slice(0, 500);
-    }, [data, selectedTagIds, tags, selectedTags]);
+    }, [data, selectedTagIds, tags, selectedTags, i18n.language]);
 
     // Define columns
     const columns = useMemo<ColumnDef<TableRow>[]>(() => {
         const cols: ColumnDef<TableRow>[] = [
             {
                 accessorKey: 'date',
-                header: 'Date',
+                header: tr('trend.col_date'),
                 size: 80,
                 cell: ({ getValue }) => (
                     <span className="text-xs text-muted-foreground">{getValue() as string}</span>
@@ -125,7 +127,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
             },
             {
                 accessorKey: 'time',
-                header: 'Time',
+                header: tr('trend.col_time'),
                 size: 80,
                 cell: ({ getValue }) => (
                     <span className="text-xs text-muted-foreground font-mono">{getValue() as string}</span>
@@ -157,7 +159,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                     if (value === null || value === undefined) {
                         return (
                             <span className="text-xs font-mono text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">
-                                N/A
+                                {tr('trend.not_available')}
                             </span>
                         );
                     }
@@ -206,7 +208,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
         });
 
         return cols;
-    }, [selectedTags]);
+    }, [selectedTags, tr]);
 
     const table = useReactTable({
         data: tableData,
@@ -216,7 +218,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
 
     const handleExportCSV = () => {
         if (tableData.length === 0 || selectedTags.length === 0) {
-            toast.error('No data to export');
+            toast.error(tr('trend.no_data_export'));
             return;
         }
 
@@ -243,13 +245,13 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
         link.download = `trend_export_${new Date().toISOString().split('T')[0]}.csv`;
         link.click();
         URL.revokeObjectURL(url);
-        toast.success('CSV exported successfully');
+        toast.success(tr('trend.csv_exported'));
     };
 
     if (selectedTags.length === 0) {
         return (
             <div className="bg-card border-t p-4 text-center text-muted-foreground text-sm">
-                No tags selected
+                {tr('trend.no_tags_selected')}
             </div>
         );
     }
@@ -264,7 +266,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                 <div className="flex items-center gap-2">
                     <GripVertical className="w-3 h-3 text-muted-foreground cursor-ns-resize" />
                     <span className="text-xs font-semibold text-foreground">
-                        Data Table ({tableData.length} rows)
+                        {tr('trend.data_table_rows', { count: tableData.length })}
                     </span>
                 </div>
                 <div className="flex items-center gap-1">
@@ -276,7 +278,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                         disabled={tableData.length === 0}
                     >
                         <Download className="w-3 h-3" />
-                        Export CSV
+                        {tr('trend.export_csv')}
                     </Button>
                     {onClose && (
                         <Button
@@ -284,6 +286,8 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                             variant="ghost"
                             size="icon"
                             className="h-9 sm:h-6 w-9 sm:w-6"
+                            title={tr('common.close')}
+                            aria-label={tr('common.close')}
                         >
                             <X className="w-3 h-3" />
                         </Button>

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 
 import { oeeApi, OEEShiftRow } from '@/api/dashboard';
@@ -21,9 +22,10 @@ interface Props {
 
 type Range = '7d' | '30d';
 
+// label = i18n key, resolved with t() at render.
 const RANGE_CFG: Record<Range, { days: number; label: string }> = {
-    '7d':  { days: 7,  label: '7 giorni' },
-    '30d': { days: 30, label: '30 giorni' },
+    '7d':  { days: 7,  label: 'oee.range_7d' },
+    '30d': { days: 30, label: 'oee.range_30d' },
 };
 
 const bandColor = (v: number): string => {
@@ -34,12 +36,13 @@ const bandColor = (v: number): string => {
     return 'bg-red-500/20 text-red-600 dark:text-red-400 border-red-500/40';
 };
 
-const formatDayLabel = (iso: string): string => {
+const formatDayLabel = (iso: string, lang: string): string => {
     const d = new Date(iso);
-    return d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' });
+    return d.toLocaleDateString(lang, { day: '2-digit', month: '2-digit' });
 };
 
 export const OEEShiftMatrix = ({ profileId }: Props) => {
+    const { t, i18n } = useTranslation();
     const [range, setRange] = useState<Range>('7d');
     const cfg = RANGE_CFG[range];
 
@@ -74,7 +77,7 @@ export const OEEShiftMatrix = ({ profileId }: Props) => {
         <Card>
             <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                 <CardTitle className="text-sm font-semibold text-muted-foreground">
-                    OEE per turno × giorno
+                    {t('oee.shift_matrix_title')}
                 </CardTitle>
                 <div className="flex items-center gap-1">
                     {(Object.keys(RANGE_CFG) as Range[]).map((r) => (
@@ -85,7 +88,7 @@ export const OEEShiftMatrix = ({ profileId }: Props) => {
                             onClick={() => setRange(r)}
                             className="h-9 sm:h-7 px-2 text-xs"
                         >
-                            {RANGE_CFG[r].label}
+                            {t(RANGE_CFG[r].label)}
                         </Button>
                     ))}
                 </div>
@@ -93,19 +96,19 @@ export const OEEShiftMatrix = ({ profileId }: Props) => {
             <CardContent>
                 {isLoading ? (
                     <div className="flex items-center justify-center h-48 text-muted-foreground">
-                        <Loader2 className="animate-spin" /> &nbsp; Caricamento…
+                        <Loader2 className="animate-spin" /> &nbsp; {t('common.loading')}
                     </div>
                 ) : isError ? (
                     <div className="h-48 flex items-center justify-center text-sm text-red-500">
-                        Errore nel caricamento della matrice.
+                        {t('oee.shift_matrix_error')}
                     </div>
                 ) : shifts.length === 0 ? (
                     <div className="py-12 text-center text-sm text-muted-foreground">
-                        Nessun dato per turno nel periodo. Verifica:
+                        {t('oee.shift_matrix_empty')}
                         <ul className="text-xs mt-2 inline-block text-left">
-                            <li>• I turni sono configurati e attivi (Sidebar → Turni)</li>
-                            <li>• Il cron worker ha girato almeno 1 ora dopo l'attivazione turni</li>
-                            <li>• Il profilo ha <code>respect_shifts</code> abilitato</li>
+                            <li>• {t('oee.shift_matrix_check_shifts')}</li>
+                            <li>• {t('oee.shift_matrix_check_cron')}</li>
+                            <li>• {t('oee.shift_matrix_check_profile')} <code>respect_shifts</code></li>
                         </ul>
                     </div>
                 ) : (
@@ -113,10 +116,10 @@ export const OEEShiftMatrix = ({ profileId }: Props) => {
                         <table className="w-full text-sm border-collapse">
                             <thead>
                                 <tr>
-                                    <th className="text-left text-xs font-semibold text-muted-foreground p-2 border-b">Turno</th>
+                                    <th className="text-left text-xs font-semibold text-muted-foreground p-2 border-b">{t('oee.shift')}</th>
                                     {dates.map((d) => (
                                         <th key={d} className="text-center text-xs font-medium text-muted-foreground p-2 border-b min-w-[60px]">
-                                            {formatDayLabel(d)}
+                                            {formatDayLabel(d, i18n.language)}
                                         </th>
                                     ))}
                                 </tr>
@@ -153,8 +156,7 @@ export const OEEShiftMatrix = ({ profileId }: Props) => {
                             </tbody>
                         </table>
                         <p className="text-[11px] text-muted-foreground mt-3">
-                            Verde ≥85 (world-class), Ambra 65-85 (tipico), Arancio 40-65, Rosso &lt;40.
-                            Hover su una cella per vedere A/P/Q.
+                            {t('oee.shift_matrix_legend')}
                         </p>
                     </div>
                 )}

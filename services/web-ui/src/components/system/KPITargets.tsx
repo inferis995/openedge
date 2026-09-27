@@ -6,17 +6,18 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useTranslation } from 'react-i18next';
 
 // Definizione dichiarativa dei target — accoppia la chiave del setting
 // alla label umana mostrata + alla direzione (≤ N o ≥ N). Aggiungere
 // nuovi target = aggiungere una riga qui.
 const TARGETS: { key: keyof GlobalSettings; label: string; direction: 'le' | 'ge'; unit?: string }[] = [
-    { key: 'kpi_target_alarms_per_day' as keyof GlobalSettings,  label: 'Allarmi al giorno',          direction: 'le', unit: '/g' },
-    { key: 'kpi_target_open_critical' as keyof GlobalSettings,   label: 'Critical attivi',            direction: 'le' },
-    { key: 'kpi_target_bad_quality_1h' as keyof GlobalSettings,  label: 'Tag in errore (1h)',         direction: 'le' },
-    { key: 'kpi_target_writes_24h_min' as keyof GlobalSettings,  label: 'Write PLC minimi (24h)',     direction: 'ge' },
-    { key: 'kpi_target_recipe_loads_24h_min' as keyof GlobalSettings, label: 'Ricette minime (24h)', direction: 'ge' },
-    { key: 'kpi_target_logins_24h_min' as keyof GlobalSettings,  label: 'Login minimi (24h)',         direction: 'ge' },
+    { key: 'kpi_target_alarms_per_day' as keyof GlobalSettings,  label: 'kpiTargets.alarms_per_day', direction: 'le', unit: 'kpiTargets.per_day_unit' },
+    { key: 'kpi_target_open_critical' as keyof GlobalSettings,   label: 'kpiTargets.open_critical', direction: 'le' },
+    { key: 'kpi_target_bad_quality_1h' as keyof GlobalSettings,  label: 'kpiTargets.bad_quality', direction: 'le' },
+    { key: 'kpi_target_writes_24h_min' as keyof GlobalSettings,  label: 'kpiTargets.writes_min', direction: 'ge' },
+    { key: 'kpi_target_recipe_loads_24h_min' as keyof GlobalSettings, label: 'kpiTargets.recipes_min', direction: 'ge' },
+    { key: 'kpi_target_logins_24h_min' as keyof GlobalSettings,  label: 'kpiTargets.logins_min', direction: 'ge' },
 ];
 
 interface Props {
@@ -27,6 +28,7 @@ interface Props {
 type Toast = { kind: 'success' | 'error'; text: string } | null;
 
 const KPITargets = ({ initial, onSaved }: Props) => {
+    const { t: tr } = useTranslation();
     const [values, setValues] = useState<Record<string, string>>({});
     const [saving, setSaving] = useState(false);
     const [toast, setToast] = useState<Toast>(null);
@@ -61,10 +63,10 @@ const KPITargets = ({ initial, onSaved }: Props) => {
             // — vedi commento nel commit). Per ora prepariamo il payload e
             // chiamiamo l'endpoint dedicato.
             await systemApi.updateKPITargets(payload);
-            setToast({ kind: 'success', text: 'Target salvati. La dashboard si aggiorna al prossimo refresh.' });
+            setToast({ kind: 'success', text: tr('kpiTargets.saved') });
             onSaved?.();
         } catch (e: unknown) {
-            setToast({ kind: 'error', text: `Save failed: ${(e as Error)?.message ?? 'unknown error'}` });
+            setToast({ kind: 'error', text: tr('kpiTargets.save_failed', { reason: (e as Error)?.message ?? tr('kpiTargets.unknown_error') }) });
         } finally {
             setSaving(false);
         }
@@ -78,10 +80,9 @@ const KPITargets = ({ initial, onSaved }: Props) => {
                         <TargetIcon className="h-4 w-4 text-primary" />
                     </div>
                     <div>
-                        <CardTitle className="text-base text-foreground">KPI Targets</CardTitle>
+                        <CardTitle className="text-base text-foreground">{tr('kpiTargets.title')}</CardTitle>
                         <CardDescription className="text-xs mt-0.5">
-                            Soglie per i KPI della dashboard. Quando il valore corrente rispetta
-                            il target, è verde; altrimenti è rosso. Vuoto = nessun target.
+                            {tr('kpiTargets.desc')}
                         </CardDescription>
                     </div>
                 </div>
@@ -91,9 +92,9 @@ const KPITargets = ({ initial, onSaved }: Props) => {
                     {TARGETS.map((t) => (
                         <div key={t.key as string} className="grid gap-1">
                             <Label htmlFor={t.key as string} className="text-xs">
-                                {t.label}
+                                {tr(t.label)}
                                 <span className="text-muted-foreground ml-2">
-                                    {t.direction === 'le' ? '(≤ massimo)' : '(≥ minimo)'}
+                                    {t.direction === 'le' ? tr('kpiTargets.max') : tr('kpiTargets.min')}
                                 </span>
                             </Label>
                             <div className="flex items-center gap-2">
@@ -109,9 +110,9 @@ const KPITargets = ({ initial, onSaved }: Props) => {
                                     onChange={(e) =>
                                         setValues((cur) => ({ ...cur, [t.key as string]: e.target.value }))
                                     }
-                                    placeholder="es. 5"
+                                    placeholder={tr('kpiTargets.ph')}
                                 />
-                                {t.unit && <span className="text-sm text-muted-foreground w-8">{t.unit}</span>}
+                                {t.unit && <span className="text-sm text-muted-foreground w-8">{tr(t.unit)}</span>}
                             </div>
                         </div>
                     ))}
@@ -120,7 +121,7 @@ const KPITargets = ({ initial, onSaved }: Props) => {
                 <div className="flex items-center gap-3 pt-3 border-t">
                     <Button onClick={handleSave} disabled={saving}>
                         {saving && <Loader2 size={16} className="mr-2 animate-spin" />}
-                        {saving ? 'Saving...' : 'Save'}
+                        {saving ? tr('kpiTargets.saving') : tr('common.save')}
                     </Button>
                     {toast && (
                         <span className={`text-sm flex items-center gap-1 ${

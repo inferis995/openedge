@@ -4,6 +4,8 @@ import { Activity, CheckCircle, Cpu, Database, HardDrive, MemoryStick, Network a
 import { diagnosticsApi, DiskInfo, NetworkIfInfo, ServiceHealth } from '@/api/diagnostics';
 import { healthApi, SystemHealth } from '@/api/health';
 import { Badge } from '@/components/ui/badge';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import {
     Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
@@ -24,9 +26,9 @@ const formatDuration = (sec: number): string => {
     const d = Math.floor(sec / 86400);
     const h = Math.floor((sec % 86400) / 3600);
     const m = Math.floor((sec % 3600) / 60);
-    if (d > 0) return `${d}d ${h}h`;
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
+    if (d > 0) return i18n.t('diagnosticsPage.dur_dh', { d, h });
+    if (h > 0) return i18n.t('diagnosticsPage.dur_hm', { h, m });
+    return i18n.t('diagnosticsPage.dur_m', { m });
 };
 
 const usageBarColour = (pct: number): string => {
@@ -35,12 +37,15 @@ const usageBarColour = (pct: number): string => {
     return 'bg-emerald-500';
 };
 
-const HealthDot = ({ h }: { h: ServiceHealth }) => (
-    <span
-        className={`inline-block w-2.5 h-2.5 rounded-full mr-2 ${h.ok ? 'bg-emerald-500' : 'bg-red-500'}`}
-        title={h.message ?? (h.ok ? 'healthy' : 'down')}
-    />
-);
+const HealthDot = ({ h }: { h: ServiceHealth }) => {
+    const { t } = useTranslation();
+    return (
+        <span
+            className={`inline-block w-2.5 h-2.5 rounded-full mr-2 ${h.ok ? 'bg-emerald-500' : 'bg-red-500'}`}
+            title={h.message ?? (h.ok ? t('diagnosticsPage.healthy') : t('diagnosticsPage.down'))}
+        />
+    );
+};
 
 const UsageBar = ({ pct }: { pct: number }) => (
     <div className="w-full h-2 bg-muted rounded">
@@ -60,19 +65,21 @@ const Card = ({ icon, title, children }: { icon: React.ReactNode; title: string;
 const StatusIcon = ({ ok }: { ok: boolean }) =>
     ok ? <CheckCircle size={14} className="text-emerald-500" /> : <XCircle size={14} className="text-red-500" />;
 
-const SystemHealthSection = ({ health }: { health: SystemHealth }) => (
+const SystemHealthSection = ({ health }: { health: SystemHealth }) => {
+    const { t } = useTranslation();
+    return (
     <div className="space-y-2">
-        <h3 className="text-sm font-semibold text-muted-foreground">System Health</h3>
+        <h3 className="text-sm font-semibold text-muted-foreground">{t('diagnosticsPage.health')}</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <div className="rounded-md border bg-card p-3 flex flex-col gap-1">
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Database size={12} /> DB
+                    <Database size={12} /> {t('diagnosticsPage.db')}
                 </div>
                 <div className="flex items-center gap-1">
                     <StatusIcon ok={health.db.ok} />
                     <span className="text-sm font-medium">{health.db.latency_ms} ms</span>
                 </div>
-                <span className="text-xs text-muted-foreground">{health.db.open_connections} conns</span>
+                <span className="text-xs text-muted-foreground">{t('diagnosticsPage.conns', { count: health.db.open_connections })}</span>
             </div>
 
             <div className="rounded-md border bg-card p-3 flex flex-col gap-1">
@@ -85,41 +92,43 @@ const SystemHealthSection = ({ health }: { health: SystemHealth }) => (
                             <StatusIcon ok={health.redis.ok} />
                             <span className="text-sm font-medium">{health.redis.latency_ms} ms</span>
                         </div>
-                        <span className="text-xs text-muted-foreground">{health.redis.ok ? 'connected' : 'disconnected'}</span>
+                        <span className="text-xs text-muted-foreground">{health.redis.ok ? t('diagnosticsPage.connected') : t('diagnosticsPage.disconnected')}</span>
                     </>
                 ) : (
-                    <span className="text-xs text-muted-foreground">not configured</span>
+                    <span className="text-xs text-muted-foreground">{t('diagnosticsPage.not_configured')}</span>
                 )}
             </div>
 
             <div className="rounded-md border bg-card p-3 flex flex-col gap-1">
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <MemoryStick size={12} /> Memory
+                    <MemoryStick size={12} /> {t('diagnosticsPage.memory')}
                 </div>
                 <span className="text-sm font-medium">{health.memory.alloc_mb.toFixed(1)} MB</span>
-                <span className="text-xs text-muted-foreground">GC runs: {health.memory.num_gc}</span>
+                <span className="text-xs text-muted-foreground">{t('diagnosticsPage.gc_runs', { n: health.memory.num_gc })}</span>
             </div>
 
             <div className="rounded-md border bg-card p-3 flex flex-col gap-1">
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Activity size={12} /> Goroutines
+                    <Activity size={12} /> {t('diagnosticsPage.goroutines')}
                 </div>
                 <span className="text-sm font-medium">{health.goroutines}</span>
-                <span className="text-xs text-muted-foreground">active</span>
+                <span className="text-xs text-muted-foreground">{t('diagnosticsPage.active')}</span>
             </div>
 
             <div className="rounded-md border bg-card p-3 flex flex-col gap-1">
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <ServerCog size={12} /> Uptime
+                    <ServerCog size={12} /> {t('diagnosticsPage.uptime')}
                 </div>
                 <span className="text-sm font-medium">{formatDuration(health.uptime_seconds)}</span>
-                <span className="text-xs text-muted-foreground">API process</span>
+                <span className="text-xs text-muted-foreground">{t('diagnosticsPage.api_process')}</span>
             </div>
         </div>
     </div>
-);
+    );
+};
 
 const DiagnosticsPage = () => {
+    const { t } = useTranslation();
     const { data, isLoading, isError, error } = useQuery({
         queryKey: ['diagnostics'],
         queryFn: diagnosticsApi.get,
@@ -132,18 +141,18 @@ const DiagnosticsPage = () => {
         refetchInterval: HEALTH_REFRESH_INTERVAL,
     });
 
-    if (isLoading) return <div className="p-8 text-muted-foreground">Loading...</div>;
-    if (isError) return <div className="p-8 text-red-500">Failed to load diagnostics: {(error as Error)?.message}</div>;
+    if (isLoading) return <div className="p-8 text-muted-foreground">{t('common.loading')}</div>;
+    if (isError) return <div className="p-8 text-red-500">{t('diagnosticsPage.load_failed', { reason: (error as Error)?.message })}</div>;
     if (!data) return null;
 
     return (
         <div className="space-y-6">
             <div>
                 <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-                    <Activity size={22} /> System diagnostics
+                    <Activity size={22} /> {t('diagnosticsPage.title')}
                 </h2>
                 <p className="text-muted-foreground">
-                    Live snapshot of host hardware + back-end services. Refreshes every {REFRESH_INTERVAL / 1000}s.
+                    {t('diagnosticsPage.subtitle', { s: REFRESH_INTERVAL / 1000 })}
                 </p>
             </div>
 
@@ -151,17 +160,17 @@ const DiagnosticsPage = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
-                <Card icon={<ServerCog size={16} />} title="Host">
+                <Card icon={<ServerCog size={16} />} title={t('diagnosticsPage.host')}>
                     <div className="space-y-1 text-sm">
-                        <div className="flex justify-between"><span className="text-muted-foreground">Hostname</span><span className="font-mono">{data.host.hostname}</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">OS</span><span>{data.host.os} {data.host.arch}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">{t('diagnosticsPage.hostname')}</span><span className="font-mono">{data.host.hostname}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">{t('diagnosticsPage.os')}</span><span>{data.host.os} {data.host.arch}</span></div>
                         {data.host.kernel && (
-                            <div className="flex justify-between"><span className="text-muted-foreground">Kernel</span><span className="font-mono text-xs">{data.host.kernel}</span></div>
+                            <div className="flex justify-between"><span className="text-muted-foreground">{t('diagnosticsPage.kernel')}</span><span className="font-mono text-xs">{data.host.kernel}</span></div>
                         )}
-                        <div className="flex justify-between"><span className="text-muted-foreground">Host uptime</span><span>{formatDuration(data.host.uptime_sec ?? 0)}</span></div>
-                        <div className="flex justify-between"><span className="text-muted-foreground">API uptime</span><span>{formatDuration(data.host.api_uptime_sec)}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">{t('diagnosticsPage.host_uptime')}</span><span>{formatDuration(data.host.uptime_sec ?? 0)}</span></div>
+                        <div className="flex justify-between"><span className="text-muted-foreground">{t('diagnosticsPage.api_uptime')}</span><span>{formatDuration(data.host.api_uptime_sec)}</span></div>
                         {data.host.load_average && (
-                            <div className="flex justify-between"><span className="text-muted-foreground">Load avg (1/5/15)</span>
+                            <div className="flex justify-between"><span className="text-muted-foreground">{t('diagnosticsPage.load')}</span>
                                 <span className="font-mono text-xs">{data.host.load_average.map((x) => x.toFixed(2)).join(' / ')}</span>
                             </div>
                         )}
@@ -171,16 +180,16 @@ const DiagnosticsPage = () => {
                 {data.cpu && (
                     <Card icon={<Cpu size={16} />} title="CPU">
                         <div className="space-y-2 text-sm">
-                            <div className="flex justify-between"><span className="text-muted-foreground">Cores</span><span>{data.cpu.cores}</span></div>
+                            <div className="flex justify-between"><span className="text-muted-foreground">{t('diagnosticsPage.cores')}</span><span>{data.cpu.cores}</span></div>
                             {data.cpu.model_name && (
                                 <div className="flex justify-between gap-2">
-                                    <span className="text-muted-foreground shrink-0">Model</span>
+                                    <span className="text-muted-foreground shrink-0">{t('diagnosticsPage.model')}</span>
                                     <span className="text-xs text-right truncate" title={data.cpu.model_name}>{data.cpu.model_name}</span>
                                 </div>
                             )}
                             {data.cpu.usage_pct !== undefined && (
                                 <div className="space-y-1">
-                                    <div className="flex justify-between text-xs"><span>Usage</span><span>{data.cpu.usage_pct.toFixed(0)}%</span></div>
+                                    <div className="flex justify-between text-xs"><span>{t('diagnosticsPage.usage')}</span><span>{data.cpu.usage_pct.toFixed(0)}%</span></div>
                                     <UsageBar pct={data.cpu.usage_pct} />
                                 </div>
                             )}
@@ -189,21 +198,21 @@ const DiagnosticsPage = () => {
                 )}
 
                 {data.memory && (
-                    <Card icon={<MemoryStick size={16} />} title="Memory">
+                    <Card icon={<MemoryStick size={16} />} title={t('diagnosticsPage.memory')}>
                         <div className="space-y-2 text-sm">
-                            <div className="flex justify-between"><span className="text-muted-foreground">Total</span><span>{formatBytes(data.memory.total_bytes)}</span></div>
-                            <div className="flex justify-between"><span className="text-muted-foreground">Available</span><span>{formatBytes(data.memory.available_bytes)}</span></div>
+                            <div className="flex justify-between"><span className="text-muted-foreground">{t('diagnosticsPage.total')}</span><span>{formatBytes(data.memory.total_bytes)}</span></div>
+                            <div className="flex justify-between"><span className="text-muted-foreground">{t('diagnosticsPage.available')}</span><span>{formatBytes(data.memory.available_bytes)}</span></div>
                             <div className="space-y-1">
-                                <div className="flex justify-between text-xs"><span>Used</span><span>{data.memory.used_pct.toFixed(0)}%</span></div>
+                                <div className="flex justify-between text-xs"><span>{t('diagnosticsPage.used')}</span><span>{data.memory.used_pct.toFixed(0)}%</span></div>
                                 <UsageBar pct={data.memory.used_pct} />
                             </div>
                         </div>
                     </Card>
                 )}
 
-                <Card icon={<HardDrive size={16} />} title="Disk">
+                <Card icon={<HardDrive size={16} />} title={t('diagnosticsPage.disk')}>
                     {(data.disk?.length ?? 0) === 0
-                        ? <p className="text-sm text-muted-foreground">No mount points reported.</p>
+                        ? <p className="text-sm text-muted-foreground">{t('diagnosticsPage.no_mounts')}</p>
                         : (
                             <div className="space-y-3 text-sm">
                                 {data.disk!.map((d: DiskInfo) => (
@@ -219,18 +228,18 @@ const DiagnosticsPage = () => {
                         )}
                 </Card>
 
-                <Card icon={<NetIcon size={16} />} title="Network">
+                <Card icon={<NetIcon size={16} />} title={t('diagnosticsPage.network')}>
                     {(data.network?.length ?? 0) === 0
-                        ? <p className="text-sm text-muted-foreground">No physical interfaces detected.</p>
+                        ? <p className="text-sm text-muted-foreground">{t('diagnosticsPage.no_ifaces')}</p>
                         : (
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead>Iface</TableHead>
-                                        <TableHead>Link</TableHead>
+                                        <TableHead>{t('diagnosticsPage.iface')}</TableHead>
+                                        <TableHead>{t('diagnosticsPage.link')}</TableHead>
                                         <TableHead>RX</TableHead>
                                         <TableHead>TX</TableHead>
-                                        <TableHead>Errors</TableHead>
+                                        <TableHead>{t('diagnosticsPage.errors')}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -241,7 +250,7 @@ const DiagnosticsPage = () => {
                                                 <Badge className={n.link_up
                                                     ? 'bg-emerald-500/10 text-emerald-500 border-none'
                                                     : 'bg-red-500/10 text-red-500 border-none'}>
-                                                    {n.link_up ? 'up' : 'down'}
+                                                    {n.link_up ? t('diagnosticsPage.link_up') : t('diagnosticsPage.link_down')}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-xs">{formatBytes(n.rx_bytes)}</TableCell>
@@ -254,13 +263,13 @@ const DiagnosticsPage = () => {
                         )}
                 </Card>
 
-                <Card icon={<Activity size={16} />} title="Services">
+                <Card icon={<Activity size={16} />} title={t('diagnosticsPage.services')}>
                     <div className="space-y-2 text-sm">
                         {Object.entries(data.services).map(([name, h]) => (
                             <div key={name} className="flex items-center justify-between">
                                 <span className="flex items-center"><HealthDot h={h} /><span className="font-mono">{name}</span></span>
                                 <span className="text-xs text-muted-foreground">
-                                    {h.ok ? (h.latency_ms ? `${h.latency_ms} ms` : 'ok') : (h.message ?? 'down')}
+                                    {h.ok ? (h.latency_ms ? `${h.latency_ms} ms` : t('diagnosticsPage.ok')) : (h.message ?? t('diagnosticsPage.down'))}
                                 </span>
                             </div>
                         ))}

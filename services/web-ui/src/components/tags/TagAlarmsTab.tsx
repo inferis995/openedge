@@ -9,6 +9,8 @@ import { Trash2, Plus, Activity, AlertTriangle } from 'lucide-react';
 import { tagsApi } from '@/api/tags';
 import { ALARM_TYPE_LABELS, NO_THRESHOLD_TYPES, HEALTH_TYPES } from '@/lib/alarmTypes';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 export interface AlarmDefinition {
     id?: number;
@@ -28,29 +30,33 @@ interface Props {
     onSave?: () => void;
 }
 
+// i18n keys, resolved with t() at render.
 const SEVERITY_LABELS: Record<string, string> = {
-    info:     'Info — solo log',
-    warning:  'Allarme — notifica operatore',
-    critical: 'Critico — notifica + escalation',
+    info:     'tagAlarms.severity_info',
+    warning:  'tagAlarms.severity_warning',
+    critical: 'tagAlarms.severity_critical',
 };
 
 // Genera un messaggio default sensato in base alla condizione + valore-soglia.
 const defaultMessage = (alarm_type: string, alias: string, threshold: number | null): string => {
-    const what = alias || 'tag';
+    const what = alias || i18n.t('tagAlarms.msg_default_subject');
+    const gt = threshold !== null ? ` (> ${threshold})` : '';
+    const lt = threshold !== null ? ` (< ${threshold})` : '';
     switch (alarm_type) {
-        case 'bool_true':  return `${what}: attivato`;
-        case 'bool_false': return `${what}: disattivato`;
-        case 'high':       return `${what}: sopra soglia${threshold !== null ? ` (> ${threshold})` : ''}`;
-        case 'low':        return `${what}: sotto soglia${threshold !== null ? ` (< ${threshold})` : ''}`;
-        case 'high_high':  return `${what}: CRITICO alto${threshold !== null ? ` (> ${threshold})` : ''}`;
-        case 'low_low':    return `${what}: CRITICO basso${threshold !== null ? ` (< ${threshold})` : ''}`;
-        case 'comm_loss':  return `${what}: comunicazione persa`;
-        case 'frozen':     return `${what}: valore bloccato`;
-        default:           return `Allarme su ${what}`;
+        case 'bool_true':  return i18n.t('tagAlarms.msg_bool_true', { what });
+        case 'bool_false': return i18n.t('tagAlarms.msg_bool_false', { what });
+        case 'high':       return i18n.t('tagAlarms.msg_high', { what }) + gt;
+        case 'low':        return i18n.t('tagAlarms.msg_low', { what }) + lt;
+        case 'high_high':  return i18n.t('tagAlarms.msg_high_high', { what }) + gt;
+        case 'low_low':    return i18n.t('tagAlarms.msg_low_low', { what }) + lt;
+        case 'comm_loss':  return i18n.t('tagAlarms.msg_comm_loss', { what });
+        case 'frozen':     return i18n.t('tagAlarms.msg_frozen', { what });
+        default:           return i18n.t('tagAlarms.msg_generic', { what });
     }
 };
 
 export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
+    const { t } = useTranslation();
     const [alarms, setAlarms] = useState<AlarmDefinition[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -85,18 +91,18 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
         for (const a of alarms) {
             const needsThreshold = !NO_THRESHOLD_TYPES.has(a.alarm_type);
             if (needsThreshold && (a.threshold === null || a.threshold === undefined || Number.isNaN(a.threshold))) {
-                toast.error(`Soglia mancante per "${ALARM_TYPE_LABELS[a.alarm_type]?.label ?? a.alarm_type}".`);
+                toast.error(t('tagAlarms.threshold_missing', { condition: ALARM_TYPE_LABELS[a.alarm_type]?.label ?? a.alarm_type }));
                 return;
             }
         }
         setIsSaving(true);
         try {
             await tagsApi.saveTagAlarms(tagId, alarms);
-            toast.success("Allarmi salvati con successo!");
+            toast.success(t('tagAlarms.saved'));
             onSave?.();
         } catch (err) {
             console.error("Failed to save alarms", err);
-            toast.error("Errore nel salvataggio degli allarmi.");
+            toast.error(t('tagAlarms.save_failed'));
         } finally {
             setIsSaving(false);
         }
@@ -145,7 +151,7 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
         setAlarms(next);
     };
 
-    if (isLoading) return <div className="p-4 text-center text-sm text-muted-foreground">Caricamento allarmi...</div>;
+    if (isLoading) return <div className="p-4 text-center text-sm text-muted-foreground">{t('tagAlarms.loading')}</div>;
 
     const currentValueDisplay = (() => {
         if (current === undefined) return '—';
@@ -161,26 +167,25 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
             <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-md border bg-muted/30 text-sm">
                 <div className="flex items-center gap-2 text-muted-foreground">
                     <Activity size={14} />
-                    <span>Valore attuale del tag:</span>
+                    <span>{t('tagAlarms.current_value')}</span>
                 </div>
                 <span className="font-mono font-bold text-base">{currentValueDisplay}</span>
             </div>
 
             <div className="flex justify-between items-center">
                 <p className="text-sm text-muted-foreground">
-                    Definisci le condizioni che fanno scattare un allarme. Puoi creare più regole indipendenti
-                    (es. soglia "Alto" a 80 + "Critico alto" a 95).
+                    {t('tagAlarms.intro')}
                 </p>
                 <Button onClick={addAlarm} size="sm" variant="outline" className="gap-2 flex-shrink-0">
-                    <Plus size={16} /> Nuovo Allarme
+                    <Plus size={16} /> {t('tagAlarms.add')}
                 </Button>
             </div>
 
             {alarms.length === 0 ? (
                 <div className="text-center p-8 border border-dashed rounded-md bg-muted/20 text-muted-foreground">
                     <AlertTriangle size={24} className="mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">Nessun allarme configurato per questo tag.</p>
-                    <p className="text-xs mt-1">Click "Nuovo Allarme" per creare la prima regola.</p>
+                    <p className="text-sm">{t('tagAlarms.empty_title')}</p>
+                    <p className="text-xs mt-1">{t('tagAlarms.empty_hint')}</p>
                 </div>
             ) : (
                 <div className="space-y-4 max-h-[500px] overflow-y-auto pr-2">
@@ -195,13 +200,14 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                                     size="icon"
                                     className="absolute top-2 right-2 h-9 sm:h-6 w-9 sm:w-6 text-red-500 hover:bg-red-50"
                                     onClick={() => removeAlarm(idx)}
+                                    aria-label={t('tagAlarms.remove')}
                                 >
                                     <Trash2 size={14} />
                                 </Button>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pr-8">
                                     <div className="space-y-1">
-                                        <Label>Condizione</Label>
+                                        <Label>{t('tagAlarms.condition')}</Label>
                                         <Select
                                             value={alarm.alarm_type}
                                             onValueChange={(v) => updateAlarm(idx, 'alarm_type', v)}
@@ -236,7 +242,7 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
 
                                     {needsThreshold && (
                                         <div className="space-y-1">
-                                            <Label>{meta?.thresholdLabel || 'Soglia'}</Label>
+                                            <Label>{meta?.thresholdLabel || t('tagAlarms.threshold')}</Label>
                                             <Input
                                                 type="number"
                                                 value={alarm.threshold ?? ''}
@@ -244,18 +250,18 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                                                     const v = e.target.value;
                                                     updateAlarm(idx, 'threshold', v === '' ? null : parseFloat(v));
                                                 }}
-                                                placeholder="es. 80"
+                                                placeholder={t('tagAlarms.threshold_placeholder')}
                                             />
                                             {typeof current?.value === 'number' && (
                                                 <p className="text-[11px] text-muted-foreground">
-                                                    Valore attuale: <span className="font-mono">{current.value.toFixed(2)}</span>
+                                                    {t('tagAlarms.current_value_short')} <span className="font-mono">{current.value.toFixed(2)}</span>
                                                 </p>
                                             )}
                                         </div>
                                     )}
 
                                     <div className="space-y-1">
-                                        <Label>Ritardo (secondi)</Label>
+                                        <Label>{t('tagAlarms.delay')}</Label>
                                         <Input
                                             type="number"
                                             min="0"
@@ -264,8 +270,10 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                                         />
                                         <p className="text-[11px] text-muted-foreground">
                                             {isHealth
-                                                ? `Scatta dopo ${alarm.delay_seconds || 60}s ${alarm.alarm_type === 'comm_loss' ? 'senza letture valide' : 'senza che il valore si muova'}. 0 = usa 60s.`
-                                                : `Condizione deve resistere ${alarm.delay_seconds}s prima di scattare (anti-rimbalzo).`}
+                                                ? (alarm.alarm_type === 'comm_loss'
+                                                    ? t('tagAlarms.delay_help_comm_loss', { seconds: alarm.delay_seconds || 60 })
+                                                    : t('tagAlarms.delay_help_frozen', { seconds: alarm.delay_seconds || 60 }))
+                                                : t('tagAlarms.delay_help', { seconds: alarm.delay_seconds })}
                                         </p>
                                     </div>
 
@@ -273,24 +281,24 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                                         quanto rumore NON va considerato movimento. */}
                                     {(needsThreshold || alarm.alarm_type === 'frozen') && (
                                         <div className="space-y-1">
-                                            <Label>Deadband (isteresi)</Label>
+                                            <Label>{t('tagAlarms.deadband')}</Label>
                                             <Input
                                                 type="number"
                                                 min="0"
                                                 value={alarm.deadband}
                                                 onChange={(e) => updateAlarm(idx, 'deadband', parseFloat(e.target.value || '0'))}
-                                                placeholder="0 = nessuna isteresi"
+                                                placeholder={t('tagAlarms.deadband_placeholder')}
                                             />
                                             <p className="text-[11px] text-muted-foreground">
                                                 {alarm.alarm_type === 'frozen'
-                                                    ? `Il valore è considerato fermo finché si muove di meno di ${alarm.deadband || 0}.`
-                                                    : `Per rientrare, il valore deve scostarsi di almeno ${alarm.deadband || 0} dalla soglia.`}
+                                                    ? t('tagAlarms.deadband_help_frozen', { value: alarm.deadband || 0 })
+                                                    : t('tagAlarms.deadband_help', { value: alarm.deadband || 0 })}
                                             </p>
                                         </div>
                                     )}
 
                                     <div className="space-y-1">
-                                        <Label>Gravità</Label>
+                                        <Label>{t('tagAlarms.severity')}</Label>
                                         <Select
                                             value={alarm.severity}
                                             onValueChange={(v) => updateAlarm(idx, 'severity', v)}
@@ -299,22 +307,22 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="info">{SEVERITY_LABELS.info}</SelectItem>
-                                                <SelectItem value="warning">{SEVERITY_LABELS.warning}</SelectItem>
-                                                <SelectItem value="critical">{SEVERITY_LABELS.critical}</SelectItem>
+                                                <SelectItem value="info">{t(SEVERITY_LABELS.info)}</SelectItem>
+                                                <SelectItem value="warning">{t(SEVERITY_LABELS.warning)}</SelectItem>
+                                                <SelectItem value="critical">{t(SEVERITY_LABELS.critical)}</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
 
                                     <div className="space-y-1 md:col-span-2">
-                                        <Label>Messaggio di allarme</Label>
+                                        <Label>{t('tagAlarms.message')}</Label>
                                         <Input
                                             value={alarm.message}
-                                            placeholder="Verrà mostrato in allarmi attivi e nelle notifiche"
+                                            placeholder={t('tagAlarms.message_placeholder')}
                                             onChange={(e) => updateAlarm(idx, 'message', e.target.value)}
                                         />
                                         <p className="text-[11px] text-muted-foreground">
-                                            Auto-generato dalla condizione; puoi personalizzarlo (es. "Pompa P1 in blocco").
+                                            {t('tagAlarms.message_help')}
                                         </p>
                                     </div>
 
@@ -324,7 +332,7 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                                                 checked={alarm.enabled}
                                                 onCheckedChange={(v) => updateAlarm(idx, 'enabled', v)}
                                             />
-                                            <Label>Abilita Allarme</Label>
+                                            <Label>{t('tagAlarms.enabled')}</Label>
                                         </div>
                                     </div>
                                 </div>
@@ -336,7 +344,7 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
 
             <div className="flex justify-end pt-4 border-t">
                 <Button onClick={handleSave} disabled={isSaving}>
-                    {isSaving ? 'Salvataggio...' : 'Salva Allarmi'}
+                    {isSaving ? t('tagAlarms.saving') : t('tagAlarms.save')}
                 </Button>
             </div>
         </div>

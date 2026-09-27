@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useMemo } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
+import i18n from '@/i18n';
 
 export interface PenSeries {
     tagId: number;
@@ -50,7 +51,7 @@ function buildTooltipPlugin(pens: PenSeries[]): uPlot.Plugin {
                 if (ts === undefined) { tooltip.classList.add('hidden'); return; }
 
                 const date = new Date(ts * 1000);
-                const timeStr = date.toLocaleString('it-IT', {
+                const timeStr = date.toLocaleString(i18n.language, {
                     day: '2-digit', month: '2-digit',
                     hour: '2-digit', minute: '2-digit', second: '2-digit',
                 });

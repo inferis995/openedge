@@ -17,6 +17,8 @@ import { Calendar, Clock, ChevronDown, SkipForward, Loader2 } from 'lucide-react
 import { TimePreset, TimeRange } from '@/types/trend';
 import { historyApi } from '@/api/history';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 interface TimePickerProps {
     value: TimeRange;
@@ -34,11 +36,11 @@ const QUICK_PRESETS: { value: TimePreset; label: string }[] = [
     { value: '30d', label: '30d' },
 ];
 
-const INDUSTRIAL_PRESETS: { value: TimePreset; label: string; description: string }[] = [
-    { value: 'currentShift', label: 'Current Shift', description: 'This shift so far' },
-    { value: 'previousShift', label: 'Previous Shift', description: 'Last completed shift' },
-    { value: 'today', label: 'Today', description: 'From midnight to now' },
-    { value: 'yesterday', label: 'Yesterday', description: 'Previous calendar day' },
+const INDUSTRIAL_PRESETS: { value: TimePreset; labelKey: string; descriptionKey: string }[] = [
+    { value: 'currentShift', labelKey: 'trend.preset_current_shift', descriptionKey: 'trend.preset_current_shift_desc' },
+    { value: 'previousShift', labelKey: 'trend.preset_previous_shift', descriptionKey: 'trend.preset_previous_shift_desc' },
+    { value: 'today', labelKey: 'trend.preset_today', descriptionKey: 'trend.preset_today_desc' },
+    { value: 'yesterday', labelKey: 'trend.preset_yesterday', descriptionKey: 'trend.preset_yesterday_desc' },
 ];
 
 const formatDateForInput = (date: Date): string => {
@@ -66,6 +68,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
         value.customEnd ? formatTimeForInput(value.customEnd) : '23:59'
     );
     const [isLoadingLastData, setIsLoadingLastData] = useState(false);
+    const { t } = useTranslation();
 
     const handlePresetClick = (preset: TimePreset) => {
         onChange({ preset });
@@ -100,7 +103,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
         try {
             const range = await historyApi.getDataRange();
             if (!range.hasData || !range.newest) {
-                toast.info('No historical data found');
+                toast.info(i18n.t('trend.no_history_data'));
                 return;
             }
 
@@ -120,9 +123,9 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                 customEnd: windowEnd,
             });
 
-            toast.success(`Moved to last data: ${newest.toLocaleString('it-IT')}`);
+            toast.success(i18n.t('trend.moved_to_last_data', { time: newest.toLocaleString(i18n.language) }));
         } catch {
-            toast.error('Failed to fetch data range');
+            toast.error(i18n.t('trend.data_range_failed'));
         } finally {
             setIsLoadingLastData(false);
         }
@@ -155,14 +158,14 @@ export const TimePicker: React.FC<TimePickerProps> = ({
             >
                 <SelectTrigger className="w-36 h-9 sm:h-7 text-xs">
                     <Clock className="w-3 h-3 mr-1" />
-                    <SelectValue placeholder="Shift/Day" />
+                    <SelectValue placeholder={t('trend.shift_day')} />
                 </SelectTrigger>
                 <SelectContent>
                     {INDUSTRIAL_PRESETS.map((preset) => (
                         <SelectItem key={preset.value} value={preset.value}>
                             <div>
-                                <div className="font-medium">{preset.label}</div>
-                                <div className="text-[10px] text-muted-foreground">{preset.description}</div>
+                                <div className="font-medium">{t(preset.labelKey)}</div>
+                                <div className="text-[10px] text-muted-foreground">{t(preset.descriptionKey)}</div>
                             </div>
                         </SelectItem>
                     ))}
@@ -176,14 +179,14 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                 className="h-9 sm:h-7 text-xs gap-1"
                 onClick={handleGoToLastData}
                 disabled={isLoadingLastData}
-                title="Jump to the most recent data in the database"
+                title={t('trend.jump_last_title')}
             >
                 {isLoadingLastData ? (
                     <Loader2 className="w-3 h-3 animate-spin" />
                 ) : (
                     <SkipForward className="w-3 h-3" />
                 )}
-                Last Data
+                {t('trend.last_data')}
             </Button>
 
             {/* Custom Range Picker */}
@@ -195,17 +198,17 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                         className="h-9 sm:h-7 text-xs gap-1"
                     >
                         <Calendar className="w-3 h-3" />
-                        Custom
+                        {t('trend.custom')}
                         <ChevronDown className="w-3 h-3" />
                     </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-80" align="end">
                     <div className="space-y-3">
-                        <div className="text-sm font-medium text-foreground">Custom Time Range</div>
+                        <div className="text-sm font-medium text-foreground">{t('trend.custom_range_title')}</div>
 
                         {/* Start Date/Time */}
                         <div className="space-y-1.5">
-                            <label className="text-xs text-muted-foreground">From</label>
+                            <label className="text-xs text-muted-foreground">{t('trend.from')}</label>
                             <div className="flex gap-2">
                                 <Input
                                     type="date"
@@ -224,7 +227,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
 
                         {/* End Date/Time */}
                         <div className="space-y-1.5">
-                            <label className="text-xs text-muted-foreground">To</label>
+                            <label className="text-xs text-muted-foreground">{t('trend.to')}</label>
                             <div className="flex gap-2">
                                 <Input
                                     type="date"
@@ -256,7 +259,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                                     setCustomEndTime(formatTimeForInput(now));
                                 }}
                             >
-                                Last Hour
+                                {t('trend.last_hour')}
                             </Button>
                             <Button
                                 variant="outline"
@@ -271,7 +274,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                                     setCustomEndTime(formatTimeForInput(now));
                                 }}
                             >
-                                Last 24h
+                                {t('trend.last_24h')}
                             </Button>
                             <Button
                                 variant="outline"
@@ -286,7 +289,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                                     setCustomEndTime(formatTimeForInput(now));
                                 }}
                             >
-                                Last 7 Days
+                                {t('trend.last_7_days')}
                             </Button>
                             <Button
                                 variant="outline"
@@ -301,7 +304,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                                     setCustomEndTime(formatTimeForInput(now));
                                 }}
                             >
-                                Last 30 Days
+                                {t('trend.last_30_days')}
                             </Button>
                         </div>
 
@@ -311,7 +314,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                             className="w-full h-10 sm:h-8 text-xs"
                             disabled={!customStart || !customEnd}
                         >
-                            Apply Custom Range
+                            {t('trend.apply_range')}
                         </Button>
                     </div>
                 </PopoverContent>
@@ -320,9 +323,9 @@ export const TimePicker: React.FC<TimePickerProps> = ({
             {/* Current range display */}
             {isCustom && value.customStart && value.customEnd && (
                 <div className="text-xs text-muted-foreground">
-                    {value.customStart.toLocaleDateString('it-IT')} {value.customStart.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+                    {value.customStart.toLocaleDateString(i18n.language)} {value.customStart.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
                     {' - '}
-                    {value.customEnd.toLocaleDateString('it-IT')} {value.customEnd.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
+                    {value.customEnd.toLocaleDateString(i18n.language)} {value.customEnd.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' })}
                 </div>
             )}
         </div>

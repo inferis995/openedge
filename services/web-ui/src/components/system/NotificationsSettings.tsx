@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Trans, useTranslation } from 'react-i18next';
 
 // One panel per channel + one for the shared filters. The component
 // owns its own state and save/test logic so SystemPage doesn't grow
@@ -16,10 +17,10 @@ import { Badge } from '@/components/ui/badge';
 type Toast = { kind: 'success' | 'error' | 'info'; text: string } | null;
 
 const SEVERITIES = [
-    { value: 'low',      label: 'Low (everything)' },
-    { value: 'medium',   label: 'Medium and up' },
-    { value: 'high',     label: 'High and up' },
-    { value: 'critical', label: 'Critical only' },
+    { value: 'low',      label: 'notificationsSettings.sev_low' },
+    { value: 'medium',   label: 'notificationsSettings.sev_medium' },
+    { value: 'high',     label: 'notificationsSettings.sev_high' },
+    { value: 'critical', label: 'notificationsSettings.sev_critical' },
 ];
 
 const isTrue = (v: string | undefined): boolean => v === 'true';
@@ -30,6 +31,7 @@ const isTrue = (v: string | undefined): boolean => v === 'true';
 const SecretInput = ({
     id, value, onChange, placeholder, autoComplete,
 }: { id: string; value: string; onChange: (v: string) => void; placeholder?: string; autoComplete?: string }) => {
+    const { t } = useTranslation();
     const [visible, setVisible] = useState(false);
     return (
         <div className="relative">
@@ -38,7 +40,7 @@ const SecretInput = ({
                 type={visible ? 'text' : 'password'}
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
-                placeholder={placeholder ?? '••••••••  (stored — leave blank to keep)'}
+                placeholder={placeholder ?? t('notificationsSettings.secret_ph')}
                 autoComplete={autoComplete ?? 'new-password'}
                 className="pr-10"
             />
@@ -46,7 +48,7 @@ const SecretInput = ({
                 type="button"
                 onClick={() => setVisible((v) => !v)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                aria-label={visible ? 'Hide' : 'Show'}
+                aria-label={visible ? t('notificationsSettings.hide') : t('notificationsSettings.show')}
             >
                 {visible ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
@@ -64,6 +66,7 @@ interface Props {
 }
 
 const NotificationsSettings = ({ initial, onSaved }: Props) => {
+    const { t } = useTranslation();
     // ── Form state ──────────────────────────────────────────────────────
     const [emailEnabled, setEmailEnabled] = useState(false);
     const [emailHost, setEmailHost] = useState('');
@@ -133,32 +136,32 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
     const emailErrors = useMemo(() => {
         if (!emailEnabled) return [] as string[];
         const errs: string[] = [];
-        if (!emailHost.trim()) errs.push('SMTP host is required');
+        if (!emailHost.trim()) errs.push(t('notificationsSettings.err_host'));
         const port = parseInt(emailPort, 10);
-        if (isNaN(port) || port < 1 || port > 65535) errs.push('SMTP port must be 1–65535');
-        if (!emailFrom.trim()) errs.push('From address is required');
-        if (!emailTo.trim()) errs.push('At least one recipient is required');
+        if (isNaN(port) || port < 1 || port > 65535) errs.push(t('notificationsSettings.err_port'));
+        if (!emailFrom.trim()) errs.push(t('notificationsSettings.err_from'));
+        if (!emailTo.trim()) errs.push(t('notificationsSettings.err_to'));
         return errs;
-    }, [emailEnabled, emailHost, emailPort, emailFrom, emailTo]);
+    }, [emailEnabled, emailHost, emailPort, emailFrom, emailTo, t]);
 
     const tgErrors = useMemo(() => {
         if (!tgEnabled) return [] as string[];
         const errs: string[] = [];
-        if (!tgChatID.trim()) errs.push('Chat ID is required');
+        if (!tgChatID.trim()) errs.push(t('notificationsSettings.err_chat'));
         return errs;
-    }, [tgEnabled, tgChatID]);
+    }, [tgEnabled, tgChatID, t]);
 
     const slackErrors = useMemo(() => {
         if (!slackEnabled) return [] as string[];
-        if (!slackWebhookUrl.trim()) return ['Webhook URL is required'];
+        if (!slackWebhookUrl.trim()) return [t('notificationsSettings.err_webhook')];
         return [];
-    }, [slackEnabled, slackWebhookUrl]);
+    }, [slackEnabled, slackWebhookUrl, t]);
 
     const teamsErrors = useMemo(() => {
         if (!teamsEnabled) return [] as string[];
-        if (!teamsWebhookUrl.trim()) return ['Webhook URL is required'];
+        if (!teamsWebhookUrl.trim()) return [t('notificationsSettings.err_webhook')];
         return [];
-    }, [teamsEnabled, teamsWebhookUrl]);
+    }, [teamsEnabled, teamsWebhookUrl, t]);
 
     const canSave = emailErrors.length === 0 && tgErrors.length === 0 &&
         slackErrors.length === 0 && teamsErrors.length === 0 && !saving;
@@ -196,13 +199,13 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                 notif_rate_limit_per_min: rateLimit,
             } as NS;
             await systemApi.updateNotifications(payload);
-            setToast({ kind: 'success', text: 'Notification settings saved.' });
+            setToast({ kind: 'success', text: t('notificationsSettings.saved') });
             setEmailPassword('');
             setTgToken('');
             setPdRoutingKey('');
             onSaved?.();
         } catch (e: unknown) {
-            setToast({ kind: 'error', text: `Save failed: ${(e as Error)?.message ?? 'unknown error'}` });
+            setToast({ kind: 'error', text: t('notificationsSettings.save_failed', { reason: (e as Error)?.message ?? t('notificationsSettings.unknown_error') }) });
         } finally {
             setSaving(false);
         }
@@ -216,7 +219,7 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
             const r = await systemApi.testNotifications();
             setTestResult(r);
         } catch (e: unknown) {
-            setTestResult({ ok: false, errors: [(e as Error)?.message ?? 'request failed'] });
+            setTestResult({ ok: false, errors: [(e as Error)?.message ?? t('notificationsSettings.request_failed')] });
         } finally {
             setTesting(false);
         }
@@ -232,10 +235,9 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                             <BellRing className="h-4 w-4 text-primary" />
                         </div>
                         <div>
-                            <CardTitle className="text-base text-foreground">Notifications</CardTitle>
+                            <CardTitle className="text-base text-foreground">{t('notificationsSettings.title')}</CardTitle>
                             <CardDescription className="text-xs mt-0.5">
-                                Send alarm events to email and Telegram. Configure once; every
-                                alarm above the chosen severity is dispatched out-of-band.
+                                {t('notificationsSettings.desc')}
                             </CardDescription>
                         </div>
                     </div>
@@ -246,7 +248,7 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                         {teamsEnabled && <Badge className="bg-indigo-500/10 text-indigo-500 border-none">Teams</Badge>}
                         {pdEnabled && <Badge className="bg-green-500/10 text-green-500 border-none">PagerDuty</Badge>}
                         {!emailEnabled && !tgEnabled && !slackEnabled && !teamsEnabled && !pdEnabled && (
-                            <Badge className="bg-slate-500/10 text-slate-300 border-none">No channel enabled</Badge>
+                            <Badge className="bg-slate-500/10 text-slate-300 border-none">{t('notificationsSettings.no_channel')}</Badge>
                         )}
                     </div>
                 </div>
@@ -256,33 +258,33 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                 {/* ── Filters (apply to both channels) ───────────────── */}
                 <section className="space-y-3">
                     <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-                        <Bell size={14} /> Delivery rules
+                        <Bell size={14} /> {t('notificationsSettings.rules')}
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="grid gap-1">
-                            <Label htmlFor="ns-severity">Minimum severity</Label>
+                            <Label htmlFor="ns-severity">{t('notificationsSettings.min_severity')}</Label>
                             <select
                                 id="ns-severity"
                                 value={minSeverity}
                                 onChange={(e) => setMinSeverity(e.target.value)}
                                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                             >
-                                {SEVERITIES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                                {SEVERITIES.map((s) => <option key={s.value} value={s.value}>{t(s.label)}</option>)}
                             </select>
-                            <p className="text-xs text-muted-foreground">Events below this level are silently dropped.</p>
+                            <p className="text-xs text-muted-foreground">{t('notificationsSettings.min_severity_hint')}</p>
                         </div>
                         <div className="grid gap-1">
-                            <Label htmlFor="ns-rate">Rate limit (events/min)</Label>
+                            <Label htmlFor="ns-rate">{t('notificationsSettings.rate')}</Label>
                             <Input id="ns-rate" type="number" min={1} max={1000}
                                 value={rateLimit} onChange={(e) => setRateLimit(e.target.value)} />
-                            <p className="text-xs text-muted-foreground">Cap across all channels — survives flapping sensors.</p>
+                            <p className="text-xs text-muted-foreground">{t('notificationsSettings.rate_hint')}</p>
                         </div>
                         <div className="flex flex-col gap-1">
-                            <Label className="pt-0.5">On CLEARED events</Label>
+                            <Label className="pt-0.5">{t('notificationsSettings.on_cleared')}</Label>
                             <div className="flex items-center gap-2 h-10">
                                 <Switch checked={onCleared} onCheckedChange={setOnCleared} />
                                 <span className="text-xs text-muted-foreground">
-                                    {onCleared ? 'Notify when alarms clear' : 'Only on ACTIVE'}
+                                    {onCleared ? t('notificationsSettings.on_cleared_on') : t('notificationsSettings.on_cleared_off')}
                                 </span>
                             </div>
                         </div>
@@ -293,53 +295,54 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                 <section className="space-y-3 rounded-md border p-4">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2 text-sm font-semibold">
-                            <Mail size={14} /> Email
+                            <Mail size={14} /> {t('notificationsSettings.email')}
                         </div>
                         <Switch checked={emailEnabled} onCheckedChange={setEmailEnabled} />
                     </div>
                     {emailEnabled && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div className="grid gap-1">
-                                <Label htmlFor="em-host">SMTP host</Label>
+                                <Label htmlFor="em-host">{t('notificationsSettings.smtp_host')}</Label>
                                 <Input id="em-host" value={emailHost} onChange={(e) => setEmailHost(e.target.value)}
                                     placeholder="smtp.gmail.com" />
                             </div>
                             <div className="grid gap-1">
-                                <Label htmlFor="em-port">Port</Label>
+                                <Label htmlFor="em-port">{t('notificationsSettings.port')}</Label>
                                 <Input id="em-port" type="number" value={emailPort} onChange={(e) => setEmailPort(e.target.value)}
                                     placeholder="587" />
                             </div>
                             <div className="grid gap-1">
-                                <Label htmlFor="em-user">Username</Label>
+                                <Label htmlFor="em-user">{t('notificationsSettings.username')}</Label>
                                 <Input id="em-user" value={emailUser} onChange={(e) => setEmailUser(e.target.value)}
-                                    placeholder="alerts@yourcompany.com" autoComplete="username" />
+                                    placeholder={t('notificationsSettings.email_ph')} autoComplete="username" />
                             </div>
                             <div className="grid gap-1">
-                                <Label htmlFor="em-pass">Password</Label>
+                                <Label htmlFor="em-pass">{t('notificationsSettings.password')}</Label>
                                 <SecretInput id="em-pass" value={emailPassword} onChange={setEmailPassword}
                                     autoComplete="new-password" />
                                 <p className="text-xs text-muted-foreground">
-                                    Gmail: use an{' '}
-                                    <a className="underline" href="https://myaccount.google.com/apppasswords"
-                                        target="_blank" rel="noreferrer">app password</a> — not your account password.
+                                    <Trans
+                                        i18nKey="notificationsSettings.gmail_hint"
+                                        components={{ link: <a className="underline" href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer" /> }}
+                                    />
                                 </p>
                             </div>
                             <div className="grid gap-1">
-                                <Label htmlFor="em-from">From address</Label>
+                                <Label htmlFor="em-from">{t('notificationsSettings.from')}</Label>
                                 <Input id="em-from" value={emailFrom} onChange={(e) => setEmailFrom(e.target.value)}
-                                    placeholder="alerts@yourcompany.com" />
+                                    placeholder={t('notificationsSettings.email_ph')} />
                             </div>
                             <div className="grid gap-1">
-                                <Label htmlFor="em-to">To (comma-separated)</Label>
+                                <Label htmlFor="em-to">{t('notificationsSettings.to')}</Label>
                                 <Input id="em-to" value={emailTo} onChange={(e) => setEmailTo(e.target.value)}
-                                    placeholder="op1@company.com, op2@company.com" />
+                                    placeholder={t('notificationsSettings.to_ph')} />
                             </div>
                             <div className="md:col-span-2 flex items-center gap-3">
                                 <Switch checked={emailUseTLS} onCheckedChange={setEmailUseTLS} />
                                 <div>
-                                    <p className="text-sm">Implicit TLS</p>
+                                    <p className="text-sm">{t('notificationsSettings.tls')}</p>
                                     <p className="text-xs text-muted-foreground">
-                                        On = port 465 (full TLS). Off = port 587 (STARTTLS, recommended).
+                                        {t('notificationsSettings.tls_hint')}
                                     </p>
                                 </div>
                             </div>
@@ -364,23 +367,22 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                     {tgEnabled && (
                         <div className="space-y-3">
                             <div className="text-xs text-muted-foreground bg-muted/40 rounded p-2 leading-relaxed">
-                                <strong>One-time setup:</strong> talk to{' '}
-                                <a className="underline" href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a>{' '}
-                                → <code>/newbot</code> → paste the token below. Add the bot to a group
-                                (or DM it), then open{' '}
-                                <code>https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates</code> to read
-                                the <code>chat.id</code> (negative for groups, positive for DMs).
+                                <Trans
+                                    i18nKey="notificationsSettings.tg_setup"
+                                    values={{ url: 'https://api.telegram.org/bot<TOKEN>/getUpdates' }}
+                                    components={{ b: <strong />, code: <code />, link: <a className="underline" href="https://t.me/BotFather" target="_blank" rel="noreferrer" /> }}
+                                />
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <div className="grid gap-1 md:col-span-2">
-                                    <Label htmlFor="tg-token">Bot token</Label>
+                                    <Label htmlFor="tg-token">{t('notificationsSettings.bot_token')}</Label>
                                     <SecretInput id="tg-token" value={tgToken} onChange={setTgToken}
-                                        placeholder="••••••••  (stored — leave blank to keep)" />
+                                        placeholder={t('notificationsSettings.secret_ph')} />
                                 </div>
                                 <div className="grid gap-1">
-                                    <Label htmlFor="tg-chat">Chat ID</Label>
+                                    <Label htmlFor="tg-chat">{t('notificationsSettings.chat_id')}</Label>
                                     <Input id="tg-chat" value={tgChatID} onChange={(e) => setTgChatID(e.target.value)}
-                                        placeholder="-1001234567890 or 123456789" />
+                                        placeholder={t('notificationsSettings.chat_ph')} />
                                 </div>
                             </div>
                             {tgErrors.length > 0 && (
@@ -415,10 +417,10 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                     {slackEnabled && (
                         <div className="space-y-3">
                             <div className="text-xs text-muted-foreground bg-muted/40 rounded p-2 leading-relaxed">
-                                <strong>Setup:</strong> In Slack, create an App → Incoming Webhooks → Activate → Add to channel → copy the URL below.
+                                <strong>{t('notificationsSettings.setup')}</strong> {t('notificationsSettings.slack_setup')}
                             </div>
                             <div className="grid gap-1">
-                                <Label htmlFor="slack-url">Incoming Webhook URL</Label>
+                                <Label htmlFor="slack-url">{t('notificationsSettings.webhook_url')}</Label>
                                 <Input id="slack-url" value={slackWebhookUrl}
                                     onChange={(e) => setSlackWebhookUrl(e.target.value)}
                                     placeholder="https://hooks.slack.com/services/T.../B.../..." />
@@ -457,10 +459,10 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                     {teamsEnabled && (
                         <div className="space-y-3">
                             <div className="text-xs text-muted-foreground bg-muted/40 rounded p-2 leading-relaxed">
-                                <strong>Setup:</strong> In Teams, open a channel → ··· → Connectors → Incoming Webhook → Configure → copy URL below.
+                                <strong>{t('notificationsSettings.setup')}</strong> {t('notificationsSettings.teams_setup')}
                             </div>
                             <div className="grid gap-1">
-                                <Label htmlFor="teams-url">Incoming Webhook URL</Label>
+                                <Label htmlFor="teams-url">{t('notificationsSettings.webhook_url')}</Label>
                                 <Input id="teams-url" value={teamsWebhookUrl}
                                     onChange={(e) => setTeamsWebhookUrl(e.target.value)}
                                     placeholder="https://yourorg.webhook.office.com/webhookb2/..." />
@@ -487,13 +489,12 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                     {pdEnabled && (
                         <div className="space-y-3">
                             <div className="text-xs text-muted-foreground bg-muted/40 rounded p-2 leading-relaxed">
-                                <strong>Setup:</strong> PagerDuty → Services → Integrations → Add Integration → Events API v2 → copy Routing Key below.
-                                Alarms trigger incidents; CLEARED events auto-resolve them.
+                                <strong>{t('notificationsSettings.setup')}</strong> {t('notificationsSettings.pd_setup')}
                             </div>
                             <div className="grid gap-1">
-                                <Label htmlFor="pd-key">Routing Key (32 hex chars)</Label>
+                                <Label htmlFor="pd-key">{t('notificationsSettings.pd_key')}</Label>
                                 <SecretInput id="pd-key" value={pdRoutingKey} onChange={setPdRoutingKey}
-                                    placeholder="••••••••  (stored — leave blank to keep)" />
+                                    placeholder={t('notificationsSettings.secret_ph')} />
                             </div>
                         </div>
                     )}
@@ -503,13 +504,13 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                 <div className="flex items-center gap-3 pt-2 border-t">
                     <Button onClick={handleSave} disabled={!canSave}>
                         {saving && <Loader2 size={16} className="mr-2 animate-spin" />}
-                        {saving ? 'Saving...' : 'Save'}
+                        {saving ? t('notificationsSettings.saving') : t('common.save')}
                     </Button>
                     <Button variant="outline" onClick={handleTest}
                         disabled={testing || (!emailEnabled && !tgEnabled && !slackEnabled && !teamsEnabled && !pdEnabled)}>
                         {testing
-                            ? <><Loader2 size={16} className="mr-2 animate-spin" /> Sending test...</>
-                            : <><Send size={16} className="mr-2" /> Send test</>}
+                            ? <><Loader2 size={16} className="mr-2 animate-spin" /> {t('notificationsSettings.sending')}</>
+                            : <><Send size={16} className="mr-2" /> {t('notificationsSettings.send_test')}</>}
                     </Button>
                     {toast && (
                         <span className={`text-sm flex items-center gap-1 ${
@@ -535,12 +536,12 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
                     }`}>
                         {testResult.ok ? (
                             <div className="flex items-center gap-2">
-                                <CheckCircle2 size={16} /> Test event delivered to every enabled channel.
+                                <CheckCircle2 size={16} /> {t('notificationsSettings.test_ok')}
                             </div>
                         ) : (
                             <div className="space-y-1">
                                 <div className="flex items-center gap-2 text-red-500 font-medium">
-                                    <AlertCircle size={16} /> One or more channels failed:
+                                    <AlertCircle size={16} /> {t('notificationsSettings.test_failed')}
                                 </div>
                                 <ul className="list-disc list-inside text-xs">
                                     {testResult.errors.map((e, i) => <li key={i}>{e}</li>)}

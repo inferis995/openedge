@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ChevronRight, ChevronDown, Tag as TagIcon, Building2, MapPin, Server, Star } from 'lucide-react';
 import { TagWithHierarchy, GatewayHierarchy, AreaHierarchy, SiteHierarchy, OrganizationHierarchy } from '@/types/trend';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 interface TagNodeProps {
     tag: TagWithHierarchy;
@@ -12,6 +13,7 @@ interface TagNodeProps {
 }
 
 const TagNode: React.FC<TagNodeProps> = ({ tag, onSelect, isSelected, isFavorite, onToggleFavorite }) => {
+    const { t } = useTranslation();
     return (
         <div
             className={cn(
@@ -35,7 +37,7 @@ const TagNode: React.FC<TagNodeProps> = ({ tag, onSelect, isSelected, isFavorite
                     'flex-shrink-0 ml-1 transition-opacity',
                     isFavorite ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
                 )}
-                title={isFavorite ? 'Rimuovi dai preferiti' : 'Aggiungi ai preferiti'}
+                title={isFavorite ? t('trend.favorite_remove') : t('trend.favorite_add')}
             >
                 <Star
                     className={cn(

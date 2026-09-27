@@ -18,6 +18,8 @@ import { useTrendStore } from '@/stores/useTrendStore';
 import { tagsApi } from '@/api/tags';
 import { TagWithHierarchy, TagHierarchyResponse, TAG_COLORS, OrganizationHierarchy, SiteHierarchy } from '@/types/trend';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import { useStaleData, getDataStatus, getStatusClasses } from '@/hooks/useStaleData';
 
 interface TagBrowserProps {
@@ -34,6 +36,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
     const [searchQuery, setSearchQuery] = useState('');
     const [hierarchy, setHierarchy] = useState<TagHierarchyResponse | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const { t: tr } = useTranslation();
 
     const { favoriteTagIds, toggleFavoriteTag, activeChartId, addTagToChart } = useTrendStore();
 
@@ -57,7 +60,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                 setHierarchy(data);
             } catch (error) {
                 console.error('Failed to load tag hierarchy:', error);
-                toast.error('Failed to load tags');
+                toast.error(i18n.t('trend.load_tags_failed'));
             } finally {
                 setIsLoading(false);
             }
@@ -157,7 +160,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
             addTagToChart(activeChartId, tag.id);
             onAddTagToChart(tag.id);
         } else {
-            toast.info('Please select or create a chart first');
+            toast.info(tr('trend.select_chart_first'));
         }
     };
 
@@ -176,10 +179,10 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
             <div className="p-3 border-b">
                 <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
                     <Clock className="w-3.5 h-3.5" />
-                    Current Values
+                    {tr('trend.current_values')}
                 </h2>
                 {selectedTagsInfo.length === 0 ? (
-                    <p className="text-xs text-muted-foreground italic py-2">No tags selected</p>
+                    <p className="text-xs text-muted-foreground italic py-2">{tr('trend.no_tags_selected')}</p>
                 ) : (
                     <div className="space-y-1.5 max-h-48 overflow-y-auto">
                         {selectedTagsInfo.map(({ id, tag, rv, color }) => {
@@ -214,7 +217,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                         />
                                         <span className="text-xs font-medium text-foreground truncate">{tag.alias || tag.code}</span>
                                         {deviceOnline === false && (
-                                            <span title="Device is offline">
+                                            <span title={tr('trend.device_offline')}>
                                                 <AlertTriangle className="w-3 h-3 text-destructive flex-shrink-0" />
                                             </span>
                                         )}
@@ -237,7 +240,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                             deviceOnline === false ? 'text-destructive font-medium' : 'text-muted-foreground'
                                         }`}>
                                             {rv ? (
-                                                new Date(rv.timestamp).toLocaleTimeString('it-IT')
+                                                new Date(rv.timestamp).toLocaleTimeString(i18n.language)
                                             ) : '-'}
                                         </div>
                                     </div>
@@ -252,12 +255,12 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
             <div className="flex-1 flex flex-col overflow-hidden min-h-0">
                 <div className="p-3 border-b">
                     <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                        Tag Browser
+                        {tr('trend.tag_browser')}
                     </h2>
                     <div className="relative">
                         <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                         <Input
-                            placeholder="Search tags..."
+                            placeholder={tr('trend.search_tags')}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="h-10 sm:h-8 pl-7 text-xs"
@@ -267,9 +270,9 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
 
                 <Tabs defaultValue="hierarchy" className="flex-1 flex flex-col min-h-0">
                     <TabsList className="mx-3 mt-2 grid w-[calc(100%-24px)] grid-cols-1 sm:grid-cols-2 h-10 sm:h-8 flex-shrink-0">
-                        <TabsTrigger value="hierarchy" className="text-xs">Hierarchy</TabsTrigger>
+                        <TabsTrigger value="hierarchy" className="text-xs">{tr('trend.tab_hierarchy')}</TabsTrigger>
                         <TabsTrigger value="favorites" className="text-xs">
-                            Favorites
+                            {tr('trend.tab_favorites')}
                             {favoriteTagIds.length > 0 && (
                                 <Badge variant="secondary" className="ml-1 h-4 px-1 text-[10px]">
                                     {favoriteTagIds.length}
@@ -300,7 +303,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                 </div>
                             ) : (
                                 <div className="text-center py-8 text-muted-foreground text-xs">
-                                    No tags available
+                                    {tr('trend.no_tags_available')}
                                 </div>
                             )}
                         </ScrollArea>
@@ -311,8 +314,8 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                             {favoriteTags.length === 0 ? (
                                 <div className="text-center py-8 text-muted-foreground text-xs">
                                     <Star className="w-9 sm:w-6 h-9 sm:h-6 mx-auto mb-2 text-muted" />
-                                    <p>No favorite tags yet</p>
-                                    <p className="text-[10px] mt-1">Star tags to add them here</p>
+                                    <p>{tr('trend.no_favorites')}</p>
+                                    <p className="text-[10px] mt-1">{tr('trend.no_favorites_hint')}</p>
                                 </div>
                             ) : (
                                 <div className="p-2 space-y-0.5">
@@ -338,6 +341,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                                     e.stopPropagation();
                                                     toggleFavoriteTag(tag.id);
                                                 }}
+                                                title={tr('trend.favorite_remove')}
                                             >
                                                 <X className="w-3 h-3" />
                                             </Button>

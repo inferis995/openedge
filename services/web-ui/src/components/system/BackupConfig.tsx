@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Trans, useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 // Byte sizes the way somebody reading a confirmation reads them. Exact figures
 // live in the audit log.
@@ -24,12 +26,12 @@ const formatBytes = (n: number): string => {
 };
 
 const SCHEDULES = [
-    { value: '0 3 * * *',    label: 'Daily at 03:00 UTC (recommended)' },
-    { value: '0 2 * * *',    label: 'Daily at 02:00 UTC' },
-    { value: '0 4 * * *',    label: 'Daily at 04:00 UTC' },
-    { value: '0 */6 * * *',  label: 'Every 6 hours' },
-    { value: '0 */12 * * *', label: 'Every 12 hours' },
-    { value: 'custom',       label: 'Custom (advanced)' },
+    { value: '0 3 * * *',    label: 'backup.sched_03' },
+    { value: '0 2 * * *',    label: 'backup.sched_02' },
+    { value: '0 4 * * *',    label: 'backup.sched_04' },
+    { value: '0 */6 * * *',  label: 'backup.sched_6h' },
+    { value: '0 */12 * * *', label: 'backup.sched_12h' },
+    { value: 'custom',       label: 'backup.sched_custom' },
 ];
 
 interface Props {
@@ -57,6 +59,7 @@ const actionColor = (action: string) => {
 };
 
 const BackupConfig = ({ initial, onSaved }: Props) => {
+    const { t } = useTranslation();
     const [enabled, setEnabled]           = useState(true);
     const [preset, setPreset]             = useState('0 3 * * *');
     const [customCron, setCustomCron]     = useState('0 3 * * *');
@@ -114,12 +117,12 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
         const errs: string[] = [];
         if (!enabled) return errs;
         const r = parseInt(retention, 10);
-        if (isNaN(r) || r < 1 || r > 3650) errs.push('Retention must be between 1 and 3650 days');
+        if (isNaN(r) || r < 1 || r > 3650) errs.push(t('backup.err_retention'));
         const cron = preset === 'custom' ? customCron : preset;
-        if (cron.trim().split(/\s+/).length !== 5) errs.push('Cron expression must have 5 fields');
-        if (s3Enabled && !s3Bucket) errs.push('S3 bucket name is required when S3 is enabled');
+        if (cron.trim().split(/\s+/).length !== 5) errs.push(t('backup.err_cron'));
+        if (s3Enabled && !s3Bucket) errs.push(t('backup.err_bucket'));
         return errs;
-    }, [enabled, retention, preset, customCron, s3Enabled, s3Bucket]);
+    }, [enabled, retention, preset, customCron, s3Enabled, s3Bucket, t]);
 
     // Runs the scheduled backup on demand. Deliberately the same code path the
     // scheduler uses: a button that exercised a copy of it would confirm
@@ -131,14 +134,14 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
             const r = await systemApi.runBackupNow();
             setToast({
                 kind: 'success',
-                text: `Backup written: ${r.filename} (${formatBytes(r.size_bytes)}), archive verified.`,
+                text: t('backup.run_ok', { file: r.filename, size: formatBytes(r.size_bytes) }),
             });
             onSaved?.();
         } catch (e: unknown) {
             // The server already logged, audited and notified this failure; the
             // operator pressed the button, so they get the reason on screen too.
             const detail = (e as { response?: { data?: { error?: string } } })?.response?.data?.error;
-            setToast({ kind: 'error', text: `Backup failed: ${detail ?? (e as Error)?.message ?? 'unknown error'}` });
+            setToast({ kind: 'error', text: t('backup.run_failed', { reason: detail ?? (e as Error)?.message ?? t('backup.unknown_error') }) });
         } finally {
             setRunning(false);
         }
@@ -163,10 +166,10 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
                     backup_s3_secret_key:  s3SecretKey.trim(),
                 },
             } as Parameters<typeof systemApi.updateSettings>[0]);
-            setToast({ kind: 'success', text: 'Saved. Restart the backup container to apply schedule / S3 changes.' });
+            setToast({ kind: 'success', text: t('backup.saved') });
             onSaved?.();
         } catch (e: unknown) {
-            setToast({ kind: 'error', text: `Save failed: ${(e as Error)?.message ?? 'unknown error'}` });
+            setToast({ kind: 'error', text: t('backup.save_failed', { reason: (e as Error)?.message ?? t('backup.unknown_error') }) });
         } finally {
             setSaving(false);
         }
@@ -181,15 +184,15 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
                             <HardDrive className="h-4 w-4 text-primary" />
                         </div>
                         <div>
-                            <CardTitle className="text-base text-foreground">Backup</CardTitle>
+                            <CardTitle className="text-base text-foreground">{t('backup.title')}</CardTitle>
                             <CardDescription className="text-xs mt-0.5">
-                                Scheduled PostgreSQL dumps · age encryption · SHA-256 integrity · optional S3/MinIO offsite
+                                {t('backup.desc')}
                             </CardDescription>
                         </div>
                     </div>
                     {enabled
-                        ? <Badge className="bg-emerald-500/10 text-emerald-500 border-none">Enabled</Badge>
-                        : <Badge className="bg-slate-500/10 text-slate-300 border-none">Disabled</Badge>}
+                        ? <Badge className="bg-emerald-500/10 text-emerald-500 border-none">{t('backup.enabled')}</Badge>
+                        : <Badge className="bg-slate-500/10 text-slate-300 border-none">{t('backup.disabled')}</Badge>}
                 </div>
             </CardHeader>
 
@@ -198,8 +201,8 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
                 <div className="flex items-center gap-3">
                     <Switch checked={enabled} onCheckedChange={setEnabled} />
                     <div className="text-sm">
-                        <p>Automatic backups</p>
-                        <p className="text-xs text-muted-foreground">When off, only manual exports are possible.</p>
+                        <p>{t('backup.auto')}</p>
+                        <p className="text-xs text-muted-foreground">{t('backup.auto_off')}</p>
                     </div>
                 </div>
 
@@ -209,12 +212,12 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="grid gap-1">
                                 <Label htmlFor="bk-preset" className="flex items-center gap-1">
-                                    <Clock size={12} /> Schedule
+                                    <Clock size={12} /> {t('backup.schedule')}
                                 </Label>
                                 <select id="bk-preset" value={preset}
                                     onChange={e => setPreset(e.target.value)}
                                     className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
-                                    {SCHEDULES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                                    {SCHEDULES.map(s => <option key={s.value} value={s.value}>{t(s.label)}</option>)}
                                 </select>
                                 {preset === 'custom'
                                     ? <Input value={customCron} onChange={e => setCustomCron(e.target.value)}
@@ -222,11 +225,11 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
                                     : <p className="text-xs text-muted-foreground">Cron: <code>{preset}</code></p>}
                             </div>
                             <div className="grid gap-1">
-                                <Label htmlFor="bk-retention">Retention (days)</Label>
+                                <Label htmlFor="bk-retention">{t('backup.retention')}</Label>
                                 <Input id="bk-retention" type="number" min={1} max={3650}
                                     value={retention} onChange={e => setRetention(e.target.value)} />
                                 <p className="text-xs text-muted-foreground">
-                                    Backups older than this are auto-pruned. 30 days recommended.
+                                    {t('backup.retention_hint')}
                                 </p>
                             </div>
                         </div>
@@ -234,17 +237,15 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
                         {/* Age encryption */}
                         <div className="space-y-2 rounded-md border p-3 bg-muted/20">
                             <div className="flex items-center gap-2 text-sm font-semibold">
-                                <ShieldCheck size={14} /> Encryption (age)
+                                <ShieldCheck size={14} /> {t('backup.encryption')}
                             </div>
                             <p className="text-xs text-muted-foreground">
-                                Set an <code>age</code> public key to encrypt every dump.
-                                Generate offline: <code>age-keygen -o age-key.txt</code>.
-                                Each backup automatically gets a <code>.sha256</code> sidecar for integrity verification.
+                                <Trans i18nKey="backup.encryption_hint" components={{ code: <code /> }} />
                             </p>
                             <Input value={ageRecipient} onChange={e => setAgeRecipient(e.target.value)}
                                 placeholder="age1..." className="font-mono text-xs" />
                             <p className="text-xs text-muted-foreground">
-                                Empty = plaintext dumps (acceptable when the backup directory is on an encrypted disk).
+                                {t('backup.encryption_empty')}
                             </p>
                         </div>
 
@@ -252,41 +253,40 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
                         <div className="space-y-3 rounded-md border p-3 bg-muted/20">
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2 text-sm font-semibold">
-                                    <Upload size={14} /> Offsite Storage (S3 / MinIO / R2)
+                                    <Upload size={14} /> {t('backup.offsite')}
                                 </div>
                                 <Switch checked={s3Enabled} onCheckedChange={setS3Enabled} />
                             </div>
                             {s3Enabled && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                                     <div className="grid gap-1">
-                                        <Label className="text-xs">Bucket *</Label>
+                                        <Label className="text-xs">{t('backup.bucket')}</Label>
                                         <Input value={s3Bucket} onChange={e => setS3Bucket(e.target.value)}
                                             placeholder="my-openedge-backups" className="text-xs" />
                                     </div>
                                     <div className="grid gap-1">
-                                        <Label className="text-xs">Region</Label>
+                                        <Label className="text-xs">{t('backup.region')}</Label>
                                         <Input value={s3Region} onChange={e => setS3Region(e.target.value)}
                                             placeholder="us-east-1" className="text-xs" />
                                     </div>
                                     <div className="grid gap-1 md:col-span-2">
-                                        <Label className="text-xs">Custom Endpoint (MinIO / Cloudflare R2 — leave empty for AWS)</Label>
+                                        <Label className="text-xs">{t('backup.endpoint')}</Label>
                                         <Input value={s3Endpoint} onChange={e => setS3Endpoint(e.target.value)}
                                             placeholder="http://minio:9000" className="text-xs" />
                                     </div>
                                     <div className="grid gap-1">
-                                        <Label className="text-xs">Access Key ID</Label>
+                                        <Label className="text-xs">{t('backup.access_key')}</Label>
                                         <Input value={s3AccessKey} onChange={e => setS3AccessKey(e.target.value)}
                                             placeholder="AKIA..." className="font-mono text-xs" />
                                     </div>
                                     <div className="grid gap-1">
-                                        <Label className="text-xs">Secret Access Key</Label>
+                                        <Label className="text-xs">{t('backup.secret_key')}</Label>
                                         <Input type="password" value={s3SecretKey}
                                             onChange={e => setS3SecretKey(e.target.value)}
                                             placeholder="••••••••" className="font-mono text-xs" />
                                     </div>
                                     <p className="md:col-span-2 text-xs text-muted-foreground">
-                                        After each scheduled backup, the dump and its <code>.sha256</code> sidecar are uploaded to S3.
-                                        Restart the backup container after saving to apply changes.
+                                        <Trans i18nKey="backup.offsite_hint" components={{ code: <code /> }} />
                                     </p>
                                 </div>
                             )}
@@ -305,11 +305,11 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
                 <div className="flex items-center gap-3 pt-2 border-t">
                     <Button onClick={handleSave} disabled={errors.length > 0 || saving || running}>
                         {saving && <Loader2 size={16} className="mr-2 animate-spin" />}
-                        {saving ? 'Saving…' : 'Save'}
+                        {saving ? t('backup.saving') : t('common.save')}
                     </Button>
                     <Button variant="outline" onClick={handleRunNow} disabled={saving || running}>
                         {running ? <Loader2 size={16} className="mr-2 animate-spin" /> : <PlayCircle size={16} className="mr-2" />}
-                        {running ? 'Running…' : 'Run backup now'}
+                        {running ? t('backup.running') : t('backup.run_now')}
                     </Button>
                     {toast && (
                         <span className={`text-sm flex items-center gap-1 ${
@@ -324,7 +324,7 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
                 <div className="border rounded-md overflow-hidden">
                     <button onClick={toggleAudit}
                         className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors bg-muted/10">
-                        <span>Audit Log</span>
+                        <span>{t('backup.audit')}</span>
                         {showAudit ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                     </button>
                     {showAudit && (
@@ -335,20 +335,20 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
                                 </div>
                             )}
                             {!auditLoading && audit.length === 0 && (
-                                <p className="text-xs text-muted-foreground text-center py-4">No audit events yet.</p>
+                                <p className="text-xs text-muted-foreground text-center py-4">{t('backup.audit_empty')}</p>
                             )}
                             {!auditLoading && audit.map(e => (
                                 <div key={e.id} className="flex items-start gap-2 px-3 py-2 border-b last:border-0 text-xs">
                                     <Badge className={`mt-0.5 shrink-0 text-[10px] border-none ${actionColor(e.action)}`}>
-                                        {e.action.replace(/_/g, ' ')}
+                                        {t(`backup.action.${e.action}`, { defaultValue: e.action.replace(/_/g, ' ') })}
                                     </Badge>
                                     <div className="min-w-0 flex-1">
                                         <p className="font-mono truncate text-foreground">{e.filename || '—'}</p>
                                         <p className="text-muted-foreground truncate">{e.details}</p>
                                     </div>
                                     <div className="text-right shrink-0 text-muted-foreground">
-                                        <p>{e.user_email || 'system'}</p>
-                                        <p>{new Date(e.created_at).toLocaleString()}</p>
+                                        <p>{e.user_email || t('backup.by_system')}</p>
+                                        <p>{new Date(e.created_at).toLocaleString(i18n.language)}</p>
                                     </div>
                                 </div>
                             ))}
@@ -357,7 +357,7 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
                 </div>
 
                 <p className="text-xs text-muted-foreground">
-                    💡 Schedule and S3 changes require a container restart:{' '}
+                    💡 {t('backup.restart_hint')}{' '}
                     <code>docker compose restart backup</code>
                 </p>
             </CardContent>

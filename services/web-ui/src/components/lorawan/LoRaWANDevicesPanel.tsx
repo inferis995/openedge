@@ -22,7 +22,8 @@ import {
 } from '@/components/ui/select';
 import { Radio, Download, Send, RefreshCw, CheckCircle2, Signal, Clock, ChevronDown } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { it, enUS } from 'date-fns/locale';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   gatewayId: number;
@@ -49,6 +50,7 @@ const guessType = (value: string, fieldName: string): 'REAL' | 'INT' | 'BOOL' | 
 };
 
 export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: Props) {
+  const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const [importState, setImportState] = useState<Record<string, Record<string, FieldImportState>>>({});
   const [downlinkDevice, setDownlinkDevice] = useState<LoRaWANDevice | null>(null);
@@ -151,10 +153,10 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
           <DialogHeader className="px-6 pt-6 pb-4 border-b">
             <DialogTitle className="flex items-center gap-2">
               <Radio size={18} className="text-violet-500" />
-              Dispositivi LoRaWAN — {gatewayName}
+              {t('lorawan.title', { gateway: gatewayName })}
             </DialogTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              I device vengono scoperti automaticamente quando inviano il primo uplink. Seleziona i campi da importare come tag OpenEdge.
+              {t('lorawan.subtitle')}
             </p>
           </DialogHeader>
 
@@ -162,13 +164,13 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
             {isLoading ? (
               <div className="flex items-center justify-center py-16 text-muted-foreground">
                 <RefreshCw size={20} className="animate-spin mr-2" />
-                Caricamento dispositivi...
+                {t('lorawan.loading')}
               </div>
             ) : devices.length === 0 ? (
               <div className="text-center py-16 space-y-3">
                 <Radio size={40} className="mx-auto text-muted-foreground opacity-30" />
-                <p className="text-muted-foreground">Nessun dispositivo rilevato ancora.</p>
-                <p className="text-xs text-muted-foreground">Il driver raccoglie automaticamente i device non appena inviano il primo uplink al network server.</p>
+                <p className="text-muted-foreground">{t('lorawan.empty_title')}</p>
+                <p className="text-xs text-muted-foreground">{t('lorawan.empty_desc')}</p>
               </div>
             ) : (
               <div className="space-y-2">
@@ -197,27 +199,27 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
                             <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
                               <span className="flex items-center gap-1">
                                 <Clock size={10} />
-                                {formatDistanceToNow(new Date(dev.last_seen), { addSuffix: true, locale: it })}
+                                {formatDistanceToNow(new Date(dev.last_seen), { addSuffix: true, locale: i18n.language.startsWith('it') ? it : enUS })}
                               </span>
                               <span className={`flex items-center gap-1 ${signalColor(dev.last_rssi)}`}>
                                 <Signal size={10} />
                                 {dev.last_rssi !== null ? `${dev.last_rssi} dBm` : '—'}
                               </span>
-                              <span>{dev.uplink_count} uplink</span>
+                              <span>{t('lorawan.uplinks', { count: dev.uplink_count })}</span>
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             {alreadyImported > 0 && (
                               <Badge variant="secondary" className="text-[10px]">
                                 <CheckCircle2 size={9} className="mr-1 text-emerald-500" />
-                                {alreadyImported} importati
+                                {t('lorawan.imported_count', { count: alreadyImported })}
                               </Badge>
                             )}
                             {selectedCount > 0 && (
-                              <Badge className="text-[10px] bg-violet-600">{selectedCount} selezionati</Badge>
+                              <Badge className="text-[10px] bg-violet-600">{t('lorawan.selected_count', { count: selectedCount })}</Badge>
                             )}
                             <Badge variant="outline" className="text-[10px]">
-                              {Object.keys(dev.available_fields).length} campi
+                              {t('lorawan.fields_count', { count: Object.keys(dev.available_fields).length })}
                             </Badge>
                           </div>
                         </div>
@@ -230,10 +232,10 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
                           <div className="space-y-1.5 mt-3 mb-3">
                             <div className="grid grid-cols-[auto_1fr_120px_100px_auto] gap-2 text-[10px] uppercase tracking-widest text-muted-foreground px-1 pb-1 border-b">
                               <span className="w-5" />
-                              <span>Campo / Alias</span>
-                              <span>Tipo</span>
-                              <span>Ultimo valore</span>
-                              <span>Hist.</span>
+                              <span>{t('lorawan.col_field')}</span>
+                              <span>{t('lorawan.col_type')}</span>
+                              <span>{t('lorawan.col_last_value')}</span>
+                              <span title={t('lorawan.col_historize_full')}>{t('lorawan.col_historize')}</span>
                             </div>
                             {Object.entries(dev.available_fields).map(([field, exampleVal]) => {
                               const fs = devState[field];
@@ -272,7 +274,7 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
                                     </SelectContent>
                                   </Select>
                                   <span className="text-xs font-mono truncate text-muted-foreground">
-                                    {alreadyTag ? <span className="text-emerald-500">✓ importato</span> : exampleVal}
+                                    {alreadyTag ? <span className="text-emerald-500">✓ {t('lorawan.imported')}</span> : exampleVal}
                                   </span>
                                   <Switch
                                     checked={fs.historize}
@@ -296,7 +298,7 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
                               className="h-9 sm:h-7 text-xs gap-1"
                               onClick={() => setDownlinkDevice(dev)}>
                               <Send size={11} />
-                              Invia Downlink
+                              {t('lorawan.send_downlink')}
                             </Button>
                           </div>
                         </div>
@@ -318,15 +320,15 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
           <DialogFooter className="px-6 py-4 border-t gap-2">
             <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1 mr-auto">
               <RefreshCw size={13} />
-              Aggiorna
+              {t('lorawan.refresh')}
             </Button>
-            <Button variant="outline" onClick={onClose}>Chiudi</Button>
+            <Button variant="outline" onClick={onClose}>{t('common.close')}</Button>
             <Button
               onClick={() => { setImportResult(null); importMutation.mutate(); }}
               disabled={totalSelected === 0 || importMutation.isPending}
               className="gap-1 bg-violet-600 hover:bg-violet-700 text-white">
               {importMutation.isPending ? <RefreshCw size={13} className="animate-spin" /> : <Download size={13} />}
-              Importa {totalSelected > 0 ? `${totalSelected} tag` : 'tag selezionati'}
+              {totalSelected > 0 ? t('lorawan.import_n', { count: totalSelected }) : t('lorawan.import_selected')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -343,14 +345,14 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-1">
-              <Label className="text-xs">Payload (HEX)</Label>
+              <Label className="text-xs">{t('lorawan.payload')}</Label>
               <Input
                 value={dlPayload}
                 onChange={e => setDlPayload(e.target.value.replace(/[^0-9a-fA-F\s]/g, ''))}
-                placeholder="01 02 FF (senza 0x)"
+                placeholder={t('lorawan.payload_placeholder')}
                 className="font-mono text-sm"
               />
-              <p className="text-[10px] text-muted-foreground">Byte in formato esadecimale, es: <code>0101</code> = 2 byte</p>
+              <p className="text-[10px] text-muted-foreground">{t('lorawan.payload_help')} <code>0101</code> = {t('lorawan.payload_help_bytes', { count: 2 })}</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
@@ -364,25 +366,25 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Confirmed</Label>
+                <Label className="text-xs">{t('lorawan.confirmed')}</Label>
                 <div className="flex items-center gap-2 h-9">
                   <Switch checked={dlConfirmed} onCheckedChange={setDlConfirmed} />
-                  <span className="text-xs text-muted-foreground">{dlConfirmed ? 'ACK richiesto' : 'Unconfirmed'}</span>
+                  <span className="text-xs text-muted-foreground">{dlConfirmed ? t('lorawan.ack_required') : t('lorawan.unconfirmed')}</span>
                 </div>
               </div>
             </div>
             <div className="p-2 rounded bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-300">
-              Il downlink viene accodato sul network server (TTN/ChirpStack) e consegnato al device al prossimo uplink.
+              {t('lorawan.downlink_note')}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDownlinkDevice(null)}>Annulla</Button>
+            <Button variant="outline" onClick={() => setDownlinkDevice(null)}>{t('common.cancel')}</Button>
             <Button
               disabled={!dlPayload.trim() || downlinkMutation.isPending}
               onClick={() => downlinkMutation.mutate()}
               className="gap-1 bg-violet-600 hover:bg-violet-700 text-white">
               {downlinkMutation.isPending ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
-              Invia
+              {t('lorawan.send')}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { SynopticWidgetView } from '@/components/synoptics/SynopticWidget';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
+import { useTranslation } from 'react-i18next';
 
 // Scope of the currently selected tree node — drives the right-hand panel and
 // pre-fills the "new synoptic" dialog so a page is filed under the right line.
@@ -74,6 +75,7 @@ function SynopticThumb({ s, h = 130 }: { s: Synoptic; h?: number }) {
 }
 
 const SynopticsPage = () => {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const { isAdmin } = useAuthStore();
     const { selectedOrgId } = useNavigationStore();
@@ -169,25 +171,25 @@ const SynopticsPage = () => {
     };
 
     if (isLoading) {
-        return <div className="p-8 text-center text-muted-foreground">Caricamento sinottici...</div>;
+        return <div className="p-8 text-center text-muted-foreground">{t('synopticsPage.loading')}</div>;
     }
 
     const scopeTitle = (): string => {
-        if (scope.kind === 'all') return 'Tutti i sinottici';
-        if (scope.kind === 'general') return 'Generali (senza linea)';
-        if (scope.kind === 'site') return sites.find(s => s.id === scope.siteId)?.name || 'Sito';
-        return areas.find(a => a.id === scope.areaId)?.name || 'Area';
+        if (scope.kind === 'all') return t('synopticsPage.all');
+        if (scope.kind === 'general') return t('synopticsPage.general_long');
+        if (scope.kind === 'site') return sites.find(s => s.id === scope.siteId)?.name || t('common.site');
+        return areas.find(a => a.id === scope.areaId)?.name || t('common.area');
     };
 
     return (
         <div className="space-y-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight">Sinottici</h2>
-                    <p className="text-muted-foreground">Mimici SCADA organizzati per impianto, sito e linea.</p>
+                    <h2 className="text-2xl font-bold tracking-tight">{t('nav.synoptics')}</h2>
+                    <p className="text-muted-foreground">{t('synopticsPage.subtitle')}</p>
                 </div>
                 {isAdmin() && (
-                    <Button className="gap-2" onClick={openCreate}><Plus size={16} /> Nuovo sinottico</Button>
+                    <Button className="gap-2" onClick={openCreate}><Plus size={16} /> {t('synopticsPage.new')}</Button>
                 )}
             </div>
 
@@ -195,7 +197,7 @@ const SynopticsPage = () => {
                 {/* Work tree */}
                 <Card className="h-fit">
                     <CardContent className="p-2">
-                        <TreeRow label="Tutti i sinottici" depth={0} active={scope.kind === 'all'}
+                        <TreeRow label={t('synopticsPage.all')} depth={0} active={scope.kind === 'all'}
                             count={items.length} icon={<LayoutTemplate size={15} className="text-muted-foreground" />}
                             onClick={() => setScope({ kind: 'all' })} />
 
@@ -223,7 +225,7 @@ const SynopticsPage = () => {
                             );
                         })}
 
-                        <TreeRow label="Generali" depth={0} active={scope.kind === 'general'}
+                        <TreeRow label={t('synopticsPage.general')} depth={0} active={scope.kind === 'general'}
                             count={countFor({ kind: 'general' })}
                             icon={<Folder size={15} className="text-muted-foreground" />}
                             onClick={() => setScope({ kind: 'general' })} />
@@ -235,10 +237,10 @@ const SynopticsPage = () => {
                     <div className="flex items-center gap-2 text-sm text-muted-foreground px-1">
                         <FolderOpen size={16} />
                         <span className="font-medium text-foreground">{scopeTitle()}</span>
-                        <span>· {visibleItems.length} pagine</span>
+                        <span>· {t('synopticsPage.page_count', { count: visibleItems.length })}</span>
                         {isAdmin() && (
                             <Button variant="ghost" size="sm" className="ml-auto h-9 sm:h-7 gap-1 text-xs" onClick={openCreate}>
-                                <Plus size={14} /> Aggiungi qui
+                                <Plus size={14} /> {t('synopticsPage.add_here')}
                             </Button>
                         )}
                     </div>
@@ -247,7 +249,7 @@ const SynopticsPage = () => {
                         <Card>
                             <CardContent className="py-16 flex flex-col items-center text-center gap-3 text-muted-foreground">
                                 <LayoutTemplate size={40} className="opacity-40" />
-                                <p>Nessuna pagina sinottico in questo nodo.{isAdmin() && ' Aggiungine una con "Aggiungi qui".'}</p>
+                                <p>{t('synopticsPage.empty')}{isAdmin() && ` ${t('synopticsPage.empty_admin_hint')}`}</p>
                             </CardContent>
                         </Card>
                     ) : (
@@ -260,18 +262,18 @@ const SynopticsPage = () => {
                                     <CardContent className="p-3 flex items-center justify-between gap-2">
                                         <div className="min-w-0">
                                             <p className="font-semibold truncate">{s.name}</p>
-                                            <p className="text-xs text-muted-foreground truncate">{s.description || `${(s.layout || []).length} widget`}</p>
+                                            <p className="text-xs text-muted-foreground truncate">{s.description || t('synopticsPage.widget_count', { count: (s.layout || []).length })}</p>
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0">
-                                            <Button variant="ghost" size="icon" className="h-10 sm:h-8 w-10 sm:w-8" title="Visualizza" onClick={(e) => { e.stopPropagation(); navigate(`/synoptics/${s.id}`); }}>
+                                            <Button variant="ghost" size="icon" className="h-10 sm:h-8 w-10 sm:w-8" title={t('synopticsPage.view')} onClick={(e) => { e.stopPropagation(); navigate(`/synoptics/${s.id}`); }}>
                                                 <Monitor size={16} />
                                             </Button>
                                             {isAdmin() && (
                                                 <>
-                                                    <Button variant="ghost" size="icon" className="h-10 sm:h-8 w-10 sm:w-8" title="Modifica" onClick={(e) => { e.stopPropagation(); navigate(`/synoptics/${s.id}/edit`); }}>
+                                                    <Button variant="ghost" size="icon" className="h-10 sm:h-8 w-10 sm:w-8" title={t('common.edit')} onClick={(e) => { e.stopPropagation(); navigate(`/synoptics/${s.id}/edit`); }}>
                                                         <Pencil size={16} />
                                                     </Button>
-                                                    <Button variant="ghost" size="icon" className="h-10 sm:h-8 w-10 sm:w-8 text-destructive hover:text-destructive hover:bg-destructive/10" title="Elimina" onClick={(e) => handleDelete(e, s.id)}>
+                                                    <Button variant="ghost" size="icon" className="h-10 sm:h-8 w-10 sm:w-8 text-destructive hover:text-destructive hover:bg-destructive/10" title={t('common.delete')} onClick={(e) => handleDelete(e, s.id)}>
                                                         <Trash2 size={16} />
                                                     </Button>
                                                 </>
@@ -288,40 +290,40 @@ const SynopticsPage = () => {
             {/* Create dialog */}
             <Dialog open={isOpen} onOpenChange={setIsOpen}>
                 <DialogContent>
-                    <DialogHeader><DialogTitle>Nuovo sinottico</DialogTitle></DialogHeader>
+                    <DialogHeader><DialogTitle>{t('synopticsPage.new')}</DialogTitle></DialogHeader>
                     <div className="grid gap-4 py-2">
                         <div className="grid gap-2">
-                            <Label htmlFor="syn-name">Nome</Label>
-                            <Input id="syn-name" value={name} onChange={e => setName(e.target.value)} placeholder="es. Overview" />
+                            <Label htmlFor="syn-name">{t('common.name')}</Label>
+                            <Input id="syn-name" value={name} onChange={e => setName(e.target.value)} placeholder={t('synopticsPage.name_placeholder')} />
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="syn-desc">Descrizione</Label>
-                            <Input id="syn-desc" value={description} onChange={e => setDescription(e.target.value)} placeholder="opzionale" />
+                            <Label htmlFor="syn-desc">{t('synopticsPage.description')}</Label>
+                            <Input id="syn-desc" value={description} onChange={e => setDescription(e.target.value)} placeholder={t('synopticsPage.optional')} />
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="grid gap-2">
-                                <Label className="text-xs">Sito</Label>
+                                <Label className="text-xs">{t('common.site')}</Label>
                                 <Select value={formSiteId} onValueChange={(v) => { setFormSiteId(v); setFormAreaId('none'); }}>
-                                    <SelectTrigger><SelectValue placeholder="Sito" /></SelectTrigger>
+                                    <SelectTrigger><SelectValue placeholder={t('common.site')} /></SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="none">Nessuno</SelectItem>
+                                        <SelectItem value="none">{t('synopticsPage.none_site')}</SelectItem>
                                         {sites.map(s => <SelectItem key={s.id} value={String(s.id)}>{s.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
                             </div>
                             <div className="grid gap-2">
-                                <Label className="text-xs">Linea / Area</Label>
+                                <Label className="text-xs">{t('synopticsPage.line_area')}</Label>
                                 <Select value={formAreaId} onValueChange={setFormAreaId} disabled={formSiteId === 'none'}>
-                                    <SelectTrigger><SelectValue placeholder="Area" /></SelectTrigger>
+                                    <SelectTrigger><SelectValue placeholder={t('common.area')} /></SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="none">Nessuna</SelectItem>
+                                        <SelectItem value="none">{t('synopticsPage.none_area')}</SelectItem>
                                         {(areasBySite.get(Number(formSiteId)) || []).map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
                                     </SelectContent>
                                 </Select>
                             </div>
                         </div>
                     </div>
-                    <DialogFooter><Button onClick={handleCreate}>Crea e apri designer</Button></DialogFooter>
+                    <DialogFooter><Button onClick={handleCreate}>{t('synopticsPage.create_open')}</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
         </div>

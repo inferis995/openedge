@@ -5,9 +5,11 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { invitesApi } from '@/api/invites';
 import { CheckCircle, Loader2, ShieldCheck } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export default function AcceptInvitePage() {
     const navigate = useNavigate();
+    const { t } = useTranslation();
     const [searchParams] = useSearchParams();
     const token = searchParams.get('token') ?? '';
 
@@ -21,15 +23,15 @@ export default function AcceptInvitePage() {
         setError('');
 
         if (!token) {
-            setError('Invalid invite link — missing token.');
+            setError(t('acceptInvite.missing_token'));
             return;
         }
         if (form.password !== form.confirmPassword) {
-            setError('Passwords do not match.');
+            setError(t('acceptInvite.mismatch'));
             return;
         }
         if (form.password.length < 12) {
-            setError('Password must be at least 12 characters.');
+            setError(t('acceptInvite.too_short'));
             return;
         }
 
@@ -44,7 +46,7 @@ export default function AcceptInvitePage() {
             setDone(true);
         } catch (err: unknown) {
             const axiosErr = err as { response?: { data?: { error?: string } } };
-            const msg = axiosErr?.response?.data?.error || 'Failed to create account. The invite may be expired or already used.';
+            const msg = axiosErr?.response?.data?.error || t('acceptInvite.failed');
             setError(msg);
         } finally {
             setLoading(false);
@@ -55,8 +57,8 @@ export default function AcceptInvitePage() {
         return (
             <div className="min-h-screen flex items-center justify-center bg-background p-4">
                 <div className="max-w-md w-full text-center space-y-4">
-                    <p className="text-destructive font-medium">Invalid invite link.</p>
-                    <Button variant="outline" onClick={() => navigate('/login')}>Go to login</Button>
+                    <p className="text-destructive font-medium">{t('acceptInvite.invalid_link')}</p>
+                    <Button variant="outline" onClick={() => navigate('/login')}>{t('acceptInvite.go_login')}</Button>
                 </div>
             </div>
         );
@@ -67,11 +69,11 @@ export default function AcceptInvitePage() {
             <div className="min-h-screen flex items-center justify-center bg-background p-4">
                 <div className="max-w-md w-full text-center space-y-4">
                     <CheckCircle size={48} className="mx-auto text-green-500" />
-                    <h1 className="text-2xl font-bold">Account created!</h1>
+                    <h1 className="text-2xl font-bold">{t('acceptInvite.done_title')}</h1>
                     <p className="text-muted-foreground">
-                        Your account <strong>{form.username}</strong> is ready. You can now log in.
+                        {t('acceptInvite.done_before')}<strong>{form.username}</strong>{t('acceptInvite.done_after')}
                     </p>
-                    <Button onClick={() => navigate('/login')}>Go to login</Button>
+                    <Button onClick={() => navigate('/login')}>{t('acceptInvite.go_login')}</Button>
                 </div>
             </div>
         );
@@ -87,9 +89,9 @@ export default function AcceptInvitePage() {
                             <ShieldCheck size={28} className="text-primary" />
                         </div>
                     </div>
-                    <h1 className="text-2xl font-bold tracking-tight">Create your account</h1>
+                    <h1 className="text-2xl font-bold tracking-tight">{t('acceptInvite.title')}</h1>
                     <p className="text-muted-foreground text-sm">
-                        You've been invited to OpenEdge. Set your credentials to get started.
+                        {t('acceptInvite.subtitle')}
                     </p>
                 </div>
 
@@ -97,10 +99,10 @@ export default function AcceptInvitePage() {
                 <div className="rounded-xl border bg-card p-6 shadow-sm space-y-5">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="space-y-1.5">
-                            <Label htmlFor="full_name">Full name <span className="text-muted-foreground">(optional)</span></Label>
+                            <Label htmlFor="full_name">{t('acceptInvite.full_name')} <span className="text-muted-foreground">{t('acceptInvite.optional')}</span></Label>
                             <Input
                                 id="full_name"
-                                placeholder="John Smith"
+                                placeholder={t('acceptInvite.full_name_placeholder')}
                                 value={form.full_name}
                                 onChange={(e) => setForm((f) => ({ ...f, full_name: e.target.value }))}
                                 autoComplete="name"
@@ -108,10 +110,10 @@ export default function AcceptInvitePage() {
                         </div>
 
                         <div className="space-y-1.5">
-                            <Label htmlFor="username">Username</Label>
+                            <Label htmlFor="username">{t('acceptInvite.username')}</Label>
                             <Input
                                 id="username"
-                                placeholder="jsmith"
+                                placeholder={t('acceptInvite.username_placeholder')}
                                 value={form.username}
                                 onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}
                                 autoComplete="username"
@@ -121,11 +123,11 @@ export default function AcceptInvitePage() {
                         </div>
 
                         <div className="space-y-1.5">
-                            <Label htmlFor="password">Password</Label>
+                            <Label htmlFor="password">{t('acceptInvite.password')}</Label>
                             <Input
                                 id="password"
                                 type="password"
-                                placeholder="Min. 6 characters"
+                                placeholder={t('acceptInvite.password_placeholder')}
                                 value={form.password}
                                 onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
                                 autoComplete="new-password"
@@ -135,11 +137,11 @@ export default function AcceptInvitePage() {
                         </div>
 
                         <div className="space-y-1.5">
-                            <Label htmlFor="confirm">Confirm password</Label>
+                            <Label htmlFor="confirm">{t('acceptInvite.confirm_password')}</Label>
                             <Input
                                 id="confirm"
                                 type="password"
-                                placeholder="Repeat password"
+                                placeholder={t('acceptInvite.confirm_placeholder')}
                                 value={form.confirmPassword}
                                 onChange={(e) => setForm((f) => ({ ...f, confirmPassword: e.target.value }))}
                                 autoComplete="new-password"
@@ -155,18 +157,18 @@ export default function AcceptInvitePage() {
 
                         <Button type="submit" className="w-full" disabled={loading}>
                             {loading && <Loader2 size={15} className="mr-2 animate-spin" />}
-                            {loading ? 'Creating account…' : 'Create account'}
+                            {loading ? t('acceptInvite.creating') : t('acceptInvite.submit')}
                         </Button>
                     </form>
 
                     <p className="text-center text-xs text-muted-foreground">
-                        Already have an account?{' '}
+                        {t('acceptInvite.have_account')}{' '}
                         <button
                             type="button"
                             className="underline hover:text-foreground transition-colors"
                             onClick={() => navigate('/login')}
                         >
-                            Sign in
+                            {t('acceptInvite.sign_in')}
                         </button>
                     </p>
                 </div>

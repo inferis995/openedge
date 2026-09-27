@@ -14,6 +14,7 @@ import { edgeAgentsApi, EdgeAgent, EdgeAgentScope } from '@/api/edgeAgents';
 import { showApiSuccess, showApiError } from '@/lib/api-error-handler';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
+import { useTranslation } from 'react-i18next';
 
 // Una scatola che non si fa sentire da più di tanto è considerata offline.
 // Il suo heartbeat parte ogni 30 secondi.
@@ -30,6 +31,7 @@ interface Props {
 // gateway sono del server, quanti di ciascuna scatola, e soprattutto se ce ne
 // sono che non interroga nessuno.
 export default function EdgeBoxesPanel({ orgId }: Props) {
+    const { t } = useTranslation();
     const qc = useQueryClient();
     const key = ['edge-agents', orgId];
 
@@ -48,22 +50,22 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: key });
             setEditing(null);
-            showApiSuccess('Scatola aggiornata');
+            showApiSuccess(t('edgeBoxes.updated'));
         },
-        onError: (e) => showApiError(e, 'Aggiornamento non riuscito'),
+        onError: (e) => showApiError(e, t('edgeBoxes.update_failed')),
     });
 
     const remove = useMutation({
         mutationFn: (id: number) => edgeAgentsApi.remove(orgId, id),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: key });
-            showApiSuccess('Scatola rimossa', 'La sua chiave è revocata e i suoi gateway tornano al server.');
+            showApiSuccess(t('edgeBoxes.removed'), t('edgeBoxes.removed_desc'));
         },
-        onError: (e) => showApiError(e, 'Rimozione non riuscita'),
+        onError: (e) => showApiError(e, t('edgeBoxes.remove_failed')),
     });
 
     if (isLoading || !data) {
-        return <p className="text-xs text-muted-foreground">Caricamento scatole…</p>;
+        return <p className="text-xs text-muted-foreground">{t('edgeBoxes.loading')}</p>;
     }
 
     const online = (a: EdgeAgent) =>
@@ -75,16 +77,14 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
             <div className="flex items-start gap-3 rounded-lg border p-3">
                 <Server size={16} className="mt-0.5 text-muted-foreground" />
                 <div className="text-sm">
-                    <p className="font-medium">Server</p>
+                    <p className="font-medium">{t('edgeBoxes.server')}</p>
                     {data.server_polls ? (
                         <p className="text-xs text-muted-foreground">
-                            Interroga direttamente {data.server_gateways} gateway — quelli che non hai
-                            assegnato a nessuna scatola.
+                            {t('edgeBoxes.server_polls', { count: data.server_gateways })}
                         </p>
                     ) : (
                         <p className="text-xs text-muted-foreground">
-                            Non interroga PLC (nessun driver-manager attivo sul server, tipico di un
-                            server in cloud).
+                            {t('edgeBoxes.server_no_poll')}
                         </p>
                     )}
                 </div>
@@ -94,27 +94,25 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
                 <div className="flex items-start gap-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-3 text-xs">
                     <AlertTriangle size={14} className="mt-0.5 text-amber-600" />
                     <span>
-                        <strong>{data.unpolled_gateways} gateway non li interroga nessuno.</strong>{' '}
-                        Assegnali a una scatola dalla pagina Gateway, oppure imposta una scatola su
-                        "tutti i non assegnati".
+                        <strong>{t('edgeBoxes.unpolled', { count: data.unpolled_gateways })}</strong>{' '}
+                        {t('edgeBoxes.unpolled_hint')}
                     </span>
                 </div>
             )}
 
             {data.agents.length === 0 ? (
                 <p className="text-xs text-muted-foreground">
-                    Nessuna scatola installata. Non serve, se il server raggiunge tutti i PLC: una
-                    scatola va messa solo vicino ai PLC che il server non raggiunge.
+                    {t('edgeBoxes.empty')}
                 </p>
             ) : (
                 <div className="rounded-lg border overflow-x-auto">
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Scatola</TableHead>
-                                <TableHead>Stato</TableHead>
-                                <TableHead>Interroga</TableHead>
-                                <TableHead className="text-right">Gateway</TableHead>
+                                <TableHead>{t('edgeBoxes.col_box')}</TableHead>
+                                <TableHead>{t('edgeBoxes.col_status')}</TableHead>
+                                <TableHead>{t('edgeBoxes.col_polls')}</TableHead>
+                                <TableHead className="text-right">{t('common.gateway')}</TableHead>
                                 <TableHead />
                             </TableRow>
                         </TableHeader>
@@ -128,13 +126,13 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
                                                     value={draftName}
                                                     onChange={(e) => setDraftName(e.target.value)}
                                                     className="h-8"
-                                                    aria-label="Nome della scatola"
+                                                    aria-label={t('edgeBoxes.name_aria')}
                                                 />
-                                                <Button size="icon" variant="ghost" aria-label="Salva nome"
+                                                <Button size="icon" variant="ghost" aria-label={t('edgeBoxes.save_name')}
                                                     onClick={() => update.mutate({ id: a.id, name: draftName })}>
                                                     <Check size={14} />
                                                 </Button>
-                                                <Button size="icon" variant="ghost" aria-label="Annulla"
+                                                <Button size="icon" variant="ghost" aria-label={t('common.cancel')}
                                                     onClick={() => setEditing(null)}>
                                                     <X size={14} />
                                                 </Button>
@@ -142,7 +140,7 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
                                         ) : (
                                             <div className="flex items-center gap-1">
                                                 <span className="font-medium">{a.name}</span>
-                                                <Button size="icon" variant="ghost" aria-label="Rinomina"
+                                                <Button size="icon" variant="ghost" aria-label={t('edgeBoxes.rename')}
                                                     onClick={() => { setEditing(a.id); setDraftName(a.name); }}>
                                                     <Pencil size={12} />
                                                 </Button>
@@ -154,10 +152,10 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
                                     </TableCell>
                                     <TableCell>
                                         {online(a) ? (
-                                            <Badge variant="outline" className="border-green-500 text-green-600">Online</Badge>
+                                            <Badge variant="outline" className="border-green-500 text-green-600">{t('edgeBoxes.online')}</Badge>
                                         ) : (
                                             <Badge variant="outline" className="text-muted-foreground">
-                                                {a.last_seen_at ? 'Offline' : 'Mai collegata'}
+                                                {a.last_seen_at ? t('edgeBoxes.offline') : t('edgeBoxes.never_seen')}
                                             </Badge>
                                         )}
                                     </TableCell>
@@ -166,18 +164,18 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
                                             value={a.scope}
                                             onValueChange={(v) => update.mutate({ id: a.id, scope: v as EdgeAgentScope })}
                                         >
-                                            <SelectTrigger className="h-8" aria-label="Cosa interroga">
+                                            <SelectTrigger className="h-8" aria-label={t('edgeBoxes.scope_aria')}>
                                                 <SelectValue />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="assigned">Solo i gateway assegnati</SelectItem>
-                                                <SelectItem value="all">Anche tutti i non assegnati</SelectItem>
+                                                <SelectItem value="assigned">{t('edgeBoxes.scope_assigned')}</SelectItem>
+                                                <SelectItem value="all">{t('edgeBoxes.scope_all')}</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </TableCell>
                                     <TableCell className="text-right tabular-nums">{a.gateways}</TableCell>
                                     <TableCell className="text-right">
-                                        <Button size="icon" variant="ghost" aria-label="Rimuovi scatola"
+                                        <Button size="icon" variant="ghost" aria-label={t('edgeBoxes.remove_aria')}
                                             onClick={async () => {
                                                 if (await confirmAction({ title: i18n.t('ask.remove_box', { name: a.name }), description: i18n.t('ask.remove_box_desc', { count: a.gateways }), confirmLabel: i18n.t('ask.remove'), destructive: true })) {
                                                     remove.mutate(a.id);
@@ -193,8 +191,7 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
                 </div>
             )}
             <p className="text-[11px] text-muted-foreground">
-                "Anche tutti i non assegnati" serve quando il server è in cloud e non interroga
-                niente: una sola scatola per organizzazione può averlo.
+                {t('edgeBoxes.scope_all_hint')}
             </p>
         </div>
     );

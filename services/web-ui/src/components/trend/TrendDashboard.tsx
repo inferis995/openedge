@@ -8,6 +8,7 @@ import { historyApi, TagStats } from '@/api/history';
 import { useQueries } from '@tanstack/react-query';
 import { Loader2, Plus, BarChart3, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useTranslation } from 'react-i18next';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 
@@ -42,6 +43,7 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
     realtimeValues,
     refreshTrigger = 0,
 }) => {
+    const { t: tr } = useTranslation();
     const {
         charts,
         activeChartId,
@@ -358,10 +360,10 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                     </svg>
                 </div>
-                <p className="text-sm text-muted-foreground mb-3">No charts created</p>
+                <p className="text-sm text-muted-foreground mb-3">{tr('trend.no_charts')}</p>
                 <Button onClick={handleAddChart} size="sm" className="gap-1">
                     <Plus className="w-4 h-4" />
-                    Add Chart
+                    {tr('trend.add_chart_long')}
                 </Button>
             </div>
         );
@@ -372,7 +374,7 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
             {isLoading && (
                 <div className="absolute top-2 right-2 z-10 bg-card/90 px-2 py-1 rounded shadow text-xs text-muted-foreground flex items-center gap-1">
                     <Loader2 className="w-3 h-3 animate-spin" />
-                    Loading...
+                    {tr('common.loading')}
                 </div>
             )}
 
@@ -414,7 +416,7 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
                     >
                         <BarChart3 className="w-3.5 h-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
                         <span className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors">
-                            Tag Statistics
+                            {tr('trend.tag_statistics')}
                         </span>
                         <span className="text-[10px] text-muted-foreground font-normal bg-muted px-1.5 py-0.5 rounded">
                             {allTagsWithColors.length}
@@ -454,7 +456,7 @@ export const TrendDashboard: React.FC<TrendDashboardProps> = ({
                 className="fixed bottom-20 right-6 gap-1 z-20 shadow-md"
             >
                 <Plus className="w-4 h-4" />
-                Add Chart
+                {tr('trend.add_chart_long')}
             </Button>
         </div>
     );

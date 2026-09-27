@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Building2, MapPin, Gauge, Loader2 } from 'lucide-react';
 
 import { oeeApi, OEEHierarchyNode } from '@/api/dashboard';
@@ -57,6 +58,7 @@ const HierarchyNode = ({ node, level = 0 }: { node: OEEHierarchyNode; level?: nu
 };
 
 export const OEEHierarchyView = () => {
+    const { t } = useTranslation();
     const { data, isLoading } = useQuery({
         queryKey: ['oee-hierarchy'],
         queryFn: oeeApi.hierarchy,
@@ -67,18 +69,17 @@ export const OEEHierarchyView = () => {
         <Card>
             <CardHeader className="pb-3">
                 <CardTitle className="text-base flex items-center gap-2">
-                    <Building2 size={16} /> Gerarchia Site → Area → Profile
+                    <Building2 size={16} /> {t('oee.hierarchy_title')}
                 </CardTitle>
             </CardHeader>
             <CardContent>
                 {isLoading ? (
                     <div className="py-8 text-center text-sm text-muted-foreground">
-                        <Loader2 className="inline animate-spin mr-2" />Caricamento…
+                        <Loader2 className="inline animate-spin mr-2" />{t('common.loading')}
                     </div>
                 ) : !data || ((data.sites?.length ?? 0) === 0 && !data.unassigned) ? (
                     <div className="py-12 text-center text-sm text-muted-foreground border border-dashed rounded-md">
-                        Nessun profilo abilitato. Crea profili e assegnali a un'area
-                        per popolare la gerarchia.
+                        {t('oee.hierarchy_empty')}
                     </div>
                 ) : (
                     <div className="space-y-2">
@@ -87,7 +88,7 @@ export const OEEHierarchyView = () => {
                         ))}
                         {data.unassigned && (
                             <>
-                                <div className="text-xs text-muted-foreground mt-4 mb-1">Profili senza area:</div>
+                                <div className="text-xs text-muted-foreground mt-4 mb-1">{t('oee.hierarchy_unassigned')}</div>
                                 <HierarchyNode node={data.unassigned} />
                             </>
                         )}

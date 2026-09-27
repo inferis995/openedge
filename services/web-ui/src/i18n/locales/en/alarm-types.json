@@ -1,0 +1,42 @@
+{
+    "alarmTypes": {
+        "bool_true": {
+            "label": "When it becomes TRUE (ON)",
+            "helper": "Fires on the rising edge 0 → 1."
+        },
+        "bool_false": {
+            "label": "When it becomes FALSE (OFF)",
+            "helper": "Fires on the falling edge 1 → 0."
+        },
+        "high": {
+            "label": "Value too high",
+            "threshold": "High limit",
+            "helper": "Fires when value > high limit."
+        },
+        "low": {
+            "label": "Value too low",
+            "threshold": "Low limit",
+            "helper": "Fires when value < low limit."
+        },
+        "high_high": {
+            "label": "CRITICAL high value",
+            "threshold": "Critical high limit",
+            "helper": "A limit beyond “too high”: for urgent alarms."
+        },
+        "low_low": {
+            "label": "CRITICAL low value",
+            "threshold": "Critical low limit",
+            "helper": "A limit beyond “too low”: for urgent alarms."
+        },
+        "comm_loss": {
+            "label": "Communication lost (PLC not answering)",
+            "helper": "Fires when no valid reading arrives for the time set below.",
+            "badge": "Communication lost"
+        },
+        "frozen": {
+            "label": "Value frozen (sensor or PLC stuck)",
+            "helper": "Readings arrive but the value does not move for the time set below. Useful on a watchdog counter.",
+            "badge": "Value frozen"
+        }
+    }
+}

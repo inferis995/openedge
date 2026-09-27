@@ -5,6 +5,7 @@ import {
     Loader2, X, Activity, Power, PowerOff, Monitor, Download,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 
 import {
@@ -43,12 +44,13 @@ import i18n from '@/i18n';
 // linea, una macchina, un reparto. La dashboard mostra una card per profilo
 // abilitato + un rollup di fabbrica.
 
+// label = i18n key, resolved with tr() at render.
 const WINDOW_PRESETS = [
-    { value: 60,   label: '1 ora' },
-    { value: 240,  label: '4 ore' },
-    { value: 480,  label: '8 ore (un turno)' },
-    { value: 720,  label: '12 ore' },
-    { value: 1440, label: '24 ore' },
+    { value: 60,   label: 'oeeProfiles.window_1h' },
+    { value: 240,  label: 'oeeProfiles.window_4h' },
+    { value: 480,  label: 'oeeProfiles.window_8h' },
+    { value: 720,  label: 'oeeProfiles.window_12h' },
+    { value: 1440, label: 'oeeProfiles.window_24h' },
 ];
 
 const candidatesFor = (tags: Tag[], role: 'running' | 'counter'): Tag[] => {
@@ -82,6 +84,7 @@ const TagSlot = ({
     keywords: string[];
     optional?: boolean;
 }) => {
+    const { t: tr } = useTranslation();
     const candidates = useMemo(() => candidatesFor(allTags, role), [allTags, role]);
 
     // Auto-detect alla prima apertura senza tag.
@@ -106,7 +109,7 @@ const TagSlot = ({
                 <div>
                     <p className="text-sm font-semibold">
                         {title}
-                        {optional && <span className="text-[10px] text-muted-foreground ml-2 font-normal">(opzionale)</span>}
+                        {optional && <span className="text-[10px] text-muted-foreground ml-2 font-normal">{tr('oeeProfiles.optional')}</span>}
                     </p>
                     <p className="text-[11px] text-muted-foreground">{hint}</p>
                 </div>
@@ -116,7 +119,7 @@ const TagSlot = ({
                         onClick={() => onChange(null)}
                         className="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
                     >
-                        <X size={10} /> rimuovi
+                        <X size={10} /> {tr('oeeProfiles.remove')}
                     </button>
                 )}
             </div>
@@ -126,11 +129,11 @@ const TagSlot = ({
                 onValueChange={(v) => onChange(v === 'none' ? null : parseInt(v, 10))}
             >
                 <SelectTrigger>
-                    <SelectValue placeholder={`Scegli tag ${role === 'running' ? 'BOOL' : 'numerico'}`} />
+                    <SelectValue placeholder={role === 'running' ? tr('oeeProfiles.pick_tag_bool') : tr('oeeProfiles.pick_tag_numeric')} />
                 </SelectTrigger>
                 <SelectContent>
                     <SelectItem value="none">
-                        <span className="text-muted-foreground">— Non configurato (usa fallback) —</span>
+                        <span className="text-muted-foreground">{tr('oeeProfiles.tag_not_configured')}</span>
                     </SelectItem>
                     {candidates.map((t) => (
                         <SelectItem key={t.id} value={String(t.id)}>
@@ -149,10 +152,11 @@ const TagSlot = ({
 const TagVerdict = ({
     role, result, loading,
 }: { role: 'running' | 'counter'; result?: OEETagTestResult; loading: boolean }) => {
+    const { t: tr } = useTranslation();
     if (loading && !result) {
         return (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Loader2 size={12} className="animate-spin" /> Verifico…
+                <Loader2 size={12} className="animate-spin" /> {tr('oeeProfiles.checking')}
             </div>
         );
     }
@@ -169,14 +173,14 @@ const TagVerdict = ({
                     {result.ok ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}
                     <span className="font-semibold">
                         {result.ok
-                            ? (role === 'running' ? 'BOOL valido' : 'Counter monotono')
-                            : (role === 'running' ? 'Non sembra BOOL' : 'Non sembra counter')}
+                            ? (role === 'running' ? tr('oeeProfiles.verdict_bool_ok') : tr('oeeProfiles.verdict_counter_ok'))
+                            : (role === 'running' ? tr('oeeProfiles.verdict_bool_bad') : tr('oeeProfiles.verdict_counter_bad'))}
                     </span>
                 </div>
-                <span className="font-mono text-[10px] opacity-70">{result.samples_count} campioni</span>
+                <span className="font-mono text-[10px] opacity-70">{tr('oeeProfiles.samples', { count: result.samples_count })}</span>
             </div>
             <div className="flex items-center gap-3 text-[11px] font-mono opacity-90">
-                <span>ora: <strong>{result.current_value.toFixed(role === 'running' ? 0 : 1)}</strong></span>
+                <span>{tr('oeeProfiles.now')} <strong>{result.current_value.toFixed(role === 'running' ? 0 : 1)}</strong></span>
                 {role === 'counter' && (
                     <>
                         <span>Δ: {result.delta >= 0 ? '+' : ''}{result.delta.toFixed(0)}</span>
@@ -200,6 +204,7 @@ const ProfileEditor = ({
     areas: { id: number; name: string }[];
     onSaved: () => void;
 }) => {
+    const { t: tr } = useTranslation();
     const [name, setName]                 = useState('');
     const [description, setDescription]   = useState('');
     const [areaId, setAreaId]             = useState<number | null>(null);
@@ -246,7 +251,7 @@ const ProfileEditor = ({
 
     const handleSave = async () => {
         if (!name.trim()) {
-            toast.error('Il nome è obbligatorio.');
+            toast.error(tr('oeeProfiles.name_required'));
             return;
         }
         setSaving(true);
@@ -268,15 +273,15 @@ const ProfileEditor = ({
             };
             if (initial) {
                 await oeeApi.updateProfile(initial.id, payload);
-                toast.success('Profilo OEE aggiornato.');
+                toast.success(tr('oeeProfiles.updated'));
             } else {
                 await oeeApi.createProfile(payload);
-                toast.success('Profilo OEE creato.');
+                toast.success(tr('oeeProfiles.created'));
             }
             onSaved();
             onClose();
         } catch (e: unknown) {
-            toast.error(`Save failed: ${(e as Error)?.message ?? 'unknown'}`);
+            toast.error(tr('oeeProfiles.save_failed', { msg: (e as Error)?.message ?? tr('oee.unknown_error') }));
         } finally {
             setSaving(false);
         }
@@ -289,11 +294,10 @@ const ProfileEditor = ({
             <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
-                        <Gauge size={18} /> {initial ? 'Modifica profilo OEE' : 'Nuovo profilo OEE'}
+                        <Gauge size={18} /> {initial ? tr('oeeProfiles.edit_title') : tr('oeeProfiles.new_title')}
                     </DialogTitle>
                     <DialogDescription>
-                        Un profilo OEE è un'unità di misura indipendente (una linea, una macchina, un reparto).
-                        Lascia i tag a "Non configurato" per usare il fallback euristico.
+                        {tr('oeeProfiles.editor_desc')}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -301,22 +305,22 @@ const ProfileEditor = ({
                     {/* Nome + area */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div className="space-y-1">
-                            <Label>Nome *</Label>
+                            <Label>{tr('oeeProfiles.name_required_label')}</Label>
                             <Input
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
-                                placeholder="es. Linea Assemblaggio 1"
+                                placeholder={tr('oeeProfiles.name_placeholder')}
                             />
                         </div>
                         <div className="space-y-1">
-                            <Label>Area (opzionale)</Label>
+                            <Label>{tr('oeeProfiles.area_optional')}</Label>
                             <Select
                                 value={areaId ? String(areaId) : 'none'}
                                 onValueChange={(v) => setAreaId(v === 'none' ? null : parseInt(v, 10))}
                             >
-                                <SelectTrigger><SelectValue placeholder="Nessuna" /></SelectTrigger>
+                                <SelectTrigger><SelectValue placeholder={tr('oeeProfiles.none_f')} /></SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="none">— Nessuna area —</SelectItem>
+                                    <SelectItem value="none">{tr('oeeProfiles.no_area')}</SelectItem>
                                     {areas.map((a) => (
                                         <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
                                     ))}
@@ -326,29 +330,29 @@ const ProfileEditor = ({
                     </div>
 
                     <div className="space-y-1">
-                        <Label>Descrizione</Label>
+                        <Label>{tr('oeeProfiles.description')}</Label>
                         <Input
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
-                            placeholder="es. Linea principale assemblaggio motori, turno 8h"
+                            placeholder={tr('oeeProfiles.description_placeholder')}
                         />
                     </div>
 
                     {/* Window + target */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div className="space-y-1">
-                            <Label>Finestra di calcolo</Label>
+                            <Label>{tr('oeeProfiles.window')}</Label>
                             <Select value={String(windowMin)} onValueChange={(v) => setWindowMin(parseInt(v, 10))}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     {WINDOW_PRESETS.map((p) => (
-                                        <SelectItem key={p.value} value={String(p.value)}>{p.label}</SelectItem>
+                                        <SelectItem key={p.value} value={String(p.value)}>{tr(p.label)}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                         </div>
                         <div className="space-y-1">
-                            <Label>Target OEE (%)</Label>
+                            <Label>{tr('oeeProfiles.target_oee')}</Label>
                             <Input
                                 type="number" min={0} max={100} step={1}
                                 value={targetOEE}
@@ -358,10 +362,10 @@ const ProfileEditor = ({
                         <div className="flex items-end justify-between gap-2 pb-2">
                             <div className="flex items-center gap-2">
                                 <Switch checked={enabled} onCheckedChange={setEnabled} />
-                                <Label className="cursor-pointer">Attivo</Label>
+                                <Label className="cursor-pointer">{tr('oeeProfiles.active')}</Label>
                             </div>
                             <p className="text-[10px] text-muted-foreground text-right">
-                                Disattivato = non appare in dashboard
+                                {tr('oeeProfiles.active_hint')}
                             </p>
                         </div>
                     </div>
@@ -377,11 +381,10 @@ const ProfileEditor = ({
                             />
                             <div>
                                 <Label htmlFor="respect-shifts" className="cursor-pointer">
-                                    Considera turni
+                                    {tr('oeeProfiles.respect_shifts')}
                                 </Label>
                                 <p className="text-[11px] text-muted-foreground">
-                                    Availability divide per Planned Production Time, non per wall clock.
-                                    Linee ferme di domenica non vengono penalizzate.
+                                    {tr('oeeProfiles.respect_shifts_hint')}
                                 </p>
                             </div>
                         </div>
@@ -393,11 +396,10 @@ const ProfileEditor = ({
                             />
                             <div>
                                 <Label htmlFor="respect-maint" className="cursor-pointer">
-                                    Considera manutenzioni
+                                    {tr('oeeProfiles.respect_maintenance')}
                                 </Label>
                                 <p className="text-[11px] text-muted-foreground">
-                                    Finestre di manutenzione programmata sottratte dal PPT — non
-                                    abbassano l'OEE.
+                                    {tr('oeeProfiles.respect_maintenance_hint')}
                                 </p>
                             </div>
                         </div>
@@ -408,7 +410,7 @@ const ProfileEditor = ({
                         <div className="flex items-start gap-2 text-xs px-3 py-2 rounded border border-primary/20 bg-primary/5">
                             <Sparkles size={14} className="text-primary mt-0.5 flex-shrink-0" />
                             <span>
-                                Auto-detect: cerco tag con alias che contengono
+                                {tr('oeeProfiles.autodetect')}
                                 <code className="mx-1 px-1 bg-muted rounded">running</code> /
                                 <code className="mx-1 px-1 bg-muted rounded">counter</code> /
                                 <code className="mx-1 px-1 bg-muted rounded">good</code>.
@@ -419,12 +421,12 @@ const ProfileEditor = ({
                     {/* 3 tag slot */}
                     <div className="space-y-3 pt-2 border-t border-border">
                         <h4 className="text-sm font-semibold flex items-center gap-2">
-                            <Activity size={14} /> Tag di produzione
+                            <Activity size={14} /> {tr('oeeProfiles.production_tags')}
                         </h4>
 
                         <TagSlot
-                            title="1. Macchina in marcia"
-                            hint="Tag BOOL del PLC per Availability."
+                            title={tr('oeeProfiles.slot_running')}
+                            hint={tr('oeeProfiles.slot_running_hint')}
                             role="running"
                             allTags={allTags}
                             currentId={runId}
@@ -442,8 +444,8 @@ const ProfileEditor = ({
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                             <div className="md:col-span-2">
                                 <TagSlot
-                                    title="2. Contatore pezzi prodotti"
-                                    hint="Counter monotono crescente per Performance."
+                                    title={tr('oeeProfiles.slot_produced')}
+                                    hint={tr('oeeProfiles.slot_produced_hint')}
                                     role="counter"
                                     allTags={allTags}
                                     currentId={prodId}
@@ -459,22 +461,22 @@ const ProfileEditor = ({
                                 />
                             </div>
                             <div className="space-y-1">
-                                <Label>Target pezzi/ora</Label>
+                                <Label>{tr('oeeProfiles.target_pph')}</Label>
                                 <Input
                                     type="number" min={0} step={1}
                                     value={pph}
                                     onChange={(e) => setPph(parseFloat(e.target.value) || 0)}
-                                    placeholder="es. 120"
+                                    placeholder={tr('oeeProfiles.target_pph_placeholder')}
                                 />
                                 <p className="text-[10px] text-muted-foreground">
-                                    Rate atteso (richiede tag produced).
+                                    {tr('oeeProfiles.target_pph_hint')}
                                 </p>
                             </div>
                         </div>
 
                         <TagSlot
-                            title="3. Contatore pezzi buoni"
-                            hint="Counter dei conformi per Quality = good / produced."
+                            title={tr('oeeProfiles.slot_good')}
+                            hint={tr('oeeProfiles.slot_good_hint')}
                             role="counter"
                             allTags={allTags}
                             currentId={goodId}
@@ -493,10 +495,10 @@ const ProfileEditor = ({
                 </div>
 
                 <DialogFooter>
-                    <Button variant="outline" onClick={onClose} disabled={saving}>Annulla</Button>
+                    <Button variant="outline" onClick={onClose} disabled={saving}>{tr('common.cancel')}</Button>
                     <Button onClick={handleSave} disabled={saving}>
                         {saving && <Loader2 size={14} className="mr-1 animate-spin" />}
-                        {initial ? 'Salva modifiche' : 'Crea profilo'}
+                        {initial ? tr('oeeProfiles.save_changes') : tr('oeeProfiles.create_profile')}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -508,6 +510,7 @@ const ProfileEditor = ({
 // Pagina principale: lista profili.
 // ────────────────────────────────────────────────────────────────────────
 const OEEProfilesPage = () => {
+    const { t: tr } = useTranslation();
     const [editorOpen, setEditorOpen]   = useState(false);
     const [editing, setEditing]         = useState<OEEProfile | null>(null);
     const queryClient = useQueryClient();
@@ -526,11 +529,11 @@ const OEEProfilesPage = () => {
         if (!(await confirmAction({ title: i18n.t('ask.delete_named', { name: p.name }), description: i18n.t('ask.irreversible'), destructive: true }))) return;
         try {
             await oeeApi.deleteProfile(p.id);
-            toast.success('Profilo eliminato.');
+            toast.success(tr('oeeProfiles.deleted'));
             queryClient.invalidateQueries({ queryKey: ['oee-profiles'] });
             queryClient.invalidateQueries({ queryKey: ['oee-snapshot'] });
         } catch (e: unknown) {
-            toast.error(`Errore: ${(e as Error)?.message ?? 'unknown'}`);
+            toast.error(tr('oee.error_with_msg', { msg: (e as Error)?.message ?? tr('oee.unknown_error') }));
         }
     };
 
@@ -553,7 +556,7 @@ const OEEProfilesPage = () => {
             queryClient.invalidateQueries({ queryKey: ['oee-profiles'] });
             queryClient.invalidateQueries({ queryKey: ['dashboard-overview'] });
         } catch (e: unknown) {
-            toast.error(`Errore: ${(e as Error)?.message ?? 'unknown'}`);
+            toast.error(tr('oee.error_with_msg', { msg: (e as Error)?.message ?? tr('oee.unknown_error') }));
         }
     };
 
@@ -567,33 +570,32 @@ const OEEProfilesPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
                 <div className="min-w-0">
                     <h2 className="text-2xl sm:text-3xl font-bold tracking-tight flex items-center gap-2">
-                        <Gauge size={28} /> Profili OEE
+                        <Gauge size={28} /> {tr('oeeProfiles.title')}
                     </h2>
                     <p className="text-muted-foreground text-sm">
-                        Multi-linea / multi-reparto. Ogni profilo è un'unità di misura OEE indipendente
-                        che appare in dashboard come card separata.
+                        {tr('oeeProfiles.subtitle')}
                     </p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                     <Link to="/tv/oee" target="_blank">
-                        <Button variant="outline" size="sm" title="Apri in nuova scheda per monitor reparto">
-                            <Monitor size={14} className="mr-1.5" /> TV mode
+                        <Button variant="outline" size="sm" title={tr('oeeProfiles.tv_mode_hint')}>
+                            <Monitor size={14} className="mr-1.5" /> {tr('oeeProfiles.tv_mode')}
                         </Button>
                     </Link>
                     <Button onClick={() => { setEditing(null); setEditorOpen(true); }} size="sm">
-                        <Plus size={16} className="mr-1.5" /> Nuovo profilo
+                        <Plus size={16} className="mr-1.5" /> {tr('oeeProfiles.new_profile')}
                     </Button>
                 </div>
             </div>
 
             <Tabs defaultValue="profiles">
                 <TabsList className="flex-wrap h-auto">
-                    <TabsTrigger value="profiles">Profili</TabsTrigger>
-                    <TabsTrigger value="history">Storia</TabsTrigger>
-                    <TabsTrigger value="by-shift">Per turno</TabsTrigger>
-                    <TabsTrigger value="losses">Loss &amp; Pareto</TabsTrigger>
-                    <TabsTrigger value="alerts">Alert</TabsTrigger>
-                    <TabsTrigger value="hierarchy">Gerarchia</TabsTrigger>
+                    <TabsTrigger value="profiles">{tr('oeeProfiles.tab_profiles')}</TabsTrigger>
+                    <TabsTrigger value="history">{tr('oeeProfiles.tab_history')}</TabsTrigger>
+                    <TabsTrigger value="by-shift">{tr('oeeProfiles.tab_by_shift')}</TabsTrigger>
+                    <TabsTrigger value="losses">{tr('oeeProfiles.tab_losses')}</TabsTrigger>
+                    <TabsTrigger value="alerts">{tr('oeeProfiles.tab_alerts')}</TabsTrigger>
+                    <TabsTrigger value="hierarchy">{tr('oeeProfiles.tab_hierarchy')}</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="profiles" className="space-y-4 mt-4">
@@ -601,15 +603,15 @@ const OEEProfilesPage = () => {
                         <CardHeader className="pb-3">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <CardTitle className="text-base">Profili configurati</CardTitle>
+                                    <CardTitle className="text-base">{tr('oeeProfiles.configured')}</CardTitle>
                                     <CardDescription className="text-xs">
-                                        {profiles?.length ?? 0} profili.
-                                        {(profiles?.length ?? 0) === 0 && ' Senza profili la dashboard usa il calcolo OEE legacy (fallback euristico).'}
+                                        {tr('oeeProfiles.count', { count: profiles?.length ?? 0 })}
+                                        {(profiles?.length ?? 0) === 0 && ` ${tr('oeeProfiles.count_zero_hint')}`}
                                     </CardDescription>
                                 </div>
                                 {(profiles?.length ?? 0) > 0 && (
                                     <Button variant="outline" size="sm"
-                                        onClick={() => oeeApi.exportCSV('profiles', {}).catch(() => toast.error('Export fallito'))}>
+                                        onClick={() => oeeApi.exportCSV('profiles', {}).catch(() => toast.error(tr('oeeProfiles.export_failed')))}>
                                         <Download size={14} className="mr-1" /> CSV
                                     </Button>
                                 )}
@@ -617,13 +619,13 @@ const OEEProfilesPage = () => {
                         </CardHeader>
                         <CardContent>
                             {isLoading ? (
-                                <div className="py-8 text-center text-muted-foreground text-sm">Caricamento…</div>
+                                <div className="py-8 text-center text-muted-foreground text-sm">{tr('common.loading')}</div>
                             ) : (profiles?.length ?? 0) === 0 ? (
                                 <div className="py-12 text-center border border-dashed rounded-md">
                                     <Gauge size={32} className="mx-auto opacity-30 mb-2" />
-                                    <p className="text-sm text-muted-foreground">Nessun profilo OEE configurato.</p>
+                                    <p className="text-sm text-muted-foreground">{tr('oeeProfiles.empty')}</p>
                                     <p className="text-xs text-muted-foreground mt-1">
-                                        Crea il primo profilo per attivare la dashboard multi-linea.
+                                        {tr('oeeProfiles.empty_hint')}
                                     </p>
                                 </div>
                             ) : (
@@ -678,6 +680,7 @@ const OEEProfilesPage = () => {
 // Tab Storia: selector profilo + chart storico via OEEHistoryChart.
 // Profilo "Rollup fabbrica" = profileId null (riga aggregata del cron).
 const HistoryTab = ({ profiles }: { profiles: OEEProfile[] }) => {
+    const { t: tr } = useTranslation();
     const [selected, setSelected] = useState<number | null>(null);
     const target = selected === null
         ? undefined
@@ -686,7 +689,7 @@ const HistoryTab = ({ profiles }: { profiles: OEEProfile[] }) => {
     return (
         <div className="space-y-3">
             <div className="flex items-center gap-3 flex-wrap">
-                <Label className="text-xs">Profilo:</Label>
+                <Label className="text-xs">{tr('oeeProfiles.profile_label')}</Label>
                 <Select
                     value={selected === null ? 'rollup' : String(selected)}
                     onValueChange={(v) => setSelected(v === 'rollup' ? null : parseInt(v, 10))}
@@ -694,8 +697,8 @@ const HistoryTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                     <SelectTrigger className="w-full sm:w-72"><SelectValue /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="rollup">
-                            <span className="font-medium">OEE Overall</span>
-                            <span className="text-muted-foreground ml-2 text-xs">(media tra profili)</span>
+                            <span className="font-medium">{tr('oeeProfiles.overall')}</span>
+                            <span className="text-muted-foreground ml-2 text-xs">{tr('oeeProfiles.overall_avg')}</span>
                         </SelectItem>
                         {profiles.map((p) => (
                             <SelectItem key={p.id} value={String(p.id)}>
@@ -706,7 +709,7 @@ const HistoryTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                     </SelectContent>
                 </Select>
                 <p className="text-[11px] text-muted-foreground">
-                    Snapshot orari salvati dal cron worker. Primi dati disponibili dopo 1 ora di runtime.
+                    {tr('oeeProfiles.history_hint')}
                 </p>
                 <Button variant="outline" size="sm" className="ml-auto"
                     onClick={() => {
@@ -716,9 +719,9 @@ const HistoryTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                             ...(selected ? { profile_id: String(selected) } : {}),
                             from: from.toISOString().split('T')[0],
                             to: now.toISOString().split('T')[0],
-                        }).catch(() => toast.error('Export fallito'));
+                        }).catch(() => toast.error(tr('oeeProfiles.export_failed')));
                     }}>
-                    <Download size={14} className="mr-1" /> Esporta CSV
+                    <Download size={14} className="mr-1" /> {tr('oeeProfiles.export_csv')}
                 </Button>
             </div>
 
@@ -729,11 +732,12 @@ const HistoryTab = ({ profiles }: { profiles: OEEProfile[] }) => {
 
 // Tab Per turno: matrice turni × giorni con OEE colorato.
 const ByShiftTab = ({ profiles }: { profiles: OEEProfile[] }) => {
+    const { t: tr } = useTranslation();
     const [selected, setSelected] = useState<number | null>(null);
     return (
         <div className="space-y-3">
             <div className="flex items-center gap-3 flex-wrap">
-                <Label className="text-xs">Profilo:</Label>
+                <Label className="text-xs">{tr('oeeProfiles.profile_label')}</Label>
                 <Select
                     value={selected === null ? 'rollup' : String(selected)}
                     onValueChange={(v) => setSelected(v === 'rollup' ? null : parseInt(v, 10))}
@@ -741,7 +745,7 @@ const ByShiftTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                     <SelectTrigger className="w-full sm:w-72"><SelectValue /></SelectTrigger>
                     <SelectContent>
                         <SelectItem value="rollup">
-                            <span className="font-medium">OEE Overall</span>
+                            <span className="font-medium">{tr('oeeProfiles.overall')}</span>
                         </SelectItem>
                         {profiles.map((p) => (
                             <SelectItem key={p.id} value={String(p.id)}>
@@ -752,8 +756,7 @@ const ByShiftTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                     </SelectContent>
                 </Select>
                 <p className="text-[11px] text-muted-foreground">
-                    Confronto OEE tra turni — la KPI più richiesta dalla direzione.
-                    I dati appaiono dopo che il cron ha popolato almeno un'ora dentro un turno attivo.
+                    {tr('oeeProfiles.by_shift_hint')}
                 </p>
                 <Button variant="outline" size="sm" className="ml-auto"
                     onClick={() => {
@@ -763,9 +766,9 @@ const ByShiftTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                             ...(selected ? { profile_id: String(selected) } : {}),
                             from: from.toISOString().split('T')[0],
                             to: now.toISOString().split('T')[0],
-                        }).catch(() => toast.error('Export fallito'));
+                        }).catch(() => toast.error(tr('oeeProfiles.export_failed')));
                     }}>
-                    <Download size={14} className="mr-1" /> Esporta CSV
+                    <Download size={14} className="mr-1" /> {tr('oeeProfiles.export_csv')}
                 </Button>
             </div>
 
@@ -777,6 +780,7 @@ const ByShiftTab = ({ profiles }: { profiles: OEEProfile[] }) => {
 // Tab Loss & Pareto: richiede un profilo specifico (non rollup, perché
 // le perdite sono per profilo). Mostra MTBF/MTTR + Pareto delle 6 cause.
 const LossesTab = ({ profiles }: { profiles: OEEProfile[] }) => {
+    const { t: tr } = useTranslation();
     const [selected, setSelected] = useState<number | null>(
         profiles.length > 0 ? profiles[0].id : null,
     );
@@ -785,7 +789,7 @@ const LossesTab = ({ profiles }: { profiles: OEEProfile[] }) => {
     if (profiles.length === 0) {
         return (
             <div className="py-12 text-center text-sm text-muted-foreground border border-dashed rounded-md">
-                Crea almeno un profilo OEE per visualizzare il loss tree.
+                {tr('oeeProfiles.losses_need_profile')}
             </div>
         );
     }
@@ -793,7 +797,7 @@ const LossesTab = ({ profiles }: { profiles: OEEProfile[] }) => {
     return (
         <div className="space-y-3">
             <div className="flex items-center gap-3 flex-wrap">
-                <Label className="text-xs">Profilo:</Label>
+                <Label className="text-xs">{tr('oeeProfiles.profile_label')}</Label>
                 <Select
                     value={selected !== null ? String(selected) : ''}
                     onValueChange={(v) => setSelected(parseInt(v, 10))}
@@ -809,7 +813,7 @@ const LossesTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                     </SelectContent>
                 </Select>
                 <p className="text-[11px] text-muted-foreground">
-                    Auto-popolato dal cron: allarmi critical → breakdown, manutenzioni "setup"/"cambio" → setup.
+                    {tr('oeeProfiles.losses_hint')}
                 </p>
                 {selectedProfile && (
                     <Button variant="outline" size="sm" className="ml-auto"
@@ -820,9 +824,9 @@ const LossesTab = ({ profiles }: { profiles: OEEProfile[] }) => {
                                 profile_id: String(selectedProfile.id),
                                 from: from.toISOString().split('T')[0],
                                 to: now.toISOString().split('T')[0],
-                            }).catch(() => toast.error('Export fallito'));
+                            }).catch(() => toast.error(tr('oeeProfiles.export_failed')));
                         }}>
-                        <Download size={14} className="mr-1" /> Esporta CSV
+                        <Download size={14} className="mr-1" /> {tr('oeeProfiles.export_csv')}
                     </Button>
                 )}
             </div>
@@ -837,6 +841,7 @@ const LossesTab = ({ profiles }: { profiles: OEEProfile[] }) => {
 const ProfileRow = ({
     p, onEdit, onDelete, onToggle,
 }: { p: OEEProfile; onEdit: () => void; onDelete: () => void; onToggle: () => void }) => {
+    const { t: tr } = useTranslation();
     const tagsConfigured =
         (p.run_time_tag_id ? 1 : 0) +
         (p.produced_tag_id ? 1 : 0) +
@@ -857,24 +862,24 @@ const ProfileRow = ({
                         <Badge variant="outline" className="text-[10px]">{p.area_name}</Badge>
                     )}
                     {allFallback ? (
-                        <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-500">fallback</Badge>
+                        <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-500">{tr('oeeProfiles.fallback')}</Badge>
                     ) : (
                         <Badge variant="outline" className="text-[10px] border-emerald-500/40 text-emerald-500">
-                            {tagsConfigured}/3 tag
+                            {tr('oeeProfiles.tags_configured', { n: tagsConfigured })}
                         </Badge>
                     )}
                     {!p.enabled && (
-                        <Badge variant="outline" className="text-[10px] border-muted">disabilitato</Badge>
+                        <Badge variant="outline" className="text-[10px] border-muted">{tr('oeeProfiles.disabled')}</Badge>
                     )}
                 </div>
                 {p.description && <p className="text-xs text-muted-foreground truncate">{p.description}</p>}
                 <p className="text-[10px] text-muted-foreground mt-0.5">
-                    Finestra {(p.window_minutes / 60).toFixed(0)}h · Target {p.target_oee}%
-                    {p.target_pieces_per_hour > 0 && ` · ${p.target_pieces_per_hour} pz/h`}
+                    {tr('oeeProfiles.row_summary', { hours: (p.window_minutes / 60).toFixed(0), target: p.target_oee })}
+                    {p.target_pieces_per_hour > 0 && ` · ${tr('oeeProfiles.row_pph', { n: p.target_pieces_per_hour })}`}
                 </p>
             </div>
             <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" onClick={onToggle} title={p.enabled ? 'Disabilita' : 'Abilita'}>
+                <Button variant="ghost" size="icon" onClick={onToggle} title={p.enabled ? tr('oee.disable') : tr('oee.enable')}>
                     {p.enabled ? <Power size={16} /> : <PowerOff size={16} />}
                 </Button>
                 <Button variant="ghost" size="icon" onClick={onEdit}>

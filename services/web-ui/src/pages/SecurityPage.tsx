@@ -5,31 +5,33 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 function timeAgo(dateStr: string): string {
     const now = new Date();
     const then = new Date(dateStr);
     const diffMs = now.getTime() - then.getTime();
     const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 1) return 'adesso';
-    if (diffMins < 60) return `${diffMins} min fa`;
+    if (diffMins < 1) return i18n.t('securityPage.now');
+    if (diffMins < 60) return i18n.t('securityPage.mins_ago', { n: diffMins });
     const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h fa`;
+    if (diffHours < 24) return i18n.t('securityPage.hours_ago', { n: diffHours });
     const diffDays = Math.floor(diffHours / 24);
-    if (diffDays === 1) return 'ieri';
-    return `${diffDays} giorni fa`;
+    if (diffDays === 1) return i18n.t('securityPage.yesterday');
+    return i18n.t('securityPage.days_ago', { n: diffDays });
 }
 
 function eventTypeLabel(type: string): string {
     const labels: Record<string, string> = {
-        login_failed: 'Login fallito',
-        account_locked: 'Account bloccato',
-        account_locked_attempt: 'Tentativo su account bloccato',
-        password_changed: 'Password modificata',
-        permission_denied: 'Accesso negato',
-        config_changed: 'Config modificata',
-        user_created: 'Utente creato',
-        user_deleted: 'Utente eliminato',
+        login_failed: i18n.t('securityPage.ev_login_failed'),
+        account_locked: i18n.t('securityPage.ev_account_locked'),
+        account_locked_attempt: i18n.t('securityPage.ev_account_locked_attempt'),
+        password_changed: i18n.t('securityPage.ev_password_changed'),
+        permission_denied: i18n.t('securityPage.ev_permission_denied'),
+        config_changed: i18n.t('securityPage.ev_config_changed'),
+        user_created: i18n.t('securityPage.ev_user_created'),
+        user_deleted: i18n.t('securityPage.ev_user_deleted'),
     };
     return labels[type] ?? type;
 }
@@ -51,17 +53,18 @@ function scoreColor(score: number): string {
 }
 
 const breakdownLabels: Record<string, { label: string; icon: React.ReactNode }> = {
-    audit_logging: { label: 'Audit Log', icon: <Eye className="h-4 w-4" /> },
-    rbac_enabled: { label: 'RBAC', icon: <Lock className="h-4 w-4" /> },
-    backup_fresh: { label: 'Backup recente', icon: <Server className="h-4 w-4" /> },
-    rate_limiting: { label: 'Rate Limiting', icon: <Shield className="h-4 w-4" /> },
-    mfa_any_admin: { label: 'MFA Admin', icon: <Key className="h-4 w-4" /> },
-    account_lockout_active: { label: 'Lockout Account', icon: <Lock className="h-4 w-4" /> },
-    strong_password_policy: { label: 'Password Policy', icon: <Key className="h-4 w-4" /> },
-    mqtt_tls: { label: 'MQTT TLS', icon: <Wifi className="h-4 w-4" /> },
+    audit_logging: { label: 'securityPage.bd_audit_logging', icon: <Eye className="h-4 w-4" /> },
+    rbac_enabled: { label: 'securityPage.bd_rbac_enabled', icon: <Lock className="h-4 w-4" /> },
+    backup_fresh: { label: 'securityPage.bd_backup_fresh', icon: <Server className="h-4 w-4" /> },
+    rate_limiting: { label: 'securityPage.bd_rate_limiting', icon: <Shield className="h-4 w-4" /> },
+    mfa_any_admin: { label: 'securityPage.bd_mfa_any_admin', icon: <Key className="h-4 w-4" /> },
+    account_lockout_active: { label: 'securityPage.bd_account_lockout_active', icon: <Lock className="h-4 w-4" /> },
+    strong_password_policy: { label: 'securityPage.bd_strong_password_policy', icon: <Key className="h-4 w-4" /> },
+    mqtt_tls: { label: 'securityPage.bd_mqtt_tls', icon: <Wifi className="h-4 w-4" /> },
 };
 
 const SecurityPage = () => {
+    const { t } = useTranslation();
     const [overview, setOverview] = useState<SecurityOverview | null>(null);
     const [events, setEvents] = useState<SecurityEvent[]>([]);
     const [compliance, setCompliance] = useState<ComplianceCheck[]>([]);
@@ -87,12 +90,7 @@ const SecurityPage = () => {
             // Chi riceve questo file lo leggerà fuori contesto, magari mesi
             // dopo. La riga che segue è l'unica cosa che gli impedisce di
             // scambiarlo per un certificato di conformità.
-            disclaimer:
-                'Autovalutazione automatica dei controlli di sicurezza della piattaforma. ' +
-                'NON costituisce una certificazione né una dichiarazione di conformità ' +
-                'normativa: i controlli con stato "not_assessed" riguardano misure ' +
-                'organizzative che il software non può accertare e restano in capo al ' +
-                'titolare dell\'impianto.',
+            disclaimer: t('securityPage.disclaimer'),
             generated_at: new Date().toISOString(),
             checks_passed: overview?.checks_passed,
             checks_evaluated: overview?.checks_evaluated,
@@ -117,14 +115,14 @@ const SecurityPage = () => {
     };
 
     const downloadEventsCSV = () => {
-        const headers = ['ID', 'Tipo', 'Gravità', 'Attore', 'Risorsa', 'Data'];
+        const headers = [t('securityPage.csv_id'), t('securityPage.csv_type'), t('securityPage.csv_severity'), t('securityPage.csv_actor'), t('securityPage.csv_resource'), t('securityPage.csv_date')];
         const rows = events.map(e => [
             String(e.id),
             eventTypeLabel(e.event_type),
             e.severity,
             e.actor ?? '',
             e.resource ?? '',
-            new Date(e.created_at).toLocaleString('it-IT'),
+            new Date(e.created_at).toLocaleString(i18n.language),
         ]);
         const csv = [headers, ...rows].map(r => r.map(f => `"${f}"`).join(',')).join('\n');
         const blob = new Blob([csv], { type: 'text/csv' });
@@ -139,7 +137,7 @@ const SecurityPage = () => {
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
-                <div className="text-muted-foreground">Caricamento...</div>
+                <div className="text-muted-foreground">{t('common.loading')}</div>
             </div>
         );
     }
@@ -158,18 +156,18 @@ const SecurityPage = () => {
                 <div className="flex items-center gap-3">
                     <Shield className="h-10 sm:h-8 w-10 sm:w-8 text-primary" />
                     <div>
-                        <h1 className="text-2xl font-bold">Security Center</h1>
-                        <p className="text-muted-foreground text-sm">Monitoraggio della postura di sicurezza</p>
+                        <h1 className="text-2xl font-bold">{t('securityPage.title')}</h1>
+                        <p className="text-muted-foreground text-sm">{t('securityPage.subtitle')}</p>
                     </div>
                 </div>
                 <div className="flex gap-2">
                     <Button variant="outline" size="sm" onClick={downloadEventsCSV}>
                         <Download className="h-4 w-4 mr-2" />
-                        Esporta eventi CSV
+                        {t('securityPage.export_csv')}
                     </Button>
                     <Button size="sm" onClick={downloadPostureReport}>
                         <FileText className="h-4 w-4 mr-2" />
-                        Report postura
+                        {t('securityPage.posture_report')}
                     </Button>
                 </div>
             </div>
@@ -181,19 +179,19 @@ const SecurityPage = () => {
                         <div className={cn('text-5xl font-bold', overview ? scoreColor(overview.score) : 'text-gray-400')}>
                             {overview?.score ?? '-'}
                         </div>
-                        <div className="text-sm text-muted-foreground mt-1">Security Score</div>
+                        <div className="text-sm text-muted-foreground mt-1">{t('securityPage.score')}</div>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardContent className="pt-6 text-center">
                         <div className="text-3xl font-bold text-red-600">{overview?.failed_logins_24h ?? 0}</div>
-                        <div className="text-sm text-muted-foreground mt-1">Login falliti (24h)</div>
+                        <div className="text-sm text-muted-foreground mt-1">{t('securityPage.failed_logins')}</div>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardContent className="pt-6 text-center">
                         <div className="text-3xl font-bold text-orange-600">{overview?.locked_accounts ?? 0}</div>
-                        <div className="text-sm text-muted-foreground mt-1">Account bloccati</div>
+                        <div className="text-sm text-muted-foreground mt-1">{t('securityPage.locked')}</div>
                     </CardContent>
                 </Card>
                 <Card>
@@ -201,12 +199,12 @@ const SecurityPage = () => {
                         <div className="text-3xl font-bold text-blue-600">
                             {overview?.checks_passed ?? 0}/{overview?.checks_evaluated ?? 0}
                         </div>
-                        <div className="text-sm text-muted-foreground mt-1">Controlli automatici superati</div>
+                        <div className="text-sm text-muted-foreground mt-1">{t('securityPage.checks_passed')}</div>
                         {/* Il denominatore conta solo ciò che è stato davvero
                             guardato. Senza questa riga, sei controlli sparirebbero
                             dal totale senza che nessuno sappia che esistono. */}
                         <div className="text-xs text-muted-foreground mt-1">
-                            {overview?.checks_not_assessed ?? 0} non valutabili automaticamente
+                            {t('securityPage.not_assessed', { count: overview?.checks_not_assessed ?? 0 })}
                         </div>
                     </CardContent>
                 </Card>
@@ -215,7 +213,7 @@ const SecurityPage = () => {
             {/* Score breakdown */}
             <Card>
                 <CardHeader>
-                    <CardTitle className="text-base">Dettaglio Security Score</CardTitle>
+                    <CardTitle className="text-base">{t('securityPage.score_detail')}</CardTitle>
                 </CardHeader>
                 <CardContent>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -230,9 +228,9 @@ const SecurityPage = () => {
                                         {meta?.icon}
                                     </span>
                                     <div className="flex-1 min-w-0">
-                                        <div className="text-xs font-medium truncate">{meta?.label ?? key}</div>
+                                        <div className="text-xs font-medium truncate">{meta ? t(meta.label) : key}</div>
                                         <div className={cn('text-xs', value ? 'text-green-600' : 'text-red-600')}>
-                                            {value ? 'Attivo' : 'Mancante'}
+                                            {value ? t('securityPage.active') : t('securityPage.missing')}
                                         </div>
                                     </div>
                                     {value
@@ -251,9 +249,9 @@ const SecurityPage = () => {
                 <Card>
                     <CardHeader>
                         <CardTitle className="text-base flex items-center justify-between">
-                            <span>Controlli di sicurezza</span>
+                            <span>{t('securityPage.checks')}</span>
                             <Badge variant={evaluatedCount > 0 && passedCount === evaluatedCount ? 'default' : 'destructive'}>
-                                {passedCount}/{evaluatedCount} superati
+                                {t('securityPage.passed_badge', { passed: passedCount, total: evaluatedCount })}
                             </Badge>
                         </CardTitle>
                     </CardHeader>
@@ -276,9 +274,7 @@ const SecurityPage = () => {
                         ))}
                         {notAssessedCount > 0 && (
                             <p className="text-xs text-muted-foreground pt-3 border-t">
-                                {notAssessedCount} controlli riguardano misure organizzative che il
-                                software non può accertare: restano in capo al titolare dell'impianto.
-                                Questa schermata è un'autovalutazione, non una certificazione.
+                                {t('securityPage.not_assessed_note', { count: notAssessedCount })}
                             </p>
                         )}
                     </CardContent>
@@ -289,19 +285,19 @@ const SecurityPage = () => {
                     <CardHeader>
                         <CardTitle className="text-base flex items-center gap-2">
                             <AlertTriangle className="h-4 w-4 text-yellow-600" />
-                            Eventi di sicurezza recenti
+                            {t('securityPage.events')}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
                         <div className="space-y-2 max-h-96 overflow-y-auto">
                             {events.length === 0 ? (
                                 <div className="text-center text-muted-foreground text-sm py-8">
-                                    Nessun evento recente
+                                    {t('securityPage.no_events')}
                                 </div>
                             ) : events.map((event, idx) => (
                                 <div key={`${event.id}-${idx}`} className="flex items-start gap-2 py-1.5 border-b last:border-0">
                                     <Badge className={cn('text-xs flex-shrink-0', severityColor(event.severity))}>
-                                        {event.severity}
+                                        {t(`securityPage.sev_${event.severity}`, { defaultValue: event.severity })}
                                     </Badge>
                                     <div className="flex-1 min-w-0">
                                         <div className="text-sm font-medium">{eventTypeLabel(event.event_type)}</div>

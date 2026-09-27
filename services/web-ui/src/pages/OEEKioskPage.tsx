@@ -2,8 +2,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Gauge, ArrowLeft } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 import { dashboardApi, OEEProfileSnapshot, OEESnapshot } from '@/api/dashboard';
+import i18n from '@/i18n';
 
 // OEEKioskPage — modalità TV/kiosk per monitor 1080p appeso in reparto.
 //
@@ -33,10 +35,10 @@ const oeeBg = (v: number): string => {
 };
 
 const oeeBand = (v: number): string => {
-    if (v >= 85) return 'WORLD-CLASS';
-    if (v >= 65) return 'TIPICO';
-    if (v >= 40) return 'DA MIGLIORARE';
-    return 'CRITICO';
+    if (v >= 85) return i18n.t('oeeKiosk.band_world_class');
+    if (v >= 65) return i18n.t('oeeKiosk.band_typical');
+    if (v >= 40) return i18n.t('oeeKiosk.band_improve');
+    return i18n.t('oeeKiosk.band_critical');
 };
 
 // Determina se siamo in "notte" (theme scuro forzato).
@@ -46,6 +48,7 @@ const isNightTime = (): boolean => {
 };
 
 const OEEKioskPage = () => {
+    const { t } = useTranslation();
     const [profileIdx, setProfileIdx] = useState(0);
     const [night, setNight] = useState(isNightTime());
 
@@ -75,7 +78,7 @@ const OEEKioskPage = () => {
     if (!data || !data.oee) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-black text-white text-2xl">
-                Caricamento OEE…
+                {t('oeeKiosk.loading')}
             </div>
         );
     }
@@ -98,7 +101,7 @@ const OEEKioskPage = () => {
                         <Gauge size={32} className={night ? 'text-emerald-400' : 'text-emerald-600'} />
                         <span className="text-2xl font-bold tracking-tight">OEE LIVE</span>
                         <span className={`text-sm ${night ? 'text-slate-400' : 'text-slate-500'}`}>
-                            {new Date(data.generated_at).toLocaleString('it-IT')}
+                            {new Date(data.generated_at).toLocaleString(i18n.language)}
                         </span>
                     </div>
                     <Link
@@ -107,7 +110,7 @@ const OEEKioskPage = () => {
                             night ? 'hover:bg-slate-800' : 'hover:bg-slate-200'
                         }`}
                     >
-                        <ArrowLeft size={14} /> Esci
+                        <ArrowLeft size={14} /> {t('oeeKiosk.exit')}
                     </Link>
                 </div>
 
@@ -115,7 +118,7 @@ const OEEKioskPage = () => {
                 <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-8 min-h-0">
                     {/* Rollup gigante a sinistra */}
                     {rollup && (
-                        <KioskRollup snapshot={rollup} label={overview.mode === 'profiles' ? 'OVERALL' : 'OEE'} night={night} />
+                        <KioskRollup snapshot={rollup} label={overview.mode === 'profiles' ? t('oeeKiosk.overall') : 'OEE'} night={night} />
                     )}
 
                     {/* Profili a rotazione a destra */}
@@ -128,7 +131,7 @@ const OEEKioskPage = () => {
                         />
                     ) : (
                         <div className="lg:col-span-7 flex items-center justify-center text-3xl opacity-50">
-                            Nessun profilo configurato
+                            {t('oeeKiosk.no_profiles')}
                         </div>
                     )}
                 </div>
@@ -163,6 +166,7 @@ const OEEKioskPage = () => {
 const KioskRollup = ({
     snapshot, label, night,
 }: { snapshot: OEESnapshot; label: string; night: boolean }) => {
+    const { t } = useTranslation();
     const color = oeeColor(snapshot.oee);
     const bg = oeeBg(snapshot.oee);
     return (
@@ -187,7 +191,7 @@ const KioskRollup = ({
                 ].map((m) => (
                     <div key={m.label} className="text-center">
                         <div className={`text-xs uppercase tracking-widest ${night ? 'text-slate-400' : 'text-slate-500'}`}>
-                            {m.label === 'A' ? 'Availability' : m.label === 'P' ? 'Performance' : 'Quality'}
+                            {m.label === 'A' ? t('oee.availability') : m.label === 'P' ? t('oee.performance') : t('oee.quality')}
                         </div>
                         <div className={`text-5xl font-bold ${oeeColor(m.value)}`}>
                             {m.value.toFixed(0)}<span className="text-2xl opacity-70">%</span>
@@ -202,13 +206,14 @@ const KioskRollup = ({
 const KioskProfile = ({
     profile, night, idx, total,
 }: { profile: OEEProfileSnapshot; night: boolean; idx: number; total: number }) => {
+    const { t } = useTranslation();
     const color = oeeColor(profile.snapshot.oee);
     const bg = oeeBg(profile.snapshot.oee);
     return (
         <div className={`lg:col-span-7 rounded-3xl border-4 p-10 flex flex-col ${bg}`}>
             <div className="flex items-baseline justify-between mb-2">
                 <div>
-                    <div className="text-2xl font-bold tracking-wide opacity-70">PROFILO</div>
+                    <div className="text-2xl font-bold tracking-wide opacity-70">{t('oeeKiosk.profile')}</div>
                     <div className={`text-5xl font-black tracking-tight ${night ? 'text-white' : 'text-slate-900'}`}>
                         {profile.name}
                     </div>
@@ -238,7 +243,7 @@ const KioskProfile = ({
                     <div key={m.label}>
                         <div className="flex items-baseline justify-between mb-1">
                             <span className={`text-lg font-bold tracking-widest ${night ? 'text-slate-400' : 'text-slate-600'}`}>
-                                {m.label}
+                                {t(`oeeKiosk.${m.label.toLowerCase()}`)}
                             </span>
                             <span className={`text-3xl font-bold ${oeeColor(m.value)}`}>
                                 {m.value.toFixed(0)}%

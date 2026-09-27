@@ -1,0 +1,42 @@
+{
+    "alarmTypes": {
+        "bool_true": {
+            "label": "Quando diventa VERO (ON)",
+            "helper": "Scatta sul fronte di salita 0 → 1."
+        },
+        "bool_false": {
+            "label": "Quando diventa FALSO (OFF)",
+            "helper": "Scatta sul fronte di discesa 1 → 0."
+        },
+        "high": {
+            "label": "Valore troppo alto",
+            "threshold": "Soglia massima",
+            "helper": "Scatta quando valore > soglia massima."
+        },
+        "low": {
+            "label": "Valore troppo basso",
+            "threshold": "Soglia minima",
+            "helper": "Scatta quando valore < soglia minima."
+        },
+        "high_high": {
+            "label": "Valore CRITICO alto",
+            "threshold": "Soglia critica alta",
+            "helper": "Soglia oltre il «troppo alto»: per gli allarmi urgenti."
+        },
+        "low_low": {
+            "label": "Valore CRITICO basso",
+            "threshold": "Soglia critica bassa",
+            "helper": "Soglia oltre il «troppo basso»: per gli allarmi urgenti."
+        },
+        "comm_loss": {
+            "label": "Comunicazione persa (PLC non risponde)",
+            "helper": "Scatta quando non arriva più nessuna lettura valida per il tempo indicato sotto.",
+            "badge": "Comunicazione persa"
+        },
+        "frozen": {
+            "label": "Valore bloccato (sensore o PLC fermo)",
+            "helper": "Le letture arrivano ma il valore non si muove per il tempo indicato. Utile su un contatore watchdog.",
+            "badge": "Valore bloccato"
+        }
+    }
+}

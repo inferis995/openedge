@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { SynopticWidget } from '@/api/synoptics';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 export interface LiveValue {
     value: unknown;
@@ -279,6 +280,7 @@ function ButtonWidget({ widget, active, color, live, onWrite, onNavigate }: {
     live?: LiveValue; onWrite?: (v: number) => Promise<void>;
     onNavigate?: () => void;
 }) {
+    const { t } = useTranslation();
     const [sending, setSending] = useState(false);
     const [feedback, setFeedback] = useState<'ok' | 'err' | null>(null);
     const [confirmPending, setConfirmPending] = useState(false);
@@ -331,15 +333,15 @@ function ButtonWidget({ widget, active, color, live, onWrite, onNavigate }: {
     const textColor = active ? color : '#94a3b8';
 
     if (confirmPending && !isMomentary) {
-        const confirmMsg = cfg.confirmText || 'Confermare?';
+        const confirmMsg = cfg.confirmText || t('synopticWidget.confirm_default');
         return (
             <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 4, borderRadius: radius, border: '2px solid #f59e0b', background: 'rgba(245,158,11,0.1)' }}>
                 <span style={{ fontSize: 9, color: '#f59e0b', fontWeight: 600 }}>{confirmMsg}</span>
                 <div style={{ display: 'flex', gap: 4 }}>
                     <button type="button" style={{ fontSize: 9, padding: '2px 8px', borderRadius: 4, background: '#10b981', color: 'white', border: 'none', cursor: 'pointer' }}
-                        onClick={(e) => { e.stopPropagation(); setConfirmPending(false); void doWrite(getWriteVal()); }}>Sì</button>
+                        onClick={(e) => { e.stopPropagation(); setConfirmPending(false); void doWrite(getWriteVal()); }}>{t('common.yes')}</button>
                     <button type="button" style={{ fontSize: 9, padding: '2px 8px', borderRadius: 4, background: '#475569', color: 'white', border: 'none', cursor: 'pointer' }}
-                        onClick={(e) => { e.stopPropagation(); setConfirmPending(false); }}>No</button>
+                        onClick={(e) => { e.stopPropagation(); setConfirmPending(false); }}>{t('common.no')}</button>
                 </div>
             </div>
         );
@@ -359,7 +361,7 @@ function ButtonWidget({ widget, active, color, live, onWrite, onNavigate }: {
                 : feedback === 'err' ? <span className="text-red-400 text-xs">✗</span>
                 : <>
                     {iconChar && <span style={{ fontSize: '1.2em' }}>{iconChar}</span>}
-                    <span className="truncate px-1 leading-tight">{widget.label || 'Button'}</span>
+                    <span className="truncate px-1 leading-tight">{widget.label || t('synopticWidget.button_default')}</span>
                     {!isPreview && <span className="text-[9px] opacity-60 leading-tight">{active ? 'ON' : 'OFF'}</span>}
                 </>}
         </button>
@@ -367,6 +369,7 @@ function ButtonWidget({ widget, active, color, live, onWrite, onNavigate }: {
 }
 
 function ClockWidget({ widget }: { widget: SynopticWidget }) {
+    const { i18n } = useTranslation();
     const cfg = widget.config ?? {};
     const [now, setNow] = useState(new Date());
     useEffect(() => {
@@ -374,11 +377,11 @@ function ClockWidget({ widget }: { widget: SynopticWidget }) {
         return () => clearInterval(id);
     }, []);
     const use12h = cfg.clockFormat === '12h';
-    const timeStr = now.toLocaleTimeString(use12h ? 'en-US' : 'it-IT', {
+    const timeStr = now.toLocaleTimeString(use12h ? 'en-US' : i18n.language, {
         hour: '2-digit', minute: '2-digit', second: '2-digit',
         hour12: use12h,
     });
-    const dateStr = now.toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' });
+    const dateStr = now.toLocaleDateString(i18n.language, { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' });
     const showDate = cfg.showDate !== false;
     const textColor = cfg.color || '#e2e8f0';
 
@@ -418,6 +421,7 @@ function ClockWidget({ widget }: { widget: SynopticWidget }) {
 function SetpointWidget({ widget, live, onWrite }: {
     widget: SynopticWidget; live?: LiveValue; onWrite?: (v: number) => Promise<void>;
 }) {
+    const { t } = useTranslation();
     const cfg = widget.config ?? {};
     const current = num(live?.value);
     const [input, setInput] = useState('');
@@ -460,10 +464,10 @@ function SetpointWidget({ widget, live, onWrite }: {
         <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-slate-900/80 border border-slate-700 rounded-md px-2 overflow-hidden">
             {confirmPending !== null && (
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-slate-950/95 rounded-md px-2">
-                    <span className="text-[10px] text-amber-400 text-center">Conferma scrittura {confirmPending}{cfg.unit ? ` ${cfg.unit}` : ''}?</span>
+                    <span className="text-[10px] text-amber-400 text-center">{t('synopticWidget.confirm_write', { value: `${confirmPending}${cfg.unit ? ` ${cfg.unit}` : ''}` })}</span>
                     <div className="flex gap-1">
-                        <button type="button" onClick={() => void doWrite(confirmPending)} className="h-5 px-2 text-[10px] rounded bg-green-600 text-white">✓ Sì</button>
-                        <button type="button" onClick={() => setConfirmPending(null)} className="h-5 px-2 text-[10px] rounded bg-slate-600 text-white">✗ No</button>
+                        <button type="button" onClick={() => void doWrite(confirmPending)} className="h-5 px-2 text-[10px] rounded bg-green-600 text-white">✓ {t('common.yes')}</button>
+                        <button type="button" onClick={() => setConfirmPending(null)} className="h-5 px-2 text-[10px] rounded bg-slate-600 text-white">✗ {t('common.no')}</button>
                     </div>
                 </div>
             )}
@@ -496,12 +500,13 @@ function SetpointWidget({ widget, live, onWrite }: {
 }
 
 function ImageWidget({ cfg }: { cfg: SynopticWidget['config'] }) {
+    const { t } = useTranslation();
     const url = cfg?.imageUrl;
     const opacity = cfg?.opacity !== undefined ? cfg.opacity / 100 : 1;
     if (!url) {
         return (
             <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px dashed #475569', borderRadius: 4, background: 'rgba(15,23,42,0.5)' }}>
-                <span style={{ fontSize: 11, color: '#64748b' }}>Immagine</span>
+                <span style={{ fontSize: 11, color: '#64748b' }}>{t('synopticWidget.image_placeholder')}</span>
             </div>
         );
     }
@@ -522,6 +527,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
     liveSecondary?: LiveValue;
     onNavigate?: () => void;
 }) {
+    const { t, i18n } = useTranslation();
     const cfg = widget.config || {};
     const n = num(live?.value);
     const badQuality = live !== undefined && live.quality >= 2;
@@ -564,8 +570,8 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
                         {txt}{cfg.unit ? <span className="text-slate-400 text-[0.6em] ml-0.5">{cfg.unit}</span> : null}
                     </span>
                     {n2 !== null && <span className="text-[9px] text-slate-500 font-mono">SP: {n2.toFixed(decimals)}</span>}
-                    {badQuality && <span className="text-[8px] text-red-500 uppercase tracking-wider">bad</span>}
-                    {uncertainQuality && <span className="text-[8px] text-amber-500 uppercase tracking-wider">uncert</span>}
+                    {badQuality && <span className="text-[8px] text-red-500 uppercase tracking-wider">{t('synopticWidget.quality_bad')}</span>}
+                    {uncertainQuality && <span className="text-[8px] text-amber-500 uppercase tracking-wider">{t('synopticWidget.quality_uncertain')}</span>}
                     {cfg.showTimestamp && live !== undefined && (
                         // The SAMPLE's timestamp, not the wall clock. This used
                         // to render new Date(), so it ticked forward even while
@@ -573,7 +579,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
                         // operator that a dead feed was live, which is the exact
                         // opposite of what this option is for.
                         <span className="text-[8px] text-slate-600">
-                            {live.timestamp ? new Date(live.timestamp).toLocaleTimeString('it-IT') : '--:--:--'}
+                            {live.timestamp ? new Date(live.timestamp).toLocaleTimeString(i18n.language) : '--:--:--'}
                         </span>
                     )}
                 </div>
@@ -694,7 +700,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
         }
         case 'label': {
             const boundValue = num(live?.value);
-            const rawText = widget.label || 'Label';
+            const rawText = widget.label || t('synopticWidget.label_default');
             const displayText = cfg.tagBinding != null && boundValue !== null
                 ? rawText.replace('{{value}}', boundValue.toFixed(cfg.decimals ?? 1))
                 : rawText;
@@ -744,19 +750,20 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
     }
 }
 
+// label is an i18n key: render it with t(label).
 export const WIDGET_CATALOG: { type: SynopticWidget['type']; label: string; needsTag: boolean; defaultW: number; defaultH: number }[] = [
-    { type: 'value',    label: 'Value',    needsTag: true,  defaultW: 110, defaultH: 56 },
-    { type: 'gauge',    label: 'Gauge',    needsTag: true,  defaultW: 90,  defaultH: 90 },
-    { type: 'tank',     label: 'Tank',     needsTag: true,  defaultW: 70,  defaultH: 110 },
-    { type: 'bargraph', label: 'Bar',      needsTag: true,  defaultW: 120, defaultH: 30 },
-    { type: 'indicator',label: 'LED',      needsTag: true,  defaultW: 50,  defaultH: 56 },
-    { type: 'pump',     label: 'Pump',     needsTag: true,  defaultW: 70,  defaultH: 70 },
-    { type: 'valve',    label: 'Valve',    needsTag: true,  defaultW: 70,  defaultH: 70 },
-    { type: 'motor',    label: 'Motor',    needsTag: true,  defaultW: 80,  defaultH: 70 },
-    { type: 'button',   label: 'Button',   needsTag: true,  defaultW: 90,  defaultH: 44 },
-    { type: 'setpoint', label: 'Setpoint', needsTag: true,  defaultW: 110, defaultH: 70 },
-    { type: 'pipe',     label: 'Pipe',     needsTag: false, defaultW: 120, defaultH: 14 },
-    { type: 'label',    label: 'Label',    needsTag: false, defaultW: 100, defaultH: 30 },
-    { type: 'image',    label: 'Image',    needsTag: false, defaultW: 200, defaultH: 150 },
-    { type: 'clock',    label: 'Clock',    needsTag: false, defaultW: 130, defaultH: 56 },
+    { type: 'value',    label: 'synopticWidget.type_value',    needsTag: true,  defaultW: 110, defaultH: 56 },
+    { type: 'gauge',    label: 'synopticWidget.type_gauge',    needsTag: true,  defaultW: 90,  defaultH: 90 },
+    { type: 'tank',     label: 'synopticWidget.type_tank',     needsTag: true,  defaultW: 70,  defaultH: 110 },
+    { type: 'bargraph', label: 'synopticWidget.type_bargraph',      needsTag: true,  defaultW: 120, defaultH: 30 },
+    { type: 'indicator',label: 'synopticWidget.type_indicator',      needsTag: true,  defaultW: 50,  defaultH: 56 },
+    { type: 'pump',     label: 'synopticWidget.type_pump',     needsTag: true,  defaultW: 70,  defaultH: 70 },
+    { type: 'valve',    label: 'synopticWidget.type_valve',    needsTag: true,  defaultW: 70,  defaultH: 70 },
+    { type: 'motor',    label: 'synopticWidget.type_motor',    needsTag: true,  defaultW: 80,  defaultH: 70 },
+    { type: 'button',   label: 'synopticWidget.type_button',   needsTag: true,  defaultW: 90,  defaultH: 44 },
+    { type: 'setpoint', label: 'synopticWidget.type_setpoint', needsTag: true,  defaultW: 110, defaultH: 70 },
+    { type: 'pipe',     label: 'synopticWidget.type_pipe',     needsTag: false, defaultW: 120, defaultH: 14 },
+    { type: 'label',    label: 'synopticWidget.type_label',    needsTag: false, defaultW: 100, defaultH: 30 },
+    { type: 'image',    label: 'synopticWidget.type_image',    needsTag: false, defaultW: 200, defaultH: 150 },
+    { type: 'clock',    label: 'synopticWidget.type_clock',    needsTag: false, defaultW: 130, defaultH: 56 },
 ];

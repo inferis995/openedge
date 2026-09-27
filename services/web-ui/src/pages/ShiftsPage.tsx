@@ -32,10 +32,10 @@ const formatWeekdays = (weekdays: number[]): string => {
     if (weekdays.length === 0) return '—';
     const sorted = [...weekdays].sort((a, b) => a - b);
     const isWeekdays = sorted.length === 5 && sorted.every((d, i) => d === i + 1);
-    if (isWeekdays) return 'Lun-Ven';
+    if (isWeekdays) return i18n.t('shiftsPage.mon_fri');
     const isWeekend = sorted.length === 2 && sorted[0] === 0 && sorted[1] === 6;
-    if (isWeekend) return 'Sab-Dom';
-    return sorted.map((d) => WEEKDAY_LABELS[d]).join(' ');
+    if (isWeekend) return i18n.t('shiftsPage.sat_sun');
+    return sorted.map((d) => i18n.t(`shiftsPage.wd_${d}`, { defaultValue: WEEKDAY_LABELS[d] })).join(' ');
 };
 
 const ShiftsPage = () => {
@@ -86,19 +86,19 @@ const ShiftsPage = () => {
         },
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['shifts'] });
-            showApiSuccess('Turno salvato');
+            showApiSuccess(t('shiftsPage.saved'));
             setEditorOpen(false);
         },
-        onError: (e) => showApiError(e, 'Salvataggio fallito'),
+        onError: (e) => showApiError(e, t('shiftsPage.save_failed')),
     });
 
     const deleteMutation = useMutation({
         mutationFn: (id: number) => shiftsApi.delete(id),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['shifts'] });
-            showApiSuccess('Turno eliminato');
+            showApiSuccess(t('shiftsPage.deleted'));
         },
-        onError: (e) => showApiError(e, 'Eliminazione fallita'),
+        onError: (e) => showApiError(e, t('shiftsPage.delete_failed')),
     });
 
     const handleDelete = async (s: Shift) => {
@@ -115,15 +115,14 @@ const ShiftsPage = () => {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-                        <Clock size={22} /> Turni & Operatori
+                        <Clock size={22} /> {t('shiftsPage.title')}
                     </h2>
                     <p className="text-muted-foreground">
-                        Definisci gli orari di lavoro e assegna gli operatori. Il sistema riconosce
-                        automaticamente il turno corrente in base all'ora del server.
+                        {t('shiftsPage.subtitle')}
                     </p>
                 </div>
                 <Button onClick={openCreate} className="gap-2">
-                    <Plus size={16} /> Nuovo turno
+                    <Plus size={16} /> {t('shiftsPage.new')}
                 </Button>
             </div>
 
@@ -132,16 +131,16 @@ const ShiftsPage = () => {
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-[60px]">ID</TableHead>
-                            <TableHead>Nome</TableHead>
-                            <TableHead>Orario</TableHead>
-                            <TableHead>Giorni</TableHead>
-                            <TableHead>Stato</TableHead>
-                            <TableHead className="text-right">Azioni</TableHead>
+                            <TableHead>{t('common.name')}</TableHead>
+                            <TableHead>{t('shiftsPage.hours')}</TableHead>
+                            <TableHead>{t('shiftsPage.days')}</TableHead>
+                            <TableHead>{t('shiftsPage.status')}</TableHead>
+                            <TableHead className="text-right">{t('common.actions')}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {isLoading ? (
-                            <TableRow><TableCell colSpan={6} className="h-20 text-center">Caricamento…</TableCell></TableRow>
+                            <TableRow><TableCell colSpan={6} className="h-20 text-center">{t('common.loading')}</TableCell></TableRow>
                         ) : shifts.length === 0 ? (
                             <TableRow><TableCell colSpan={6}>
                                 <EmptyState
@@ -157,27 +156,27 @@ const ShiftsPage = () => {
                                 <TableCell className="font-semibold">{s.name}</TableCell>
                                 <TableCell className="font-mono text-xs">
                                     {s.start_time} → {s.end_time}
-                                    {s.wraps && <Badge className="ml-2 bg-purple-500/10 text-purple-500 border-none text-xs">notte</Badge>}
+                                    {s.wraps && <Badge className="ml-2 bg-purple-500/10 text-purple-500 border-none text-xs">{t('shiftsPage.night')}</Badge>}
                                 </TableCell>
                                 <TableCell className="text-xs">{formatWeekdays(s.weekdays)}</TableCell>
                                 <TableCell>
                                     {s.active
-                                        ? <Badge className="bg-emerald-500/10 text-emerald-500 border-none">Attivo</Badge>
-                                        : <Badge className="bg-slate-500/10 text-slate-400 border-none">Disattivato</Badge>}
+                                        ? <Badge className="bg-emerald-500/10 text-emerald-500 border-none">{t('shiftsPage.active')}</Badge>
+                                        : <Badge className="bg-slate-500/10 text-slate-400 border-none">{t('shiftsPage.inactive')}</Badge>}
                                 </TableCell>
                                 <TableCell className="text-right">
                                     <div className="flex items-center justify-end gap-2">
-                                        <Button variant="ghost" size="icon" title="Operatori"
+                                        <Button variant="ghost" size="icon" title={t('shiftsPage.operators')}
                                             className="h-10 sm:h-8 w-10 sm:w-8 text-cyan-500 hover:bg-cyan-500/10"
                                             onClick={() => setAssignShift(s)}>
                                             <Users size={16} />
                                         </Button>
-                                        <Button variant="ghost" size="icon" title="Modifica"
+                                        <Button variant="ghost" size="icon" title={t('common.edit')}
                                             className="h-10 sm:h-8 w-10 sm:w-8 text-blue-500 hover:bg-blue-500/10"
                                             onClick={() => openEdit(s)}>
                                             <Pencil size={16} />
                                         </Button>
-                                        <Button variant="ghost" size="icon" title="Elimina"
+                                        <Button variant="ghost" size="icon" title={t('common.delete')}
                                             className="h-10 sm:h-8 w-10 sm:w-8 text-red-500 hover:bg-red-500/10"
                                             onClick={() => handleDelete(s)}>
                                             <Trash2 size={16} />
@@ -194,30 +193,29 @@ const ShiftsPage = () => {
             <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>{editingId !== null ? 'Modifica turno' : 'Nuovo turno'}</DialogTitle>
+                        <DialogTitle>{editingId !== null ? t('shiftsPage.edit_title') : t('shiftsPage.new')}</DialogTitle>
                         <DialogDescription>
-                            Inserisci nome, orario di inizio/fine, giorni della settimana. Per il
-                            turno notte usa un'ora fine minore di quella di inizio (es. 22:00 → 06:00).
+                            {t('shiftsPage.dialog_desc')}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-2">
                         <div className="grid gap-1">
-                            <Label htmlFor="sh-name">Nome</Label>
+                            <Label htmlFor="sh-name">{t('common.name')}</Label>
                             <Input id="sh-name" value={name} onChange={(e) => setName(e.target.value)}
-                                placeholder="es. Mattina" />
+                                placeholder={t('shiftsPage.name_placeholder')} />
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="grid gap-1">
-                                <Label htmlFor="sh-start">Inizio</Label>
+                                <Label htmlFor="sh-start">{t('shiftsPage.start')}</Label>
                                 <Input id="sh-start" type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
                             </div>
                             <div className="grid gap-1">
-                                <Label htmlFor="sh-end">Fine</Label>
+                                <Label htmlFor="sh-end">{t('shiftsPage.end')}</Label>
                                 <Input id="sh-end" type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
                             </div>
                         </div>
                         <div className="grid gap-2">
-                            <Label>Giorni della settimana</Label>
+                            <Label>{t('shiftsPage.weekdays')}</Label>
                             <div className="flex gap-2 flex-wrap">
                                 {WEEKDAY_LABELS.map((label, idx) => {
                                     const sel = weekdays.includes(idx);
@@ -228,7 +226,7 @@ const ShiftsPage = () => {
                                                     ? 'bg-primary text-primary-foreground border-primary'
                                                     : 'bg-transparent border-input hover:bg-muted'
                                             }`}>
-                                            {label}
+                                            {t(`shiftsPage.wd_${idx}`, { defaultValue: label })}
                                         </button>
                                     );
                                 })}
@@ -236,12 +234,12 @@ const ShiftsPage = () => {
                         </div>
                         <div className="flex items-center gap-3">
                             <Switch checked={active} onCheckedChange={setActive} />
-                            <Label>Turno attivo</Label>
+                            <Label>{t('shiftsPage.active_label')}</Label>
                         </div>
                     </div>
                     <DialogFooter>
                         <Button onClick={() => saveMutation.mutate()} disabled={!name.trim() || saveMutation.isPending}>
-                            {saveMutation.isPending ? 'Salvataggio…' : (editingId !== null ? 'Salva' : 'Crea')}
+                            {saveMutation.isPending ? t('shiftsPage.saving') : (editingId !== null ? t('common.save') : t('common.create'))}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -259,6 +257,7 @@ const ShiftsPage = () => {
 // Dialog separato per gestione operatori assegnati a un turno.
 // ─────────────────────────────────────────────────────────────────────────────
 const AssignmentsDialog = ({ shift, onClose }: { shift: Shift | null; onClose: () => void }) => {
+    const { t } = useTranslation();
     const qc = useQueryClient();
     const { data: assignments = [], refetch } = useQuery({
         queryKey: ['shift-assignments', shift?.id],
@@ -288,9 +287,9 @@ const AssignmentsDialog = ({ shift, onClose }: { shift: Shift | null; onClose: (
             refetch();
             setSelectedUserID('');
             setValidTo('');
-            showApiSuccess('Operatore assegnato');
+            showApiSuccess(t('shiftsPage.assigned'));
         },
-        onError: (e) => showApiError(e, 'Assegnazione fallita'),
+        onError: (e) => showApiError(e, t('shiftsPage.assign_failed')),
     });
 
     const removeMutation = useMutation({
@@ -298,9 +297,9 @@ const AssignmentsDialog = ({ shift, onClose }: { shift: Shift | null; onClose: (
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['shift-assignments', shift?.id] });
             refetch();
-            showApiSuccess('Assegnazione rimossa');
+            showApiSuccess(t('shiftsPage.assignment_removed'));
         },
-        onError: (e) => showApiError(e, 'Rimozione fallita'),
+        onError: (e) => showApiError(e, t('shiftsPage.remove_failed')),
     });
 
     if (!shift) return null;
@@ -309,39 +308,38 @@ const AssignmentsDialog = ({ shift, onClose }: { shift: Shift | null; onClose: (
         <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
             <DialogContent className="max-w-2xl">
                 <DialogHeader>
-                    <DialogTitle>Operatori — {shift.name}</DialogTitle>
+                    <DialogTitle>{t('shiftsPage.operators_title', { name: shift.name })}</DialogTitle>
                     <DialogDescription>
-                        Lista degli operatori designati per questo turno. La dashboard mostra in
-                        tempo reale chi è in servizio.
+                        {t('shiftsPage.operators_desc')}
                     </DialogDescription>
                 </DialogHeader>
 
                 {/* Form nuovo assegnamento */}
                 <div className="rounded-md border bg-muted/30 p-3 space-y-3">
                     <div className="flex items-center gap-2 text-sm font-semibold">
-                        <UserPlus size={14} /> Aggiungi operatore
+                        <UserPlus size={14} /> {t('shiftsPage.add_operator')}
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 items-end">
                         <div className="grid gap-1">
-                            <Label htmlFor="asg-user" className="text-xs">Utente</Label>
+                            <Label htmlFor="asg-user" className="text-xs">{t('shiftsPage.user')}</Label>
                             <select
                                 id="asg-user"
                                 value={selectedUserID}
                                 onChange={(e) => setSelectedUserID(e.target.value)}
                                 className="flex h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
                             >
-                                <option value="">— seleziona —</option>
+                                <option value="">{t('shiftsPage.select_placeholder')}</option>
                                 {users.map((u) => (
                                     <option key={u.id} value={u.id}>{u.username} {u.full_name ? `(${u.full_name})` : ''}</option>
                                 ))}
                             </select>
                         </div>
                         <div className="grid gap-1">
-                            <Label htmlFor="asg-from" className="text-xs">Dal</Label>
+                            <Label htmlFor="asg-from" className="text-xs">{t('shiftsPage.from')}</Label>
                             <Input id="asg-from" type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} className="h-9" />
                         </div>
                         <div className="grid gap-1">
-                            <Label htmlFor="asg-to" className="text-xs">Al (opzionale)</Label>
+                            <Label htmlFor="asg-to" className="text-xs">{t('shiftsPage.to_optional')}</Label>
                             <Input id="asg-to" type="date" value={validTo} onChange={(e) => setValidTo(e.target.value)} className="h-9" />
                         </div>
                     </div>
@@ -349,7 +347,7 @@ const AssignmentsDialog = ({ shift, onClose }: { shift: Shift | null; onClose: (
                         size="sm"
                         onClick={() => addMutation.mutate()}
                         disabled={!selectedUserID || addMutation.isPending}>
-                        Assegna
+                        {t('shiftsPage.assign')}
                     </Button>
                 </div>
 
@@ -358,15 +356,15 @@ const AssignmentsDialog = ({ shift, onClose }: { shift: Shift | null; onClose: (
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Operatore</TableHead>
-                                <TableHead>Dal</TableHead>
-                                <TableHead>Al</TableHead>
-                                <TableHead className="text-right">Azioni</TableHead>
+                                <TableHead>{t('shiftsPage.operator')}</TableHead>
+                                <TableHead>{t('shiftsPage.from')}</TableHead>
+                                <TableHead>{t('shiftsPage.to')}</TableHead>
+                                <TableHead className="text-right">{t('common.actions')}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
                             {assignments.length === 0 ? (
-                                <TableRow><TableCell colSpan={4} className="h-16 text-center text-muted-foreground">Nessun operatore assegnato.</TableCell></TableRow>
+                                <TableRow><TableCell colSpan={4} className="h-16 text-center text-muted-foreground">{t('shiftsPage.no_operators')}</TableCell></TableRow>
                             ) : assignments.map((a: ShiftAssignment) => (
                                 <TableRow key={a.id}>
                                     <TableCell className="text-sm">

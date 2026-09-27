@@ -25,6 +25,7 @@ import OrgInfrastructureDialog from '@/components/OrgInfrastructureDialog';
 import { Organization } from '@/types';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
+import { useTranslation } from 'react-i18next';
 
 // Small hook: fetch edge status for a single org (used inline in the row)
 function useEdgeStatus(orgId: number, enabled: boolean) {
@@ -38,6 +39,7 @@ function useEdgeStatus(orgId: number, enabled: boolean) {
 }
 
 function EdgeBadge({ orgId }: { orgId: number }) {
+    const { t } = useTranslation();
     const { data } = useEdgeStatus(orgId, true);
     if (!data) return null;
     return data.online ? (
@@ -46,18 +48,19 @@ function EdgeBadge({ orgId }: { orgId: number }) {
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-green-500" />
             </span>
-            Edge online
+            {t('organizationsPage.edge_online')}
         </Badge>
     ) : (
         <Badge variant="outline" className="gap-1 border-muted-foreground/40 text-muted-foreground text-[10px] h-5 px-1.5">
             <WifiOff size={9} />
-            Edge offline
+            {t('organizationsPage.edge_offline')}
         </Badge>
     );
 }
 
 const OrganizationsPage = () => {
     const navigate = useNavigate();
+    const { t } = useTranslation();
     const { organizations, isLoading, create, update, remove } = useOrganizations();
     const { setSelectedOrgId } = useNavigationStore();
     const { isAdmin } = useAuthStore();
@@ -100,7 +103,7 @@ const OrganizationsPage = () => {
     };
 
     if (isLoading) {
-        return <div className="p-8 text-center text-muted-foreground">Loading organizations…</div>;
+        return <div className="p-8 text-center text-muted-foreground">{t('organizationsPage.loading')}</div>;
     }
 
     return (
@@ -109,61 +112,61 @@ const OrganizationsPage = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="rounded-lg border bg-card p-4 text-center">
                     <div className="text-3xl font-bold text-primary">{organizations.length}</div>
-                    <div className="text-sm text-muted-foreground mt-1">Tenant totali</div>
+                    <div className="text-sm text-muted-foreground mt-1">{t('organizationsPage.stat_total')}</div>
                 </div>
                 <div className="rounded-lg border bg-card p-4 text-center">
                     <div className="text-3xl font-bold text-green-600">{organizations.length}</div>
-                    <div className="text-sm text-muted-foreground mt-1">Attivi</div>
+                    <div className="text-sm text-muted-foreground mt-1">{t('organizationsPage.stat_active')}</div>
                 </div>
                 <div className="rounded-lg border bg-card p-4 text-center flex flex-col items-center justify-center">
                     <a
                         href="/fleet"
                         className="text-sm font-medium text-primary hover:underline"
                     >
-                        Vedi Fleet →
+                        {t('organizationsPage.see_fleet')}
                     </a>
-                    <div className="text-xs text-muted-foreground mt-1">Stato edge per org</div>
+                    <div className="text-xs text-muted-foreground mt-1">{t('organizationsPage.fleet_hint')}</div>
                 </div>
             </div>
 
             {/* Header */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight">Organizations</h2>
+                    <h2 className="text-2xl font-bold tracking-tight">{t('nav.organizations')}</h2>
                     <p className="text-muted-foreground text-sm">
-                        Manage tenants, deploy edge packages, and invite team members.
+                        {t('organizationsPage.subtitle')}
                     </p>
                 </div>
                 {isAdmin() && (
                     <Dialog open={isOpen} onOpenChange={setIsOpen}>
                         <DialogTrigger asChild>
                             <Button className="gap-2">
-                                <Plus size={16} /> New Organization
+                                <Plus size={16} /> {t('organizationsPage.new')}
                             </Button>
                         </DialogTrigger>
                         <DialogContent>
                             <DialogHeader>
-                                <DialogTitle>Create Organization</DialogTitle>
+                                <DialogTitle>{t('organizationsPage.create_title')}</DialogTitle>
                                 <DialogDescription>
-                                    Each organization is an isolated tenant with its own edge, users, and data.
+                                    {t('organizationsPage.create_desc')}
                                 </DialogDescription>
                             </DialogHeader>
                             <div className="grid gap-4 py-4">
                                 <div className="space-y-1.5">
-                                    <Label htmlFor="name">Organization name</Label>
+                                    <Label htmlFor="name">{t('organizationsPage.name')}</Label>
                                     <Input
                                         id="name"
                                         value={newOrgName}
                                         onChange={(e) => setNewOrgName(e.target.value)}
-                                        placeholder="e.g. Acme Industries"
+                                        placeholder={t('organizationsPage.name_placeholder')}
                                         onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
                                         autoFocus
                                     />
                                 </div>
                             </div>
                             <DialogFooter>
-                                <Button variant="outline" onClick={() => setIsOpen(false)}>Cancel</Button>
-                                <Button onClick={handleCreate} disabled={!newOrgName.trim()}>Create</Button>
+                                <Button variant="outline" onClick={() => setIsOpen(false)}>{t('common.cancel')}</Button>
+                                <Button onClick={handleCreate} disabled={!newOrgName.trim()}>{t('common.create')}</Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
@@ -174,10 +177,10 @@ const OrganizationsPage = () => {
             {organizations.length === 0 ? (
                 <div className="rounded-lg border border-dashed p-12 text-center space-y-3">
                     <Building2 size={40} className="mx-auto text-muted-foreground/40" />
-                    <p className="text-muted-foreground">No organizations yet.</p>
+                    <p className="text-muted-foreground">{t('organizationsPage.empty')}</p>
                     {isAdmin() && (
                         <Button variant="outline" onClick={() => setIsOpen(true)} className="gap-2">
-                            <Plus size={14} /> Create your first organization
+                            <Plus size={14} /> {t('organizationsPage.create_first')}
                         </Button>
                     )}
                 </div>
@@ -200,9 +203,9 @@ const OrganizationsPage = () => {
                                         <EdgeBadge orgId={org.id} />
                                     </div>
                                     <p className="text-xs text-muted-foreground mt-0.5">
-                                        Created {new Date(org.created_at).toLocaleDateString('en-US', {
+                                        {t('organizationsPage.created_on', { date: new Date(org.created_at).toLocaleDateString(i18n.language, {
                                             year: 'numeric', month: 'long', day: 'numeric',
-                                        })}
+                                        }) })}
                                         {' · '}ID #{org.id}
                                     </p>
                                 </div>
@@ -219,7 +222,7 @@ const OrganizationsPage = () => {
                                                 onClick={(e) => { e.stopPropagation(); setInfraOrg(org); }}
                                             >
                                                 <Server size={13} />
-                                                Infrastructure
+                                                {t('nav.infrastructure')}
                                             </Button>
 
                                             {/* Edit */}
@@ -255,7 +258,7 @@ const OrganizationsPage = () => {
                                         className="gap-1.5 text-xs h-10 sm:h-8"
                                         onClick={() => handleSelect(org.id)}
                                     >
-                                        Enter
+                                        {t('organizationsPage.enter')}
                                         <ChevronRight size={13} />
                                     </Button>
                                 </div>
@@ -269,11 +272,11 @@ const OrganizationsPage = () => {
             <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Rename Organization</DialogTitle>
+                        <DialogTitle>{t('organizationsPage.rename_title')}</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                         <div className="space-y-1.5">
-                            <Label htmlFor="edit-name">Name</Label>
+                            <Label htmlFor="edit-name">{t('common.name')}</Label>
                             <Input
                                 id="edit-name"
                                 value={editingOrg?.name || ''}
@@ -286,8 +289,8 @@ const OrganizationsPage = () => {
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
-                        <Button onClick={handleUpdate}>Save</Button>
+                        <Button variant="outline" onClick={() => setIsEditOpen(false)}>{t('common.cancel')}</Button>
+                        <Button onClick={handleUpdate}>{t('common.save')}</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

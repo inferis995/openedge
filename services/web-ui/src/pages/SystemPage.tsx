@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
 import { systemApi, GlobalSettings, UpdateSettingsRequest, BackupFileInfo, ServiceStatus } from '@/api/system';
 import { healthApi } from '@/api/health';
 import NotificationsSettings from '@/components/system/NotificationsSettings';
@@ -31,24 +31,24 @@ import i18n from '@/i18n';
 const PUBLISH_MODES = [
     {
         value: 'dual',
-        label: 'Dual (Legacy + Sparkplug B)',
+        label: 'systemPage.mode_dual',
         icon: RefreshCw,
-        description: 'Pubblica in entrambi i formati per massima compatibilità',
-        tooltip: 'Pubblica ogni aggiornamento in entrambi i formati. Ideale per ambienti misti con SCADA legacy e sistemi Sparkplug B.'
+        description: 'systemPage.mode_dual_desc',
+        tooltip: 'systemPage.mode_dual_tip'
     },
     {
         value: 'sparkplug_only',
-        label: 'Solo Sparkplug B',
+        label: 'systemPage.mode_sparkplug',
         icon: Zap,
-        description: 'Ottimizza la banda con Report by Exception (RBE)',
-        tooltip: 'Standard industriale Eclipse Sparkplug B. Pubblica solo quando il valore cambia, riducendo drasticamente il traffico di rete.'
+        description: 'systemPage.mode_sparkplug_desc',
+        tooltip: 'systemPage.mode_sparkplug_tip'
     },
     {
         value: 'legacy_only',
-        label: 'Solo Legacy JSON',
+        label: 'systemPage.mode_legacy',
         icon: ScrollText,
-        description: 'Formato compatibile con sistemi esistenti',
-        tooltip: 'Pubblica solo nel formato JSON interno. Per sistemi che non supportano Sparkplug B o per debug.'
+        description: 'systemPage.mode_legacy_desc',
+        tooltip: 'systemPage.mode_legacy_tip'
     }
 ];
 
@@ -63,7 +63,7 @@ const formatBytes = (bytes: number): string => {
 const formatDate = (dateStr: string): string => {
     if (!dateStr) return '-';
     const date = new Date(dateStr);
-    return date.toLocaleString('it-IT', {
+    return date.toLocaleString(i18n.language, {
         day: '2-digit',
         month: '2-digit',
         year: 'numeric',
@@ -162,11 +162,11 @@ const SystemPage = () => {
                 body: JSON.stringify(ssoEdit),
             });
             if (!r.ok) throw new Error('save failed');
-            setSsoMsg({ type: 'success', text: 'SSO provider saved' });
+            setSsoMsg({ type: 'success', text: t('systemPage.sso_saved') });
             setSsoEdit(null);
             loadSSOProviders();
         } catch {
-            setSsoMsg({ type: 'error', text: 'Failed to save SSO provider' });
+            setSsoMsg({ type: 'error', text: t('systemPage.sso_save_failed') });
         } finally { setSsoSaving(false); }
     };
 
@@ -286,10 +286,10 @@ const SystemPage = () => {
             update.cloud_mqtt_topic = cloudMqttTopic;
 
             await systemApi.updateSettings(update);
-            setMessage({ type: 'success', text: 'Configurazione salvata. Riavviare i servizi per applicare le modifiche al broker MQTT.' });
+            setMessage({ type: 'success', text: t('systemPage.settings_saved') });
         } catch (error) {
             console.error(error);
-            setMessage({ type: 'error', text: 'Errore nel salvataggio della configurazione.' });
+            setMessage({ type: 'error', text: t('systemPage.settings_save_failed') });
         } finally {
             setLoading(false);
         }
@@ -297,7 +297,7 @@ const SystemPage = () => {
 
     const handleBackup = async () => {
         setLoading(true);
-        setMessage({ type: 'success', text: 'Generazione backup in corso...' });
+        setMessage({ type: 'success', text: t('systemPage.backup_running') });
         try {
             const blob = await systemApi.exportBackup();
             const url = window.URL.createObjectURL(blob);
@@ -308,11 +308,11 @@ const SystemPage = () => {
             a.click();
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
-            setMessage({ type: 'success', text: 'Backup completato e scaricato.' });
+            setMessage({ type: 'success', text: t('systemPage.backup_done') });
             loadBackupList();
         } catch (error) {
             console.error(error);
-            setMessage({ type: 'error', text: 'Errore nella creazione del backup.' });
+            setMessage({ type: 'error', text: t('systemPage.backup_failed') });
         } finally {
             setLoading(false);
         }
@@ -323,14 +323,14 @@ const SystemPage = () => {
         const file = e.target.files[0];
         if (await confirmAction({ title: i18n.t('ask.restore'), description: i18n.t('ask.restore_desc'), confirmLabel: i18n.t('ask.restore_go'), destructive: true })) {
             setLoading(true);
-            setMessage({ type: 'success', text: 'Ripristino in corso...' });
+            setMessage({ type: 'success', text: t('systemPage.restore_running') });
             try {
                 await systemApi.restoreBackup(file);
-                setMessage({ type: 'success', text: 'Sistema ripristinato. Ricaricamento...' });
+                setMessage({ type: 'success', text: t('systemPage.restore_done') });
                 setTimeout(() => window.location.reload(), 2000);
             } catch (error) {
                 console.error(error);
-                setMessage({ type: 'error', text: 'Errore nel ripristino del backup.' });
+                setMessage({ type: 'error', text: t('systemPage.restore_failed') });
             } finally {
                 setLoading(false);
             }
@@ -344,7 +344,7 @@ const SystemPage = () => {
 
         setPostRestoreLoading(true);
         setPostRestoreResults(null);
-        setMessage({ type: 'success', text: 'Riavvio servizi in corso...' });
+        setMessage({ type: 'success', text: t('systemPage.restart_running') });
 
         try {
             const response = await systemApi.postRestoreRestart();
@@ -352,7 +352,7 @@ const SystemPage = () => {
             setMessage({ type: 'success', text: response.message });
         } catch (error) {
             console.error(error);
-            setMessage({ type: 'error', text: 'Errore durante il riavvio dei servizi.' });
+            setMessage({ type: 'error', text: t('systemPage.restart_failed') });
         } finally {
             setPostRestoreLoading(false);
         }
@@ -371,7 +371,7 @@ const SystemPage = () => {
             document.body.removeChild(a);
         } catch (error) {
             console.error(error);
-            setMessage({ type: 'error', text: 'Errore nel download del backup.' });
+            setMessage({ type: 'error', text: t('systemPage.download_failed') });
         }
     };
 
@@ -379,10 +379,10 @@ const SystemPage = () => {
         setHistorianRetentionSaving(true);
         try {
             await systemApi.updateSettings({ historian_retention_days: historianRetentionDays });
-            setMessage({ type: 'success', text: 'Historian retention saved.' });
+            setMessage({ type: 'success', text: t('systemPage.retention_saved') });
         } catch (error) {
             console.error(error);
-            setMessage({ type: 'error', text: 'Failed to save historian retention.' });
+            setMessage({ type: 'error', text: t('systemPage.retention_save_failed') });
         } finally {
             setHistorianRetentionSaving(false);
         }
@@ -393,10 +393,10 @@ const SystemPage = () => {
             try {
                 await systemApi.deleteBackup(filename);
                 setBackupList(backupList.filter(b => b.filename !== filename));
-                setMessage({ type: 'success', text: 'Backup eliminato.' });
+                setMessage({ type: 'success', text: t('systemPage.backup_deleted') });
             } catch (error) {
                 console.error(error);
-                setMessage({ type: 'error', text: 'Errore nell\'eliminazione del backup.' });
+                setMessage({ type: 'error', text: t('systemPage.backup_delete_failed') });
             }
         }
     };
@@ -444,8 +444,8 @@ const SystemPage = () => {
                         <TabsTrigger value="notifications">{t('system.tab_notifications')}</TabsTrigger>
                         <TabsTrigger value="backup">{t('system.tab_backup')}</TabsTrigger>
                         <TabsTrigger value="kpi">{t('system.tab_kpi')}</TabsTrigger>
-                        <TabsTrigger value="integrations">Integrations</TabsTrigger>
-                        <TabsTrigger value="database">Database</TabsTrigger>
+                        <TabsTrigger value="integrations">{t('systemPage.tab_integrations')}</TabsTrigger>
+                        <TabsTrigger value="database">{t('systemPage.tab_database')}</TabsTrigger>
                         {isGlobalAdmin() && (
                             <TabsTrigger value="sso">SSO / OIDC</TabsTrigger>
                         )}
@@ -460,16 +460,16 @@ const SystemPage = () => {
                                         <Server className="h-4 w-4 text-primary" />
                                     </div>
                                     <div>
-                                        <CardTitle className="text-base text-foreground">Broker MQTT</CardTitle>
+                                        <CardTitle className="text-base text-foreground">{t('systemPage.broker_title')}</CardTitle>
                                         <CardDescription className="text-xs mt-0.5">
-                                            Seleziona il broker MQTT per la pubblicazione
+                                            {t('systemPage.broker_desc')}
                                         </CardDescription>
                                     </div>
                                 </div>
                             </CardHeader>
                             <CardContent className="pt-5 space-y-5">
                                 {settingsLoading ? (
-                                    <div className="text-sm text-muted-foreground py-4 text-center">Caricamento...</div>
+                                    <div className="text-sm text-muted-foreground py-4 text-center">{t('common.loading')}</div>
                                 ) : (
                                     <>
                                         <RadioGroup
@@ -490,15 +490,15 @@ const SystemPage = () => {
                                                     <div className="flex items-center gap-2">
                                                         <Network className={`h-3.5 w-3.5 flex-shrink-0 ${mqttBrokerMode === 'internal' ? 'text-primary' : 'text-muted-foreground'}`} />
                                                         <span className={`text-sm font-medium ${mqttBrokerMode === 'internal' ? 'text-foreground' : 'text-foreground'}`}>
-                                                            Broker Interno (Mosquitto)
+                                                            {t('systemPage.broker_internal')}
                                                         </span>
                                                     </div>
                                                     <p className="text-xs text-muted-foreground mt-1">
-                                                        Broker embedded accessibile su porta 1883
+                                                        {t('systemPage.broker_internal_desc')}
                                                     </p>
                                                     {mqttBrokerMode === 'internal' && (
                                                         <p className="text-xs text-primary mt-1.5 italic">
-                                                            Ascolta su 0.0.0.0:1883 — accessibile dalla rete locale
+                                                            {t('systemPage.broker_internal_listen')}
                                                         </p>
                                                     )}
                                                 </div>
@@ -517,11 +517,11 @@ const SystemPage = () => {
                                                     <div className="flex items-center gap-2">
                                                         <Server className={`h-3.5 w-3.5 flex-shrink-0 ${mqttBrokerMode === 'external' ? 'text-primary' : 'text-muted-foreground'}`} />
                                                         <span className={`text-sm font-medium ${mqttBrokerMode === 'external' ? 'text-foreground' : 'text-foreground'}`}>
-                                                            Broker Esterno
+                                                            {t('systemPage.broker_external')}
                                                         </span>
                                                     </div>
                                                     <p className="text-xs text-muted-foreground mt-1">
-                                                        Utilizza un broker MQTT esistente
+                                                        {t('systemPage.broker_external_desc')}
                                                     </p>
                                                 </div>
                                             </label>
@@ -535,7 +535,7 @@ const SystemPage = () => {
                                                     <div className="space-y-2">
                                                         <Label className="text-xs text-muted-foreground flex items-center gap-1">
                                                             <Network className="h-3 w-3" />
-                                                            Host
+                                                            {t('systemPage.host')}
                                                         </Label>
                                                         <Input
                                                             value={mqttExternalHost}
@@ -545,7 +545,7 @@ const SystemPage = () => {
                                                         />
                                                     </div>
                                                     <div className="space-y-2">
-                                                        <Label className="text-xs text-muted-foreground">Porta</Label>
+                                                        <Label className="text-xs text-muted-foreground">{t('systemPage.port')}</Label>
                                                         <Input
                                                             type="number"
                                                             value={mqttExternalPort}
@@ -560,24 +560,24 @@ const SystemPage = () => {
                                                 <div className="bg-muted/50 clip-chamfer p-3 space-y-3">
                                                     <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground mb-2">
                                                         <Key className="h-3.5 w-3.5" />
-                                                        Autenticazione (opzionale)
+                                                        {t('systemPage.auth_optional')}
                                                     </div>
                                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                         <div className="space-y-2">
                                                             <Label className="text-xs text-muted-foreground flex items-center gap-1">
                                                                 <User className="h-3 w-3" />
-                                                                Username
+                                                                {t('systemPage.username')}
                                                             </Label>
                                                             <Input
                                                                 value={mqttUsername}
                                                                 onChange={(e) => setMqttUsername(e.target.value)}
-                                                                placeholder="utente"
+                                                                placeholder={t('systemPage.username_ph')}
                                                                 className="h-9"
                                                                 autoComplete="off"
                                                             />
                                                         </div>
                                                         <div className="space-y-2">
-                                                            <Label className="text-xs text-muted-foreground">Password</Label>
+                                                            <Label className="text-xs text-muted-foreground">{t('systemPage.password')}</Label>
                                                             <div className="relative">
                                                                 <Input
                                                                     type={showPassword ? "text" : "password"}
@@ -598,20 +598,20 @@ const SystemPage = () => {
                                                         </div>
                                                     </div>
                                                     <div className="space-y-2">
-                                                        <Label className="text-xs text-muted-foreground">Client ID</Label>
+                                                        <Label className="text-xs text-muted-foreground">{t('systemPage.client_id')}</Label>
                                                         <Input
                                                             value={mqttClientId}
                                                             onChange={(e) => setMqttClientId(e.target.value)}
                                                             placeholder="industrial-edge"
                                                             className="h-9"
                                                         />
-                                                        <p className="text-xs text-muted-foreground">Identificativo univoco per la connessione MQTT</p>
+                                                        <p className="text-xs text-muted-foreground">{t('systemPage.client_id_hint')}</p>
                                                     </div>
                                                 </div>
 
                                                 <p className="text-xs text-destructive flex items-center gap-1.5">
                                                     <AlertTriangle className="h-3 w-3 flex-shrink-0" />
-                                                    Richiede riavvio dei servizi dopo il salvataggio.
+                                                    {t('systemPage.restart_needed')}
                                                 </p>
                                             </div>
                                         )}
@@ -630,10 +630,10 @@ const SystemPage = () => {
                                         </div>
                                         <div>
                                             <CardTitle className="text-base text-foreground flex items-center gap-2">
-                                                Cloud Sync (MQTT Forwarder) <Badge variant="secondary" className="text-[10px] uppercase font-mono tracking-wider bg-blue-500/10 text-blue-500 border-none px-1.5 py-0 h-4">Beta</Badge>
+                                                {t('systemPage.cloud_title')} <Badge variant="secondary" className="text-[10px] uppercase font-mono tracking-wider bg-blue-500/10 text-blue-500 border-none px-1.5 py-0 h-4">Beta</Badge>
                                             </CardTitle>
                                             <CardDescription className="text-xs mt-0.5">
-                                                Inoltra automaticamente i dati Sparkplug B a un Cloud remoto (AWS, Azure, ecc.)
+                                                {t('systemPage.cloud_desc')}
                                             </CardDescription>
                                         </div>
                                     </div>
@@ -644,7 +644,7 @@ const SystemPage = () => {
                                             id="cloud-sync-toggle"
                                         />
                                         <Label htmlFor="cloud-sync-toggle" className="text-xs text-muted-foreground cursor-pointer">
-                                            {cloudSyncEnabled ? 'Attivo' : 'Disattivo'}
+                                            {cloudSyncEnabled ? t('systemPage.on') : t('systemPage.off')}
                                         </Label>
                                     </div>
                                 </div>
@@ -654,17 +654,17 @@ const SystemPage = () => {
                                         <div className="space-y-2">
                                             <Label className="text-xs text-muted-foreground flex items-center gap-1">
                                                 <Network className="h-3 w-3" />
-                                                Host o Dominio Cloud
+                                                {t('systemPage.cloud_host')}
                                             </Label>
                                             <Input
                                                 value={cloudMqttHost}
                                                 onChange={(e) => setCloudMqttHost(e.target.value)}
-                                                placeholder="es. a1b2c3d4.iot.eu-central-1.amazonaws.com"
+                                                placeholder={t('systemPage.cloud_host_ph')}
                                                 className="h-9 font-mono text-sm"
                                             />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label className="text-xs text-muted-foreground">Porta TLS / TCP</Label>
+                                            <Label className="text-xs text-muted-foreground">{t('systemPage.cloud_port')}</Label>
                                             <Input
                                                 type="number"
                                                 value={cloudMqttPort}
@@ -677,7 +677,7 @@ const SystemPage = () => {
 
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         <div className="space-y-2">
-                                            <Label className="text-xs text-muted-foreground">Username (Opzionale)</Label>
+                                            <Label className="text-xs text-muted-foreground">{t('systemPage.cloud_username')}</Label>
                                             <Input
                                                 value={cloudMqttUsername}
                                                 onChange={(e) => setCloudMqttUsername(e.target.value)}
@@ -687,7 +687,7 @@ const SystemPage = () => {
                                             />
                                         </div>
                                         <div className="space-y-2">
-                                            <Label className="text-xs text-muted-foreground">Password (Opzionale)</Label>
+                                            <Label className="text-xs text-muted-foreground">{t('systemPage.cloud_password')}</Label>
                                             <div className="relative">
                                                 <Input
                                                     type={showPassword ? "text" : "password"}
@@ -716,7 +716,7 @@ const SystemPage = () => {
 
                                     <div className="space-y-2 pt-2 border-t border-border mt-4">
                                         <div className="flex items-center justify-between gap-2">
-                                            <Label className="text-xs text-muted-foreground">Topic di Destinazione (Prefisso)</Label>
+                                            <Label className="text-xs text-muted-foreground">{t('systemPage.cloud_topic')}</Label>
                                             <Button
                                                 type="button"
                                                 variant="ghost"
@@ -725,21 +725,21 @@ const SystemPage = () => {
                                                 className="h-9 sm:h-6 px-2 text-[10px] text-muted-foreground hover:text-foreground"
                                             >
                                                 <Trash2 className="h-2.5 w-2.5 mr-1" />
-                                                Nessun Prefisso
+                                                {t('systemPage.cloud_no_prefix')}
                                             </Button>
                                         </div>
                                         <Input
                                             value={cloudMqttTopic}
                                             onChange={(e) => setCloudMqttTopic(e.target.value)}
-                                            placeholder="es. sorical/data/"
+                                            placeholder={t('systemPage.cloud_topic_ph')}
                                             className="h-9 font-mono text-sm"
                                         />
                                         <p className="text-[10px] text-muted-foreground mt-1">
-                                            Questo prefisso verrà aggiunto prima di ogni messaggio MQTT inoltrato al Cloud.
+                                            {t('systemPage.cloud_topic_hint')}
                                             {cloudMqttTopic ? (
-                                                <>Esempio: <code>{cloudMqttTopic}spBv1.0/DDATA/...</code></>
+                                                <>{t('systemPage.example')} <code>{cloudMqttTopic}spBv1.0/DDATA/...</code></>
                                             ) : (
-                                                <>Senza prefisso: i messaggi verranno pubblicati con il formato originale (es. <code>spBv1.0/DDATA/...</code>)</>
+                                                <>{t('systemPage.cloud_no_prefix_hint')} <code>spBv1.0/DDATA/...</code>)</>
                                             )}
                                         </p>
                                     </div>
@@ -754,16 +754,16 @@ const SystemPage = () => {
                                         <RefreshCw className="h-4 w-4 text-primary" />
                                     </div>
                                     <div>
-                                        <CardTitle className="text-base text-foreground">Configurazione MQTT</CardTitle>
+                                        <CardTitle className="text-base text-foreground">{t('systemPage.publish_title')}</CardTitle>
                                         <CardDescription className="text-xs mt-0.5">
-                                            Modalità di pubblicazione per i driver industriali
+                                            {t('systemPage.publish_desc')}
                                         </CardDescription>
                                     </div>
                                 </div>
                             </CardHeader>
                             <CardContent className="pt-5 space-y-5">
                                 {settingsLoading ? (
-                                    <div className="text-sm text-muted-foreground py-4 text-center">Caricamento...</div>
+                                    <div className="text-sm text-muted-foreground py-4 text-center">{t('common.loading')}</div>
                                 ) : (
                                     <>
                                         <RadioGroup
@@ -788,12 +788,12 @@ const SystemPage = () => {
                                                             <div className="flex items-center gap-2">
                                                                 <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
                                                                 <span className={`text-sm font-medium ${isSelected ? 'text-foreground' : 'text-foreground'}`}>
-                                                                    {mode.label}
+                                                                    {t(mode.label)}
                                                                 </span>
                                                             </div>
-                                                            <p className="text-xs text-muted-foreground mt-1">{mode.description}</p>
+                                                            <p className="text-xs text-muted-foreground mt-1">{t(mode.description)}</p>
                                                             {isSelected && (
-                                                                <p className="text-xs text-primary mt-1.5 italic">{mode.tooltip}</p>
+                                                                <p className="text-xs text-primary mt-1.5 italic">{t(mode.tooltip)}</p>
                                                             )}
                                                         </div>
                                                     </label>
@@ -805,15 +805,15 @@ const SystemPage = () => {
                                         <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
                                             <CollapsibleTrigger className="flex items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground w-full py-2 border-t border-border mt-1">
                                                 <Settings2 className="h-3.5 w-3.5" />
-                                                Parametri RBE avanzati
+                                                {t('systemPage.rbe_advanced')}
                                                 <ChevronDown className={`h-3.5 w-3.5 ml-auto transition-transform ${advancedOpen ? 'rotate-180' : ''}`} />
                                             </CollapsibleTrigger>
                                             <CollapsibleContent className="space-y-5 pt-4">
                                                 <div className="space-y-3">
                                                     <div className="flex justify-between items-center">
-                                                        <Label className="text-sm">Heartbeat</Label>
+                                                        <Label className="text-sm">{t('systemPage.heartbeat')}</Label>
                                                         <span className="text-sm font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
-                                                            {heartbeat === -1 ? 'Solo cambio' : heartbeat === 0 ? 'Real-Time' : (heartbeat < 60 ? `${heartbeat}s` : `${heartbeat / 60}m`)}
+                                                            {heartbeat === -1 ? t('systemPage.on_change') : heartbeat === 0 ? t('systemPage.realtime') : (heartbeat < 60 ? `${heartbeat}s` : `${heartbeat / 60}m`)}
                                                         </span>
                                                     </div>
                                                     <div className="flex gap-1.5 flex-wrap">
@@ -824,7 +824,7 @@ const SystemPage = () => {
                                                             className="h-9 sm:h-7 min-w-[44px] text-xs"
                                                             onClick={() => setHeartbeat(0)}
                                                         >
-                                                            Real-Time
+                                                            {t('systemPage.realtime')}
                                                         </Button>
                                                         <Button
                                                             type="button"
@@ -833,7 +833,7 @@ const SystemPage = () => {
                                                             className="h-9 sm:h-7 min-w-[44px] text-xs"
                                                             onClick={() => setHeartbeat(-1)}
                                                         >
-                                                            Solo cambio
+                                                            {t('systemPage.on_change')}
                                                         </Button>
                                                         {[10, 30, 60, 120, 300].map((val) => (
                                                             <Button
@@ -850,16 +850,16 @@ const SystemPage = () => {
                                                     </div>
                                                     <p className="text-xs text-muted-foreground">
                                                         {heartbeat === -1
-                                                            ? 'Pubblica SOLO quando il valore supera la deadband.'
+                                                            ? t('systemPage.hb_on_change')
                                                             : heartbeat === 0
-                                                                ? 'Pubblica ad ogni singola lettura (Real-Time) disabilitando RBE.'
-                                                                : 'Intervallo di pubblicazione forzato anche se il valore non cambia.'}
+                                                                ? t('systemPage.hb_realtime')
+                                                                : t('systemPage.hb_interval')}
                                                     </p>
                                                 </div>
 
                                                 <div className="space-y-3">
                                                     <div className="flex justify-between items-center">
-                                                        <Label className="text-sm">Deadband</Label>
+                                                        <Label className="text-sm">{t('systemPage.deadband')}</Label>
                                                         <span className="text-sm font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">{deadband.toFixed(1)}%</span>
                                                     </div>
                                                     <Slider
@@ -870,7 +870,7 @@ const SystemPage = () => {
                                                         step={1}
                                                         className="w-full"
                                                     />
-                                                    <p className="text-xs text-muted-foreground">Soglia minima di variazione per pubblicare valori analogici.</p>
+                                                    <p className="text-xs text-muted-foreground">{t('systemPage.deadband_hint')}</p>
                                                 </div>
                                             </CollapsibleContent>
                                         </Collapsible>
@@ -879,7 +879,7 @@ const SystemPage = () => {
                                         <div className="pt-4 mt-2 border-t flex flex-col gap-2">
                                             <div className="flex justify-between items-center">
                                                 <Label htmlFor="write_max_age" className="text-sm font-semibold text-foreground">
-                                                    Validità dei comandi verso i PLC
+                                                    {t('systemPage.write_age')}
                                                 </Label>
                                                 <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
                                                     {writeMaxAge} s
@@ -898,10 +898,7 @@ const SystemPage = () => {
                                                 className="max-w-[8rem]"
                                             />
                                             <p className="text-xs text-muted-foreground">
-                                                Un setpoint o un comando più vecchio di così viene rifiutato, non eseguito, e
-                                                l'operatore vede perché. Serve quando il collegamento con una scatola cade: i
-                                                comandi dati nel frattempo non vengono eseguiti ore dopo, al ritorno della
-                                                linea. Da 5 a 3600 secondi; 30 va bene quasi sempre.
+                                                {t('systemPage.write_age_hint')}
                                             </p>
                                         </div>
 
@@ -909,15 +906,15 @@ const SystemPage = () => {
                                         <div className="pt-4 mt-2 border-t flex flex-col gap-3">
                                             <div className="flex justify-between items-center">
                                                 <Label className="text-sm font-semibold text-foreground flex items-center gap-2">
-                                                    Ritenzione Storico (TimescaleDB)
+                                                    {t('systemPage.db_retention')}
                                                 </Label>
                                                 <span className="text-xs font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">
-                                                    {dbRetention === 0 ? 'Infinito' : `${dbRetention} giorni`}
+                                                    {dbRetention === 0 ? t('systemPage.forever') : t('systemPage.days_count', { count: dbRetention })}
                                                 </span>
                                             </div>
                                             <p className="text-xs text-muted-foreground whitespace-pre-wrap">
-                                                Giorni di conservazione dei dati storici nel database PostgreSQL. I dati più vecchi verranno eliminati automaticamente per liberare spazio su disco.{'\n'}
-                                                <span className="text-destructive font-medium">Attenzione: Valore 0 (Infinito) disabilita la pulizia automatica. Il disco potrebbe riempirsi!</span>
+                                                {t('systemPage.db_retention_hint')}{'\n'}
+                                                <span className="text-destructive font-medium">{t('systemPage.db_retention_warn')}</span>
                                             </p>
                                             <div className="flex gap-2 items-center w-full">
                                                 <Input
@@ -938,12 +935,12 @@ const SystemPage = () => {
                                                 className="gap-2 h-9 px-5"
                                             >
                                                 <CheckCircle className="h-4 w-4" />
-                                                Salva configurazione
+                                                {t('systemPage.save_settings')}
                                             </Button>
                                             {settings && settings.publish_mode === publishMode && !loading && (
                                                 <span className="text-xs text-primary flex items-center gap-1">
                                                     <CheckCircle className="h-3 w-3" />
-                                                    Configurazione attiva
+                                                    {t('systemPage.active')}
                                                 </span>
                                             )}
                                         </div>
@@ -973,9 +970,9 @@ const SystemPage = () => {
                                     <Download className="h-4 w-4 text-primary" />
                                 </div>
                                 <div>
-                                    <CardTitle className="text-base text-foreground">Backup Manuale</CardTitle>
+                                    <CardTitle className="text-base text-foreground">{t('systemPage.manual_backup')}</CardTitle>
                                     <CardDescription className="text-xs mt-0.5">
-                                        Scarica immediatamente un backup
+                                        {t('systemPage.manual_backup_desc')}
                                     </CardDescription>
                                 </div>
                             </div>
@@ -988,7 +985,7 @@ const SystemPage = () => {
                                 className="w-full gap-2 h-9"
                             >
                                 <Download className="h-4 w-4" />
-                                Scarica Backup
+                                {t('systemPage.download_backup')}
                             </Button>
                         </CardContent>
                     </Card>
@@ -1001,9 +998,9 @@ const SystemPage = () => {
                                     <HardDrive className="h-4 w-4 text-primary" />
                                 </div>
                                 <div>
-                                    <CardTitle className="text-base text-foreground">Ripristino</CardTitle>
+                                    <CardTitle className="text-base text-foreground">{t('systemPage.restore_title')}</CardTitle>
                                     <CardDescription className="text-xs mt-0.5">
-                                        Carica un backup .zip
+                                        {t('systemPage.restore_desc')}
                                     </CardDescription>
                                 </div>
                             </div>
@@ -1025,11 +1022,11 @@ const SystemPage = () => {
                                     className="w-full gap-2 h-9"
                                 >
                                     <RefreshCw className={`h-4 w-4 ${postRestoreLoading ? 'animate-spin' : ''}`} />
-                                    {postRestoreLoading ? 'Riavvio in corso...' : 'Riavvia Servizi (Post-Restore)'}
+                                    {postRestoreLoading ? t('systemPage.restarting') : t('systemPage.restart_services')}
                                 </Button>
                                 {postRestoreResults && (
                                     <div className="mt-3 p-3 bg-muted rounded text-xs space-y-1">
-                                        <div className="font-medium mb-2">Stato servizi:</div>
+                                        <div className="font-medium mb-2">{t('systemPage.services_status')}</div>
                                         {postRestoreResults.map((service, idx) => (
                                             <div key={idx} className="flex items-center gap-2">
                                                 {service.status === 'healthy' ? (
@@ -1047,7 +1044,7 @@ const SystemPage = () => {
                             </div>
                             <p className="text-xs text-destructive flex items-center gap-1.5">
                                 <AlertTriangle className="h-3 w-3 flex-shrink-0" />
-                                Il ripristino sovrascrive la configurazione corrente.
+                                {t('systemPage.restore_warn')}
                             </p>
                         </CardContent>
                     </Card>
@@ -1062,9 +1059,9 @@ const SystemPage = () => {
                                     <FileArchive className="h-4 w-4 text-muted-foreground" />
                                 </div>
                                 <div>
-                                    <CardTitle className="text-base text-foreground">Backup Disponibili</CardTitle>
+                                    <CardTitle className="text-base text-foreground">{t('systemPage.backups_available')}</CardTitle>
                                     <CardDescription className="text-xs mt-0.5">
-                                        {backupList.length} file salvati su disco
+                                        {t('systemPage.backups_count', { count: backupList.length })}
                                     </CardDescription>
                                 </div>
                             </div>
@@ -1080,7 +1077,7 @@ const SystemPage = () => {
                                                 <p className="text-xs text-muted-foreground">
                                                     {formatBytes(backup.size)} • {formatDate(backup.created_at)} •
                                                     <span className="ml-1 text-primary">
-                                                        Solo Completo
+                                                        {t('systemPage.full_only')}
                                                     </span>
                                                 </p>
                                             </div>
@@ -1143,8 +1140,8 @@ const SystemPage = () => {
                                         <HardDrive className="h-4 w-4 text-primary" />
                                     </div>
                                     <div>
-                                        <CardTitle className="text-base text-foreground">Database Statistics</CardTitle>
-                                        <CardDescription className="text-xs mt-0.5">Live PostgreSQL stats — refreshed every 60s</CardDescription>
+                                        <CardTitle className="text-base text-foreground">{t('systemPage.db_stats')}</CardTitle>
+                                        <CardDescription className="text-xs mt-0.5">{t('systemPage.db_stats_desc')}</CardDescription>
                                     </div>
                                     <Button variant="ghost" size="icon" className="ml-auto h-10 sm:h-8 w-10 sm:w-8" onClick={loadDBStats} disabled={dbStatsLoading}>
                                         <RefreshCw className={`h-4 w-4 ${dbStatsLoading ? 'animate-spin' : ''}`} />
@@ -1153,52 +1150,52 @@ const SystemPage = () => {
                             </CardHeader>
                             <CardContent className="pt-5 space-y-4">
                                 {dbStatsLoading && !dbStats ? (
-                                    <div className="text-sm text-muted-foreground py-4 text-center">Loading...</div>
+                                    <div className="text-sm text-muted-foreground py-4 text-center">{t('common.loading')}</div>
                                 ) : dbStats ? (
                                     <>
                                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                                             <div className="bg-muted/40 rounded-lg p-3 space-y-1">
-                                                <p className="text-xs text-muted-foreground">DB Total Size</p>
+                                                <p className="text-xs text-muted-foreground">{t('systemPage.db_size')}</p>
                                                 <p className="text-lg font-semibold text-foreground font-mono">{dbStats.db_size_mb.toFixed(1)} MB</p>
                                             </div>
                                             <div className="bg-muted/40 rounded-lg p-3 space-y-1">
-                                                <p className="text-xs text-muted-foreground">Historian Rows</p>
-                                                <p className="text-lg font-semibold text-foreground font-mono">{dbStats.historian_rows.toLocaleString()}</p>
+                                                <p className="text-xs text-muted-foreground">{t('systemPage.historian_rows')}</p>
+                                                <p className="text-lg font-semibold text-foreground font-mono">{dbStats.historian_rows.toLocaleString(i18n.language)}</p>
                                             </div>
                                             <div className="bg-muted/40 rounded-lg p-3 space-y-1">
-                                                <p className="text-xs text-muted-foreground">Historian Size</p>
+                                                <p className="text-xs text-muted-foreground">{t('systemPage.historian_size')}</p>
                                                 <p className="text-lg font-semibold text-foreground font-mono">{dbStats.historian_size_mb.toFixed(1)} MB</p>
                                             </div>
                                             {dbStats.oldest_ts && (
                                                 <div className="bg-muted/40 rounded-lg p-3 space-y-1">
-                                                    <p className="text-xs text-muted-foreground">Oldest Data</p>
+                                                    <p className="text-xs text-muted-foreground">{t('systemPage.oldest')}</p>
                                                     <p className="text-sm font-mono text-foreground">{formatDate(dbStats.oldest_ts)}</p>
                                                 </div>
                                             )}
                                             {dbStats.newest_ts && (
                                                 <div className="bg-muted/40 rounded-lg p-3 space-y-1">
-                                                    <p className="text-xs text-muted-foreground">Newest Data</p>
+                                                    <p className="text-xs text-muted-foreground">{t('systemPage.newest')}</p>
                                                     <p className="text-sm font-mono text-foreground">{formatDate(dbStats.newest_ts)}</p>
                                                 </div>
                                             )}
                                         </div>
                                         {dbStats.tables && dbStats.tables.length > 0 && (
                                             <div className="mt-4">
-                                                <p className="text-xs font-medium text-muted-foreground mb-2">Top Tables by Size</p>
+                                                <p className="text-xs font-medium text-muted-foreground mb-2">{t('systemPage.top_tables')}</p>
                                                 <div className="border border-border rounded-lg overflow-hidden">
                                                     <table className="w-full text-xs">
                                                         <thead className="bg-muted/50">
                                                             <tr>
-                                                                <th className="text-left px-3 py-2 text-muted-foreground font-medium">Table</th>
-                                                                <th className="text-right px-3 py-2 text-muted-foreground font-medium">Rows</th>
-                                                                <th className="text-right px-3 py-2 text-muted-foreground font-medium">Size MB</th>
+                                                                <th className="text-left px-3 py-2 text-muted-foreground font-medium">{t('systemPage.col_table')}</th>
+                                                                <th className="text-right px-3 py-2 text-muted-foreground font-medium">{t('systemPage.col_rows')}</th>
+                                                                <th className="text-right px-3 py-2 text-muted-foreground font-medium">{t('systemPage.col_size')}</th>
                                                             </tr>
                                                         </thead>
                                                         <tbody className="divide-y divide-border">
                                                             {dbStats.tables.map((t, i) => (
                                                                 <tr key={i} className="hover:bg-muted/20">
                                                                     <td className="px-3 py-2 font-mono text-foreground">{t.table}</td>
-                                                                    <td className="px-3 py-2 text-right text-muted-foreground">{t.rows.toLocaleString()}</td>
+                                                                    <td className="px-3 py-2 text-right text-muted-foreground">{t.rows.toLocaleString(i18n.language)}</td>
                                                                     <td className="px-3 py-2 text-right text-muted-foreground">{t.size_mb.toFixed(2)}</td>
                                                                 </tr>
                                                             ))}
@@ -1209,7 +1206,7 @@ const SystemPage = () => {
                                         )}
                                     </>
                                 ) : (
-                                    <div className="text-sm text-muted-foreground py-4 text-center">No data available</div>
+                                    <div className="text-sm text-muted-foreground py-4 text-center">{t('systemPage.no_data')}</div>
                                 )}
                             </CardContent>
                         </Card>
@@ -1222,8 +1219,8 @@ const SystemPage = () => {
                                         <Settings2 className="h-4 w-4 text-amber-500" />
                                     </div>
                                     <div>
-                                        <CardTitle className="text-base text-foreground">Historian Retention</CardTitle>
-                                        <CardDescription className="text-xs mt-0.5">Days to retain historian data (0 = disabled)</CardDescription>
+                                        <CardTitle className="text-base text-foreground">{t('systemPage.hist_retention')}</CardTitle>
+                                        <CardDescription className="text-xs mt-0.5">{t('systemPage.hist_retention_desc')}</CardDescription>
                                     </div>
                                 </div>
                             </CardHeader>
@@ -1237,7 +1234,7 @@ const SystemPage = () => {
                                         onChange={(e) => setHistorianRetentionDays(parseInt(e.target.value) || 0)}
                                         className="w-40 font-mono text-sm"
                                     />
-                                    <span className="text-sm text-muted-foreground">days</span>
+                                    <span className="text-sm text-muted-foreground">{t('systemPage.days')}</span>
                                     <Button
                                         onClick={handleSaveHistorianRetention}
                                         disabled={historianRetentionSaving}
@@ -1245,15 +1242,15 @@ const SystemPage = () => {
                                         className="gap-2"
                                     >
                                         <CheckCircle className="h-3.5 w-3.5" />
-                                        {historianRetentionSaving ? 'Saving...' : 'Save'}
+                                        {historianRetentionSaving ? t('systemPage.saving') : t('common.save')}
                                     </Button>
                                 </div>
                                 <p className="text-xs text-muted-foreground">
-                                    Daily cleanup worker removes rows older than this threshold from <code>tag_history</code>. Set to 0 to disable.
+                                    <Trans i18nKey="systemPage.hist_retention_hint" components={{ code: <code /> }} />
                                 </p>
                                 <p className="text-xs text-destructive flex items-center gap-1.5">
                                     <AlertTriangle className="h-3 w-3 flex-shrink-0" />
-                                    Deleted data cannot be recovered. Ensure backups exist before reducing retention.
+                                    {t('systemPage.hist_retention_warn')}
                                 </p>
                             </CardContent>
                         </Card>
@@ -1266,23 +1263,23 @@ const SystemPage = () => {
                                         <FileArchive className="h-4 w-4 text-muted-foreground" />
                                     </div>
                                     <div>
-                                        <CardTitle className="text-base text-foreground">CLI Backup & Restore</CardTitle>
-                                        <CardDescription className="text-xs mt-0.5">Run on the host where Docker is running</CardDescription>
+                                        <CardTitle className="text-base text-foreground">{t('systemPage.cli_title')}</CardTitle>
+                                        <CardDescription className="text-xs mt-0.5">{t('systemPage.cli_desc')}</CardDescription>
                                     </div>
                                 </div>
                             </CardHeader>
                             <CardContent className="pt-5 space-y-3">
                                 <div className="bg-muted/50 rounded-lg p-4 space-y-3 font-mono text-xs">
                                     <div>
-                                        <p className="text-muted-foreground mb-1">Backup (optional: days to keep)</p>
+                                        <p className="text-muted-foreground mb-1">{t('systemPage.cli_backup')}</p>
                                         <code className="text-foreground">./scripts/backup.sh [days_to_keep]</code>
                                     </div>
                                     <div className="border-t border-border pt-3">
-                                        <p className="text-muted-foreground mb-1">Restore from a backup file</p>
+                                        <p className="text-muted-foreground mb-1">{t('systemPage.cli_restore')}</p>
                                         <code className="text-foreground">./scripts/restore.sh backups/openedge_YYYYMMDD_HHMMSS.sql.gz</code>
                                     </div>
                                     <div className="border-t border-border pt-3">
-                                        <p className="text-muted-foreground mb-1">Backup location</p>
+                                        <p className="text-muted-foreground mb-1">{t('systemPage.cli_location')}</p>
                                         <code className="text-foreground">./backups/</code>
                                     </div>
                                 </div>
@@ -1299,9 +1296,9 @@ const SystemPage = () => {
                                         <Shield className="h-4 w-4 text-primary" />
                                     </div>
                                     <div className="flex-1">
-                                        <CardTitle className="text-base text-foreground">SSO / OIDC Providers</CardTitle>
+                                        <CardTitle className="text-base text-foreground">{t('systemPage.sso_title')}</CardTitle>
                                         <CardDescription className="text-xs mt-0.5">
-                                            Configure Google and Azure AD single sign-on for organization users.
+                                            {t('systemPage.sso_desc')}
                                         </CardDescription>
                                     </div>
                                     <Button size="sm" variant="outline" onClick={() => setSsoEdit({
@@ -1312,7 +1309,7 @@ const SystemPage = () => {
                                         domain_hint: '',
                                         enabled: true,
                                     })}>
-                                        <Plus className="h-4 w-4 mr-1" /> Add Provider
+                                        <Plus className="h-4 w-4 mr-1" /> {t('systemPage.sso_add')}
                                     </Button>
                                 </div>
                             </CardHeader>
@@ -1326,7 +1323,7 @@ const SystemPage = () => {
 
                                 {/* Callback URLs info */}
                                 <div className="rounded-md bg-muted/40 border border-border p-3 space-y-2">
-                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Callback URLs (configure in your provider)</p>
+                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('systemPage.sso_callbacks')}</p>
                                     {(['google', 'azure'] as const).map(p => {
                                         const url = `${window.location.origin}/api/auth/sso/${p}/callback`;
                                         return (
@@ -1343,24 +1340,24 @@ const SystemPage = () => {
 
                                 {/* Configured providers list */}
                                 {ssoLoading ? (
-                                    <div className="text-center py-6 text-sm text-muted-foreground">Loading…</div>
+                                    <div className="text-center py-6 text-sm text-muted-foreground">{t('common.loading')}</div>
                                 ) : ssoProviders.length === 0 ? (
-                                    <div className="text-center py-6 text-sm text-muted-foreground">No SSO providers configured.</div>
+                                    <div className="text-center py-6 text-sm text-muted-foreground">{t('systemPage.sso_empty')}</div>
                                 ) : ssoProviders.map(p => (
                                     <div key={p.provider} className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
                                         <div className="flex items-center gap-3">
                                             <Shield className="h-4 w-4 text-primary" />
                                             <div>
                                                 <div className="font-medium capitalize text-sm">{p.provider === 'azure' ? 'Microsoft Azure AD' : 'Google'}</div>
-                                                <div className="text-xs text-muted-foreground">Client ID: {p.client_id}</div>
-                                                {p.domain_hint && <div className="text-xs text-muted-foreground">Domain: {p.domain_hint}</div>}
+                                                <div className="text-xs text-muted-foreground">{t('systemPage.sso_client_id', { id: p.client_id })}</div>
+                                                {p.domain_hint && <div className="text-xs text-muted-foreground">{t('systemPage.sso_domain', { domain: p.domain_hint })}</div>}
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
                                             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${p.enabled ? 'bg-green-500/10 text-green-600' : 'bg-muted text-muted-foreground'}`}>
-                                                {p.enabled ? 'Enabled' : 'Disabled'}
+                                                {p.enabled ? t('systemPage.enabled') : t('systemPage.disabled')}
                                             </span>
-                                            <Button size="sm" variant="outline" onClick={() => setSsoEdit({ ...p, client_secret: '' })}>Edit</Button>
+                                            <Button size="sm" variant="outline" onClick={() => setSsoEdit({ ...p, client_secret: '' })}>{t('common.edit')}</Button>
                                             <Button size="sm" variant="ghost" className="text-destructive" onClick={() => deleteSSOProvider(p.provider)}>
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>
@@ -1372,11 +1369,11 @@ const SystemPage = () => {
                                 {ssoEdit && (
                                     <div className="rounded-lg border border-primary/30 bg-primary/5 p-4 space-y-3">
                                         <p className="text-sm font-semibold">
-                                            {ssoEdit.id ? 'Edit' : 'Add'} SSO Provider
+                                            {ssoEdit.id ? t('systemPage.sso_edit_title') : t('systemPage.sso_add_title')}
                                         </p>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                             <div className="space-y-1">
-                                                <Label className="text-xs">Provider</Label>
+                                                <Label className="text-xs">{t('systemPage.sso_provider')}</Label>
                                                 <select
                                                     className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
                                                     value={ssoEdit.provider}
@@ -1388,7 +1385,7 @@ const SystemPage = () => {
                                                 </select>
                                             </div>
                                             <div className="space-y-1">
-                                                <Label className="text-xs">Enabled</Label>
+                                                <Label className="text-xs">{t('systemPage.sso_enabled')}</Label>
                                                 <div className="flex items-center h-10 sm:h-8">
                                                     <Switch
                                                         checked={ssoEdit.enabled}
@@ -1397,53 +1394,53 @@ const SystemPage = () => {
                                                 </div>
                                             </div>
                                             <div className="space-y-1">
-                                                <Label className="text-xs">Client ID <span className="text-destructive">*</span></Label>
+                                                <Label className="text-xs">{t('systemPage.client_id')} <span className="text-destructive">*</span></Label>
                                                 <Input
                                                     value={ssoEdit.client_id}
                                                     onChange={e => setSsoEdit(s => s ? { ...s, client_id: e.target.value } : s)}
-                                                    placeholder="OAuth2 client ID"
+                                                    placeholder={t('systemPage.client_id_ph')}
                                                     className="h-10 sm:h-8 text-sm"
                                                 />
                                             </div>
                                             <div className="space-y-1">
-                                                <Label className="text-xs">Client Secret <span className="text-destructive">*</span></Label>
+                                                <Label className="text-xs">{t('systemPage.client_secret')} <span className="text-destructive">*</span></Label>
                                                 <Input
                                                     type="password"
                                                     value={ssoEdit.client_secret ?? ''}
                                                     onChange={e => setSsoEdit(s => s ? { ...s, client_secret: e.target.value } : s)}
-                                                    placeholder={ssoEdit.id ? '(unchanged)' : 'OAuth2 client secret'}
+                                                    placeholder={ssoEdit.id ? t('systemPage.unchanged') : t('systemPage.client_secret_ph')}
                                                     className="h-10 sm:h-8 text-sm"
                                                 />
                                             </div>
                                             {ssoEdit.provider === 'azure' && (
                                                 <div className="space-y-1">
-                                                    <Label className="text-xs">Tenant ID</Label>
+                                                    <Label className="text-xs">{t('systemPage.tenant_id')}</Label>
                                                     <Input
                                                         value={ssoEdit.tenant_id ?? ''}
                                                         onChange={e => setSsoEdit(s => s ? { ...s, tenant_id: e.target.value } : s)}
-                                                        placeholder="common (or specific tenant UUID)"
+                                                        placeholder={t('systemPage.tenant_ph')}
                                                         className="h-10 sm:h-8 text-sm"
                                                     />
                                                 </div>
                                             )}
                                             <div className="space-y-1">
-                                                <Label className="text-xs">Email Domain Hint</Label>
+                                                <Label className="text-xs">{t('systemPage.domain_hint')}</Label>
                                                 <Input
                                                     value={ssoEdit.domain_hint ?? ''}
                                                     onChange={e => setSsoEdit(s => s ? { ...s, domain_hint: e.target.value } : s)}
-                                                    placeholder="company.com (auto-assign org)"
+                                                    placeholder={t('systemPage.domain_hint_ph')}
                                                     className="h-10 sm:h-8 text-sm"
                                                 />
                                             </div>
                                         </div>
                                         <div className="flex gap-2 justify-end pt-1">
-                                            <Button variant="outline" size="sm" onClick={() => setSsoEdit(null)}>Cancel</Button>
+                                            <Button variant="outline" size="sm" onClick={() => setSsoEdit(null)}>{t('common.cancel')}</Button>
                                             <Button
                                                 size="sm"
                                                 onClick={saveSSOProvider}
                                                 disabled={ssoSaving || !ssoEdit.client_id}
                                             >
-                                                {ssoSaving ? 'Saving…' : 'Save Provider'}
+                                                {ssoSaving ? t('systemPage.saving') : t('systemPage.sso_save')}
                                             </Button>
                                         </div>
                                     </div>
@@ -1457,9 +1454,9 @@ const SystemPage = () => {
                 <div className="pt-6 border-t border-border flex flex-col items-center gap-3">
                     <img src="/avatar.png" alt="OpenEdge" className="h-12 w-12 rounded-xl object-cover" />
                     <p className="text-center text-xs text-muted-foreground">
-                        Sviluppato da{' '}
+                        {t('systemPage.footer_by')}{' '}
                         <span className="font-semibold text-foreground">Giovanni Addeo</span>
-                        {' '}— soluzioni IIoT per il monitoraggio e la storicizzazione di impianti industriali in tempo reale.
+                        {' '}{t('systemPage.footer_tagline')}
                     </p>
                 </div>
 
@@ -1470,6 +1467,7 @@ const SystemPage = () => {
 
 // InfluxDB v2 integration settings component
 const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSaved: () => void }) => {
+    const { t } = useTranslation();
     const [form, setForm] = useState({
         influx_enabled: initial?.influx_enabled ?? 'false',
         influx_url: initial?.influx_url ?? '',
@@ -1510,10 +1508,10 @@ const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSa
                     influx_flush_interval: form.influx_flush_interval,
                 },
             });
-            setMsg('Saved');
+            setMsg(t('common.saved'));
             onSaved();
         } catch {
-            setMsg('Save failed');
+            setMsg(t('systemPage.influx_save_failed'));
         } finally {
             setSaving(false);
             setTimeout(() => setMsg(null), 3000);
@@ -1524,16 +1522,15 @@ const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSa
         <Card>
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                    <Server className="h-5 w-5" /> InfluxDB v2 Push Connector
+                    <Server className="h-5 w-5" /> {t('systemPage.influx_title')}
                 </CardTitle>
                 <CardDescription>
-                    Forward tag history to an InfluxDB v2 bucket using the line protocol.
-                    Data is pushed in batches every N seconds.
+                    {t('systemPage.influx_desc')}
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
-                    <Label>Enable InfluxDB export</Label>
+                    <Label>{t('systemPage.influx_enable')}</Label>
                     <Switch
                         checked={form.influx_enabled === 'true'}
                         onCheckedChange={(v) => setForm(f => ({ ...f, influx_enabled: v ? 'true' : 'false' }))}
@@ -1543,7 +1540,7 @@ const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSa
                 <div className="grid gap-3 opacity-100">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
-                            <Label className="text-xs">InfluxDB URL</Label>
+                            <Label className="text-xs">{t('systemPage.influx_url')}</Label>
                             <Input
                                 placeholder="https://influxdb.example.com:8086"
                                 value={form.influx_url}
@@ -1551,10 +1548,10 @@ const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSa
                             />
                         </div>
                         <div className="space-y-1">
-                            <Label className="text-xs">API Token</Label>
+                            <Label className="text-xs">{t('systemPage.influx_token')}</Label>
                             <Input
                                 type="password"
-                                placeholder="your-influxdb-token"
+                                placeholder={t('systemPage.influx_token_ph')}
                                 value={form.influx_token}
                                 onChange={(e) => setForm(f => ({ ...f, influx_token: e.target.value }))}
                             />
@@ -1562,7 +1559,7 @@ const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSa
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
-                            <Label className="text-xs">Organization</Label>
+                            <Label className="text-xs">{t('common.organization')}</Label>
                             <Input
                                 placeholder="my-org"
                                 value={form.influx_org}
@@ -1570,7 +1567,7 @@ const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSa
                             />
                         </div>
                         <div className="space-y-1">
-                            <Label className="text-xs">Bucket</Label>
+                            <Label className="text-xs">{t('systemPage.influx_bucket')}</Label>
                             <Input
                                 placeholder="openedge"
                                 value={form.influx_bucket}
@@ -1580,7 +1577,7 @@ const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSa
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
-                            <Label className="text-xs">Batch size (points)</Label>
+                            <Label className="text-xs">{t('systemPage.influx_batch')}</Label>
                             <Input
                                 type="number"
                                 min={1}
@@ -1590,7 +1587,7 @@ const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSa
                             />
                         </div>
                         <div className="space-y-1">
-                            <Label className="text-xs">Flush interval (seconds)</Label>
+                            <Label className="text-xs">{t('systemPage.influx_flush')}</Label>
                             <Input
                                 type="number"
                                 min={1}
@@ -1604,16 +1601,16 @@ const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSa
 
                 <div className="flex items-center gap-3 pt-2">
                     <Button onClick={save} disabled={saving}>
-                        {saving ? 'Saving...' : 'Save InfluxDB Settings'}
+                        {saving ? t('systemPage.saving') : t('systemPage.influx_save')}
                     </Button>
                     {msg && <span className="text-sm text-muted-foreground">{msg}</span>}
                 </div>
 
                 <div className="rounded-md bg-muted/50 border p-3 text-xs text-muted-foreground space-y-1">
-                    <p><span className="font-semibold">Measurement:</span> <code>openedge_tag</code></p>
-                    <p><span className="font-semibold">Tags:</span> tag_id, org_id, alias</p>
-                    <p><span className="font-semibold">Fields:</span> value, quality</p>
-                    <p><span className="font-semibold">Precision:</span> nanoseconds</p>
+                    <p><span className="font-semibold">{t('systemPage.influx_measurement')}</span> <code>openedge_tag</code></p>
+                    <p><span className="font-semibold">{t('systemPage.influx_tags')}</span> tag_id, org_id, alias</p>
+                    <p><span className="font-semibold">{t('systemPage.influx_fields')}</span> value, quality</p>
+                    <p><span className="font-semibold">{t('systemPage.influx_precision')}</span> {t('systemPage.influx_ns')}</p>
                 </div>
             </CardContent>
         </Card>

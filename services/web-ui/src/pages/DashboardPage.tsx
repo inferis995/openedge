@@ -13,6 +13,8 @@ import {
 } from '@/api/dashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 // Refresh ogni 30s — bilancia "dati freschi" col carico DB. Sparkplug WS
 // (già in piedi globalmente via useSparkplugListener) aggiorna i tag tra
@@ -36,17 +38,17 @@ const formatDuration = (sec: number): string => {
     const d = Math.floor(sec / 86400);
     const h = Math.floor((sec % 86400) / 3600);
     const m = Math.floor((sec % 3600) / 60);
-    if (d > 0) return `${d}d ${h}h`;
-    if (h > 0) return `${h}h ${m}m`;
-    return `${m}m`;
+    if (d > 0) return i18n.t('dashboardPage.dur_dh', { d, h });
+    if (h > 0) return i18n.t('dashboardPage.dur_hm', { h, m });
+    return i18n.t('dashboardPage.dur_m', { m });
 };
 
 const formatRelative = (iso: string): string => {
     const diffSec = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-    if (diffSec < 60) return `${diffSec}s fa`;
-    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m fa`;
-    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h fa`;
-    return `${Math.floor(diffSec / 86400)}g fa`;
+    if (diffSec < 60) return i18n.t('dashboardPage.ago_s', { n: diffSec });
+    if (diffSec < 3600) return i18n.t('dashboardPage.ago_m', { n: Math.floor(diffSec / 60) });
+    if (diffSec < 86400) return i18n.t('dashboardPage.ago_h', { n: Math.floor(diffSec / 3600) });
+    return i18n.t('dashboardPage.ago_d', { n: Math.floor(diffSec / 86400) });
 };
 
 const severityColor = (sev: string): string => {
@@ -84,6 +86,7 @@ const Clickable = ({
 // a distanza dal monitor industriale.
 // ─────────────────────────────────────────────────────────────────────────────
 const StatusBar = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>['data']> }) => {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const sysOk = data.system.ready && data.system.db_ok;
     const totalGw = data.gateways.online + data.gateways.offline + data.gateways.unknown;
@@ -117,19 +120,19 @@ const StatusBar = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
 
     return (
         <div className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-md border bg-card">
-            {pill(sysOk, sysOk ? 'Sistema OK' : 'Sistema in errore', '/diagnostics')}
+            {pill(sysOk, sysOk ? t('dashboardPage.system_ok') : t('dashboardPage.system_error'), '/diagnostics')}
             <button
                 type="button"
                 onClick={() => navigate('/diagnostics')}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-border bg-background hover:shadow cursor-pointer transition-all">
-                <Activity size={12} /> Uptime {formatDuration(data.system.api_uptime_sec)}
+                <Activity size={12} /> {t('dashboardPage.uptime', { value: formatDuration(data.system.api_uptime_sec) })}
             </button>
             <button
                 type="button"
                 onClick={() => navigate('/alarms')}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border hover:shadow cursor-pointer transition-all ${alarmsToneClass}`}>
                 <Bell size={12} />
-                {crit > 0 ? `${crit} critical` : high > 0 ? `${high} high` : 'Nessun allarme attivo'}
+                {crit > 0 ? t('dashboardPage.n_critical', { count: crit }) : high > 0 ? t('dashboardPage.n_high', { count: high }) : t('dashboardPage.no_active_alarms')}
             </button>
             <button
                 type="button"
@@ -138,10 +141,10 @@ const StatusBar = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
                     offlineGw > 0 ? 'border-red-500/30 text-red-500 bg-red-500/5'
                                   : 'border-border text-foreground bg-background'
                 }`}>
-                <Wifi size={12} /> {totalGw > 0 ? `${data.gateways.online}/${totalGw} gateway online` : 'Nessun gateway'}
+                <Wifi size={12} /> {totalGw > 0 ? t('dashboardPage.gateways_online', { online: data.gateways.online, total: totalGw }) : t('dashboardPage.no_gateways')}
             </button>
             <span className="ml-auto text-xs text-muted-foreground">
-                Aggiornato {formatRelative(data.generated_at)}
+                {t('dashboardPage.updated', { when: formatRelative(data.generated_at) })}
             </span>
         </div>
     );
@@ -153,6 +156,7 @@ const StatusBar = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
 // KPI così l'occhio si abitua a leggere in 1s.
 // ─────────────────────────────────────────────────────────────────────────────
 const KPICard = ({ k }: { k: KPIWidget }) => {
+    const { t } = useTranslation();
     const isImprovement =
         (k.trend === 'up'   && k.good_when === 'up')   ||
         (k.trend === 'down' && k.good_when === 'down');
@@ -201,7 +205,7 @@ const KPICard = ({ k }: { k: KPIWidget }) => {
                         ) : <span className="text-muted-foreground">—</span>}
                         {targetLabel && (
                             <span className={`font-mono ${k.target_met ? 'text-emerald-500' : 'text-red-500'}`}>
-                                Target {targetLabel}
+                                {t('dashboardPage.target', { value: targetLabel })}
                             </span>
                         )}
                     </div>
@@ -232,14 +236,15 @@ const AlarmsSparkline = ({ data }: { data: { count: number }[] }) => {
 };
 
 const AlarmsCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>['data']> }) => {
+    const { t } = useTranslation();
     const a = data.alarms;
     return (
         <Card>
             <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                 <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                    <ShieldAlert size={14} /> Allarmi attivi
+                    <ShieldAlert size={14} /> {t('dashboardPage.active_alarms')}
                 </CardTitle>
-                <span className="text-xs text-muted-foreground">{a.last_24h_fired} fired 24h</span>
+                <span className="text-xs text-muted-foreground">{t('dashboardPage.fired_24h', { count: a.last_24h_fired })}</span>
             </CardHeader>
             <CardContent className="space-y-3">
                 <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2">
@@ -248,13 +253,13 @@ const AlarmsCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard
                         return (
                             <div key={sev} className={`p-2 rounded-md border ${severityColor(sev)}`}>
                                 <p className="text-2xl font-bold">{n}</p>
-                                <p className="text-xs uppercase tracking-wider">{sev}</p>
+                                <p className="text-xs uppercase tracking-wider">{t(`alarmsPage.severity_${sev}`)}</p>
                             </div>
                         );
                     })}
                 </div>
                 <div>
-                    <p className="text-xs text-muted-foreground mb-1">Trend 7 giorni</p>
+                    <p className="text-xs text-muted-foreground mb-1">{t('dashboardPage.trend_7d')}</p>
                     <AlarmsSparkline data={a.trend_7d} />
                 </div>
             </CardContent>
@@ -263,6 +268,7 @@ const AlarmsCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard
 };
 
 const OperationsCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>['data']> }) => {
+    const { t } = useTranslation();
     const o = data.operations;
     const row = (icon: React.ReactNode, label: string, value: React.ReactNode) => (
         <div className="flex items-center justify-between text-sm py-1.5">
@@ -274,22 +280,22 @@ const OperationsCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashb
         <Card>
             <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                    <Activity size={14} /> Operatività (24h)
+                    <Activity size={14} /> {t('dashboardPage.operations_24h')}
                 </CardTitle>
             </CardHeader>
             <CardContent className="divide-y divide-border">
-                {row(<ChefHat size={14} />, 'Ricette caricate', <span className="font-mono">{o.recipe_loads_24h}</span>)}
-                {row(<Pencil size={14} />, 'Write PLC', <span className="font-mono">{o.writes_24h}</span>)}
-                {row(<LogIn size={14} />, 'Login', <span className="font-mono">{o.logins_24h}</span>)}
-                {row(<Mail size={14} />, 'Email alerts',
+                {row(<ChefHat size={14} />, t('dashboardPage.recipe_loads'), <span className="font-mono">{o.recipe_loads_24h}</span>)}
+                {row(<Pencil size={14} />, t('dashboardPage.plc_writes'), <span className="font-mono">{o.writes_24h}</span>)}
+                {row(<LogIn size={14} />, t('dashboardPage.logins'), <span className="font-mono">{o.logins_24h}</span>)}
+                {row(<Mail size={14} />, t('dashboardPage.email_alerts'),
                     o.notif_email_enabled
                         ? <Badge className="bg-emerald-500/10 text-emerald-500 border-none text-xs">ON</Badge>
                         : <Badge className="bg-slate-500/10 text-slate-400 border-none text-xs">OFF</Badge>)}
-                {row(<MessageCircle size={14} />, 'Telegram alerts',
+                {row(<MessageCircle size={14} />, t('dashboardPage.telegram_alerts'),
                     o.notif_telegram_enabled
                         ? <Badge className="bg-emerald-500/10 text-emerald-500 border-none text-xs">ON</Badge>
                         : <Badge className="bg-slate-500/10 text-slate-400 border-none text-xs">OFF</Badge>)}
-                {row(<BellOff size={14} />, 'Min severity', <code className="text-xs">{o.notif_min_severity}</code>)}
+                {row(<BellOff size={14} />, t('dashboardPage.min_severity'), <code className="text-xs">{o.notif_min_severity}</code>)}
             </CardContent>
         </Card>
     );
@@ -324,45 +330,49 @@ const ActivityRow = ({ e }: { e: ActivityEvent }) => {
     );
 };
 
-const ActivityCard = ({ events }: { events: ActivityEvent[] }) => (
-    <Card>
-        <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                <Activity size={14} /> Attività recenti
-            </CardTitle>
-        </CardHeader>
-        <CardContent className="divide-y divide-border max-h-96 overflow-auto">
-            {events.length === 0
-                ? <p className="text-sm text-muted-foreground py-6 text-center">Nessuna attività recente.</p>
-                : events.map((e, i) => <ActivityRow key={i} e={e} />)}
-        </CardContent>
-    </Card>
-);
+const ActivityCard = ({ events }: { events: ActivityEvent[] }) => {
+    const { t } = useTranslation();
+    return (
+        <Card>
+            <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
+                    <Activity size={14} /> {t('dashboardPage.recent_activity')}
+                </CardTitle>
+            </CardHeader>
+            <CardContent className="divide-y divide-border max-h-96 overflow-auto">
+                {events.length === 0
+                    ? <p className="text-sm text-muted-foreground py-6 text-center">{t('dashboardPage.no_recent_activity')}</p>
+                    : events.map((e, i) => <ActivityRow key={i} e={e} />)}
+            </CardContent>
+        </Card>
+    );
+};
 
 const RecentAlarmsCard = ({ alarms }: { alarms: AlarmSummary[] }) => {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     return (
         <Card>
             <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                 <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                    <ShieldAlert size={14} /> Ultimi allarmi
+                    <ShieldAlert size={14} /> {t('dashboardPage.latest_alarms')}
                 </CardTitle>
                 <button onClick={() => navigate('/alarms')}
                     className="text-xs text-primary hover:underline flex items-center gap-1">
-                    Tutti <ArrowUpRight size={12} />
+                    {t('dashboardPage.all')} <ArrowUpRight size={12} />
                 </button>
             </CardHeader>
             <CardContent className="divide-y divide-border">
                 {alarms.length === 0
-                    ? <p className="text-sm text-muted-foreground py-6 text-center">Nessun allarme recente.</p>
+                    ? <p className="text-sm text-muted-foreground py-6 text-center">{t('dashboardPage.no_recent_alarms')}</p>
                     : alarms.map((a) => (
                         <Clickable to="/alarms" key={a.id}>
                             <div className="py-2 px-1 text-sm">
                                 <div className="flex items-center gap-2">
                                     <Badge className={`text-xs ${severityColor(a.severity)} border-none`}>
-                                        {a.severity}
+                                        {t(`alarmsPage.severity_${a.severity.toLowerCase()}`, { defaultValue: a.severity })}
                                     </Badge>
-                                    <span className="truncate">{a.tag_alias || a.message || `Allarme #${a.id}`}</span>
+                                    <span className="truncate">{a.tag_alias || a.message || t('dashboardPage.alarm_n', { id: a.id })}</span>
                                     <span className="ml-auto text-xs text-muted-foreground">{formatRelative(a.trigger_time)}</span>
                                 </div>
                                 {a.gateway_name && <p className="text-xs text-muted-foreground mt-0.5 ml-1">{a.gateway_name}</p>}
@@ -380,6 +390,7 @@ const RecentAlarmsCard = ({ alarms }: { alarms: AlarmSummary[] }) => {
 // quando apre la dashboard ("sono nel mio turno? quanto manca? chi è con me?").
 // ─────────────────────────────────────────────────────────────────────────────
 const ShiftCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>['data']> }) => {
+    const { t } = useTranslation();
     if (!data.shift) {
         return (
             <Card className="border-dashed">
@@ -389,7 +400,7 @@ const ShiftCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
                     </CardTitle>
                 </CardHeader>
                 <CardContent className="text-sm text-muted-foreground py-4 text-center">
-                    Nessun turno in corso adesso.
+                    {t('dashboardPage.no_shift')}
                 </CardContent>
             </Card>
         );
@@ -408,7 +419,7 @@ const ShiftCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
                 <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
                     <Clock size={14} /> Turno corrente
                 </CardTitle>
-                <Badge className="bg-emerald-500/10 text-emerald-500 border-none">in corso</Badge>
+                <Badge className="bg-emerald-500/10 text-emerald-500 border-none">{t('dashboardPage.in_progress')}</Badge>
             </CardHeader>
             <CardContent className="space-y-3">
                 <div className="flex items-baseline justify-between">
@@ -423,14 +434,14 @@ const ShiftCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
                         <div className="h-2 rounded bg-primary" style={{ width: `${progress}%` }} />
                     </div>
                     <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>{progress}% completato</span>
-                        <span>Restano {leftLabel}</span>
+                        <span>{t('dashboardPage.shift_progress', { pct: progress })}</span>
+                        <span>{t('dashboardPage.time_left', { value: leftLabel })}</span>
                     </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm">
                     <Users size={14} className="text-muted-foreground" />
                     {s.operators.length === 0
-                        ? <span className="text-muted-foreground">Nessun operatore designato</span>
+                        ? <span className="text-muted-foreground">{t('dashboardPage.no_operators')}</span>
                         : s.operators.map((u) => (
                             <span key={u} className="inline-flex items-center gap-1">
                                 <UserCircle size={14} /> {u}
@@ -438,7 +449,7 @@ const ShiftCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
                         ))}
                 </div>
                 <div className="flex items-center justify-between text-xs pt-1 border-t">
-                    <span className="text-muted-foreground">Allarmi durante questo turno</span>
+                    <span className="text-muted-foreground">{t('dashboardPage.alarms_this_shift')}</span>
                     <span className={`font-semibold ${s.alarms_this_shift > 0 ? 'text-orange-500' : 'text-emerald-500'}`}>
                         {s.alarms_this_shift}
                     </span>
@@ -449,6 +460,7 @@ const ShiftCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
 };
 
 const SystemCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>['data']> }) => {
+    const { t } = useTranslation();
     const s = data.system;
     const dot = (ok: boolean) => (
         <span className={`inline-block w-2 h-2 rounded-full ${ok ? 'bg-emerald-500' : 'bg-red-500'}`} />
@@ -457,7 +469,7 @@ const SystemCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard
         <Card>
             <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                    <Cpu size={14} /> Sistema
+                    <Cpu size={14} /> {t('nav.system')}
                 </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
@@ -471,13 +483,13 @@ const SystemCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard
                 </div>
                 <div className="flex items-center justify-between">
                     <span className="flex items-center gap-2 text-muted-foreground">
-                        {dot(s.ready)} <Activity size={14} /> Pronto
+                        {dot(s.ready)} <Activity size={14} /> {t('dashboardPage.ready')}
                     </span>
-                    <span className={s.ready ? 'text-emerald-500' : 'text-red-500'}>{s.ready ? 'YES' : 'NO'}</span>
+                    <span className={s.ready ? 'text-emerald-500' : 'text-red-500'}>{s.ready ? t('common.yes') : t('common.no')}</span>
                 </div>
                 <div className="flex items-center justify-between">
                     <span className="flex items-center gap-2 text-muted-foreground">
-                        <FileText size={14} /> Uptime API
+                        <FileText size={14} /> {t('dashboardPage.api_uptime')}
                     </span>
                     <span className="font-mono text-xs">{formatDuration(s.api_uptime_sec)}</span>
                 </div>
@@ -494,10 +506,10 @@ const SystemCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard
 // dashboard overview per non pesare ogni 30s su 7 calcoli OEE giornalieri).
 // ─────────────────────────────────────────────────────────────────────────────
 const oeeBand = (v: number): { tone: string; ring: string; label: string } => {
-    if (v >= 85) return { tone: 'text-emerald-500', ring: 'border-emerald-500/40 bg-emerald-500/5', label: 'World-class' };
-    if (v >= 65) return { tone: 'text-amber-500',   ring: 'border-amber-500/40 bg-amber-500/5',     label: 'Tipico' };
-    if (v >= 40) return { tone: 'text-orange-500',  ring: 'border-orange-500/40 bg-orange-500/5',   label: 'Da migliorare' };
-    return         { tone: 'text-red-500',     ring: 'border-red-500/40 bg-red-500/5',         label: 'Critico' };
+    if (v >= 85) return { tone: 'text-emerald-500', ring: 'border-emerald-500/40 bg-emerald-500/5', label: i18n.t('dashboardPage.band_world_class') };
+    if (v >= 65) return { tone: 'text-amber-500',   ring: 'border-amber-500/40 bg-amber-500/5',     label: i18n.t('dashboardPage.band_typical') };
+    if (v >= 40) return { tone: 'text-orange-500',  ring: 'border-orange-500/40 bg-orange-500/5',   label: i18n.t('dashboardPage.band_improve') };
+    return         { tone: 'text-red-500',     ring: 'border-red-500/40 bg-red-500/5',         label: i18n.t('dashboardPage.band_critical') };
 };
 
 const OEEHistorySpark = ({ data }: { data: OEEHistoryPoint[] }) => {
@@ -523,6 +535,7 @@ const OEEHistorySpark = ({ data }: { data: OEEHistoryPoint[] }) => {
 const OEEComponentBar = ({
     label, value, source,
 }: { label: string; value: number; source: 'tag' | 'fallback' }) => {
+    const { t } = useTranslation();
     const band = oeeBand(value);
     return (
         <div className="space-y-1">
@@ -531,7 +544,7 @@ const OEEComponentBar = ({
                 <div className="flex items-center gap-1.5">
                     <span className={`font-mono font-bold text-base ${band.tone}`}>{value.toFixed(1)}%</span>
                     <Badge variant="outline" className="text-[9px] font-normal h-4 px-1 leading-none">
-                        {source === 'tag' ? 'tag' : 'auto'}
+                        {source === 'tag' ? t('dashboardPage.source_tag') : t('dashboardPage.source_auto')}
                     </Badge>
                 </div>
             </div>
@@ -563,13 +576,14 @@ const OEEWrapper = ({ overview }: { overview: OEEOverview }) => {
 const OEEProfilesView = ({
     profiles, rollup,
 }: { profiles: OEEProfileSnapshot[]; rollup?: OEESnapshot }) => {
+    const { t } = useTranslation();
     return (
         <div className="space-y-3">
             {rollup && (
                 <OEECard
                     o={rollup}
-                    title="OEE Overall"
-                    subtitle={`Media di ${profiles.length} ${profiles.length === 1 ? 'profilo' : 'profili'}`}
+                    title={t('dashboardPage.oee_overall')}
+                    subtitle={t('dashboardPage.average_of', { count: profiles.length })}
                 />
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -642,6 +656,7 @@ const MiniBar = ({ label, v }: { label: string; v: number }) => {
 const OEECard = ({
     o, title = 'OEE', subtitle, showNudge = false,
 }: { o: OEESnapshot; title?: string; subtitle?: string; showNudge?: boolean }) => {
+    const { t } = useTranslation();
     const navigate = useNavigate();
     const band = oeeBand(o.oee);
     const windowH = (o.window_minutes / 60).toFixed(o.window_minutes % 60 === 0 ? 0 : 1);
@@ -685,7 +700,7 @@ const OEECard = ({
                             </div>
                             {o.target !== undefined && (
                                 <p className={`text-xs mt-1 ${targetMet ? 'text-emerald-500' : 'text-red-500'}`}>
-                                    Target ≥ {o.target}%  {targetMet ? '✓' : '✗'}
+                                    {t('dashboardPage.target', { value: `≥ ${o.target}%` })}  {targetMet ? '✓' : '✗'}
                                 </p>
                             )}
                         </div>
@@ -693,33 +708,33 @@ const OEECard = ({
 
                     {/* Centro: 3 barre A/P/Q */}
                     <div className="lg:col-span-5 space-y-3">
-                        <OEEComponentBar label="Availability" value={o.availability} source={o.availability_source} />
-                        <OEEComponentBar label="Performance"  value={o.performance}  source={o.performance_source} />
-                        <OEEComponentBar label="Quality"      value={o.quality}      source={o.quality_source} />
+                        <OEEComponentBar label={t('dashboardPage.availability')} value={o.availability} source={o.availability_source} />
+                        <OEEComponentBar label={t('dashboardPage.performance')}  value={o.performance}  source={o.performance_source} />
+                        <OEEComponentBar label={t('dashboardPage.quality')}      value={o.quality}      source={o.quality_source} />
                     </div>
 
                     {/* Destra: sparkline 7g + numeri di diagnostica */}
                     <div className="lg:col-span-3 space-y-2">
                         <div>
-                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">Trend 7g</p>
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">{t('dashboardPage.trend_7d')}</p>
                             <OEEHistorySpark data={history ?? []} />
                         </div>
                         <div className="text-xs space-y-0.5 text-muted-foreground">
                             {o.critical_downtime_min > 0 && (
                                 <div className="flex justify-between">
-                                    <span>Downtime critical</span>
+                                    <span>{t('dashboardPage.critical_downtime')}</span>
                                     <span className="font-mono">{o.critical_downtime_min.toFixed(0)} min</span>
                                 </div>
                             )}
                             {o.pieces_produced !== undefined && o.pieces_produced > 0 && (
                                 <div className="flex justify-between">
-                                    <span>Pezzi prodotti</span>
+                                    <span>{t('dashboardPage.pieces_produced')}</span>
                                     <span className="font-mono">{o.pieces_produced.toFixed(0)}</span>
                                 </div>
                             )}
                             {o.pieces_good !== undefined && o.pieces_good > 0 && (
                                 <div className="flex justify-between">
-                                    <span>Pezzi buoni</span>
+                                    <span>{t('dashboardPage.pieces_good')}</span>
                                     <span className="font-mono">{o.pieces_good.toFixed(0)}</span>
                                 </div>
                             )}
@@ -735,9 +750,9 @@ const OEECard = ({
                         onClick={() => navigate('/oee-profiles')}
                         className="mt-4 w-full text-xs text-muted-foreground hover:text-foreground transition-colors text-left flex items-center gap-2 px-3 py-2 rounded border border-dashed border-border hover:border-primary/40">
                         <ArrowUpRight size={12} />
-                        Calcolo OEE in modalità euristica. Crea i profili OEE in
-                        <span className="text-primary underline ml-1">OEE Profili</span>
-                        per monitorare ogni linea separatamente.
+                        {t('dashboardPage.nudge_before')}
+                        <span className="text-primary underline ml-1">{t('nav.oee_profiles')}</span>
+                        {t('dashboardPage.nudge_after')}
                     </button>
                 )}
             </CardContent>
@@ -755,20 +770,21 @@ const useDashboard = () => {
 };
 
 const DashboardPage = () => {
+    const { t } = useTranslation();
     const { data, isLoading, isError } = useDashboard();
 
     if (isLoading && !data) {
-        return <div className="p-8 text-center text-muted-foreground">Caricamento dashboard...</div>;
+        return <div className="p-8 text-center text-muted-foreground">{t('dashboardPage.loading')}</div>;
     }
     if (isError || !data) {
-        return <div className="p-8 text-center text-red-500">Errore caricamento dashboard.</div>;
+        return <div className="p-8 text-center text-red-500">{t('dashboardPage.load_error')}</div>;
     }
 
     return (
         <div className="space-y-6">
             <div>
-                <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
-                <p className="text-muted-foreground">Stato del sistema in tempo reale.</p>
+                <h2 className="text-3xl font-bold tracking-tight">{t('nav.dashboard')}</h2>
+                <p className="text-muted-foreground">{t('dashboardPage.subtitle')}</p>
             </div>
 
             <StatusBar data={data} />
@@ -782,11 +798,10 @@ const DashboardPage = () => {
                         <Wrench size={20} className="text-amber-500 mt-0.5" />
                         <div className="flex-1">
                             <p className="font-semibold text-amber-500">
-                                Manutenzione in corso: {data.maintenance.title}
+                                {t('dashboardPage.maintenance_active', { title: data.maintenance.title })}
                             </p>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                                Le notifiche email/Telegram sono silenziate fino a{' '}
-                                {new Date(data.maintenance.ends_at).toLocaleString('it-IT')}
+                                {t('dashboardPage.maintenance_muted', { until: new Date(data.maintenance.ends_at).toLocaleString(i18n.language) })}
                                 {data.maintenance.reason && ` — ${data.maintenance.reason}`}
                             </p>
                         </div>

@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Loader2, AlertCircle, Wrench, Activity, Gauge } from 'lucide-react';
 
 import { oeeApi } from '@/api/dashboard';
+import i18n from '@/i18n';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -22,16 +24,17 @@ interface Props {
 
 type Range = '24h' | '7d' | '30d';
 
+// label = i18n key, resolved with t() at render.
 const RANGE_CFG: Record<Range, { hours: number; label: string }> = {
-    '24h': { hours: 24,      label: '24 ore' },
-    '7d':  { hours: 24 * 7,  label: '7 giorni' },
-    '30d': { hours: 24 * 30, label: '30 giorni' },
+    '24h': { hours: 24,      label: 'oee.range_24h' },
+    '7d':  { hours: 24 * 7,  label: 'oee.range_7d' },
+    '30d': { hours: 24 * 30, label: 'oee.range_30d' },
 };
 
 const formatMinutes = (m: number): string => {
     if (m < 60) return `${m.toFixed(0)} min`;
     if (m < 1440) return `${(m / 60).toFixed(1)} h`;
-    return `${(m / 1440).toFixed(1)} g`;
+    return `${(m / 1440).toFixed(1)} ${i18n.t('oee.unit_days_short')}`;
 };
 
 const pillarBadge = (pillar: string): string => {
@@ -41,6 +44,7 @@ const pillarBadge = (pillar: string): string => {
 };
 
 export const OEELossPareto = ({ profileId, profileName }: Props) => {
+    const { t } = useTranslation();
     const [range, setRange] = useState<Range>('7d');
     const cfg = RANGE_CFG[range];
 
@@ -63,7 +67,7 @@ export const OEELossPareto = ({ profileId, profileName }: Props) => {
                 <div>
                     <h3 className="text-base font-semibold">{profileName}</h3>
                     <p className="text-xs text-muted-foreground">
-                        Pareto delle cause di perdita (Six Big Losses, ISO 22400-2)
+                        {t('oee.pareto_subtitle')}
                     </p>
                 </div>
                 <div className="flex items-center gap-1">
@@ -75,7 +79,7 @@ export const OEELossPareto = ({ profileId, profileName }: Props) => {
                             onClick={() => setRange(r)}
                             className="h-9 sm:h-7 px-2 text-xs"
                         >
-                            {RANGE_CFG[r].label}
+                            {t(RANGE_CFG[r].label)}
                         </Button>
                     ))}
                 </div>
@@ -95,7 +99,7 @@ export const OEELossPareto = ({ profileId, profileName }: Props) => {
                             <span className="text-base text-muted-foreground ml-1">h</span>
                         </div>
                         <p className="text-[11px] text-muted-foreground">
-                            Mean Time Between Failures
+                            {t('oee.mtbf_desc')}
                         </p>
                     </CardContent>
                 </Card>
@@ -110,14 +114,14 @@ export const OEELossPareto = ({ profileId, profileName }: Props) => {
                             {reliab && reliab.mttr_minutes > 0 ? formatMinutes(reliab.mttr_minutes) : '—'}
                         </div>
                         <p className="text-[11px] text-muted-foreground">
-                            Mean Time To Repair
+                            {t('oee.mttr_desc')}
                         </p>
                     </CardContent>
                 </Card>
                 <Card>
                     <CardHeader className="pb-2">
                         <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2">
-                            <AlertCircle size={12} /> Guasti
+                            <AlertCircle size={12} /> {t('oee.breakdowns')}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
@@ -125,7 +129,7 @@ export const OEELossPareto = ({ profileId, profileName }: Props) => {
                             {reliab?.breakdown_count ?? 0}
                         </div>
                         <p className="text-[11px] text-muted-foreground">
-                            Eventi breakdown nel periodo
+                            {t('oee.breakdowns_desc')}
                         </p>
                     </CardContent>
                 </Card>
@@ -135,25 +139,24 @@ export const OEELossPareto = ({ profileId, profileName }: Props) => {
             <Card>
                 <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                     <CardTitle className="text-sm font-semibold text-muted-foreground flex items-center gap-2">
-                        <Gauge size={14} /> Pareto delle cause di perdita
+                        <Gauge size={14} /> {t('oee.pareto_title')}
                     </CardTitle>
                     {lossData && lossData.total_minutes > 0 && (
                         <Badge variant="outline" className="text-xs">
-                            Totale: {formatMinutes(lossData.total_minutes)}
+                            {t('oee.total', { value: formatMinutes(lossData.total_minutes) })}
                         </Badge>
                     )}
                 </CardHeader>
                 <CardContent>
                     {isLoading ? (
                         <div className="flex items-center justify-center h-48 text-muted-foreground">
-                            <Loader2 className="animate-spin" /> &nbsp; Caricamento…
+                            <Loader2 className="animate-spin" /> &nbsp; {t('common.loading')}
                         </div>
                     ) : !lossData || lossData.total_minutes === 0 ? (
                         <div className="py-12 text-center text-sm text-muted-foreground">
-                            Nessuna perdita registrata nel periodo.
+                            {t('oee.pareto_empty')}
                             <p className="text-xs mt-2">
-                                Il cron worker registra automaticamente: allarmi critical chiusi (breakdown),
-                                manutenzioni con "setup"/"cambio" nel titolo (setup).
+                                {t('oee.pareto_empty_hint')}
                             </p>
                         </div>
                     ) : (
@@ -163,12 +166,12 @@ export const OEELossPareto = ({ profileId, profileName }: Props) => {
                                     <div className="flex items-center justify-between text-xs">
                                         <div className="flex items-center gap-2 min-w-0">
                                             <Badge className={`text-[10px] ${pillarBadge(c.pillar)} border-none`}>
-                                                {c.pillar}
+                                                {t(`oee.pillar_${c.pillar}`, { defaultValue: c.pillar })}
                                             </Badge>
                                             <span className="font-medium truncate">{c.display_label}</span>
                                         </div>
                                         <div className="flex items-center gap-2 text-[11px] text-muted-foreground font-mono whitespace-nowrap">
-                                            <span>{c.events_count} eventi</span>
+                                            <span>{t('oee.events', { count: c.events_count })}</span>
                                             <span>·</span>
                                             <span className="text-foreground font-semibold">{formatMinutes(c.total_minutes)}</span>
                                             <span>·</span>

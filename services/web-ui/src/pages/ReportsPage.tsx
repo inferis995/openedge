@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { securityApi } from '@/api/security';
 import { infrastructureApi } from '@/api/infrastructure';
+import { useTranslation } from 'react-i18next';
 
 // Default ISO-8601 helpers used by the date inputs. We work in the
 // operator's LOCAL timezone in the UI; the API converts back to UTC.
@@ -51,19 +52,23 @@ interface ExportCardProps {
     buttonLabel?: string;
 }
 
-const ExportCard = ({ icon, title, description, onExport, extraControls, busy, disabled, buttonLabel }: ExportCardProps) => (
+const ExportCard = ({ icon, title, description, onExport, extraControls, busy, disabled, buttonLabel }: ExportCardProps) => {
+    const { t } = useTranslation();
+    return (
     <div className="rounded-md border bg-card p-4 space-y-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">{icon}{title}</div>
         <p className="text-sm">{description}</p>
         {extraControls}
         <Button onClick={onExport} disabled={busy || disabled} className="gap-2">
-            <Download size={16} /> {busy ? 'Preparing...' : (buttonLabel ?? 'Download CSV')}
+            <Download size={16} /> {busy ? t('reportsPage.preparing') : (buttonLabel ?? t('reportsPage.download_csv'))}
         </Button>
     </div>
-);
+    );
+};
 
 const ReportsPage = () => {
     const { isAdmin } = useAuthStore();
+    const { t: tr, i18n } = useTranslation();
 
     const [start, setStart] = useState(defaultStart());
     const [end, setEnd] = useState(defaultEnd());
@@ -91,7 +96,7 @@ const ReportsPage = () => {
     // query string) so the JWT never leaks into browser history.
     const download = async (path: string, filename: string, params: Record<string, string>) => {
         if (!range) {
-            showApiError(new Error('Invalid date range'), 'Invalid date range');
+            showApiError(new Error('Invalid date range'), tr('reportsPage.invalid_range'));
             return;
         }
         setBusy(path);
@@ -109,7 +114,7 @@ const ReportsPage = () => {
             a.remove();
             window.URL.revokeObjectURL(url);
         } catch (e) {
-            showApiError(e, 'Export failed');
+            showApiError(e, tr('reportsPage.export_failed'));
         } finally {
             setBusy(null);
         }
@@ -122,25 +127,24 @@ const ReportsPage = () => {
         <div className="space-y-6">
             <div>
                 <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-                    <FileText size={22} /> Reports
+                    <FileText size={22} /> {tr('reportsPage.title')}
                 </h2>
                 <p className="text-muted-foreground">
-                    Export historian, alarms and audit data as CSV. Files open directly in Excel /
-                    LibreOffice and import cleanly into BI tools.
+                    {tr('reportsPage.subtitle')}
                 </p>
             </div>
 
             <div className="rounded-md border bg-card p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="grid gap-1">
-                    <Label htmlFor="rep-start">Start (local time)</Label>
+                    <Label htmlFor="rep-start">{tr('reportsPage.start')}</Label>
                     <Input id="rep-start" type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)} />
                 </div>
                 <div className="grid gap-1">
-                    <Label htmlFor="rep-end">End (local time)</Label>
+                    <Label htmlFor="rep-end">{tr('reportsPage.end')}</Label>
                     <Input id="rep-end" type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)} />
                 </div>
                 <p className="text-xs text-muted-foreground md:col-span-2">
-                    Max range: 90 days. The API converts the times to UTC before querying.
+                    {tr('reportsPage.range_hint')}
                 </p>
             </div>
 
@@ -148,8 +152,8 @@ const ReportsPage = () => {
 
                 <ExportCard
                     icon={<FileText size={16} />}
-                    title="Tag history"
-                    description="Raw historian samples. Filter by selecting one or more tags below."
+                    title={tr('reportsPage.history_title')}
+                    description={tr('reportsPage.history_desc')}
                     busy={busy === '/reports/history.csv'}
                     onExport={() => download('/reports/history.csv',
                         `history-${Date.now()}.csv`,
@@ -157,31 +161,31 @@ const ReportsPage = () => {
                     extraControls={
                         <div className="text-xs text-muted-foreground">
                             {selectedTags.length === 0
-                                ? 'All tags will be included (large export possible).'
-                                : `${selectedTags.length} tag${selectedTags.length === 1 ? '' : 's'} selected.`}
+                                ? tr('reportsPage.all_tags_included')
+                                : tr('reportsPage.tags_selected', { count: selectedTags.length })}
                         </div>
                     }
                 />
 
                 <ExportCard
                     icon={<BellRing size={16} />}
-                    title="Alarm events"
-                    description="Every alarm trigger / clear within the range with severity, value and message."
+                    title={tr('reportsPage.alarms_title')}
+                    description={tr('reportsPage.alarms_desc')}
                     busy={busy === '/reports/alarms.csv'}
                     onExport={() => download('/reports/alarms.csv', `alarms-${Date.now()}.csv`, {})}
                 />
 
                 <ExportCard
                     icon={<FileSignature size={16} />}
-                    title="Service report"
-                    description="The end-of-month document: what is installed, what stopped, for how long, and what was done about it. Opens in a browser and prints to PDF."
+                    title={tr('reportsPage.service_title')}
+                    description={tr('reportsPage.service_desc')}
                     busy={busy === '/reports/service-report.html'}
-                    buttonLabel="Download report"
+                    buttonLabel={tr('reportsPage.download_report')}
                     onExport={() => download('/reports/service-report.html',
                         `rapporto-servizio-${reportMonth}.html`, { month: reportMonth })}
                     extraControls={
                         <div className="space-y-1">
-                            <Label htmlFor="rep-month" className="text-xs">Month</Label>
+                            <Label htmlFor="rep-month" className="text-xs">{tr('reportsPage.month')}</Label>
                             <Input
                                 id="rep-month"
                                 type="month"
@@ -190,7 +194,7 @@ const ReportsPage = () => {
                                 onChange={(e) => setReportMonth(e.target.value)}
                             />
                             <p className="text-[11px] text-muted-foreground">
-                                A whole calendar month. Its own date range, independent of the one above.
+                                {tr('reportsPage.month_hint')}
                             </p>
                         </div>
                     }
@@ -199,8 +203,8 @@ const ReportsPage = () => {
                 {isAdmin() && (
                     <ExportCard
                         icon={<ShieldCheck size={16} />}
-                        title="Audit log"
-                        description="System-wide actions (logins, tag writes, recipe loads, ...). Global admin only."
+                        title={tr('reportsPage.audit_title')}
+                        description={tr('reportsPage.audit_desc')}
                         busy={busy === '/reports/audit.csv'}
                         onExport={() => download('/reports/audit.csv', `audit-${Date.now()}.csv`, {})}
                     />
@@ -212,14 +216,14 @@ const ReportsPage = () => {
             {isAdmin() && (
                 <div className="space-y-3">
                     <h3 className="font-semibold flex items-center gap-2">
-                        <Shield size={16} /> Conformità &amp; Sicurezza
+                        <Shield size={16} /> {tr('reportsPage.compliance_title')}
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div className="rounded-md border bg-card p-4 space-y-3">
                             <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-                                <ShieldCheck size={16} /> Report controlli di sicurezza (JSON)
+                                <ShieldCheck size={16} /> {tr('reportsPage.posture_title')}
                             </div>
-                            <p className="text-sm">Autovalutazione dei controlli automatici di sicurezza. Non è una certificazione.</p>
+                            <p className="text-sm">{tr('reportsPage.posture_desc')}</p>
                             <Button
                                 className="gap-2"
                                 onClick={async () => {
@@ -254,32 +258,32 @@ const ReportsPage = () => {
                                         a.click();
                                         URL.revokeObjectURL(url);
                                     } catch (e) {
-                                        showApiError(e, 'Export failed');
+                                        showApiError(e, tr('reportsPage.export_failed'));
                                     }
                                 }}
                             >
-                                <Download size={16} /> Download JSON
+                                <Download size={16} /> {tr('reportsPage.download_json')}
                             </Button>
                         </div>
 
                         <div className="rounded-md border bg-card p-4 space-y-3">
                             <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-                                <Shield size={16} /> Security Events (CSV)
+                                <Shield size={16} /> {tr('reportsPage.sec_events_title')}
                             </div>
-                            <p className="text-sm">Ultimi 50 eventi di sicurezza — login falliti, account bloccati, accessi negati.</p>
+                            <p className="text-sm">{tr('reportsPage.sec_events_desc')}</p>
                             <Button
                                 className="gap-2"
                                 onClick={async () => {
                                     try {
                                         const events = await securityApi.events(50);
-                                        const headers = ['ID', 'Tipo', 'Gravità', 'Attore', 'Risorsa', 'Data'];
+                                        const headers = [tr('reportsPage.csv_id'), tr('reportsPage.csv_type'), tr('reportsPage.csv_severity'), tr('reportsPage.csv_actor'), tr('reportsPage.csv_resource'), tr('reportsPage.csv_date')];
                                         const rows = events.map(e => [
                                             String(e.id),
                                             e.event_type,
                                             e.severity,
                                             e.actor ?? '',
                                             e.resource ?? '',
-                                            new Date(e.created_at).toLocaleString('it-IT'),
+                                            new Date(e.created_at).toLocaleString(i18n.language),
                                         ]);
                                         const csv = [headers, ...rows].map(r => r.map(f => `"${f}"`).join(',')).join('\n');
                                         const blob = new Blob([csv], { type: 'text/csv' });
@@ -290,25 +294,25 @@ const ReportsPage = () => {
                                         a.click();
                                         URL.revokeObjectURL(url);
                                     } catch (e) {
-                                        showApiError(e, 'Export failed');
+                                        showApiError(e, tr('reportsPage.export_failed'));
                                     }
                                 }}
                             >
-                                <Download size={16} /> Download CSV
+                                <Download size={16} /> {tr('reportsPage.download_csv')}
                             </Button>
                         </div>
 
                         <div className="rounded-md border bg-card p-4 space-y-3">
                             <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-                                <Server size={16} /> Inventario Gateway (CSV)
+                                <Server size={16} /> {tr('reportsPage.inventory_title')}
                             </div>
-                            <p className="text-sm">Elenco completo gateway con stato TLS, versione agente e stato online/offline.</p>
+                            <p className="text-sm">{tr('reportsPage.inventory_desc')}</p>
                             <Button
                                 className="gap-2"
                                 onClick={async () => {
                                     try {
                                         const { gateways } = await infrastructureApi.list();
-                                        const headers = ['ID', 'Nome', 'Organizzazione', 'Driver', 'Host', 'Porta', 'Online', 'TLS', 'Auth', 'Versione', 'Tag'];
+                                        const headers = [tr('reportsPage.csv_id'), tr('reportsPage.csv_name'), tr('reportsPage.csv_org'), tr('reportsPage.csv_driver'), tr('reportsPage.csv_host'), tr('reportsPage.csv_port'), tr('reportsPage.csv_online'), 'TLS', tr('reportsPage.csv_auth'), tr('reportsPage.csv_version'), tr('reportsPage.csv_tags')];
                                         const rows = gateways.map(g => [
                                             String(g.id),
                                             g.name,
@@ -316,9 +320,9 @@ const ReportsPage = () => {
                                             g.driver_type,
                                             g.host,
                                             String(g.port),
-                                            g.online ? 'SI' : 'NO',
-                                            g.tls_enabled ? 'SI' : 'NO',
-                                            g.mqtt_auth ? 'SI' : 'NO',
+                                            g.online ? tr('reportsPage.csv_yes') : tr('reportsPage.csv_no'),
+                                            g.tls_enabled ? tr('reportsPage.csv_yes') : tr('reportsPage.csv_no'),
+                                            g.mqtt_auth ? tr('reportsPage.csv_yes') : tr('reportsPage.csv_no'),
                                             g.agent_version ?? '',
                                             String(g.tag_count),
                                         ]);
@@ -331,19 +335,19 @@ const ReportsPage = () => {
                                         a.click();
                                         URL.revokeObjectURL(url);
                                     } catch (e) {
-                                        showApiError(e, 'Export failed');
+                                        showApiError(e, tr('reportsPage.export_failed'));
                                     }
                                 }}
                             >
-                                <Download size={16} /> Download CSV
+                                <Download size={16} /> {tr('reportsPage.download_csv')}
                             </Button>
                         </div>
 
                         <div className="rounded-md border bg-card p-4 space-y-3">
                             <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-                                <ShieldCheck size={16} /> Security Score (JSON)
+                                <ShieldCheck size={16} /> {tr('reportsPage.score_title')}
                             </div>
-                            <p className="text-sm">Score di sicurezza con breakdown per categoria — adatto per audit esterni.</p>
+                            <p className="text-sm">{tr('reportsPage.score_desc')}</p>
                             <Button
                                 className="gap-2"
                                 onClick={async () => {
@@ -357,11 +361,11 @@ const ReportsPage = () => {
                                         a.click();
                                         URL.revokeObjectURL(url);
                                     } catch (e) {
-                                        showApiError(e, 'Export failed');
+                                        showApiError(e, tr('reportsPage.export_failed'));
                                     }
                                 }}
                             >
-                                <Download size={16} /> Download JSON
+                                <Download size={16} /> {tr('reportsPage.download_json')}
                             </Button>
                         </div>
                     </div>
@@ -370,14 +374,14 @@ const ReportsPage = () => {
 
             <div className="rounded-md border bg-card p-4">
                 <div className="flex items-center justify-between mb-3">
-                    <h3 className="font-semibold">Tag filter for history export</h3>
+                    <h3 className="font-semibold">{tr('reportsPage.tag_filter_title')}</h3>
                     {selectedTags.length > 0 && (
-                        <Button variant="outline" size="sm" onClick={() => setSelectedTags([])}>Clear</Button>
+                        <Button variant="outline" size="sm" onClick={() => setSelectedTags([])}>{tr('reportsPage.clear')}</Button>
                     )}
                 </div>
                 <div className="max-h-72 overflow-auto border rounded-md divide-y">
                     {tags.length === 0 ? (
-                        <p className="p-4 text-sm text-muted-foreground">No tags loaded.</p>
+                        <p className="p-4 text-sm text-muted-foreground">{tr('reportsPage.no_tags')}</p>
                     ) : tags.map((t) => (
                         <label key={t.id} className="flex items-center gap-3 px-3 py-2 hover:bg-muted/30 cursor-pointer">
                             <input

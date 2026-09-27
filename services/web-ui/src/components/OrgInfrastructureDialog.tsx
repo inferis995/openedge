@@ -28,6 +28,7 @@ import { showApiSuccess, showApiError } from '@/lib/api-error-handler';
 import { toast } from 'sonner';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
     org: { id: number; name: string };
@@ -36,6 +37,7 @@ interface Props {
 }
 
 export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Props) {
+    const { t } = useTranslation();
     const qc = useQueryClient();
 
     // ── Edge Status ───────────────────────────────────────────────────────────
@@ -65,21 +67,21 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
             setNewKeyName('');
             setRevealedKey(false);
         },
-        onError: (e) => showApiError(e, 'Failed to create API key'),
+        onError: (e) => showApiError(e, t('orgInfra.key_create_failed')),
     });
 
     const revokeKeyMutation = useMutation({
         mutationFn: (keyId: number) => apiKeysApi.revoke(org.id, keyId),
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['api-keys', org.id] });
-            showApiSuccess('API key revoked');
+            showApiSuccess(t('orgInfra.key_revoked'));
         },
-        onError: (e) => showApiError(e, 'Failed to revoke key'),
+        onError: (e) => showApiError(e, t('orgInfra.key_revoke_failed')),
     });
 
     const copyToClipboard = useCallback((text: string) => {
         navigator.clipboard.writeText(text);
-        toast.success('Copied to clipboard');
+        toast.success(i18n.t('orgInfra.copied'));
     }, []);
 
     // ── Invites ───────────────────────────────────────────────────────────────
@@ -92,9 +94,9 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
         onSuccess: (data) => {
             setCreatedInvite({ token: data.token, email: data.email });
             setInviteEmail('');
-            showApiSuccess('Invite created', `Invite link generated for ${data.email}`);
+            showApiSuccess(t('orgInfra.invite_created'), t('orgInfra.invite_created_desc', { email: data.email }));
         },
-        onError: (e) => showApiError(e, 'Failed to create invite'),
+        onError: (e) => showApiError(e, t('orgInfra.invite_failed')),
     });
 
     const inviteLink = createdInvite
@@ -111,9 +113,9 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
             await organizationsApi.downloadEdgeInstaller(org.id, org.name, newBoxName.trim() || undefined);
             setNewBoxName('');
             qc.invalidateQueries({ queryKey: ['edge-agents', org.id] });
-            showApiSuccess('Download avviato', 'Il pacchetto della nuova scatola è in download');
+            showApiSuccess(t('orgInfra.download_started'), t('orgInfra.download_started_desc'));
         } catch (e) {
-            showApiError(e, 'Download failed');
+            showApiError(e, t('orgInfra.download_failed'));
         } finally {
             setDownloading(false);
         }
@@ -136,15 +138,15 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
             setShownWhSecret(wh.secret ?? null);
             setWhURL(''); setWhEvents([]);
             refetchWebhooks();
-            toast.success('Webhook created');
+            toast.success(t('orgInfra.wh_created'));
         },
-        onError: (e) => showApiError(e, 'Failed to create webhook'),
+        onError: (e) => showApiError(e, t('orgInfra.wh_create_failed')),
     });
 
     const deleteWebhookMutation = useMutation({
         mutationFn: (id: number) => webhooksApi.delete(org.id, id),
-        onSuccess: () => { refetchWebhooks(); toast.success('Webhook deleted'); },
-        onError: (e) => showApiError(e, 'Failed to delete webhook'),
+        onSuccess: () => { refetchWebhooks(); toast.success(t('orgInfra.wh_deleted')); },
+        onError: (e) => showApiError(e, t('orgInfra.wh_delete_failed')),
     });
 
     const toggleWhEvent = (ev: WebhookEvent) => {
@@ -171,15 +173,15 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
             refetchSSO();
             setSSOForm(emptySSO);
             setSSOEditing(false);
-            toast.success('SSO provider saved');
+            toast.success(t('orgInfra.sso_saved'));
         },
-        onError: (e) => showApiError(e, 'Failed to save SSO provider'),
+        onError: (e) => showApiError(e, t('orgInfra.sso_save_failed')),
     });
 
     const deleteSSOMutation = useMutation({
         mutationFn: (provider: string) => organizationsApi.deleteSSOProvider(org.id, provider),
-        onSuccess: () => { refetchSSO(); toast.success('SSO provider removed'); },
-        onError: (e) => showApiError(e, 'Failed to remove SSO provider'),
+        onSuccess: () => { refetchSSO(); toast.success(t('orgInfra.sso_removed')); },
+        onError: (e) => showApiError(e, t('orgInfra.sso_remove_failed')),
     });
 
     const startEditSSO = (p: SSOProvider) => {
@@ -210,19 +212,19 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
             <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2 text-lg">
-                        Infrastructure — {org.name}
+                        {t('orgInfra.title', { name: org.name })}
                     </DialogTitle>
                     <DialogDescription>
-                        Manage edge deployment, API keys, team invites, and webhooks for this organization.
+                        {t('orgInfra.subtitle')}
                     </DialogDescription>
                 </DialogHeader>
 
                 <Tabs defaultValue="edge" className="mt-2">
                     <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
-                        <TabsTrigger value="edge">Edge</TabsTrigger>
-                        <TabsTrigger value="apikeys">API Keys</TabsTrigger>
-                        <TabsTrigger value="invites">Invite Users</TabsTrigger>
-                        <TabsTrigger value="webhooks">Webhooks</TabsTrigger>
+                        <TabsTrigger value="edge">{t('orgInfra.tab_edge')}</TabsTrigger>
+                        <TabsTrigger value="apikeys">{t('orgInfra.tab_keys')}</TabsTrigger>
+                        <TabsTrigger value="invites">{t('orgInfra.tab_invites')}</TabsTrigger>
+                        <TabsTrigger value="webhooks">{t('orgInfra.tab_webhooks')}</TabsTrigger>
                         <TabsTrigger value="sso">SSO</TabsTrigger>
                     </TabsList>
 
@@ -230,7 +232,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                     <TabsContent value="edge" className="space-y-4 pt-4">
                         <div className="flex items-center justify-between rounded-lg border p-4">
                             <div className="space-y-1">
-                                <p className="text-sm font-medium">Edge Manager Status</p>
+                                <p className="text-sm font-medium">{t('orgInfra.edge_status')}</p>
                                 {edgeStatus?.online ? (
                                     <div className="flex items-center gap-2">
                                         <span className="relative flex h-2.5 w-2.5">
@@ -238,11 +240,11 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                             <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
                                         </span>
                                         <Badge variant="outline" className="border-green-500 text-green-600">
-                                            Online
+                                            {t('orgInfra.online')}
                                         </Badge>
                                         {edgeStatus.last_ping && (
                                             <span className="text-xs text-muted-foreground">
-                                                last ping {formatRelativeTime(edgeStatus.last_ping)}
+                                                {t('orgInfra.last_ping', { when: formatRelativeTime(edgeStatus.last_ping) })}
                                             </span>
                                         )}
                                     </div>
@@ -250,10 +252,10 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                     <div className="flex items-center gap-2">
                                         <WifiOff size={14} className="text-muted-foreground" />
                                         <Badge variant="outline" className="border-muted-foreground text-muted-foreground">
-                                            Offline
+                                            {t('orgInfra.offline')}
                                         </Badge>
                                         <span className="text-xs text-muted-foreground">
-                                            No heartbeat received
+                                            {t('orgInfra.no_heartbeat')}
                                         </span>
                                     </div>
                                 )}
@@ -265,10 +267,9 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
 
                         <div className="rounded-lg border p-4 space-y-3">
                             <div>
-                                <p className="text-sm font-medium">Chi interroga i PLC</p>
+                                <p className="text-sm font-medium">{t('orgInfra.who_polls')}</p>
                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                    Ogni gateway lo interroga la scatola a cui è assegnato, oppure il server.
-                                    Mai due, mai nessuno.
+                                    {t('orgInfra.who_polls_desc')}
                                 </p>
                             </div>
                             <EdgeBoxesPanel orgId={org.id} />
@@ -276,25 +277,22 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
 
                         <div className="rounded-lg border p-4 space-y-3">
                             <div>
-                                <p className="text-sm font-medium">Installa una nuova scatola</p>
+                                <p className="text-sm font-medium">{t('orgInfra.install_box')}</p>
                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                    Serve solo vicino a PLC che il server non raggiunge. Lo ZIP contiene
-                                    docker-compose, le credenziali e gli script di installazione per Linux e
-                                    Windows. La scatola nasce senza gateway: dopo, assegnale i suoi dalla
-                                    pagina Gateway.
+                                    {t('orgInfra.install_box_desc')}
                                 </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
                                 <Input
                                     value={newBoxName}
                                     onChange={(e) => setNewBoxName(e.target.value)}
-                                    placeholder="Nome, es. Scatola reparto B"
+                                    placeholder={t('orgInfra.box_name_placeholder')}
                                     className="max-w-xs"
-                                    aria-label="Nome della nuova scatola"
+                                    aria-label={t('orgInfra.box_name_aria')}
                                 />
                                 <Button onClick={handleDownload} disabled={downloading} className="gap-2">
                                     <Download size={15} />
-                                    {downloading ? 'Generazione…' : 'Scarica il pacchetto'}
+                                    {downloading ? t('orgInfra.generating') : t('orgInfra.download')}
                                 </Button>
                             </div>
                         </div>
@@ -306,7 +304,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                         {shownKey && (
                             <div className="rounded-lg border border-amber-500 bg-amber-50 dark:bg-amber-950/20 p-4 space-y-2">
                                 <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">
-                                    Save this key — it will not be shown again
+                                    {t('orgInfra.key_save_now')}
                                 </p>
                                 <div className="flex items-center gap-2">
                                     <code className="flex-1 rounded bg-background px-2 py-1 text-xs font-mono border">
@@ -324,10 +322,10 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
 
                         {/* Create new key */}
                         <div className="rounded-lg border p-4 space-y-3">
-                            <p className="text-sm font-medium">Create API Key</p>
+                            <p className="text-sm font-medium">{t('orgInfra.key_create_title')}</p>
                             <div className="flex gap-2">
                                 <Input
-                                    placeholder="Key name (e.g. edge-manager)"
+                                    placeholder={t('orgInfra.key_name_placeholder')}
                                     value={newKeyName}
                                     onChange={(e) => setNewKeyName(e.target.value)}
                                     className="flex-1"
@@ -338,7 +336,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                     className="gap-2 shrink-0"
                                 >
                                     <Key size={14} />
-                                    {createKeyMutation.isPending ? 'Creating…' : 'Create'}
+                                    {createKeyMutation.isPending ? t('orgInfra.creating') : t('common.create')}
                                 </Button>
                             </div>
                         </div>
@@ -349,10 +347,10 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
-                                            <TableHead>Name</TableHead>
-                                            <TableHead>Prefix</TableHead>
-                                            <TableHead>Created</TableHead>
-                                            <TableHead>Last used</TableHead>
+                                            <TableHead>{t('common.name')}</TableHead>
+                                            <TableHead>{t('orgInfra.col_prefix')}</TableHead>
+                                            <TableHead>{t('common.created_at')}</TableHead>
+                                            <TableHead>{t('orgInfra.col_last_used')}</TableHead>
                                             <TableHead className="w-[60px]" />
                                         </TableRow>
                                     </TableHeader>
@@ -366,12 +364,12 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                                     </code>
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">
-                                                    {new Date(k.created_at).toLocaleDateString()}
+                                                    {new Date(k.created_at).toLocaleDateString(i18n.language)}
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">
                                                     {k.last_used_at
                                                         ? formatRelativeTime(k.last_used_at)
-                                                        : 'Never'}
+                                                        : t('orgInfra.never')}
                                                 </TableCell>
                                                 <TableCell>
                                                     <Button
@@ -396,7 +394,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
 
                         {!keysFetching && activeKeys.length === 0 && !shownKey && (
                             <p className="text-center text-sm text-muted-foreground py-6">
-                                No active API keys. Create one to enable edge manager authentication.
+                                {t('orgInfra.keys_empty')}
                             </p>
                         )}
                     </TabsContent>
@@ -407,7 +405,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                         {inviteLink && (
                             <div className="rounded-lg border border-blue-500 bg-blue-50 dark:bg-blue-950/20 p-4 space-y-2">
                                 <p className="text-sm font-semibold text-blue-700 dark:text-blue-400">
-                                    Invite link for {createdInvite?.email}
+                                    {t('orgInfra.invite_link_for', { email: createdInvite?.email })}
                                 </p>
                                 <div className="flex items-center gap-2">
                                     <code className="flex-1 rounded bg-background px-2 py-1 text-xs font-mono border break-all">
@@ -418,34 +416,34 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                     </Button>
                                 </div>
                                 <p className="text-xs text-muted-foreground">
-                                    Link expires in 7 days. Share it with the recipient — they'll set their own password.
+                                    {t('orgInfra.invite_link_hint')}
                                 </p>
                             </div>
                         )}
 
                         {/* Create invite form */}
                         <div className="rounded-lg border p-4 space-y-3">
-                            <p className="text-sm font-medium">Invite a new team member</p>
+                            <p className="text-sm font-medium">{t('orgInfra.invite_title')}</p>
                             <div className="grid gap-3">
                                 <div className="space-y-1.5">
-                                    <Label htmlFor="invite-email" className="text-xs">Email address</Label>
+                                    <Label htmlFor="invite-email" className="text-xs">{t('orgInfra.email')}</Label>
                                     <Input
                                         id="invite-email"
                                         type="email"
-                                        placeholder="colleague@company.com"
+                                        placeholder={t('orgInfra.email_placeholder')}
                                         value={inviteEmail}
                                         onChange={(e) => setInviteEmail(e.target.value)}
                                     />
                                 </div>
                                 <div className="space-y-1.5">
-                                    <Label htmlFor="invite-role" className="text-xs">Role</Label>
+                                    <Label htmlFor="invite-role" className="text-xs">{t('orgInfra.role')}</Label>
                                     <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as 'user' | 'admin')}>
                                         <SelectTrigger id="invite-role">
                                             <SelectValue />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="user">User — can view and operate</SelectItem>
-                                            <SelectItem value="admin">Admin — can configure everything</SelectItem>
+                                            <SelectItem value="user">{t('orgInfra.role_user')}</SelectItem>
+                                            <SelectItem value="admin">{t('orgInfra.role_admin')}</SelectItem>
                                         </SelectContent>
                                     </Select>
                                 </div>
@@ -455,14 +453,13 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                     className="gap-2"
                                 >
                                     <UserPlus size={14} />
-                                    {createInviteMutation.isPending ? 'Creating…' : 'Generate Invite Link'}
+                                    {createInviteMutation.isPending ? t('orgInfra.creating') : t('orgInfra.invite_generate')}
                                 </Button>
                             </div>
                         </div>
 
                         <p className="text-xs text-muted-foreground px-1">
-                            The invite link lets the recipient create their own account in this organization.
-                            Each link is single-use and expires after 7 days.
+                            {t('orgInfra.invite_footer')}
                         </p>
                     </TabsContent>
 
@@ -471,7 +468,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                         {shownWhSecret && (
                             <div className="rounded-lg border border-amber-500 bg-amber-50 dark:bg-amber-950/20 p-4 space-y-2">
                                 <p className="text-sm font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-2">
-                                    <WebhookIcon size={14} /> Webhook signing secret — save this now
+                                    <WebhookIcon size={14} /> {t('orgInfra.wh_secret_title')}
                                 </p>
                                 <div className="flex items-center gap-2">
                                     <code className="flex-1 rounded bg-background px-2 py-1 text-xs font-mono border break-all">
@@ -479,31 +476,31 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                     </code>
                                     <Button variant="ghost" size="icon" onClick={() => {
                                         navigator.clipboard.writeText(shownWhSecret);
-                                        toast.success('Secret copied');
+                                        toast.success(t('orgInfra.wh_secret_copied'));
                                     }}>
                                         <Copy size={14} />
                                     </Button>
                                 </div>
                                 <p className="text-xs text-muted-foreground">
-                                    Use this to verify the <code>X-OpenEdge-Signature</code> header on incoming requests. It won't be shown again.
+                                    {t('orgInfra.wh_secret_hint_before')}<code>X-OpenEdge-Signature</code>{t('orgInfra.wh_secret_hint_after')}
                                 </p>
                             </div>
                         )}
 
                         {/* Create webhook */}
                         <div className="rounded-lg border p-4 space-y-3">
-                            <p className="text-sm font-medium">Add webhook endpoint</p>
+                            <p className="text-sm font-medium">{t('orgInfra.wh_add_title')}</p>
                             <div className="space-y-1.5">
                                 <Label className="text-xs">URL</Label>
                                 <Input
                                     type="url"
-                                    placeholder="https://your-server.com/hooks/openedge"
+                                    placeholder={t('orgInfra.wh_url_placeholder')}
                                     value={whURL}
                                     onChange={e => setWhURL(e.target.value)}
                                 />
                             </div>
                             <div className="space-y-1.5">
-                                <Label className="text-xs">Events to listen for</Label>
+                                <Label className="text-xs">{t('orgInfra.wh_events')}</Label>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                                     {WEBHOOK_EVENTS.map(ev => (
                                         <label key={ev.value} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -513,7 +510,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                                 onChange={() => toggleWhEvent(ev.value)}
                                                 className="rounded"
                                             />
-                                            {ev.label}
+                                            {t(`orgInfra.wh_event.${ev.value.replace('.', '_')}`, { defaultValue: ev.label })}
                                         </label>
                                     ))}
                                 </div>
@@ -525,7 +522,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                 className="gap-2"
                             >
                                 <WebhookIcon size={14} />
-                                {createWebhookMutation.isPending ? 'Creating…' : 'Add Webhook'}
+                                {createWebhookMutation.isPending ? t('orgInfra.creating') : t('orgInfra.wh_add')}
                             </Button>
                         </div>
 
@@ -535,8 +532,8 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead>URL</TableHead>
-                                        <TableHead>Events</TableHead>
-                                        <TableHead>Last call</TableHead>
+                                        <TableHead>{t('orgInfra.col_events')}</TableHead>
+                                        <TableHead>{t('orgInfra.col_last_call')}</TableHead>
                                         <TableHead className="w-[50px]" />
                                     </TableRow>
                                 </TableHeader>
@@ -576,15 +573,14 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                         )}
                         {webhooks.length === 0 && (
                             <p className="text-center text-sm text-muted-foreground py-6">
-                                No webhooks configured. Add one to integrate with external systems.
+                                {t('orgInfra.wh_empty')}
                             </p>
                         )}
                     </TabsContent>
                     {/* ── SSO TAB ──────────────────────────────────────────── */}
                     <TabsContent value="sso" className="space-y-4 pt-4">
                         <p className="text-sm text-muted-foreground">
-                            Configure Google or Microsoft (Azure AD) single sign-on so team members
-                            can log in with their corporate credentials.
+                            {t('orgInfra.sso_intro')}
                         </p>
 
                         {/* Provider list */}
@@ -595,8 +591,8 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                         <TableRow>
                                             <TableHead>Provider</TableHead>
                                             <TableHead>Client ID</TableHead>
-                                            <TableHead>Domain hint</TableHead>
-                                            <TableHead>Enabled</TableHead>
+                                            <TableHead>{t('orgInfra.col_domain_hint')}</TableHead>
+                                            <TableHead>{t('orgInfra.col_enabled')}</TableHead>
                                             <TableHead className="w-[80px]" />
                                         </TableRow>
                                     </TableHeader>
@@ -614,7 +610,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                                 </TableCell>
                                                 <TableCell>
                                                     <Badge variant={p.enabled ? 'default' : 'secondary'} className="text-[10px]">
-                                                        {p.enabled ? 'Active' : 'Disabled'}
+                                                        {p.enabled ? t('orgInfra.sso_active') : t('orgInfra.sso_disabled')}
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell>
@@ -646,7 +642,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                             <div className="rounded-lg border p-4 space-y-3">
                                 <p className="text-sm font-medium flex items-center gap-2">
                                     <Shield size={14} />
-                                    {ssoEditing ? 'Edit SSO Provider' : 'Add SSO Provider'}
+                                    {ssoEditing ? t('orgInfra.sso_edit_title') : t('orgInfra.sso_add_title')}
                                 </p>
 
                                 <div className="grid gap-3">
@@ -677,7 +673,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
 
                                     <div className="space-y-1.5">
                                         <Label className="text-xs">
-                                            Client Secret {ssoEditing && <span className="text-muted-foreground">(leave blank to keep current)</span>}
+                                            Client Secret {ssoEditing && <span className="text-muted-foreground">{t('orgInfra.sso_secret_keep')}</span>}
                                         </Label>
                                         <Input
                                             type="password"
@@ -699,9 +695,9 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                     )}
 
                                     <div className="space-y-1.5">
-                                        <Label className="text-xs">Email domain hint</Label>
+                                        <Label className="text-xs">{t('orgInfra.sso_domain_hint')}</Label>
                                         <Input
-                                            placeholder="company.com — auto-detect org from login email"
+                                            placeholder={t('orgInfra.sso_domain_placeholder')}
                                             value={ssoForm.domain_hint}
                                             onChange={e => setSSOForm(f => ({ ...f, domain_hint: e.target.value }))}
                                         />
@@ -714,7 +710,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                             onCheckedChange={v => setSSOForm(f => ({ ...f, enabled: v }))}
                                         />
                                         <Label htmlFor="sso-enabled" className="text-xs cursor-pointer">
-                                            Enable this provider
+                                            {t('orgInfra.sso_enable')}
                                         </Label>
                                     </div>
 
@@ -726,7 +722,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                             className="gap-2"
                                         >
                                             <Shield size={13} />
-                                            {upsertSSOMutation.isPending ? 'Saving…' : 'Save Provider'}
+                                            {upsertSSOMutation.isPending ? t('orgInfra.saving') : t('orgInfra.sso_save')}
                                         </Button>
                                         {ssoEditing && (
                                             <Button
@@ -734,7 +730,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                                 size="sm"
                                                 onClick={() => { setSSOEditing(false); setSSOForm(emptySSO); }}
                                             >
-                                                Cancel
+                                                {t('common.cancel')}
                                             </Button>
                                         )}
                                     </div>
@@ -743,7 +739,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                         ) : (
                             <Button variant="outline" size="sm" className="gap-2"
                                 onClick={() => setSSOEditing(true)}>
-                                <Plus size={14} /> Add another provider
+                                <Plus size={14} /> {t('orgInfra.sso_add_another')}
                             </Button>
                         )}
                     </TabsContent>
@@ -755,8 +751,8 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
 
 function formatRelativeTime(isoString: string): string {
     const diff = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000);
-    if (diff < 60) return `${diff}s ago`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    return `${Math.floor(diff / 86400)}d ago`;
+    if (diff < 60) return i18n.t('orgInfra.ago_s', { n: diff });
+    if (diff < 3600) return i18n.t('orgInfra.ago_m', { n: Math.floor(diff / 60) });
+    if (diff < 86400) return i18n.t('orgInfra.ago_h', { n: Math.floor(diff / 3600) });
+    return i18n.t('orgInfra.ago_d', { n: Math.floor(diff / 86400) });
 }

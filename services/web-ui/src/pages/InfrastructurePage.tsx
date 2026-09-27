@@ -5,11 +5,13 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 type ViewMode = 'table' | 'tree';
 type FilterStatus = 'all' | 'online' | 'offline';
 
 const InfrastructurePage = () => {
+    const { t, i18n } = useTranslation();
     const [data, setData] = useState<InfrastructureResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -57,7 +59,7 @@ const InfrastructurePage = () => {
     if (loading) {
         return (
             <div className="flex items-center justify-center h-64">
-                <div className="text-muted-foreground">Caricamento...</div>
+                <div className="text-muted-foreground">{t('common.loading')}</div>
             </div>
         );
     }
@@ -67,8 +69,8 @@ const InfrastructurePage = () => {
             <div className="flex items-center gap-3">
                 <Server className="h-10 sm:h-8 w-10 sm:w-8 text-primary" />
                 <div>
-                    <h1 className="text-2xl font-bold">Infrastruttura</h1>
-                    <p className="text-muted-foreground text-sm">Gateway e dispositivi edge</p>
+                    <h1 className="text-2xl font-bold">{t('nav.infrastructure')}</h1>
+                    <p className="text-muted-foreground text-sm">{t('infrastructurePage.subtitle')}</p>
                 </div>
             </div>
 
@@ -78,25 +80,25 @@ const InfrastructurePage = () => {
                     <Card>
                         <CardContent className="pt-6 text-center">
                             <div className="text-3xl font-bold">{data.summary.total}</div>
-                            <div className="text-sm text-muted-foreground mt-1">Totale gateway</div>
+                            <div className="text-sm text-muted-foreground mt-1">{t('infrastructurePage.stat_total')}</div>
                         </CardContent>
                     </Card>
                     <Card>
                         <CardContent className="pt-6 text-center">
                             <div className="text-3xl font-bold text-green-600">{data.summary.online}</div>
-                            <div className="text-sm text-muted-foreground mt-1">Online</div>
+                            <div className="text-sm text-muted-foreground mt-1">{t('infrastructurePage.online')}</div>
                         </CardContent>
                     </Card>
                     <Card>
                         <CardContent className="pt-6 text-center">
                             <div className="text-3xl font-bold text-red-600">{data.summary.offline}</div>
-                            <div className="text-sm text-muted-foreground mt-1">Offline</div>
+                            <div className="text-sm text-muted-foreground mt-1">{t('infrastructurePage.offline')}</div>
                         </CardContent>
                     </Card>
                     <Card>
                         <CardContent className="pt-6 text-center">
                             <div className="text-3xl font-bold text-yellow-600">{data.summary.tls_missing}</div>
-                            <div className="text-sm text-muted-foreground mt-1">TLS mancante</div>
+                            <div className="text-sm text-muted-foreground mt-1">{t('infrastructurePage.stat_tls_missing')}</div>
                         </CardContent>
                     </Card>
                 </div>
@@ -109,7 +111,7 @@ const InfrastructurePage = () => {
                         <div className="relative flex-1 min-w-48">
                             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                             <Input
-                                placeholder="Cerca per nome, org, IP..."
+                                placeholder={t('infrastructurePage.search_placeholder')}
                                 value={search}
                                 onChange={e => setSearch(e.target.value)}
                                 className="pl-8"
@@ -120,7 +122,7 @@ const InfrastructurePage = () => {
                             value={driverFilter}
                             onChange={e => setDriverFilter(e.target.value)}
                         >
-                            <option value="">Tutti i driver</option>
+                            <option value="">{t('infrastructurePage.all_drivers')}</option>
                             {driverTypes.map(d => (
                                 <option key={d} value={d}>{d}</option>
                             ))}
@@ -130,22 +132,22 @@ const InfrastructurePage = () => {
                             value={statusFilter}
                             onChange={e => setStatusFilter(e.target.value as FilterStatus)}
                         >
-                            <option value="all">Tutti</option>
-                            <option value="online">Online</option>
-                            <option value="offline">Offline</option>
+                            <option value="all">{t('infrastructurePage.all_status')}</option>
+                            <option value="online">{t('infrastructurePage.online')}</option>
+                            <option value="offline">{t('infrastructurePage.offline')}</option>
                         </select>
                         <div className="flex border rounded-md overflow-hidden">
                             <button
                                 className={cn('px-3 py-2 text-sm', viewMode === 'table' ? 'bg-primary text-primary-foreground' : 'bg-background')}
                                 onClick={() => setViewMode('table')}
                             >
-                                Tabella
+                                {t('infrastructurePage.view_table')}
                             </button>
                             <button
                                 className={cn('px-3 py-2 text-sm border-l', viewMode === 'tree' ? 'bg-primary text-primary-foreground' : 'bg-background')}
                                 onClick={() => setViewMode('tree')}
                             >
-                                Struttura
+                                {t('infrastructurePage.view_tree')}
                             </button>
                         </div>
                     </div>
@@ -156,17 +158,17 @@ const InfrastructurePage = () => {
                             <table className="w-full text-sm">
                                 <thead>
                                     <tr className="border-b bg-muted/50">
-                                        <th className="text-left p-3 font-medium">Nome</th>
-                                        <th className="text-left p-3 font-medium">Organizzazione</th>
+                                        <th className="text-left p-3 font-medium">{t('common.name')}</th>
+                                        <th className="text-left p-3 font-medium">{t('common.organization')}</th>
                                         <th className="text-left p-3 font-medium">Host/IP</th>
-                                        <th className="text-left p-3 font-medium">Porta</th>
+                                        <th className="text-left p-3 font-medium">{t('infrastructurePage.col_port')}</th>
                                         <th className="text-left p-3 font-medium">Driver</th>
-                                        <th className="text-left p-3 font-medium">Stato</th>
+                                        <th className="text-left p-3 font-medium">{t('infrastructurePage.col_status')}</th>
                                         <th className="text-left p-3 font-medium">TLS</th>
-                                        <th className="text-left p-3 font-medium">Auth</th>
-                                        <th className="text-left p-3 font-medium">Last seen</th>
-                                        <th className="text-left p-3 font-medium">Versione</th>
-                                        <th className="text-left p-3 font-medium">Tag</th>
+                                        <th className="text-left p-3 font-medium">{t('infrastructurePage.col_auth')}</th>
+                                        <th className="text-left p-3 font-medium">{t('infrastructurePage.col_last_seen')}</th>
+                                        <th className="text-left p-3 font-medium">{t('infrastructurePage.col_version')}</th>
+                                        <th className="text-left p-3 font-medium">{t('infrastructurePage.col_tags')}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -182,11 +184,11 @@ const InfrastructurePage = () => {
                                             <td className="p-3">
                                                 {g.online ? (
                                                     <span className="flex items-center gap-1 text-green-600">
-                                                        <Wifi className="h-3 w-3" /> Online
+                                                        <Wifi className="h-3 w-3" /> {t('infrastructurePage.online')}
                                                     </span>
                                                 ) : (
                                                     <span className="flex items-center gap-1 text-red-600">
-                                                        <WifiOff className="h-3 w-3" /> Offline
+                                                        <WifiOff className="h-3 w-3" /> {t('infrastructurePage.offline')}
                                                     </span>
                                                 )}
                                             </td>
@@ -204,7 +206,7 @@ const InfrastructurePage = () => {
                                             </td>
                                             <td className="p-3 text-xs text-muted-foreground">
                                                 {g.last_seen_at
-                                                    ? new Date(g.last_seen_at).toLocaleString('it-IT')
+                                                    ? new Date(g.last_seen_at).toLocaleString(i18n.language)
                                                     : '-'}
                                             </td>
                                             <td className="p-3 font-mono text-xs">{g.agent_version ?? '-'}</td>
@@ -214,7 +216,7 @@ const InfrastructurePage = () => {
                                     {filtered.length === 0 && (
                                         <tr>
                                             <td colSpan={11} className="p-8 text-center text-muted-foreground">
-                                                Nessun gateway trovato
+                                                {t('infrastructurePage.none_found')}
                                             </td>
                                         </tr>
                                     )}
@@ -228,7 +230,7 @@ const InfrastructurePage = () => {
                                     <div className="px-4 py-2 bg-muted/30 font-semibold text-sm flex items-center gap-2">
                                         <Server className="h-4 w-4" />
                                         {orgName}
-                                        <Badge variant="outline" className="ml-auto">{gateways.length} gateway</Badge>
+                                        <Badge variant="outline" className="ml-auto">{t('infrastructurePage.gateway_count', { count: gateways.length })}</Badge>
                                     </div>
                                     {gateways.map(g => (
                                         <div key={g.id} className="flex items-center gap-3 px-8 py-2 hover:bg-muted/20 text-sm">
@@ -242,13 +244,13 @@ const InfrastructurePage = () => {
                                                 ? <ShieldCheck className="h-3 w-3 text-green-600 ml-auto" />
                                                 : <ShieldAlert className="h-3 w-3 text-red-500 ml-auto" />
                                             }
-                                            <span className="text-xs text-muted-foreground">{g.tag_count} tag</span>
+                                            <span className="text-xs text-muted-foreground">{t('infrastructurePage.tag_count', { count: g.tag_count })}</span>
                                         </div>
                                     ))}
                                 </div>
                             ))}
                             {groupedByOrg.length === 0 && (
-                                <div className="p-8 text-center text-muted-foreground">Nessun gateway trovato</div>
+                                <div className="p-8 text-center text-muted-foreground">{t('infrastructurePage.none_found')}</div>
                             )}
                         </div>
                     )}

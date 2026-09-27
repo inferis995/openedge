@@ -196,7 +196,7 @@ const TagsPage = () => {
             }
         } catch (error) {
             console.error('Import failed:', error);
-            setImportResult({ created: 0, updated: 0, errors: ['Import failed: ' + String(error)] });
+            setImportResult({ created: 0, updated: 0, errors: [tr('tagsPage.import_failed', { error: String(error) })] });
         } finally {
             setIsImporting(false);
         }
@@ -318,7 +318,7 @@ const TagsPage = () => {
             setBrowseNodes(result.nodes || []);
             if (result.error) setBrowseError(result.error);
         } catch (err: any) {
-            setBrowseError(err.message || 'Browse failed');
+            setBrowseError(err.message || tr('tagsPage.browse_failed'));
             setBrowseNodes([]);
         }
         setIsBrowsing(false);
@@ -581,13 +581,13 @@ const TagsPage = () => {
                     // If both are bit addresses, check bit index
                     // This is complex string parsing, simplified:
                     if (newCode === tag.code) {
-                        return `Full collision with tag "${tag.alias}" at ${tag.code}`;
+                        return tr('tagsPage.overlap_full', { alias: tag.alias, code: tag.code });
                     }
                     // Else, same register different bits is OK
                     continue;
                 }
 
-                return `Memory overlap with tag "${tag.alias}" (${tag.code})`;
+                return tr('tagsPage.overlap_partial', { alias: tag.alias, code: tag.code });
             }
         }
         return null;
@@ -800,16 +800,16 @@ const TagsPage = () => {
     }, [tags, searchQuery, filterDriverType, gateways, sortField, sortDir]);
 
     if (isLoading) {
-        return <div className="p-8 text-center text-muted-foreground">Loading tags...</div>;
+        return <div className="p-8 text-center text-muted-foreground">{tr('tagsPage.loading')}</div>;
     }
 
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight">Tags</h2>
+                    <h2 className="text-2xl font-bold tracking-tight">{tr('tagsPage.title')}</h2>
                     <p className="text-muted-foreground">
-                        Manage data points, history, and alarm configurations.
+                        {tr('tagsPage.subtitle')}
                     </p>
                 </div>
 
@@ -818,7 +818,7 @@ const TagsPage = () => {
 
                     <div className="w-[300px]">
                         <Input
-                            placeholder="Search tags..."
+                            placeholder={tr('tagsPage.search_placeholder')}
                             value={searchInput}
                             onChange={(e) => setSearchInput(e.target.value)}
                             className="w-full"
@@ -831,10 +831,10 @@ const TagsPage = () => {
                             onValueChange={setSelectedGatewayId}
                         >
                             <SelectTrigger>
-                                <SelectValue placeholder="Filter by Gateway" />
+                                <SelectValue placeholder={tr('tagsPage.filter_gateway')} />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="all">All Gateways</SelectItem>
+                                <SelectItem value="all">{tr('tagsPage.all_gateways')}</SelectItem>
                                 {gateways.map((gw) => (
                                     <SelectItem key={gw.id} value={gw.id.toString()}>
                                         {gw.name}
@@ -847,10 +847,10 @@ const TagsPage = () => {
                     <div className="w-[160px]">
                         <Select value={filterDriverType} onValueChange={setFilterDriverType}>
                             <SelectTrigger className="clip-chamfer-sm">
-                                <SelectValue placeholder="All drivers" />
+                                <SelectValue placeholder={tr('tagsPage.all_drivers')} />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="all">All drivers</SelectItem>
+                                <SelectItem value="all">{tr('tagsPage.all_drivers')}</SelectItem>
                                 <SelectItem value="S7">Siemens S7</SelectItem>
                                 <SelectItem value="MODBUS_TCP">Modbus TCP</SelectItem>
                                 <SelectItem value="OPC_UA">OPC-UA</SelectItem>
@@ -869,7 +869,7 @@ const TagsPage = () => {
                                 onClick={handleExport}
                                 disabled={!selectedGatewayId || selectedGatewayId === 'all'}
                             >
-                                <Download size={16} /> Export
+                                <Download size={16} /> {tr('common.export')}
                             </Button>
 
                             {/* Import Dialog */}
@@ -880,28 +880,28 @@ const TagsPage = () => {
                                         className="gap-2"
                                         disabled={!selectedGatewayId || selectedGatewayId === 'all'}
                                     >
-                                        <Upload size={16} /> Import
+                                        <Upload size={16} /> {tr('common.import')}
                                     </Button>
                                 </DialogTrigger>
                                 <DialogContent className="max-w-2xl">
                                     <DialogHeader>
-                                        <DialogTitle>Import Tags</DialogTitle>
+                                        <DialogTitle>{tr('tagsPage.import_title')}</DialogTitle>
                                         <DialogDescription>
                                             {selectedGatewayDriverType === 'S7' ? (
-                                                <span>Paste S7 Data Block (DB) definitions from TIA Portal (STL syntax). Format: <code className="bg-muted px-1 rounded">Alias : DataType AT Address;</code></span>
+                                                <span>{tr('tagsPage.import_desc_s7')} <code className="bg-muted px-1 rounded">Alias : DataType AT Address;</code></span>
                                             ) : (
-                                                <span>Paste tag definitions in standard format. Format: <code className="bg-muted px-1 rounded">Alias : DataType AT Address;</code></span>
+                                                <span>{tr('tagsPage.import_desc')} <code className="bg-muted px-1 rounded">Alias : DataType AT Address;</code></span>
                                             )}
                                         </DialogDescription>
                                     </DialogHeader>
                                     <div className="space-y-4">
                                         {selectedGatewayDriverType === 'S7' && (
                                             <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 p-3 rounded-md">
-                                                <p className="font-semibold mb-1">Siemens S7 Import Guide:</p>
+                                                <p className="font-semibold mb-1">{tr('tagsPage.s7_guide_title')}</p>
                                                 <ul className="list-disc pl-4 space-y-1">
-                                                    <li>Use standard S7 absolute addressing (e.g., <code className="font-semibold">DB1.DBX0.0</code>, <code className="font-semibold">DB2.DBW4</code>, <code className="font-semibold">DB3.DBD8</code>)</li>
-                                                    <li>Supported types: BOOL, INT, DINT, REAL, STRING, WORD, etc.</li>
-                                                    <li>You can paste data block source exports directly but you <strong>must append the absolute address</strong> after the <code>AT</code> keyword.</li>
+                                                    <li>{tr('tagsPage.s7_guide_addressing')} (<code className="font-semibold">DB1.DBX0.0</code>, <code className="font-semibold">DB2.DBW4</code>, <code className="font-semibold">DB3.DBD8</code>)</li>
+                                                    <li>{tr('tagsPage.s7_guide_types')} BOOL, INT, DINT, REAL, STRING, WORD…</li>
+                                                    <li>{tr('tagsPage.s7_guide_paste')} <strong>{tr('tagsPage.s7_guide_paste_must')}</strong> {tr('tagsPage.s7_guide_paste_after')} <code>AT</code>.</li>
                                                 </ul>
                                             </div>
                                         )}
@@ -920,11 +920,11 @@ const TagsPage = () => {
                                                 checked={isHistorizeImport}
                                                 onCheckedChange={setIsHistorizeImport}
                                             />
-                                            <Label htmlFor="historize-import">Enable History for all imported tags</Label>
+                                            <Label htmlFor="historize-import">{tr('tagsPage.import_historize')}</Label>
                                         </div>
                                         {importResult && (
                                             <div className={`p-3 rounded-md text-sm ${importResult.errors?.length ? 'bg-amber-50 border border-amber-200' : 'bg-green-50 border border-green-200'}`}>
-                                                <p>Created: {importResult.created} | Updated: {importResult.updated}</p>
+                                                <p>{tr('tagsPage.import_result', { created: importResult.created, updated: importResult.updated })}</p>
                                                 {importResult.errors && importResult.errors.length > 0 && (
                                                     <div className="mt-2 text-red-600">
                                                         {/* The import used to write as it walked the lines, so an
@@ -934,10 +934,9 @@ const TagsPage = () => {
                                                             halfway, which is the moment somebody goes and checks by
                                                             hand what survived. */}
                                                         <p className="font-medium">
-                                                            Nothing was imported — the file is applied whole or not
-                                                            at all. Fix the lines below and import again.
+                                                            {tr('tagsPage.import_nothing')}
                                                         </p>
-                                                        <p className="font-medium mt-2">Errors:</p>
+                                                        <p className="font-medium mt-2">{tr('tagsPage.import_errors')}</p>
                                                         <ul className="list-disc list-inside max-h-32 overflow-auto">
                                                             {importResult.errors.map((err, i) => (
                                                                 <li key={i}>{err}</li>
@@ -950,10 +949,10 @@ const TagsPage = () => {
                                     </div>
                                     <DialogFooter>
                                         <Button variant="outline" onClick={() => setIsImportOpen(false)}>
-                                            Cancel
+                                            {tr('common.cancel')}
                                         </Button>
                                         <Button onClick={handleImport} disabled={isImporting || !importContent.trim()}>
-                                            {isImporting ? 'Importing...' : 'Import'}
+                                            {isImporting ? tr('tagsPage.importing') : tr('common.import')}
                                         </Button>
                                     </DialogFooter>
                                 </DialogContent>
@@ -967,7 +966,7 @@ const TagsPage = () => {
                                     onClick={handleBrowseOpen}
                                     disabled={!selectedGatewayId || selectedGatewayId === 'all'}
                                 >
-                                    <Database size={16} /> Browse Server
+                                    <Database size={16} /> {tr('tagsPage.browse_server')}
                                 </Button>
                             )}
 
@@ -975,21 +974,21 @@ const TagsPage = () => {
                             <Dialog open={isOpen} onOpenChange={setIsOpen}>
                                 <DialogTrigger asChild disabled={!selectedGatewayId || selectedGatewayId === 'all'}>
                                     <Button className="gap-2" onClick={handleCreateOpen}>
-                                        <Plus size={16} /> Add Tag
+                                        <Plus size={16} /> {tr('tagsPage.add')}
                                     </Button>
                                 </DialogTrigger>
                                 <DialogContent className="max-w-2xl">
                                     <DialogHeader>
-                                        <DialogTitle>{updatingTagId ? 'Edit Tag' : 'Create Tag'}</DialogTitle>
+                                        <DialogTitle>{updatingTagId ? tr('tagsPage.edit_title') : tr('tagsPage.create_title')}</DialogTitle>
                                         <DialogDescription>
-                                            {updatingTagId ? 'Modify existing tag configuration.' : 'Add a new tag to the gateway.'}
+                                            {updatingTagId ? tr('tagsPage.edit_desc') : tr('tagsPage.create_desc')}
                                         </DialogDescription>
                                     </DialogHeader>
                                     <Tabs defaultValue="general" className="w-full mt-4">
                                         <TabsList className="mb-4">
-                                            <TabsTrigger value="general">Generale</TabsTrigger>
-                                            <TabsTrigger value="scaling">Conversione EU</TabsTrigger>
-                                            {updatingTagId && <TabsTrigger value="alarms">Allarmi</TabsTrigger>}
+                                            <TabsTrigger value="general">{tr('tagsPage.tab_general')}</TabsTrigger>
+                                            <TabsTrigger value="scaling">{tr('tagsPage.tab_scaling')}</TabsTrigger>
+                                            {updatingTagId && <TabsTrigger value="alarms">{tr('tagsPage.tab_alarms')}</TabsTrigger>}
                                         </TabsList>
                                         <TabsContent value="general">
                                             <div className="grid gap-6 py-4">
@@ -997,10 +996,10 @@ const TagsPage = () => {
                                                     {/* Modbus Address Builder */}
                                                     {selectedGatewayDriverType === 'MODBUS_TCP' && (
                                                         <div className="col-span-2 space-y-4 p-4 bg-muted/50 rounded-md border">
-                                                            <h3 className="text-sm font-medium">Modbus Address Builder</h3>
+                                                            <h3 className="text-sm font-medium">{tr('tagsPage.mb_builder')}</h3>
                                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                                 <div className="grid gap-2">
-                                                                    <Label htmlFor="mb-type">Register Type</Label>
+                                                                    <Label htmlFor="mb-type">{tr('tagsPage.mb_register_type')}</Label>
                                                                     <Select
                                                                         value={modbusType}
                                                                         onValueChange={handleModbusTypeChange}
@@ -1017,7 +1016,7 @@ const TagsPage = () => {
                                                                     </Select>
                                                                 </div>
                                                                 <div className="grid gap-2">
-                                                                    <Label htmlFor="mb-addr">Address</Label>
+                                                                    <Label htmlFor="mb-addr">{tr('tagsPage.mb_address')}</Label>
                                                                     <Input
                                                                         id="mb-addr"
                                                                         type="number"
@@ -1030,7 +1029,7 @@ const TagsPage = () => {
                                                                 {/* Bit offset for registers to BOOL */}
                                                                 {(modbusType === 'holding' || modbusType === 'input') && formData.data_type === 'BOOL' && (
                                                                     <div className="grid gap-2">
-                                                                        <Label htmlFor="mb-bit">Bit Offset (0-15)</Label>
+                                                                        <Label htmlFor="mb-bit">{tr('tagsPage.mb_bit')}</Label>
                                                                         <Input
                                                                             id="mb-bit"
                                                                             type="number"
@@ -1047,41 +1046,41 @@ const TagsPage = () => {
 
                                                     <div className="grid gap-2">
                                                         <Label htmlFor="code">
-                                                            {selectedGatewayDriverType === 'MQTT' ? 'MQTT Topic' : selectedGatewayDriverType === 'LORAWAN' ? 'Device / Field' : 'Tag Code / Address'}
+                                                            {selectedGatewayDriverType === 'MQTT' ? tr('tagsPage.code_mqtt') : selectedGatewayDriverType === 'LORAWAN' ? tr('tagsPage.code_lorawan') : tr('tagsPage.code')}
                                                         </Label>
                                                         <Input
                                                             id="code"
                                                             value={formData.code}
                                                             onChange={(e) => handleInputChange('code', e.target.value)}
                                                             placeholder={
-                                                                selectedGatewayDriverType === 'MQTT' ? 'e.g. machine/line1/temp' :
-                                                                selectedGatewayDriverType === 'LORAWAN' ? 'e.g. sensor-01/temperature' :
-                                                                'e.g. %MW100 or 40001'
+                                                                selectedGatewayDriverType === 'MQTT' ? tr('tagsPage.code_mqtt_placeholder') :
+                                                                selectedGatewayDriverType === 'LORAWAN' ? tr('tagsPage.code_lorawan_placeholder') :
+                                                                tr('tagsPage.code_placeholder')
                                                             }
                                                         />
                                                         {selectedGatewayDriverType === 'MODBUS_TCP' && (
-                                                            <p className="text-[10px] text-muted-foreground">Auto-generated from builder above, or type manually</p>
+                                                            <p className="text-[10px] text-muted-foreground">{tr('tagsPage.code_modbus_help')}</p>
                                                         )}
                                                         {selectedGatewayDriverType === 'MQTT' && (
-                                                            <p className="text-[10px] text-emerald-600">Enter the exact MQTT topic the PLC publishes to.</p>
+                                                            <p className="text-[10px] text-emerald-600">{tr('tagsPage.code_mqtt_help')}</p>
                                                         )}
                                                         {selectedGatewayDriverType === 'LORAWAN' && (
-                                                            <p className="text-[10px] text-violet-600">Format: <code>device_id/field</code> — e.g. <code>sensor-01/temperature</code>. Special fields: rssi, snr, f_port. Wildcard device: <code>*/temperature</code></p>
+                                                            <p className="text-[10px] text-violet-600">{tr('tagsPage.lorawan_help_format')} <code>device_id/field</code> — {tr('tagsPage.eg')} <code>sensor-01/temperature</code>. {tr('tagsPage.lorawan_help_special')} rssi, snr, f_port. {tr('tagsPage.lorawan_help_wildcard')} <code>*/temperature</code></p>
                                                         )}
                                                     </div>
                                                     <div className="grid gap-2">
-                                                        <Label htmlFor="alias">Alias (Name)</Label>
+                                                        <Label htmlFor="alias">{tr('tagsPage.alias_label')}</Label>
                                                         <Input
                                                             id="alias"
                                                             value={formData.alias}
                                                             onChange={(e) => handleInputChange('alias', e.target.value)}
-                                                            placeholder="e.g. Oven_Temp"
+                                                            placeholder={tr('tagsPage.alias_placeholder')}
                                                         />
                                                     </div>
                                                 </div>
 
                                                 <div className="grid gap-2">
-                                                    <Label htmlFor="type">Data Type</Label>
+                                                    <Label htmlFor="type">{tr('tagsPage.data_type')}</Label>
                                                     <Select
                                                         value={formData.data_type}
                                                         onValueChange={(val) => {
@@ -1090,7 +1089,7 @@ const TagsPage = () => {
                                                         }}
                                                     >
                                                         <SelectTrigger>
-                                                            <SelectValue placeholder="Select Data Type" />
+                                                            <SelectValue placeholder={tr('tagsPage.data_type_placeholder')} />
                                                         </SelectTrigger>
                                                         <SelectContent>
                                                             <SelectItem value="BOOL">BOOL</SelectItem>
@@ -1111,13 +1110,13 @@ const TagsPage = () => {
                                                                 onCheckedChange={(checked) => handleInputChange('historize', checked)}
                                                             />
                                                             <Label htmlFor="historize" className="flex items-center gap-2">
-                                                                <Database size={14} /> Historize
+                                                                <Database size={14} /> {tr('tagsPage.historize')}
                                                             </Label>
                                                         </div>
 
                                                         {formData.historize && (
                                                             <div className="grid gap-2 pl-6 border-l-2">
-                                                                <Label htmlFor="deadband">Deadband Value</Label>
+                                                                <Label htmlFor="deadband">{tr('tagsPage.deadband')}</Label>
                                                                 <Input
                                                                     id="deadband"
                                                                     type="number"
@@ -1133,24 +1132,24 @@ const TagsPage = () => {
                                                     {selectedGatewayDriverType === 'MQTT' && (
                                                     <div className="grid gap-2 border-t pt-3 mt-2">
                                                         <Label htmlFor="json_path" className="text-sm flex items-center gap-2">
-                                                            JSON path <span className="text-[10px] font-normal text-muted-foreground">(opzionale)</span>
+                                                            JSON path <span className="text-[10px] font-normal text-muted-foreground">{tr('tagsPage.optional')}</span>
                                                         </Label>
                                                         <Input
                                                             id="json_path"
                                                             value={formData.json_path || ''}
                                                             onChange={(e) => handleInputChange('json_path', e.target.value)}
-                                                            placeholder="es. temp   oppure   data.values.0.temperature"
+                                                            placeholder={tr('tagsPage.json_path_placeholder')}
                                                             className="font-mono text-sm"
                                                         />
                                                         <p className="text-[10px] text-muted-foreground">
-                                                            Per payload JSON: estrae il campo a questo percorso (notazione dotted). Lascia vuoto se il payload È già il valore.
+                                                            {tr('tagsPage.json_path_help')}
                                                         </p>
                                                     </div>
                                                     )}
                                                 </div>
                                             </div>
                                             <DialogFooter>
-                                                <Button onClick={handleSaveWithValidation}>{updatingTagId ? 'Update Tag' : 'Create Tag'}</Button>
+                                                <Button onClick={handleSaveWithValidation}>{updatingTagId ? tr('tagsPage.update_submit') : tr('tagsPage.create_title')}</Button>
                                             </DialogFooter>
                                         </TabsContent>
 
@@ -1159,9 +1158,9 @@ const TagsPage = () => {
                                                 {/* Enable toggle */}
                                                 <div className="flex items-center justify-between p-4 rounded-lg border bg-muted/30">
                                                     <div>
-                                                        <p className="font-medium text-sm">Conversione EU abilitata</p>
+                                                        <p className="font-medium text-sm">{tr('tagsPage.scaling_enabled')}</p>
                                                         <p className="text-xs text-muted-foreground mt-0.5">
-                                                            Converte il valore raw (es. 4–20 mA) in unità ingegneristiche prima di salvarlo e trasmetterlo.
+                                                            {tr('tagsPage.scaling_enabled_help')}
                                                         </p>
                                                     </div>
                                                     <Switch
@@ -1177,7 +1176,7 @@ const TagsPage = () => {
                                                             <div className="space-y-4">
                                                                 <div className="flex items-center justify-between p-4 rounded-lg border">
                                                                     <div>
-                                                                        <p className="font-medium text-sm">Inverti valore booleano</p>
+                                                                        <p className="font-medium text-sm">{tr('tagsPage.invert')}</p>
                                                                         <p className="text-xs text-muted-foreground mt-0.5">
                                                                             true → false, false → true
                                                                         </p>
@@ -1192,38 +1191,38 @@ const TagsPage = () => {
                                                             <div className="space-y-5">
                                                                 {/* Raw range */}
                                                                 <div className="space-y-3">
-                                                                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Intervallo Raw (segnale fisico)</h4>
+                                                                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{tr('tagsPage.raw_range')}</h4>
                                                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                                         <div className="grid gap-2">
-                                                                            <Label htmlFor="sc-raw-min">Raw Min</Label>
+                                                                            <Label htmlFor="sc-raw-min">{tr('tagsPage.raw_min')}</Label>
                                                                             <Input
                                                                                 id="sc-raw-min"
                                                                                 type="number"
                                                                                 step="any"
                                                                                 value={formData.scaling_raw_min ?? 4}
                                                                                 onChange={e => handleInputChange('scaling_raw_min', parseFloat(e.target.value) || 0)}
-                                                                                placeholder="es. 4"
+                                                                                placeholder={tr('tagsPage.eg_value', { value: 4 })}
                                                                             />
-                                                                            <p className="text-xs text-muted-foreground">Valore raw minimo (es. 4 mA)</p>
+                                                                            <p className="text-xs text-muted-foreground">{tr('tagsPage.raw_min_help')}</p>
                                                                         </div>
                                                                         <div className="grid gap-2">
-                                                                            <Label htmlFor="sc-raw-max">Raw Max</Label>
+                                                                            <Label htmlFor="sc-raw-max">{tr('tagsPage.raw_max')}</Label>
                                                                             <Input
                                                                                 id="sc-raw-max"
                                                                                 type="number"
                                                                                 step="any"
                                                                                 value={formData.scaling_raw_max ?? 20}
                                                                                 onChange={e => handleInputChange('scaling_raw_max', parseFloat(e.target.value) || 0)}
-                                                                                placeholder="es. 20"
+                                                                                placeholder={tr('tagsPage.eg_value', { value: 20 })}
                                                                             />
-                                                                            <p className="text-xs text-muted-foreground">Valore raw massimo (es. 20 mA)</p>
+                                                                            <p className="text-xs text-muted-foreground">{tr('tagsPage.raw_max_help')}</p>
                                                                         </div>
                                                                     </div>
                                                                 </div>
 
                                                                 {/* EU range */}
                                                                 <div className="space-y-3">
-                                                                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Intervallo EU (unità ingegneristiche)</h4>
+                                                                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{tr('tagsPage.eu_range')}</h4>
                                                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                                         <div className="grid gap-2">
                                                                             <Label htmlFor="sc-eu-min">EU Min</Label>
@@ -1233,7 +1232,7 @@ const TagsPage = () => {
                                                                                 step="any"
                                                                                 value={formData.scaling_eu_min ?? 0}
                                                                                 onChange={e => handleInputChange('scaling_eu_min', parseFloat(e.target.value) || 0)}
-                                                                                placeholder="es. 0"
+                                                                                placeholder={tr('tagsPage.eg_value', { value: 0 })}
                                                                             />
                                                                         </div>
                                                                         <div className="grid gap-2">
@@ -1244,7 +1243,7 @@ const TagsPage = () => {
                                                                                 step="any"
                                                                                 value={formData.scaling_eu_max ?? 100}
                                                                                 onChange={e => handleInputChange('scaling_eu_max', parseFloat(e.target.value) || 0)}
-                                                                                placeholder="es. 100"
+                                                                                placeholder={tr('tagsPage.eg_value', { value: 100 })}
                                                                             />
                                                                         </div>
                                                                     </div>
@@ -1253,16 +1252,16 @@ const TagsPage = () => {
                                                                 {/* Unit + decimals */}
                                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                                     <div className="grid gap-2">
-                                                                        <Label htmlFor="sc-unit">Unità (EU)</Label>
+                                                                        <Label htmlFor="sc-unit">{tr('tagsPage.eu_unit')}</Label>
                                                                         <Input
                                                                             id="sc-unit"
                                                                             value={formData.eu_unit ?? ''}
                                                                             onChange={e => handleInputChange('eu_unit', e.target.value)}
-                                                                            placeholder="es. °C, bar, %, m³/h"
+                                                                            placeholder={tr('tagsPage.eu_unit_placeholder')}
                                                                         />
                                                                     </div>
                                                                     <div className="grid gap-2">
-                                                                        <Label htmlFor="sc-dec">Decimali</Label>
+                                                                        <Label htmlFor="sc-dec">{tr('tagsPage.decimals')}</Label>
                                                                         <Input
                                                                             id="sc-dec"
                                                                             type="number"
@@ -1277,9 +1276,9 @@ const TagsPage = () => {
                                                                 {/* Clamp toggle */}
                                                                 <div className="flex items-center justify-between p-3 rounded-lg border">
                                                                     <div>
-                                                                        <p className="font-medium text-sm">Clamp output all'intervallo EU</p>
+                                                                        <p className="font-medium text-sm">{tr('tagsPage.clamp')}</p>
                                                                         <p className="text-xs text-muted-foreground mt-0.5">
-                                                                            Valori fuori range vengono saturati a EU Min / EU Max
+                                                                            {tr('tagsPage.clamp_help')}
                                                                         </p>
                                                                     </div>
                                                                     <Switch
@@ -1290,7 +1289,7 @@ const TagsPage = () => {
 
                                                                 {/* Live formula preview */}
                                                                 <div className="p-4 rounded-lg bg-muted/50 border font-mono text-sm space-y-1">
-                                                                    <p className="text-muted-foreground text-xs font-sans font-semibold uppercase tracking-wider mb-2">Anteprima formula</p>
+                                                                    <p className="text-muted-foreground text-xs font-sans font-semibold uppercase tracking-wider mb-2">{tr('tagsPage.formula_preview')}</p>
                                                                     {(() => {
                                                                         const rawMin = formData.scaling_raw_min ?? 4;
                                                                         const rawMax = formData.scaling_raw_max ?? 20;
@@ -1318,8 +1317,8 @@ const TagsPage = () => {
 
                                                 {!formData.scaling_enabled && (
                                                     <div className="text-center py-8 text-muted-foreground text-sm">
-                                                        <p>Abilita la conversione EU per configurare il mapping raw → ingegneristico.</p>
-                                                        <p className="mt-1 text-xs">Esempio: segnale 4–20 mA → 0–100 °C</p>
+                                                        <p>{tr('tagsPage.scaling_off')}</p>
+                                                        <p className="mt-1 text-xs">{tr('tagsPage.scaling_off_example')}</p>
                                                     </div>
                                                 )}
                                             </div>
@@ -1343,14 +1342,14 @@ const TagsPage = () => {
             {
                 selectedTagIds.length > 0 && (
                     <div className="flex items-center gap-2 p-2 bg-[#c8e600]/10 border border-[#c8e600]/30 rounded-md text-foreground animate-in fade-in slide-in-from-top-2">
-                        <span className="text-sm font-medium px-2">{selectedTagIds.length} Selected</span>
+                        <span className="text-sm font-medium px-2">{tr('tagsPage.selected', { count: selectedTagIds.length })}</span>
                         <div className="h-4 w-px bg-border mx-2" />
                         <Button variant="ghost" size="sm" onClick={handleBatchDelete} className="gap-1 hover:bg-red-100 text-red-600 hover:text-red-700">
-                            <Trash2 size={16} /> Delete Selected
+                            <Trash2 size={16} /> {tr('tagsPage.delete_selected')}
                         </Button>
                         <div className="flex-1" />
                         <Button variant="ghost" size="sm" onClick={() => setSelectedTagIds([])} className="gap-1 hover:bg-[#c8e600]/20 text-[#4a5500] dark:text-[#c8e600]">
-                            <X size={16} /> Cancel
+                            <X size={16} /> {tr('common.cancel')}
                         </Button>
                     </div>
                 )
@@ -1360,13 +1359,13 @@ const TagsPage = () => {
             <div className="flex items-center gap-6 text-sm text-muted-foreground px-1">
                 <span>
                     <strong className="text-foreground">{tagsList.length}</strong>
-                    {tagsList.length !== tags.length && ` / ${tags.length}`} tags
+                    {tagsList.length !== tags.length && ` / ${tags.length}`} {tr('tagsPage.stat_tags', { count: tags.length })}
                 </span>
                 <span>
                     <strong className="text-green-600">{tagsList.filter(t => {
                         const v = currentValues.get(t.id);
                         return v && v.quality === 0;
-                    }).length}</strong> Good quality
+                    }).length}</strong> {tr('tagsPage.stat_good')}
                 </span>
                 {!realtimeConnected && (
                     // Without this the table kept rendering the last values with
@@ -1375,15 +1374,15 @@ const TagsPage = () => {
                     // every number was minutes or hours stale.
                     <span className="flex items-center gap-1 font-semibold text-destructive">
                         <span className="inline-block h-2 w-2 rounded-full bg-destructive animate-pulse" />
-                        Live feed disconnected — values below may be stale
+                        {tr('tagsPage.live_disconnected')}
                     </span>
                 )}
                 <span>
-                    <strong className="text-amber-500">{tagsList.filter(t => alarmDefsCount[t.id] > 0).length}</strong> with alarms
+                    <strong className="text-amber-500">{tagsList.filter(t => alarmDefsCount[t.id] > 0).length}</strong> {tr('tagsPage.stat_with_alarms')}
                 </span>
                 {(tagsList.length !== tags.length || filterDriverType !== 'all') && (
                     <Button variant="ghost" size="sm" className="h-9 sm:h-6 text-xs" onClick={() => { setSearchInput(''); setSelectedGatewayId('all'); setFilterDriverType('all'); }}>
-                        Clear filters
+                        {tr('tagsPage.clear_filters')}
                     </Button>
                 )}
             </div>
@@ -1394,7 +1393,7 @@ const TagsPage = () => {
                         <TableRow>
                             {isAdmin() && (
                                 <TableHead className="w-[40px]">
-                                    <Button variant="ghost" size="sm" className="p-0 h-9 sm:h-6 w-9 sm:w-6" onClick={handleSelectAll}>
+                                    <Button variant="ghost" size="sm" className="p-0 h-9 sm:h-6 w-9 sm:w-6" onClick={handleSelectAll} aria-label={tr('tagsPage.select_all')}>
                                         {selectedTagIds.length === tagsList.length && tagsList.length > 0 ? (
                                             <CheckSquare size={16} className="text-[#4a5500] dark:text-[#c8e600]" />
                                         ) : (
@@ -1404,19 +1403,19 @@ const TagsPage = () => {
                                 </TableHead>
                             )}
                             <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort('code')}>
-                                Code <SortIcon field="code" current={sortField} dir={sortDir} />
+                                {tr('tagsPage.col_code')} <SortIcon field="code" current={sortField} dir={sortDir} />
                             </TableHead>
                             <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort('alias')}>
-                                Alias <SortIcon field="alias" current={sortField} dir={sortDir} />
+                                {tr('tagsPage.col_alias')} <SortIcon field="alias" current={sortField} dir={sortDir} />
                             </TableHead>
                             <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort('data_type')}>
-                                Type <SortIcon field="data_type" current={sortField} dir={sortDir} />
+                                {tr('tagsPage.col_type')} <SortIcon field="data_type" current={sortField} dir={sortDir} />
                             </TableHead>
-                            <TableHead>Current Value</TableHead>
-                            <TableHead>History</TableHead>
-                            <TableHead>Allarmi</TableHead>
+                            <TableHead>{tr('tagsPage.col_value')}</TableHead>
+                            <TableHead>{tr('tagsPage.col_history')}</TableHead>
+                            <TableHead>{tr('tagsPage.col_alarms')}</TableHead>
 
-                            {isAdmin() && <TableHead className="text-right">Actions</TableHead>}
+                            {isAdmin() && <TableHead className="text-right">{tr('common.actions')}</TableHead>}
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1443,6 +1442,7 @@ const TagsPage = () => {
                                                         size="sm"
                                                         className="p-0 h-9 sm:h-6 w-9 sm:w-6"
                                                         onClick={(e) => { e.stopPropagation(); toggleSelect(tag.id); }}
+                                                        aria-label={tr('tagsPage.select')}
                                                     >
                                                         {selectedTagIds.includes(tag.id) ? (
                                                             <CheckSquare size={16} className="text-[#4a5500] dark:text-[#c8e600]" />
@@ -1457,6 +1457,7 @@ const TagsPage = () => {
                                                                 size="icon"
                                                                 className="h-5 w-5 p-0 text-[#4a5500] dark:text-[#c8e600] hover:bg-[#c8e600]/20"
                                                                 onClick={(e) => { e.stopPropagation(); handleMoveSingle(tag.id, 'up'); }}
+                                                                aria-label={tr('tagsPage.move_up')}
                                                             >
                                                                 <ArrowUp size={14} />
                                                             </Button>
@@ -1465,6 +1466,7 @@ const TagsPage = () => {
                                                                 size="icon"
                                                                 className="h-5 w-5 p-0 text-blue-600 hover:bg-blue-100"
                                                                 onClick={(e) => { e.stopPropagation(); handleMoveSingle(tag.id, 'down'); }}
+                                                                aria-label={tr('tagsPage.move_down')}
                                                             >
                                                                 <ArrowDown size={14} />
                                                             </Button>
@@ -1484,7 +1486,7 @@ const TagsPage = () => {
                                                 {tag.alias || '-'}
                                                 {activeAlarms[tag.id] && (
                                                     <Badge variant="destructive" className="h-5 px-1.5 flex gap-1 items-center animate-pulse">
-                                                        <Bell size={10} /> Allarme
+                                                        <Bell size={10} /> {tr('tagsPage.alarm_badge')}
                                                     </Badge>
                                                 )}
                                             </div>
@@ -1523,8 +1525,8 @@ const TagsPage = () => {
                                                                                 ? (tag.scaling_enabled && tag.eu_decimals != null
                                                                                     ? currentValue.value.toFixed(tag.eu_decimals)
                                                                                     : (tag.data_type === 'DINT' || tag.data_type === 'INT'
-                                                                                        ? Math.round(currentValue.value).toLocaleString()
-                                                                                        : currentValue.value.toLocaleString(undefined, { maximumFractionDigits: 2 })))
+                                                                                        ? Math.round(currentValue.value).toLocaleString(i18n.language)
+                                                                                        : currentValue.value.toLocaleString(i18n.language, { maximumFractionDigits: 2 })))
                                                                                 : currentValue.value.toString())
                                                                             : '-')
                                                                 ) : '-'}
@@ -1542,7 +1544,7 @@ const TagsPage = () => {
                                                                         ? 'text-muted-foreground border-border bg-muted'
                                                                         : 'text-red-500 border-red-500/30 bg-red-500/10'
                                                                     }`}>
-                                                                    {status === 'good' ? 'GOOD' : status === 'unknown' ? 'UNKNOWN' : 'BAD'}
+                                                                    {status === 'good' ? tr('tagsPage.quality_good') : status === 'unknown' ? tr('tagsPage.quality_unknown') : tr('tagsPage.quality_bad')}
                                                                 </Badge>
                                                             )}
 
@@ -1550,9 +1552,9 @@ const TagsPage = () => {
                                                             {currentValue?.timestamp && (
                                                                 <span
                                                                     className={`text-xs ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
-                                                                    title={`Last update: ${new Date(currentValue.timestamp).toLocaleString()}`}
+                                                                    title={tr('tagsPage.last_update', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })}
                                                                 >
-                                                                    {new Date(currentValue.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                                    {new Date(currentValue.timestamp).toLocaleTimeString(i18n.language, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                                                                 </span>
                                                             )}
                                                         </>
@@ -1564,7 +1566,8 @@ const TagsPage = () => {
                                                         variant="ghost"
                                                         size="icon"
                                                         className="h-9 sm:h-6 w-9 sm:w-6 shrink-0"
-                                                        title="Write value"
+                                                        title={tr('tagsPage.write_value')}
+                                                        aria-label={tr('tagsPage.write_value')}
                                                         onClick={() => {
                                                             const cv = currentValues.get(tag.id);
                                                             setWriteValue(tag.data_type === 'BOOL'
@@ -1582,10 +1585,10 @@ const TagsPage = () => {
                                             {tag.historize ? (
                                                 <div className="flex items-center gap-1 text-xs text-green-600">
                                                     <Database size={12} />
-                                                    <span>Yes (DB: {tag.deadband_value})</span>
+                                                    <span>{tr('tagsPage.history_on', { deadband: tag.deadband_value })}</span>
                                                 </div>
                                             ) : (
-                                                <span className="text-xs text-muted-foreground">Disabled</span>
+                                                <span className="text-xs text-muted-foreground">{tr('tagsPage.history_off')}</span>
                                             )}
                                         </TableCell>
                                         <TableCell>
@@ -1594,12 +1597,12 @@ const TagsPage = () => {
                                                     {activeAlarms[tag.id] ? (
                                                         <Badge variant="destructive" className="h-5 px-1.5 gap-1 items-center animate-pulse text-xs">
                                                             <BellRing size={10} />
-                                                            ATTIVO ({alarmDefsCount[tag.id]})
+                                                            {tr('tagsPage.alarm_active', { count: alarmDefsCount[tag.id] })}
                                                         </Badge>
                                                     ) : (
                                                         <Badge variant="secondary" className="h-5 px-1.5 gap-1 items-center text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                                                             <Bell size={10} />
-                                                            {alarmDefsCount[tag.id]} allarme{alarmDefsCount[tag.id] > 1 ? 'i' : ''}
+                                                            {tr('tagsPage.alarm_count', { count: alarmDefsCount[tag.id] })}
                                                         </Badge>
                                                     )}
                                                 </div>
@@ -1616,6 +1619,7 @@ const TagsPage = () => {
                                                         size="icon"
                                                         className="h-10 sm:h-8 w-10 sm:w-8 text-muted-foreground hover:text-[#4a5500] dark:hover:text-[#c8e600] hover:bg-[#c8e600]/10"
                                                         onClick={() => handleEdit(tag)}
+                                                        aria-label={tr('common.edit')}
                                                     >
                                                         <Edit2 size={16} />
                                                     </Button>
@@ -1624,6 +1628,7 @@ const TagsPage = () => {
                                                         size="icon"
                                                         className="h-10 sm:h-8 w-10 sm:w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
                                                         onClick={(e) => handleDelete(e, tag.id)}
+                                                        aria-label={tr('common.delete')}
                                                     >
                                                         <Trash2 size={16} />
                                                     </Button>
@@ -1642,9 +1647,9 @@ const TagsPage = () => {
             <Dialog open={isBrowseOpen} onOpenChange={setIsBrowseOpen}>
                 <DialogContent className="max-w-3xl max-h-[80vh] flex flex-col">
                     <DialogHeader>
-                        <DialogTitle>Browse OPC UA Server</DialogTitle>
+                        <DialogTitle>{tr('tagsPage.browse_title')}</DialogTitle>
                         <DialogDescription>
-                            Navigate the OPC UA address space. Click on Object nodes to expand, or click "Add as Tag" on Variable nodes to create a tag.
+                            {tr('tagsPage.browse_desc')}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1676,11 +1681,11 @@ const TagsPage = () => {
                         {isBrowsing ? (
                             <div className="flex items-center justify-center h-full text-muted-foreground">
                                 <div className="animate-spin rounded-full h-9 sm:h-6 w-9 sm:w-6 border-b-2 border-indigo-600 mr-2"></div>
-                                Browsing nodes...
+                                {tr('tagsPage.browsing')}
                             </div>
                         ) : browseNodes.length === 0 ? (
                             <div className="flex items-center justify-center h-full text-muted-foreground">
-                                No nodes found at this level.
+                                {tr('tagsPage.browse_empty')}
                             </div>
                         ) : (
                             <div className="divide-y">
@@ -1717,12 +1722,12 @@ const TagsPage = () => {
                                                             handleAddNodeAsTag(node);
                                                         }}
                                                     >
-                                                        <Plus size={14} className="mr-1" /> Add as Tag
+                                                        <Plus size={14} className="mr-1" /> {tr('tagsPage.add_as_tag')}
                                                     </Button>
                                                 </>
                                             )}
                                             {node.node_class === 'Object' && node.children_count > 0 && (
-                                                <span className="text-xs text-muted-foreground">{node.children_count} children →</span>
+                                                <span className="text-xs text-muted-foreground">{tr('tagsPage.children', { count: node.children_count })} →</span>
                                             )}
                                         </div>
                                     </div>
@@ -1737,14 +1742,14 @@ const TagsPage = () => {
             <Dialog open={!!writeDialogTag} onOpenChange={(open) => !open && setWriteDialogTag(null)}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Write: {writeDialogTag?.alias}</DialogTitle>
+                        <DialogTitle>{tr('tagsPage.write_title', { alias: writeDialogTag?.alias })}</DialogTitle>
                         <DialogDescription>
-                            Send a value to the PLC. This action is logged.
+                            {tr('tagsPage.write_desc')}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
                         <div className="flex items-center gap-2">
-                            <span className="text-sm text-muted-foreground">Type:</span>
+                            <span className="text-sm text-muted-foreground">{tr('tagsPage.write_type')}</span>
                             <Badge variant="secondary">{writeDialogTag?.dataType}</Badge>
                         </div>
                         {writeDialogTag?.dataType === 'BOOL' ? (
@@ -1763,15 +1768,15 @@ const TagsPage = () => {
                                 step={writeDialogTag?.dataType === 'REAL' ? '0.01' : undefined}
                                 value={writeValue}
                                 onChange={(e) => setWriteValue(e.target.value)}
-                                placeholder="Value"
+                                placeholder={tr('tagsPage.write_placeholder')}
                                 className="font-mono"
                             />
                         )}
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setWriteDialogTag(null)}>Cancel</Button>
+                        <Button variant="outline" onClick={() => setWriteDialogTag(null)}>{tr('common.cancel')}</Button>
                         <Button onClick={handleTagWrite} disabled={writeLoading}>
-                            {writeLoading ? 'Writing...' : 'Write'}
+                            {writeLoading ? tr('tagsPage.writing') : tr('tagsPage.write')}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

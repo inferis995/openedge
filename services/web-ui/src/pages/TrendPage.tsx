@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 
 import { TagBrowser } from '@/components/trend/TagBrowser';
 import { UPlotChart, type PenSeries } from '@/components/historian/UPlotChart';
@@ -28,12 +29,12 @@ const PEN_COLORS = [
     '#a855f7', '#eab308', '#84cc16', '#f43f5e', '#22d3ee',
 ];
 
-const AGG_OPTIONS: { value: AggregationType; label: string }[] = [
-    { value: 'mean',  label: 'Mean'  },
-    { value: 'max',   label: 'Max'   },
-    { value: 'min',   label: 'Min'   },
-    { value: 'first', label: 'First' },
-    { value: 'last',  label: 'Last'  },
+const AGG_OPTIONS: { value: AggregationType; labelKey: string }[] = [
+    { value: 'mean',  labelKey: 'trendPage.agg_mean'  },
+    { value: 'max',   labelKey: 'trendPage.agg_max'   },
+    { value: 'min',   labelKey: 'trendPage.agg_min'   },
+    { value: 'first', labelKey: 'trendPage.agg_first' },
+    { value: 'last',  labelKey: 'trendPage.agg_last'  },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -76,6 +77,7 @@ function exportCSV(pens: Pen[], timestamps: number[], values: (number | null | u
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function TrendPage() {
+    const { t: tr, i18n } = useTranslation();
     const [timeRange, setTimeRange] = useState<HistorianRange>(defaultRange);
     const [liveMode, setLiveMode] = useState(false);
     const [aggregation, setAggregation] = useState<AggregationType>('mean');
@@ -222,21 +224,22 @@ export default function TrendPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div className="flex items-center gap-2">
                         <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7"
-                            onClick={() => setSidebarOpen(o => !o)}>
+                            onClick={() => setSidebarOpen(o => !o)}
+                            title={tr('trendPage.toggle_tags')} aria-label={tr('trendPage.toggle_tags')}>
                             <PanelLeft className={`w-4 h-4 ${sidebarOpen ? 'text-primary' : 'text-muted-foreground'}`} />
                         </Button>
                         <div className="p-1 bg-primary/10 rounded">
                             <Activity className="w-4 h-4 text-primary" />
                         </div>
                         <div>
-                            <h1 className="text-sm font-semibold">Historian</h1>
+                            <h1 className="text-sm font-semibold">{tr('trendPage.title')}</h1>
                             <p className="text-[10px] text-muted-foreground leading-none">
-                                {pens.length} pen{pens.length !== 1 ? 's' : ''} · {totalPoints.toLocaleString()} pts
-                                {isFetching && <span className="ml-1 text-primary">loading…</span>}
+                                {tr('trendPage.pens_count', { count: pens.length })} · {tr('trendPage.points_count', { count: totalPoints, formatted: totalPoints.toLocaleString(i18n.language) })}
+                                {isFetching && <span className="ml-1 text-primary">{tr('trendPage.loading')}</span>}
                                 {liveMode && (
                                     <span className="ml-2 inline-flex items-center gap-1 text-green-500">
                                         <span className="w-1.5 h-1.5 rounded-full animate-pulse bg-green-500 inline-block" />
-                                        LIVE
+                                        {tr('trendPage.live_badge')}
                                     </span>
                                 )}
                             </p>
@@ -251,7 +254,7 @@ export default function TrendPage() {
                             </SelectTrigger>
                             <SelectContent>
                                 {AGG_OPTIONS.map(o => (
-                                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                                    <SelectItem key={o.value} value={o.value}>{tr(o.labelKey)}</SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
@@ -264,30 +267,31 @@ export default function TrendPage() {
                             onClick={() => setLiveMode(m => !m)}
                             disabled={timeRange.preset === 'custom'}
                         >
-                            {liveMode ? <><Pause className="w-3 h-3" /> Stop</> : <><Play className="w-3 h-3" /> Live</>}
+                            {liveMode ? <><Pause className="w-3 h-3" /> {tr('trendPage.stop')}</> : <><Play className="w-3 h-3" /> {tr('trendPage.live')}</>}
                         </Button>
 
                         {/* Reset zoom */}
                         {zoomStack.length > 0 && (
                             <Button size="sm" variant="outline" className="h-9 sm:h-7 text-xs gap-1"
-                                onClick={handleZoomOut} title="Zoom out">
+                                onClick={handleZoomOut} title={tr('trendPage.zoom_out')}>
                                 <ZoomOut className="w-3 h-3" />
-                                {zoomStack.length > 1 ? `Undo (${zoomStack.length})` : 'Reset zoom'}
+                                {zoomStack.length > 1 ? tr('trendPage.zoom_undo', { n: zoomStack.length }) : tr('trendPage.zoom_reset')}
                             </Button>
                         )}
 
                         {/* Refresh */}
                         <Button size="icon" variant="outline" className="h-9 sm:h-7 w-9 sm:w-7"
-                            onClick={() => refetch()} disabled={isFetching || penIds.length === 0}>
+                            onClick={() => refetch()} disabled={isFetching || penIds.length === 0}
+                            title={tr('trendPage.refresh')} aria-label={tr('trendPage.refresh')}>
                             <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
                         </Button>
 
                         {/* Export CSV */}
                         <Button size="sm" variant="outline" className="h-9 sm:h-7 text-xs gap-1"
                             onClick={() => {
-                                if (timestamps.length === 0) { toast.info('No data to export'); return; }
+                                if (timestamps.length === 0) { toast.info(tr('trendPage.no_data_export')); return; }
                                 exportCSV(pens, timestamps, values);
-                                toast.success('CSV exported');
+                                toast.success(tr('trendPage.csv_exported'));
                             }}
                             disabled={timestamps.length === 0}>
                             <Download className="w-3 h-3" />
@@ -296,7 +300,8 @@ export default function TrendPage() {
 
                         {/* Pen panel toggle */}
                         <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7"
-                            onClick={() => setPenPanelOpen(o => !o)}>
+                            onClick={() => setPenPanelOpen(o => !o)}
+                            title={tr('trendPage.toggle_pens')} aria-label={tr('trendPage.toggle_pens')}>
                             <PanelRight className={`w-4 h-4 ${penPanelOpen ? 'text-primary' : 'text-muted-foreground'}`} />
                         </Button>
                     </div>
@@ -325,8 +330,8 @@ export default function TrendPage() {
                         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
                             <BarChart2 className="w-16 h-16 opacity-20" />
                             <div className="text-center">
-                                <p className="font-medium">No pens selected</p>
-                                <p className="text-sm mt-1">Select tags from the browser on the left to start</p>
+                                <p className="font-medium">{tr('trendPage.empty_title')}</p>
+                                <p className="text-sm mt-1">{tr('trendPage.empty_desc')}</p>
                             </div>
                         </div>
                     ) : (
@@ -347,7 +352,7 @@ export default function TrendPage() {
                     <div className="w-56 flex-shrink-0 border-l flex flex-col bg-card/50">
                         <div className="px-3 py-2 border-b flex items-center gap-1.5">
                             <Settings2 className="w-3.5 h-3.5 text-muted-foreground" />
-                            <span className="text-xs font-medium">Pens</span>
+                            <span className="text-xs font-medium">{tr('trendPage.pens')}</span>
                             {pens.length > 0 && (
                                 <Badge variant="secondary" className="ml-auto text-[10px] h-4 px-1">
                                     {pens.length}

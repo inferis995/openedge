@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Layers, AlertTriangle, Tag as TagIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { udtApi, UDTInstance } from '@/api/udt';
 import { gatewaysApi } from '@/api/gateways';
@@ -28,6 +29,7 @@ import {
  * a wrong base address shows up on the first instance rather than after ten.
  */
 const UDTInstancesPage = () => {
+    const { t: tr } = useTranslation();
     const queryClient = useQueryClient();
     const { isAdmin } = useAuthStore();
 
@@ -62,7 +64,7 @@ const UDTInstancesPage = () => {
                 base_address: baseAddress,
             }),
         onSuccess: (res) => {
-            showApiSuccess(`Istanza creata — ${res.tags_created} tag generati`);
+            showApiSuccess(tr('udtInstancesPage.created', { count: res.tags_created }));
             setCreateOpen(false);
             setName('');
             setBaseAddress('');
@@ -70,19 +72,19 @@ const UDTInstancesPage = () => {
             queryClient.invalidateQueries({ queryKey: ['udt-types'] });
             queryClient.invalidateQueries({ queryKey: ['tags'] });
         },
-        onError: (e) => showApiError(e, 'Creazione dell\'istanza fallita'),
+        onError: (e) => showApiError(e, tr('udtInstancesPage.create_failed')),
     });
 
     const deleteMutation = useMutation({
         mutationFn: (id: number) => udtApi.deleteInstance(id),
         onSuccess: (res) => {
-            showApiSuccess(`Istanza eliminata — ${res.tags_deleted} tag rimossi`);
+            showApiSuccess(tr('udtInstancesPage.deleted', { count: res.tags_deleted }));
             setToDelete(null);
             queryClient.invalidateQueries({ queryKey: ['udt-instances'] });
             queryClient.invalidateQueries({ queryKey: ['udt-types'] });
             queryClient.invalidateQueries({ queryKey: ['tags'] });
         },
-        onError: (e) => showApiError(e, 'Eliminazione fallita'),
+        onError: (e) => showApiError(e, tr('udtInstancesPage.delete_failed')),
     });
 
     return (
@@ -90,17 +92,16 @@ const UDTInstancesPage = () => {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-semibold flex items-center gap-2">
-                        <Layers size={22} /> Istanze
+                        <Layers size={22} /> {tr('udtInstancesPage.title')}
                     </h1>
                     <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
-                        Un'istanza è un tipo applicato a un gateway a un indirizzo base.
-                        I tag vengono generati subito: indirizzo base + suffisso del membro.
+                        {tr('udtInstancesPage.subtitle')}
                     </p>
                 </div>
                 {isAdmin() && (
                     <Button className="gap-1 shrink-0" disabled={types.length === 0}
                         onClick={() => setCreateOpen(true)}>
-                        <Plus size={16} /> Nuova istanza
+                        <Plus size={16} /> {tr('udtInstancesPage.add')}
                     </Button>
                 )}
             </div>
@@ -108,25 +109,25 @@ const UDTInstancesPage = () => {
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead>Nome</TableHead>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead>Indirizzo base</TableHead>
-                        <TableHead className="text-right">Tag</TableHead>
+                        <TableHead>{tr('common.name')}</TableHead>
+                        <TableHead>{tr('udtInstancesPage.type')}</TableHead>
+                        <TableHead>{tr('udtInstancesPage.base_address')}</TableHead>
+                        <TableHead className="text-right">{tr('udtInstancesPage.tags')}</TableHead>
                         <TableHead className="w-16" />
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {isLoading && (
                         <TableRow>
-                            <TableCell colSpan={5} className="text-muted-foreground">Caricamento…</TableCell>
+                            <TableCell colSpan={5} className="text-muted-foreground">{tr('common.loading')}</TableCell>
                         </TableRow>
                     )}
                     {!isLoading && instances.length === 0 && (
                         <TableRow>
                             <TableCell colSpan={5} className="text-muted-foreground py-8 text-center">
                                 {types.length === 0
-                                    ? 'Definisci prima un tipo, poi potrai istanziarlo.'
-                                    : 'Nessuna istanza. Creane una per generare i tag di un\'apparecchiatura.'}
+                                    ? tr('udtInstancesPage.empty_no_types')
+                                    : tr('udtInstancesPage.empty')}
                             </TableCell>
                         </TableRow>
                     )}
@@ -143,7 +144,7 @@ const UDTInstancesPage = () => {
                             <TableCell>
                                 {isAdmin() && (
                                     <div className="flex justify-end">
-                                        <Button variant="ghost" size="icon" onClick={() => setToDelete(in_)}>
+                                        <Button variant="ghost" size="icon" aria-label={tr('common.delete')} onClick={() => setToDelete(in_)}>
                                             <Trash2 size={15} className="text-destructive" />
                                         </Button>
                                     </div>
@@ -158,18 +159,16 @@ const UDTInstancesPage = () => {
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Nuova istanza</DialogTitle>
+                        <DialogTitle>{tr('udtInstancesPage.add')}</DialogTitle>
                         <DialogDescription>
-                            I tag vengono generati subito. Verifica il primo sul PLC prima
-                            di crearne altri: un indirizzo base sbagliato si moltiplica in
-                            silenzio.
+                            {tr('udtInstancesPage.create_desc')}
                         </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-3 py-2">
                         <div>
-                            <Label>Tipo</Label>
+                            <Label>{tr('udtInstancesPage.type')}</Label>
                             <Select value={typeId} onValueChange={setTypeId}>
-                                <SelectTrigger><SelectValue placeholder="Scegli un tipo" /></SelectTrigger>
+                                <SelectTrigger><SelectValue placeholder={tr('udtInstancesPage.pick_type')} /></SelectTrigger>
                                 <SelectContent>
                                     {types.map((t) => (
                                         <SelectItem key={t.id} value={String(t.id)}>{t.name}</SelectItem>
@@ -178,9 +177,9 @@ const UDTInstancesPage = () => {
                             </Select>
                         </div>
                         <div>
-                            <Label>Gateway</Label>
+                            <Label>{tr('common.gateway')}</Label>
                             <Select value={gatewayId} onValueChange={setGatewayId}>
-                                <SelectTrigger><SelectValue placeholder="Scegli un gateway" /></SelectTrigger>
+                                <SelectTrigger><SelectValue placeholder={tr('udtInstancesPage.pick_gateway')} /></SelectTrigger>
                                 <SelectContent>
                                     {gateways.map((g) => (
                                         <SelectItem key={g.id} value={String(g.id)}>
@@ -191,29 +190,28 @@ const UDTInstancesPage = () => {
                             </Select>
                         </div>
                         <div>
-                            <Label>Nome</Label>
-                            <Input value={name} placeholder="Pompa01"
+                            <Label>{tr('common.name')}</Label>
+                            <Input value={name} placeholder={tr('udtInstancesPage.name_placeholder')}
                                 onChange={(e) => setName(e.target.value)} />
                             <p className="text-xs text-muted-foreground mt-1">
-                                Prefissa ogni tag generato: <code>Pompa01_Speed</code>. Così un
-                                allarme dice da quale macchina arriva.
+                                {tr('udtInstancesPage.name_help_prefix')} <code>{tr('udtInstancesPage.name_placeholder')}_Speed</code>. {tr('udtInstancesPage.name_help_suffix')}
                             </p>
                         </div>
                         <div>
-                            <Label>Indirizzo base</Label>
+                            <Label>{tr('udtInstancesPage.base_address')}</Label>
                             <Input value={baseAddress} placeholder="40001"
                                 onChange={(e) => setBaseAddress(e.target.value)} />
                             <p className="text-xs text-muted-foreground mt-1">
-                                I suffissi dei membri vengono accodati a questo:{' '}
+                                {tr('udtInstancesPage.base_address_help')}{' '}
                                 <code>40001</code> + <code>+2</code> → <code>40001+2</code>.
                             </p>
                         </div>
                     </div>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setCreateOpen(false)}>Annulla</Button>
+                        <Button variant="outline" onClick={() => setCreateOpen(false)}>{tr('common.cancel')}</Button>
                         <Button disabled={!typeId || !gatewayId || !name || createMutation.isPending}
                             onClick={() => createMutation.mutate()}>
-                            Crea e genera i tag
+                            {tr('udtInstancesPage.create_submit')}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
@@ -225,19 +223,17 @@ const UDTInstancesPage = () => {
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
                             <AlertTriangle size={18} className="text-destructive" />
-                            Eliminare «{toDelete?.name}»?
+                            {tr('udtInstancesPage.delete_title', { name: toDelete?.name })}
                         </DialogTitle>
                         <DialogDescription>
-                            Vengono eliminati {toDelete?.tag_count ?? 0} tag e tutto quello che
-                            lo storico ha registrato per loro. Non è recuperabile se non da un
-                            backup.
+                            {tr('udtInstancesPage.delete_desc', { count: toDelete?.tag_count ?? 0 })}
                         </DialogDescription>
                     </DialogHeader>
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setToDelete(null)}>Annulla</Button>
+                        <Button variant="outline" onClick={() => setToDelete(null)}>{tr('common.cancel')}</Button>
                         <Button variant="destructive" disabled={deleteMutation.isPending}
                             onClick={() => toDelete && deleteMutation.mutate(toDelete.id)}>
-                            Elimina
+                            {tr('common.delete')}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

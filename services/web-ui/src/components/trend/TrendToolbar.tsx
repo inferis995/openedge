@@ -20,6 +20,7 @@ import {
 import { TimePicker } from './TimePicker';
 import { useTrendStore } from '@/stores/useTrendStore';
 import { AggregationType } from '@/types/trend';
+import { useTranslation } from 'react-i18next';
 
 interface TrendToolbarProps {
     onRefresh: () => void;
@@ -31,12 +32,12 @@ interface TrendToolbarProps {
     isMqttConnected?: boolean;
 }
 
-const AGGREGATION_OPTIONS: { value: AggregationType; label: string }[] = [
-    { value: 'max', label: 'Max (BOOL)' },
-    { value: 'mean', label: 'Mean' },
-    { value: 'min', label: 'Min' },
-    { value: 'first', label: 'First' },
-    { value: 'last', label: 'Last' },
+const AGGREGATION_OPTIONS: { value: AggregationType; labelKey: string }[] = [
+    { value: 'max', labelKey: 'trend.agg_max_bool' },
+    { value: 'mean', labelKey: 'trend.agg_mean' },
+    { value: 'min', labelKey: 'trend.agg_min' },
+    { value: 'first', labelKey: 'trend.agg_first' },
+    { value: 'last', labelKey: 'trend.agg_last' },
 ];
 
 export const TrendToolbar: React.FC<TrendToolbarProps> = ({
@@ -48,6 +49,7 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
     tagsCount = 0,
     isMqttConnected = false,
 }) => {
+    const { t, i18n } = useTranslation();
     const {
         timeRange,
         setTimeRange,
@@ -73,6 +75,8 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                         size="icon"
                         className="h-9 sm:h-7 w-9 sm:w-7"
                         onClick={toggleSidebar}
+                        title={t('trend.toggle_tags')}
+                        aria-label={t('trend.toggle_tags')}
                     >
                         <PanelLeft className={`w-4 h-4 ${sidebarOpen ? 'text-primary' : 'text-muted-foreground'}`} />
                     </Button>
@@ -80,13 +84,13 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                         <Activity className="w-4 h-4 text-primary" />
                     </div>
                     <div>
-                        <h1 className="text-base font-semibold text-foreground">Trend Analysis</h1>
+                        <h1 className="text-base font-semibold text-foreground">{t('trend.title')}</h1>
                         <p className="text-[10px] text-muted-foreground">
-                            {dataPointsCount.toLocaleString()} points | {tagsCount} tags
+                            {t('trend.points_count', { count: dataPointsCount, formatted: dataPointsCount.toLocaleString(i18n.language) })} | {t('trend.tags_count', { count: tagsCount })}
                             {liveMode && isLiveCapable && isMqttConnected && (
                                 <span className="ml-2 inline-flex items-center gap-1 text-green-600">
                                     <span className="w-1.5 h-1.5 rounded-full animate-pulse bg-green-500" />
-                                    LIVE
+                                    {t('trend.live_badge')}
                                 </span>
                             )}
                         </p>
@@ -102,7 +106,7 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                         <SelectContent>
                             {AGGREGATION_OPTIONS.map((opt) => (
                                 <SelectItem key={opt.value} value={opt.value}>
-                                    {opt.label}
+                                    {t(opt.labelKey)}
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -119,12 +123,12 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                         {liveMode ? (
                             <>
                                 <Pause className="w-3 h-3" />
-                                Stop
+                                {t('trend.stop')}
                             </>
                         ) : (
                             <>
                                 <Play className="w-3 h-3" />
-                                Live
+                                {t('trend.live')}
                             </>
                         )}
                     </Button>
@@ -136,6 +140,8 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                         size="icon"
                         className="h-9 sm:h-7 w-9 sm:w-7"
                         disabled={isLoading}
+                        title={t('trend.refresh')}
+                        aria-label={t('trend.refresh')}
                     >
                         <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
                     </Button>
@@ -148,7 +154,7 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                         className="gap-1 h-9 sm:h-7 text-xs"
                     >
                         <Plus className="w-3 h-3" />
-                        Chart
+                        {t('trend.add_chart')}
                     </Button>
 
                     {/* Data Table Toggle */}
@@ -157,6 +163,8 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                         variant={dataTableOpen ? 'default' : 'outline'}
                         size="icon"
                         className="h-9 sm:h-7 w-9 sm:w-7"
+                        title={t('trend.toggle_table')}
+                        aria-label={t('trend.toggle_table')}
                     >
                         <Table className="w-3 h-3" />
                     </Button>

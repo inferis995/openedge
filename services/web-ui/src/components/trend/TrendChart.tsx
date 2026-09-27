@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { X, Settings2, Eye, EyeOff, Minus, Check } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 interface TrendChartProps {
     chart: ChartConfig;
@@ -23,23 +25,23 @@ interface TrendChartProps {
 
 const fmt = {
     time: (ts: number) =>
-        new Date(ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        new Date(ts).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     datetime: (ts: number) => {
         const d = new Date(ts);
         return (
-            d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' }) +
+            d.toLocaleDateString(i18n.language, { day: '2-digit', month: '2-digit' }) +
             ' ' +
-            d.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            d.toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         );
     },
     value: (v: number | null | undefined, isBool: boolean): string => {
-        if (v === null || v === undefined) return 'N/A';
+        if (v === null || v === undefined) return i18n.t('trend.not_available');
         if (isBool) {
-            if (typeof v === 'number' && v < 0) return 'N/A';
+            if (typeof v === 'number' && v < 0) return i18n.t('trend.not_available');
             return v >= 0.5 ? 'TRUE' : 'FALSE';
         }
         const n = Number(v);
-        if (isNaN(n)) return 'N/A';
+        if (isNaN(n)) return i18n.t('trend.not_available');
         if (Number.isInteger(n)) return n.toString();
         return n.toFixed(3);
     },
@@ -50,17 +52,17 @@ const boolColor = (v: number | null | undefined) => {
     return v >= 0.5 ? '#16a34a' : '#dc2626';
 };
 
-const LINE_TYPE_OPTIONS: { value: LineType; label: string; dash: string }[] = [
-    { value: 'solid', label: 'Solid', dash: '────' },
-    { value: 'dashed', label: 'Dashed', dash: '– – –' },
-    { value: 'dotted', label: 'Dotted', dash: '· · ·' },
+const LINE_TYPE_OPTIONS: { value: LineType; labelKey: string; dash: string }[] = [
+    { value: 'solid', labelKey: 'trend.line_solid', dash: '────' },
+    { value: 'dashed', labelKey: 'trend.line_dashed', dash: '– – –' },
+    { value: 'dotted', labelKey: 'trend.line_dotted', dash: '· · ·' },
 ];
 
-const CHART_TYPE_OPTIONS: { value: ChartType; label: string }[] = [
-    { value: 'line', label: 'Line' },
-    { value: 'area', label: 'Area' },
-    { value: 'step', label: 'Step' },
-    { value: 'bar', label: 'Bar' },
+const CHART_TYPE_OPTIONS: { value: ChartType; labelKey: string }[] = [
+    { value: 'line', labelKey: 'trend.type_line' },
+    { value: 'area', labelKey: 'trend.type_area' },
+    { value: 'step', labelKey: 'trend.type_step' },
+    { value: 'bar', labelKey: 'trend.type_bar' },
 ];
 
 // ── Series Settings Panel ────────────────────────────────────────────────────
@@ -85,6 +87,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
     onRemoveTag,
 }) => {
     const [scaleInputs, setScaleInputs] = useState<Record<number, { min: string; max: string }>>({});
+    const { t } = useTranslation();
 
     const getConfig = (tagId: number) =>
         chart.yAxisConfigs.find((y) => y.tagId === tagId);
@@ -102,7 +105,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
     };
 
     if (seriesData.length === 0) {
-        return <p className="text-xs text-muted-foreground p-2">No series in this chart.</p>;
+        return <p className="text-xs text-muted-foreground p-2">{t('trend.no_series')}</p>;
     }
 
     return (
@@ -131,7 +134,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                     variant="ghost"
                                     size="icon"
                                     className="h-9 sm:h-6 w-9 sm:w-6"
-                                    title={isVisible ? 'Hide series' : 'Show series'}
+                                    title={isVisible ? t('trend.hide_series') : t('trend.show_series')}
                                     onClick={() => onUpdate(s.tagId, { visible: !isVisible })}
                                 >
                                     {isVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3 text-muted-foreground" />}
@@ -140,7 +143,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                     variant="ghost"
                                     size="icon"
                                     className="h-9 sm:h-6 w-9 sm:w-6 text-red-500 hover:text-red-600 hover:bg-red-50"
-                                    title="Remove from chart"
+                                    title={t('trend.remove_from_chart')}
                                     onClick={() => onRemoveTag(s.tagId)}
                                 >
                                     <X className="w-3 h-3" />
@@ -152,7 +155,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                             <>
                                 {/* Color palette */}
                                 <div>
-                                    <p className="text-[10px] text-muted-foreground mb-1">Color</p>
+                                    <p className="text-[10px] text-muted-foreground mb-1">{t('trend.color')}</p>
                                     <div className="flex flex-wrap gap-1">
                                         {TAG_COLORS_PALETTE.map((c) => (
                                             <button
@@ -170,7 +173,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
 
                                 {/* Chart type */}
                                 <div>
-                                    <p className="text-[10px] text-muted-foreground mb-1">Type</p>
+                                    <p className="text-[10px] text-muted-foreground mb-1">{t('trend.chart_type')}</p>
                                     <div className="flex gap-1">
                                         {CHART_TYPE_OPTIONS.map((opt) => (
                                             <button
@@ -181,7 +184,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                                     : 'border-border hover:border-primary/50'
                                                     }`}
                                             >
-                                                {opt.label}
+                                                {t(opt.labelKey)}
                                             </button>
                                         ))}
                                     </div>
@@ -190,12 +193,12 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                 {/* Line style */}
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                     <div>
-                                        <p className="text-[10px] text-muted-foreground mb-1">Line style</p>
+                                        <p className="text-[10px] text-muted-foreground mb-1">{t('trend.line_style')}</p>
                                         <div className="flex gap-1">
                                             {LINE_TYPE_OPTIONS.map((opt) => (
                                                 <button
                                                     key={opt.value}
-                                                    title={opt.label}
+                                                    title={t(opt.labelKey)}
                                                     onClick={() => onUpdate(s.tagId, { lineType: opt.value })}
                                                     className={`px-2 py-1 text-[10px] font-mono rounded border transition-colors ${(s.lineType ?? 'solid') === opt.value
                                                         ? 'bg-primary text-primary-foreground border-primary'
@@ -208,7 +211,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                         </div>
                                     </div>
                                     <div>
-                                        <p className="text-[10px] text-muted-foreground mb-1">Width</p>
+                                        <p className="text-[10px] text-muted-foreground mb-1">{t('trend.line_width')}</p>
                                         <div className="flex gap-1">
                                             {[1, 2, 3, 4].map((w) => (
                                                 <button
@@ -235,10 +238,10 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                             checked={s.showMarkers ?? false}
                                             onChange={(e) => onUpdate(s.tagId, { showMarkers: e.target.checked })}
                                         />
-                                        <span className="text-[10px] text-muted-foreground">Markers</span>
+                                        <span className="text-[10px] text-muted-foreground">{t('trend.markers')}</span>
                                     </label>
                                     <div className="flex items-center gap-1">
-                                        <span className="text-[10px] text-muted-foreground">Y-axis:</span>
+                                        <span className="text-[10px] text-muted-foreground">{t('trend.y_axis')}</span>
                                         {(['left', 'right'] as const).map((pos) => (
                                             <button
                                                 key={pos}
@@ -248,7 +251,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                                     : 'border-border hover:border-primary/50'
                                                     }`}
                                             >
-                                                {pos}
+                                                {t(`trend.pos_${pos}`)}
                                             </button>
                                         ))}
                                     </div>
@@ -257,18 +260,18 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                 {/* Scale */}
                                 <div>
                                     <div className="flex items-center justify-between mb-1">
-                                        <p className="text-[10px] text-muted-foreground">Y Scale</p>
+                                        <p className="text-[10px] text-muted-foreground">{t('trend.y_scale')}</p>
                                         <button
                                             onClick={() => onUpdate(s.tagId, { autoScale: true, min: undefined, max: undefined })}
                                             className={`text-[10px] px-1.5 py-0.5 rounded border ${(s.autoScale ?? true) ? 'bg-primary/10 text-primary border-primary/30' : 'border-border hover:border-primary/50'}`}
                                         >
-                                            Auto
+                                            {t('trend.auto')}
                                         </button>
                                     </div>
                                     <div className="flex items-center gap-1">
                                         <Input
                                             type="number"
-                                            placeholder="Min"
+                                            placeholder={t('trend.stat_min')}
                                             className="h-9 sm:h-6 text-[10px] w-16"
                                             value={si.min}
                                             onChange={(e) =>
@@ -281,7 +284,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                         <Minus className="w-3 h-3 text-muted-foreground flex-shrink-0" />
                                         <Input
                                             type="number"
-                                            placeholder="Max"
+                                            placeholder={t('trend.stat_max')}
                                             className="h-9 sm:h-6 text-[10px] w-16"
                                             value={si.max}
                                             onChange={(e) =>
@@ -296,6 +299,8 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                             size="icon"
                                             className="h-9 sm:h-6 w-9 sm:w-6"
                                             onClick={() => handleScaleApply(s.tagId)}
+                                            title={t('trend.apply_scale')}
+                                            aria-label={t('trend.apply_scale')}
                                         >
                                             <Check className="w-3 h-3" />
                                         </Button>
@@ -325,9 +330,10 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     onUpdateYAxisConfig,
     onUpdateTitle,
 }) => {
+    const { t, i18n: i18nInst } = useTranslation();
     const chartRef = useRef<ReactECharts>(null);
     const [isEditingTitle, setIsEditingTitle] = useState(false);
-    const [titleDraft, setTitleDraft] = useState(chart.title || 'Chart');
+    const [titleDraft, setTitleDraft] = useState(chart.title || t('trend.chart_default'));
 
     const safeStart = timeRange.start instanceof Date ? timeRange.start : new Date(timeRange.start);
     const safeEnd = timeRange.end instanceof Date ? timeRange.end : new Date(timeRange.end);
@@ -358,7 +364,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                     if (s.isBool) {
                         if (value >= 1) return 'ON';
                         if (value === 0) return 'OFF';
-                        if (value <= -0.5) return 'N/A';
+                        if (value <= -0.5) return t('trend.not_available');
                         return '';
                     }
                     if (Math.abs(value) >= 10000) return value.toExponential(1);
@@ -515,8 +521,8 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                         if (typeof params.value === 'number') {
                             return rangeHours <= 1 ? fmt.time(params.value) :
                                 rangeHours <= 24
-                                    ? new Date(params.value).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
-                                    : new Date(params.value).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' });
+                                    ? new Date(params.value).toLocaleTimeString(i18nInst.language, { hour: '2-digit', minute: '2-digit' })
+                                    : new Date(params.value).toLocaleDateString(i18nInst.language, { day: '2-digit', month: '2-digit' });
                         }
                         return '';
                     }
@@ -532,15 +538,15 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                 feature: {
                     dataZoom: {
                         yAxisIndex: 'none' as any,
-                        title: { zoom: 'Zoom area', back: 'Undo zoom' },
+                        title: { zoom: t('trend.zoom_area'), back: t('trend.zoom_undo') },
                         icon: {
                             zoom: 'path://M11 17.25a6.25 6.25 0 110-12.5 6.25 6.25 0 010 12.5zm4.773.042L21.021 21.5',
                             back: 'path://M13 9H5.07M5.07 9l4 4m-4-4 4-4',
                         },
                     },
-                    restore: { title: 'Reset zoom' },
+                    restore: { title: t('trend.zoom_reset') },
                     saveAsImage: {
-                        title: 'Save PNG',
+                        title: t('trend.save_png'),
                         type: 'png',
                         pixelRatio: 2,
                     },
@@ -566,8 +572,8 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                     formatter: (value: number) => {
                         if (rangeHours <= 1) return fmt.time(value);
                         if (rangeHours <= 24)
-                            return new Date(value).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-                        return new Date(value).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' });
+                            return new Date(value).toLocaleTimeString(i18nInst.language, { hour: '2-digit', minute: '2-digit' });
+                        return new Date(value).toLocaleDateString(i18nInst.language, { day: '2-digit', month: '2-digit' });
                     },
                 },
                 axisLine: { lineStyle: { color: 'rgba(100,116,139,0.3)' } },
@@ -603,7 +609,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                 },
             ],
         };
-    }, [visibleSeries, timeRange]);
+    }, [visibleSeries, timeRange, t, i18nInst.language]);
 
     const handleChartClick = useCallback(
         (params: unknown) => {
@@ -649,8 +655,8 @@ export const TrendChart: React.FC<TrendChartProps> = ({
         </div>
     );
 
-    if (seriesData.length === 0) return emptyState('Add tags from the browser');
-    if (!hasData) return emptyState('No data for selected range', 'Extend the range or verify data collection');
+    if (seriesData.length === 0) return emptyState(t('trend.chart_empty'));
+    if (!hasData) return emptyState(t('trend.chart_no_data'), t('trend.chart_no_data_hint'));
 
     return (
         <div
@@ -711,8 +717,9 @@ const ChartHeader: React.FC<ChartHeaderProps> = ({
     onRemoveTag,
     onUpdateYAxisConfig,
 }) => {
+    const { t: tr } = useTranslation();
     const commitTitle = () => {
-        const t = titleDraft.trim() || 'Chart';
+        const t = titleDraft.trim() || tr('trend.chart_default');
         onUpdateTitle?.(t);
         setTitleDraft(t);
         setIsEditingTitle(false);
@@ -734,10 +741,10 @@ const ChartHeader: React.FC<ChartHeaderProps> = ({
             ) : (
                 <span
                     className="text-xs font-semibold text-muted-foreground truncate flex-shrink-0 cursor-text hover:text-foreground transition-colors"
-                    title="Double-click to rename"
+                    title={tr('trend.rename_hint')}
                     onDoubleClick={(e) => { e.stopPropagation(); setIsEditingTitle(true); }}
                 >
-                    {chart.title || 'Chart'}
+                    {chart.title || tr('trend.chart_default')}
                 </span>
             )}
 
@@ -763,7 +770,7 @@ const ChartHeader: React.FC<ChartHeaderProps> = ({
                             variant="ghost"
                             size="icon"
                             className="h-5 w-5 flex-shrink-0 text-muted-foreground hover:text-foreground"
-                            title="Series settings"
+                            title={tr('trend.series_settings')}
                             onClick={(e) => e.stopPropagation()}
                         >
                             <Settings2 className="w-3 h-3" />
@@ -775,8 +782,8 @@ const ChartHeader: React.FC<ChartHeaderProps> = ({
                         onClick={(e) => e.stopPropagation()}
                     >
                         <div className="mb-3">
-                            <p className="text-sm font-semibold">Series Settings</p>
-                            <p className="text-[10px] text-muted-foreground">Configure each tag's display style</p>
+                            <p className="text-sm font-semibold">{tr('trend.series_settings')}</p>
+                            <p className="text-[10px] text-muted-foreground">{tr('trend.series_settings_desc')}</p>
                         </div>
                         <SeriesSettingsPanel
                             seriesData={seriesData}
@@ -794,7 +801,7 @@ const ChartHeader: React.FC<ChartHeaderProps> = ({
                     variant="ghost"
                     size="icon"
                     className="h-5 w-5 flex-shrink-0 text-muted-foreground hover:text-destructive"
-                    title="Remove chart"
+                    title={tr('trend.remove_chart')}
                     onClick={(e) => { e.stopPropagation(); onRemove(); }}
                 >
                     <X className="w-3 h-3" />

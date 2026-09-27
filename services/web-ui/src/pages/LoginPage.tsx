@@ -5,8 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Lock, User as UserIcon, Loader2, Mail, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 const LoginPage = () => {
+    const { t } = useTranslation();
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -54,7 +56,7 @@ const LoginPage = () => {
 
             if (!response.ok) {
                 const body = await response.json().catch(() => ({}));
-                throw new Error(body.error || 'Invalid credentials');
+                throw new Error(body.error || t('login.invalid_credentials'));
             }
 
             const data = await response.json();
@@ -69,7 +71,7 @@ const LoginPage = () => {
             login(data.token, data.user);
             navigate('/');
         } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : 'Invalid username or password');
+            setError(err instanceof Error ? err.message : t('login.invalid_credentials'));
         } finally {
             setLoading(false);
         }
@@ -87,13 +89,13 @@ const LoginPage = () => {
             });
             if (!response.ok) {
                 const body = await response.json().catch(() => ({}));
-                throw new Error(body.error || 'Codice non valido');
+                throw new Error(body.error || t('login.mfa_invalid'));
             }
             const data = await response.json();
             login(data.token, data.user);
             navigate('/');
         } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : 'Codice non valido');
+            setError(err instanceof Error ? err.message : t('login.mfa_invalid'));
             setMfaCode('');
             mfaInputRef.current?.focus();
         } finally {
@@ -111,12 +113,12 @@ const LoginPage = () => {
                                 <ShieldCheck className="h-10 sm:h-8 w-10 sm:w-8 text-primary" />
                             </div>
                         </div>
-                        <h2 className="text-lg font-semibold">Autenticazione a due fattori</h2>
-                        <p className="mt-1 text-xs text-muted-foreground">Inserisci il codice a 6 cifre dall'app autenticatore</p>
+                        <h2 className="text-lg font-semibold">{t('login.mfa_title')}</h2>
+                        <p className="mt-1 text-xs text-muted-foreground">{t('login.mfa_desc')}</p>
                     </div>
                     <form className="space-y-6" onSubmit={handleMFASubmit}>
                         <div className="grid gap-2">
-                            <Label className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">Codice OTP</Label>
+                            <Label className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">{t('login.mfa_code')}</Label>
                             <Input
                                 ref={mfaInputRef}
                                 type="text"
@@ -134,11 +136,11 @@ const LoginPage = () => {
                             <p className="text-[10px] font-bold tracking-widest uppercase text-destructive text-center">{error}</p>
                         )}
                         <Button type="submit" className="w-full" disabled={loading || mfaCode.length !== 6}>
-                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Verifica codice'}
+                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('login.mfa_verify')}
                         </Button>
                         <button type="button" onClick={() => { setMfaStep(false); setMfaCode(''); setError(''); }}
                             className="w-full text-xs text-muted-foreground hover:text-foreground text-center transition-colors">
-                            ← Torna al login
+                            ← {t('login.back_to_login')}
                         </button>
                     </form>
                 </div>
@@ -155,14 +157,14 @@ const LoginPage = () => {
                         <img src="/avatar.png" alt="OpenEdge" className="h-20 w-20 rounded-2xl object-cover shadow-lg" />
                     </div>
                     <p className="mt-2 text-sm text-muted-foreground font-mono tracking-widest uppercase">
-                        System_Login
+                        {t('login.banner')}
                     </p>
                 </div>
 
                 <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
                     <div className="space-y-4">
                         <div className="grid gap-2">
-                            <Label htmlFor="username" className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">Username</Label>
+                            <Label htmlFor="username" className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">{t('login.username')}</Label>
                             <div className="relative">
                                 <UserIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                                 <Input
@@ -177,7 +179,7 @@ const LoginPage = () => {
                             </div>
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="password" className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">Password</Label>
+                            <Label htmlFor="password" className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">{t('login.password')}</Label>
                             <div className="relative">
                                 <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                                 <Input
@@ -219,14 +221,14 @@ const LoginPage = () => {
                             <Loader2 className="h-4 w-4 animate-spin-slow text-primary-foreground" />
                         ) : (
                             <>
-                                <span>Sign In _</span>
+                                <span>{t('login.sign_in')}</span>
                                 <div className="w-1.5 h-1.5 bg-primary-foreground clip-hex" />
                             </>
                         )}
                     </Button>
                     <div className="text-center">
                         <Link to="/forgot-password" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-                            Forgot your password?
+                            {t('login.forgot')}
                         </Link>
                     </div>
 
@@ -236,18 +238,18 @@ const LoginPage = () => {
                             <div className="w-full border-t border-border" />
                         </div>
                         <div className="relative flex justify-center text-[10px] uppercase tracking-widest">
-                            <span className="bg-card px-2 text-muted-foreground font-bold">or enterprise sso</span>
+                            <span className="bg-card px-2 text-muted-foreground font-bold">{t('login.sso_divider')}</span>
                         </div>
                     </div>
 
                     {showSsoInput && (
                         <div className="space-y-2">
-                            <Label className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">Work Email</Label>
+                            <Label className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">{t('login.work_email')}</Label>
                             <div className="relative">
                                 <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                                 <Input
                                     type="email"
-                                    placeholder="you@company.com"
+                                    placeholder={t('login.work_email_placeholder')}
                                     className="pl-10"
                                     value={ssoEmail}
                                     onChange={(e) => setSsoEmail(e.target.value)}

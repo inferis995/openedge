@@ -15,6 +15,7 @@ import { Tag } from '@/types';
 import { toast } from 'sonner';
 import { alarmTypeBadgeLabel } from '@/lib/alarmTypes';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useTranslation } from 'react-i18next';
 
 function TableSkeletonRows({ cols, rows = 6 }: { cols: number; rows?: number }) {
     return (
@@ -33,6 +34,7 @@ function TableSkeletonRows({ cols, rows = 6 }: { cols: number; rows?: number }) 
 }
 
 export default function AlarmsPage() {
+    const { t: tr, i18n } = useTranslation();
     const { isAdmin } = useAuthStore();
     const [activeAlarms, setActiveAlarms] = useState<AlarmEvent[]>([]);
     const [history, setHistory] = useState<AlarmEvent[]>([]);
@@ -68,7 +70,7 @@ export default function AlarmsPage() {
             setHistory(hist || []);
             setSelectedIds(new Set());
         } catch {
-            toast.error('Failed to load alarms');
+            toast.error(tr('alarmsPage.load_failed'));
         } finally {
             setIsLoading(false);
         }
@@ -107,10 +109,10 @@ export default function AlarmsPage() {
     const handleAcknowledge = async (id: number) => {
         try {
             await alarmsApi.acknowledgeAlarm(id);
-            toast.success('Allarme riconosciuto');
+            toast.success(tr('alarmsPage.ack_ok'));
             loadData();
         } catch {
-            toast.error('Errore nel riconoscimento allarme');
+            toast.error(tr('alarmsPage.ack_failed'));
         }
     };
 
@@ -118,36 +120,40 @@ export default function AlarmsPage() {
         const ids = Array.from(selectedIds);
         try {
             await Promise.all(ids.map(id => alarmsApi.acknowledgeAlarm(id)));
-            toast.success(`${ids.length} allarmi riconosciuti`);
+            toast.success(tr('alarmsPage.bulk_ack_ok', { count: ids.length }));
             loadData();
         } catch {
-            toast.error('Errore nel riconoscimento bulk');
+            toast.error(tr('alarmsPage.bulk_ack_failed'));
         }
     };
 
     const handleDeleteHistory = async (id: number) => {
         try {
             await alarmsApi.deleteAlarmHistory(id);
-            toast.success('Evento eliminato dallo storico');
+            toast.success(tr('alarmsPage.event_deleted'));
             loadData();
         } catch {
-            toast.error("Errore durante l'eliminazione");
+            toast.error(tr('alarmsPage.delete_failed'));
         }
     };
 
     const handleClearAllHistory = async () => {
         try {
             await alarmsApi.deleteAllAlarmHistory();
-            toast.success('Storico allarmi svuotato');
+            toast.success(tr('alarmsPage.history_cleared'));
             loadData();
         } catch {
-            toast.error("Errore durante lo svuotamento");
+            toast.error(tr('alarmsPage.clear_failed'));
         }
     };
 
     const handleExportCSV = () => {
         try {
-            const headers = ['Stato', 'Gravità', 'Tag', 'Tipo', 'Messaggio', 'Valore', 'Scatto', 'Rientro', 'Riconosciuto da', 'Ack Time'];
+            const headers = [
+                tr('alarmsPage.col_status'), tr('alarmsPage.col_severity'), 'Tag', tr('alarmsPage.col_type'),
+                tr('alarmsPage.col_message'), tr('alarmsPage.col_value'), tr('alarmsPage.csv_trigger'), tr('alarmsPage.csv_clear'),
+                tr('alarmsPage.col_ack_by'), tr('alarmsPage.csv_ack_time'),
+            ];
             const rows = filteredHistory.map(e => {
                 const tag = tagsMap[e.tag_id];
                 const tagName = tag ? (tag.alias || tag.code) : `ID: ${e.tag_id}`;
@@ -162,19 +168,19 @@ export default function AlarmsPage() {
             const csvContent = 'data:text/csv;charset=utf-8,﻿' + [headers.join(','), ...rows].join('\n');
             const link = document.createElement('a');
             link.setAttribute('href', encodeURI(csvContent));
-            link.setAttribute('download', `allarmi_storico_${new Date().toISOString().split('T')[0]}.csv`);
+            link.setAttribute('download', `${tr('alarmsPage.csv_filename')}_${new Date().toISOString().split('T')[0]}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            toast.success('Esportazione CSV completata');
+            toast.success(tr('alarmsPage.csv_ok'));
         } catch {
-            toast.error("Errore nell'esportazione CSV");
+            toast.error(tr('alarmsPage.csv_failed'));
         }
     };
 
     const formatTime = (ts: string | null) => {
         if (!ts) return '-';
-        return new Date(ts).toLocaleString('it-IT');
+        return new Date(ts).toLocaleString(i18n.language);
     };
 
     const getSeverityIcon = (severity: string) => {
@@ -188,9 +194,9 @@ export default function AlarmsPage() {
 
     const getStatusBadge = (status: string) => {
         switch (status) {
-            case 'ACTIVE':       return <Badge variant="destructive">ATTIVO</Badge>;
-            case 'ACKNOWLEDGED': return <Badge variant="secondary" className="bg-orange-500/20 text-orange-500">RICONOSCIUTO</Badge>;
-            case 'CLEARED':      return <Badge variant="outline" className="text-green-500 border-green-500">RIENTRATO</Badge>;
+            case 'ACTIVE':       return <Badge variant="destructive">{tr('alarmsPage.status_active')}</Badge>;
+            case 'ACKNOWLEDGED': return <Badge variant="secondary" className="bg-orange-500/20 text-orange-500">{tr('alarmsPage.status_acknowledged')}</Badge>;
+            case 'CLEARED':      return <Badge variant="outline" className="text-green-500 border-green-500">{tr('alarmsPage.status_cleared')}</Badge>;
             default:             return <Badge variant="outline">{status}</Badge>;
         }
     };
@@ -221,14 +227,14 @@ export default function AlarmsPage() {
                             disabled={ackableActive.length === 0}
                         />
                     </TableHead>
-                    <TableHead>Stato</TableHead>
-                    <TableHead>Gravità</TableHead>
+                    <TableHead>{tr('alarmsPage.col_status')}</TableHead>
+                    <TableHead>{tr('alarmsPage.col_severity')}</TableHead>
                     <TableHead>Tag</TableHead>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead>Messaggio</TableHead>
-                    <TableHead>Valore</TableHead>
-                    <TableHead>Data/Ora Scatto</TableHead>
-                    <TableHead className="text-right">Azioni</TableHead>
+                    <TableHead>{tr('alarmsPage.col_type')}</TableHead>
+                    <TableHead>{tr('alarmsPage.col_message')}</TableHead>
+                    <TableHead>{tr('alarmsPage.col_value')}</TableHead>
+                    <TableHead>{tr('alarmsPage.col_trigger_time')}</TableHead>
+                    <TableHead className="text-right">{tr('common.actions')}</TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -239,8 +245,8 @@ export default function AlarmsPage() {
                         <TableCell colSpan={9} className="text-center py-12">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                                 <BellOff className="w-10 sm:w-8 h-10 sm:h-8 opacity-30" />
-                                <p className="font-medium">Nessun allarme attivo</p>
-                                <p className="text-xs">Il sistema è in stato normale</p>
+                                <p className="font-medium">{tr('alarmsPage.no_active')}</p>
+                                <p className="text-xs">{tr('alarmsPage.no_active_desc')}</p>
                             </div>
                         </TableCell>
                     </TableRow>
@@ -262,7 +268,7 @@ export default function AlarmsPage() {
                             <TableCell>
                                 <div className="flex items-center gap-2">
                                     {getSeverityIcon(event.severity)}
-                                    <span className="capitalize">{event.severity}</span>
+                                    <span className="capitalize">{tr(`alarmsPage.severity_${(event.severity || '').toLowerCase()}`, { defaultValue: event.severity })}</span>
                                 </div>
                             </TableCell>
                             <TableCell className="font-medium">{tagName}</TableCell>
@@ -273,7 +279,7 @@ export default function AlarmsPage() {
                             <TableCell className="text-right">
                                 {isAckable && (
                                     <Button size="sm" variant="outline" onClick={() => handleAcknowledge(event.id)} className="h-10 sm:h-8 gap-1">
-                                        <CheckCircle2 size={14} /> Ack
+                                        <CheckCircle2 size={14} /> {tr('alarmsPage.ack')}
                                     </Button>
                                 )}
                             </TableCell>
@@ -288,16 +294,16 @@ export default function AlarmsPage() {
         <Table>
             <TableHeader>
                 <TableRow>
-                    <TableHead>Stato</TableHead>
-                    <TableHead>Gravità</TableHead>
+                    <TableHead>{tr('alarmsPage.col_status')}</TableHead>
+                    <TableHead>{tr('alarmsPage.col_severity')}</TableHead>
                     <TableHead>Tag</TableHead>
-                    <TableHead>Tipo</TableHead>
-                    <TableHead>Messaggio</TableHead>
-                    <TableHead>Valore</TableHead>
-                    <TableHead>Data/Ora Scatto</TableHead>
-                    <TableHead>Data/Ora Rientro</TableHead>
-                    <TableHead>Riconosciuto da</TableHead>
-                    {isAdmin() && <TableHead className="text-right">Azioni</TableHead>}
+                    <TableHead>{tr('alarmsPage.col_type')}</TableHead>
+                    <TableHead>{tr('alarmsPage.col_message')}</TableHead>
+                    <TableHead>{tr('alarmsPage.col_value')}</TableHead>
+                    <TableHead>{tr('alarmsPage.col_trigger_time')}</TableHead>
+                    <TableHead>{tr('alarmsPage.col_clear_time')}</TableHead>
+                    <TableHead>{tr('alarmsPage.col_ack_by')}</TableHead>
+                    {isAdmin() && <TableHead className="text-right">{tr('common.actions')}</TableHead>}
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -308,9 +314,9 @@ export default function AlarmsPage() {
                         <TableCell colSpan={10} className="text-center py-12">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                                 <Info className="w-10 sm:w-8 h-10 sm:h-8 opacity-30" />
-                                <p className="font-medium">Nessun evento nello storico</p>
+                                <p className="font-medium">{tr('alarmsPage.no_history')}</p>
                                 {(searchQuery || dateFrom || dateTo) && (
-                                    <p className="text-xs">Prova a modificare i filtri di ricerca</p>
+                                    <p className="text-xs">{tr('alarmsPage.no_history_filtered')}</p>
                                 )}
                             </div>
                         </TableCell>
@@ -324,7 +330,7 @@ export default function AlarmsPage() {
                             <TableCell>
                                 <div className="flex items-center gap-2">
                                     {getSeverityIcon(event.severity)}
-                                    <span className="capitalize">{event.severity}</span>
+                                    <span className="capitalize">{tr(`alarmsPage.severity_${(event.severity || '').toLowerCase()}`, { defaultValue: event.severity })}</span>
                                 </div>
                             </TableCell>
                             <TableCell className="font-medium">{tagName}</TableCell>
@@ -345,7 +351,7 @@ export default function AlarmsPage() {
                                         size="sm" variant="outline"
                                         onClick={() => setConfirmDelete(event.id)}
                                         className="h-10 sm:h-8 w-10 sm:w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
-                                        title="Elimina"
+                                        title={tr('common.delete')}
                                     >
                                         <Trash2 size={14} />
                                     </Button>
@@ -363,37 +369,37 @@ export default function AlarmsPage() {
             {/* Confirm dialogs */}
             <ConfirmDialog
                 open={confirmDelete !== null}
-                title="Elimina evento"
-                description="Vuoi eliminare definitivamente questo evento dallo storico? L'operazione non è reversibile."
-                confirmLabel="Elimina"
+                title={tr('alarmsPage.delete_title')}
+                description={tr('alarmsPage.delete_desc')}
+                confirmLabel={tr('common.delete')}
                 destructive
                 onConfirm={() => confirmDelete !== null && handleDeleteHistory(confirmDelete)}
                 onCancel={() => setConfirmDelete(null)}
             />
             <ConfirmDialog
                 open={confirmClear}
-                title="Svuota storico allarmi"
-                description="Vuoi eliminare TUTTI gli eventi dallo storico? Questa operazione non è reversibile."
-                confirmLabel="Svuota tutto"
+                title={tr('alarmsPage.clear_title')}
+                description={tr('alarmsPage.clear_desc')}
+                confirmLabel={tr('alarmsPage.clear_confirm')}
                 destructive
                 onConfirm={handleClearAllHistory}
                 onCancel={() => setConfirmClear(false)}
             />
             <ConfirmDialog
                 open={confirmBulkAck}
-                title={`Riconosci ${selectedIds.size} allarmi`}
-                description="Tutti gli allarmi selezionati verranno marcati come riconosciuti."
-                confirmLabel="Riconosci tutti"
+                title={tr('alarmsPage.bulk_ack_title', { count: selectedIds.size })}
+                description={tr('alarmsPage.bulk_ack_desc')}
+                confirmLabel={tr('alarmsPage.bulk_ack_confirm')}
                 onConfirm={handleBulkAcknowledge}
                 onCancel={() => setConfirmBulkAck(false)}
             />
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Allarmi e Notifiche</h1>
-                    <p className="text-muted-foreground mt-1">Monitora gli allarmi in corso e lo storico degli eventi.</p>
+                    <h1 className="text-3xl font-bold tracking-tight">{tr('alarmsPage.title')}</h1>
+                    <p className="text-muted-foreground mt-1">{tr('alarmsPage.subtitle')}</p>
                 </div>
-                <Button variant="outline" size="icon" onClick={loadData} disabled={isLoading}>
+                <Button variant="outline" size="icon" onClick={loadData} disabled={isLoading} title={tr('alarmsPage.refresh')}>
                     <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
                 </Button>
             </div>
@@ -404,7 +410,7 @@ export default function AlarmsPage() {
                         <TabsList className="bg-muted">
                             <TabsTrigger value="active" className="gap-2 px-6">
                                 <AlertTriangle size={16} className="text-red-500" />
-                                Allarmi Attivi
+                                {tr('alarmsPage.tab_active')}
                                 {activeAlarms.length > 0 && (
                                     <Badge variant="destructive" className="ml-1 px-1.5 py-0 h-5 text-xs rounded-full">
                                         {activeAlarms.length}
@@ -413,7 +419,7 @@ export default function AlarmsPage() {
                             </TabsTrigger>
                             <TabsTrigger value="history" className="gap-2 px-6">
                                 <Info size={16} />
-                                Storico Allarmi
+                                {tr('alarmsPage.tab_history')}
                                 {history.length > 0 && (
                                     <Badge variant="secondary" className="ml-1 px-1.5 py-0 h-5 text-xs rounded-full">
                                         {history.length}
@@ -429,12 +435,12 @@ export default function AlarmsPage() {
                             {/* Bulk action bar */}
                             {selectedIds.size > 0 && (
                                 <div className="flex items-center gap-3 px-4 py-2 bg-primary/5 border-b">
-                                    <span className="text-sm font-medium">{selectedIds.size} selezionati</span>
+                                    <span className="text-sm font-medium">{tr('alarmsPage.selected_count', { count: selectedIds.size })}</span>
                                     <Button size="sm" className="h-10 sm:h-8 gap-1.5" onClick={() => setConfirmBulkAck(true)}>
-                                        <CheckCircle2 size={14} /> Riconosci selezionati
+                                        <CheckCircle2 size={14} /> {tr('alarmsPage.ack_selected')}
                                     </Button>
                                     <Button size="sm" variant="ghost" className="h-10 sm:h-8" onClick={() => setSelectedIds(new Set())}>
-                                        Deseleziona
+                                        {tr('alarmsPage.deselect')}
                                     </Button>
                                 </div>
                             )}
@@ -447,35 +453,35 @@ export default function AlarmsPage() {
                                 <div className="relative flex-1 min-w-[200px] max-w-sm">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                                     <Input
-                                        placeholder="Cerca per nome tag, messaggio..."
+                                        placeholder={tr('alarmsPage.search_placeholder')}
                                         value={searchQuery}
                                         onChange={e => setSearchQuery(e.target.value)}
                                         className="pl-9 h-9"
                                     />
                                 </div>
                                 <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
-                                    <span>Dal:</span>
+                                    <span>{tr('alarmsPage.date_from')}</span>
                                     <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-9 w-40" />
-                                    <span>Al:</span>
+                                    <span>{tr('alarmsPage.date_to')}</span>
                                     <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-9 w-40" />
                                     {(searchQuery || dateFrom || dateTo) && (
                                         <Button variant="ghost" size="sm" className="h-9 px-2"
                                             onClick={() => { setSearchQuery(''); setDateFrom(''); setDateTo(''); }}>
-                                            Reset
+                                            {tr('alarmsPage.reset_filters')}
                                         </Button>
                                     )}
                                 </div>
                                 <div className="flex items-center gap-2 ml-auto">
-                                    <span className="text-xs text-muted-foreground">{filteredHistory.length} risultati</span>
+                                    <span className="text-xs text-muted-foreground">{tr('alarmsPage.results', { count: filteredHistory.length })}</span>
                                     <Button variant="outline" size="sm" className="h-9 gap-2"
                                         onClick={handleExportCSV} disabled={filteredHistory.length === 0}>
-                                        <Download size={16} /> Scarica CSV
+                                        <Download size={16} /> {tr('alarmsPage.download_csv')}
                                     </Button>
                                     {isAdmin() && (
                                         <Button variant="outline" size="sm"
                                             className="h-9 gap-2 text-red-500 hover:text-red-600 hover:bg-red-50"
                                             onClick={() => setConfirmClear(true)} disabled={history.length === 0}>
-                                            <Trash2 size={16} /> Elimina Tutto
+                                            <Trash2 size={16} /> {tr('alarmsPage.delete_all')}
                                         </Button>
                                     )}
                                 </div>

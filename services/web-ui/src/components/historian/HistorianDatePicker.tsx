@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { DayPicker, type DateRange } from 'react-day-picker';
 import { format, subDays, startOfDay, endOfDay } from 'date-fns';
-import { it } from 'date-fns/locale';
+import { it, enUS } from 'date-fns/locale';
+import { useTranslation } from 'react-i18next';
 import { Calendar, ChevronDown, SkipForward, Loader2 } from 'lucide-react';
 import {
     Popover, PopoverContent, PopoverTrigger,
@@ -10,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { historyApi } from '@/api/history';
+import i18n from '@/i18n';
 import 'react-day-picker/style.css';
 
 export interface HistorianRange {
@@ -47,6 +49,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
     const [startTime, setStartTime] = useState(format(value.from, 'HH:mm'));
     const [endTime, setEndTime] = useState(format(value.to, 'HH:mm'));
     const [jumping, setJumping] = useState(false);
+    const { t } = useTranslation();
 
     const applyPreset = (ms: number, label: string) => {
         const to = new Date();
@@ -82,14 +85,14 @@ export function HistorianDatePicker({ value, onChange }: Props) {
         setJumping(true);
         try {
             const range = await historyApi.getDataRange();
-            if (!range.hasData || !range.newest) { toast.info('No data in DB'); return; }
+            if (!range.hasData || !range.newest) { toast.info(i18n.t('historian.no_data_db')); return; }
             const newest = new Date(range.newest);
             const from = new Date(newest.getTime() - 30 * 60_000);
             const to = new Date(newest.getTime() + 30 * 60_000);
             onChange({ from, to, preset: 'custom' });
-            toast.success(`Last data: ${format(newest, 'dd/MM HH:mm:ss')}`);
+            toast.success(i18n.t('historian.last_data_at', { time: format(newest, 'dd/MM HH:mm:ss') }));
         } catch {
-            toast.error('Failed to fetch data range');
+            toast.error(i18n.t('historian.data_range_failed'));
         } finally {
             setJumping(false);
         }
@@ -126,7 +129,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                     isPresetActive('today') ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                 }`}
             >
-                Today
+                {t('historian.today')}
             </button>
             <button
                 onClick={applyYesterday}
@@ -134,7 +137,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                     isPresetActive('yesterday') ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground hover:bg-muted'
                 }`}
             >
-                Yesterday
+                {t('historian.yesterday')}
             </button>
 
             {/* Calendar range picker */}
@@ -148,7 +151,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                         <Calendar className="w-3 h-3" />
                         {value.preset === 'custom'
                             ? `${fmt(value.from)} → ${fmt(value.to)}`
-                            : 'Custom'}
+                            : t('historian.custom')}
                         <ChevronDown className="w-3 h-3 opacity-60" />
                     </Button>
                 </PopoverTrigger>
@@ -162,7 +165,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                             if (r?.to) setEndTime('23:59');
                         }}
                         numberOfMonths={2}
-                        locale={it}
+                        locale={i18n.language?.startsWith('it') ? it : enUS}
                         defaultMonth={subDays(new Date(), 7)}
                         weekStartsOn={1}
                         classNames={{
@@ -173,7 +176,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                     />
                     <div className="flex gap-2 mt-2 border-t pt-2">
                         <div className="flex-1 space-y-1">
-                            <p className="text-[10px] text-muted-foreground">From time</p>
+                            <p className="text-[10px] text-muted-foreground">{t('historian.from_time')}</p>
                             <Input
                                 type="time"
                                 value={startTime}
@@ -182,7 +185,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                             />
                         </div>
                         <div className="flex-1 space-y-1">
-                            <p className="text-[10px] text-muted-foreground">To time</p>
+                            <p className="text-[10px] text-muted-foreground">{t('historian.to_time')}</p>
                             <Input
                                 type="time"
                                 value={endTime}
@@ -197,7 +200,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                         disabled={!calRange?.from}
                         onClick={applyCalRange}
                     >
-                        Apply Range
+                        {t('historian.apply_range')}
                     </Button>
                 </PopoverContent>
             </Popover>
@@ -209,13 +212,13 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                 className="h-9 sm:h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
                 onClick={jumpToLastData}
                 disabled={jumping}
-                title="Jump to most recent data"
+                title={t('historian.jump_last_title')}
             >
                 {jumping
                     ? <Loader2 className="w-3 h-3 animate-spin" />
                     : <SkipForward className="w-3 h-3" />
                 }
-                Last data
+                {t('historian.last_data')}
             </Button>
 
             {/* Current range display */}

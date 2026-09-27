@@ -1,5 +1,6 @@
 import { Eye, EyeOff, X, GripVertical, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useTranslation } from 'react-i18next';
 
 export interface PenStats {
     min: number | null;
@@ -40,11 +41,12 @@ const PALETTE = [
 ];
 
 export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: Props) {
+    const { t } = useTranslation();
     if (pens.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2 p-4">
                 <TrendingUp className="w-10 sm:w-8 h-10 sm:h-8 opacity-30" />
-                <p className="text-xs text-center">Select tags from the browser to add pens</p>
+                <p className="text-xs text-center">{t('historian.pens_empty')}</p>
             </div>
         );
     }
@@ -62,7 +64,7 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
                             <div
                                 className="w-3 h-3 rounded-sm cursor-pointer ring-1 ring-border"
                                 style={{ background: pen.color }}
-                                title="Click to change color"
+                                title={t('historian.change_color')}
                             />
                             <select
                                 className="absolute inset-0 opacity-0 cursor-pointer w-3 h-3"
@@ -93,6 +95,7 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
                             size="icon"
                             className="h-5 w-5 shrink-0"
                             onClick={() => onToggleVisibility(pen.tagId)}
+                            title={pen.visible ? t('historian.hide_pen') : t('historian.show_pen')}
                         >
                             {pen.visible
                                 ? <Eye className="w-3 h-3" />
@@ -104,6 +107,7 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
                             size="icon"
                             className="h-5 w-5 shrink-0 text-destructive/60 hover:text-destructive"
                             onClick={() => onRemove(pen.tagId)}
+                            title={t('historian.remove_pen')}
                         >
                             <X className="w-3 h-3" />
                         </Button>
@@ -113,10 +117,10 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
                     {pen.stats && (
                         <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-0.5 pl-5">
                             {[
-                                { label: 'Lst', value: pen.stats.last },
-                                { label: 'Min', value: pen.stats.min },
-                                { label: 'Max', value: pen.stats.max },
-                                { label: 'Avg', value: pen.stats.avg },
+                                { label: t('historian.stat_last'), value: pen.stats.last },
+                                { label: t('historian.stat_min'), value: pen.stats.min },
+                                { label: t('historian.stat_max'), value: pen.stats.max },
+                                { label: t('historian.stat_avg'), value: pen.stats.avg },
                             ].map(({ label, value }) => (
                                 <div key={label} className="text-center">
                                     <div className="text-[9px] text-muted-foreground uppercase tracking-wide">{label}</div>

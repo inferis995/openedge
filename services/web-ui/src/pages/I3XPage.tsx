@@ -52,32 +52,34 @@ import {
 } from '@/api/i3x';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
 
 // ─── Quality helpers ────────────────────────────────────────────────────────
 
 function QualityBadge({ quality }: { quality?: number }) {
+    const { t } = useTranslation();
     if (quality === undefined || quality === null)
-        return <Badge variant="outline" className="text-muted-foreground text-xs">No data</Badge>;
+        return <Badge variant="outline" className="text-muted-foreground text-xs">{t('i3xPage.no_data')}</Badge>;
     if (quality >= 192)
         return (
             <Badge className="bg-green-500/15 text-green-600 border-green-500/30 text-xs font-mono">
                 <span className="mr-1 inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                Good
+                {t('i3xPage.quality_good')}
             </Badge>
         );
     if (quality >= 64)
         return (
             <Badge className="bg-yellow-500/15 text-yellow-600 border-yellow-500/30 text-xs font-mono">
                 <span className="mr-1 inline-block w-2 h-2 rounded-full bg-yellow-500" />
-                Uncertain
+                {t('i3xPage.quality_uncertain')}
             </Badge>
         );
     return (
         <Badge className="bg-red-500/15 text-red-600 border-red-500/30 text-xs font-mono">
             <span className="mr-1 inline-block w-2 h-2 rounded-full bg-red-500" />
-            Bad
+            {t('i3xPage.quality_bad')}
         </Badge>
     );
 }
@@ -111,12 +113,12 @@ function formatValue(v: unknown): string {
 
 function formatTs(ts?: string): string {
     if (!ts) return '—';
-    return new Date(ts).toLocaleTimeString();
+    return new Date(ts).toLocaleTimeString(i18n.language);
 }
 
 function formatTsFull(ts?: string): string {
     if (!ts) return '—';
-    return new Date(ts).toLocaleString();
+    return new Date(ts).toLocaleString(i18n.language);
 }
 
 // ─── Equipment Tree ──────────────────────────────────────────────────────────
@@ -245,6 +247,7 @@ const RANGE_OPTIONS = [
 ];
 
 function PropertyHistoryPanel({ property }: { property: I3XProperty }) {
+    const { t } = useTranslation();
     const [range, setRange]   = useState(1);
     const [points, setPoints] = useState<I3XHistoryPoint[]>([]);
     const [loading, setLoading] = useState(false);
@@ -262,7 +265,7 @@ function PropertyHistoryPanel({ property }: { property: I3XProperty }) {
             );
             setPoints(res.items ?? []);
         } catch {
-            toast.error('Errore nel caricamento storico');
+            toast.error(i18n.t('i3xPage.history_load_error'));
         } finally {
             setLoading(false);
         }
@@ -273,7 +276,7 @@ function PropertyHistoryPanel({ property }: { property: I3XProperty }) {
     const chartData = useMemo(
         () =>
             points.map(p => ({
-                t: new Date(p.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                t: new Date(p.timestamp).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }),
                 v: p.value,
             })),
         [points],
@@ -284,9 +287,9 @@ function PropertyHistoryPanel({ property }: { property: I3XProperty }) {
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-medium">
                     <History size={14} className="text-primary" />
-                    <span>Storico — {property.name}</span>
+                    <span>{t('i3xPage.history_of', { name: property.name })}</span>
                     <Badge variant="outline" className="text-xs font-mono">
-                        {points.length} campioni
+                        {t('i3xPage.samples', { count: points.length })}
                     </Badge>
                 </div>
                 <div className="flex items-center gap-2">
@@ -312,7 +315,7 @@ function PropertyHistoryPanel({ property }: { property: I3XProperty }) {
                 <div className="h-40 bg-muted animate-pulse rounded" />
             ) : points.length === 0 ? (
                 <div className="h-40 flex items-center justify-center text-xs text-muted-foreground">
-                    Nessun dato nello storico per questo intervallo
+                    {t('i3xPage.history_empty')}
                 </div>
             ) : (
                 <ResponsiveContainer width="100%" height={140}>
@@ -348,20 +351,21 @@ function PropertyHistoryPanel({ property }: { property: I3XProperty }) {
 
 // ─── API Reference ───────────────────────────────────────────────────────────
 
+// desc = i18n key, resolved with t() at render.
 const API_ENDPOINTS = [
-    { method: 'GET',  path: '/api/i3x/v1/equipment',                            desc: 'Lista completa gerarchia (org, site, area, gateway)' },
-    { method: 'GET',  path: '/api/i3x/v1/equipment/:id',                        desc: 'Dettaglio nodo (org-n, site-n, area-n, gw-n)' },
-    { method: 'GET',  path: '/api/i3x/v1/equipment/:id/children',               desc: 'Figli diretti di un nodo gerarchico' },
-    { method: 'GET',  path: '/api/i3x/v1/equipment/:id/properties',             desc: 'Tag del gateway con valore live (paginato)' },
-    { method: 'GET',  path: '/api/i3x/v1/equipment/:id/properties/:propId',     desc: 'Singola property del gateway' },
-    { method: 'GET',  path: '/api/i3x/v1/properties',                           desc: 'Tutti i tag cross-gateway (?equipment_id=gw-n)' },
-    { method: 'GET',  path: '/api/i3x/v1/properties/:id',                       desc: 'Singola property per ID i3X' },
-    { method: 'GET',  path: '/api/i3x/v1/properties/:id/history',               desc: 'Storico raw (?from=RFC3339&to=RFC3339&limit=500)' },
-    { method: 'PUT',  path: '/api/i3x/v1/properties/:id/value',                 desc: 'Scrittura valore via MQTT dispatch' },
-    { method: 'POST', path: '/api/i3x/v1/properties/values',                    desc: 'Batch read fino a 500 property {"ids":[...]}' },
-    { method: 'GET',  path: '/api/i3x/v1/alarms',                               desc: 'Allarmi attivi (Active + Acknowledged)' },
-    { method: 'GET',  path: '/api/i3x/v1/alarms/history',                       desc: 'Storico allarmi paginato (?limit=&offset=)' },
-    { method: 'POST', path: '/api/i3x/v1/alarms/:id/acknowledge',               desc: 'Acknowledge allarme attivo (richiede i3x_write)' },
+    { method: 'GET',  path: '/api/i3x/v1/equipment',                            desc: 'i3xPage.ep_equipment_list' },
+    { method: 'GET',  path: '/api/i3x/v1/equipment/:id',                        desc: 'i3xPage.ep_equipment_get' },
+    { method: 'GET',  path: '/api/i3x/v1/equipment/:id/children',               desc: 'i3xPage.ep_equipment_children' },
+    { method: 'GET',  path: '/api/i3x/v1/equipment/:id/properties',             desc: 'i3xPage.ep_equipment_properties' },
+    { method: 'GET',  path: '/api/i3x/v1/equipment/:id/properties/:propId',     desc: 'i3xPage.ep_equipment_property' },
+    { method: 'GET',  path: '/api/i3x/v1/properties',                           desc: 'i3xPage.ep_properties_list' },
+    { method: 'GET',  path: '/api/i3x/v1/properties/:id',                       desc: 'i3xPage.ep_property_get' },
+    { method: 'GET',  path: '/api/i3x/v1/properties/:id/history',               desc: 'i3xPage.ep_property_history' },
+    { method: 'PUT',  path: '/api/i3x/v1/properties/:id/value',                 desc: 'i3xPage.ep_property_write' },
+    { method: 'POST', path: '/api/i3x/v1/properties/values',                    desc: 'i3xPage.ep_properties_batch' },
+    { method: 'GET',  path: '/api/i3x/v1/alarms',                               desc: 'i3xPage.ep_alarms_list' },
+    { method: 'GET',  path: '/api/i3x/v1/alarms/history',                       desc: 'i3xPage.ep_alarms_history' },
+    { method: 'POST', path: '/api/i3x/v1/alarms/:id/acknowledge',               desc: 'i3xPage.ep_alarm_ack' },
 ];
 
 const METHOD_COLOR: Record<string, string> = {
@@ -373,6 +377,7 @@ const METHOD_COLOR: Record<string, string> = {
 // ─── Main page ───────────────────────────────────────────────────────────────
 
 export default function I3XPage() {
+    const { t } = useTranslation();
     const { canI3xWrite } = useAuthStore();
     const writeAllowed = canI3xWrite();
 
@@ -431,7 +436,7 @@ export default function I3XPage() {
                 return roots;
             });
         } catch {
-            toast.error('Errore nel caricamento dati i3X');
+            toast.error(i18n.t('i3xPage.load_error'));
         } finally {
             setLoadingEquipment(false);
             setLoadingAlarms(false);
@@ -447,7 +452,7 @@ export default function I3XPage() {
             const res = await i3xApi.listEquipmentProperties(eq.id);
             setProperties(res.items ?? []);
         } catch {
-            toast.error('Errore nel caricamento properties');
+            toast.error(i18n.t('i3xPage.properties_load_error'));
         } finally {
             setLoadingProps(false);
         }
@@ -507,23 +512,23 @@ export default function I3XPage() {
             let coerced: unknown = editValue;
             if (prop.dataType === 'Float' || prop.dataType === 'Int32') {
                 const n = Number(editValue);
-                if (isNaN(n)) { toast.error(`Valore non valido per tipo ${prop.dataType}`); return; }
+                if (isNaN(n)) { toast.error(t('i3xPage.invalid_value', { type: prop.dataType })); return; }
                 coerced = n;
             } else if (prop.dataType === 'Boolean') {
                 const lower = editValue.trim().toLowerCase();
                 if (!['true','false','1','0'].includes(lower)) {
-                    toast.error('Per Boolean inserisci: true / false / 1 / 0');
+                    toast.error(t('i3xPage.invalid_boolean'));
                     return;
                 }
                 coerced = lower === 'true' || lower === '1';
             }
             await i3xApi.writePropertyValue(prop.id, coerced);
-            toast.success(`Scrittura inviata: ${prop.name} → ${editValue}`);
+            toast.success(t('i3xPage.write_sent', { name: prop.name, value: editValue }));
             setEditingPropId(null);
             setEditValue('');
             setTimeout(() => selectedEq && loadProperties(selectedEq), 1500);
         } catch {
-            toast.error(`Errore nella scrittura di ${prop.name}`);
+            toast.error(t('i3xPage.write_error', { name: prop.name }));
         } finally {
             setWriting(false);
         }
@@ -538,10 +543,10 @@ export default function I3XPage() {
         setAckingId(alarm.id);
         try {
             await i3xApi.acknowledgeAlarm(alarm.id);
-            toast.success(`Allarme ${alarm.id} acknowledged`);
+            toast.success(t('i3xPage.alarm_acked', { id: alarm.id }));
             await loadBase();
         } catch {
-            toast.error('Errore nell\'acknowledge');
+            toast.error(t('i3xPage.ack_error'));
         } finally {
             setAckingId(null);
         }
@@ -570,15 +575,15 @@ export default function I3XPage() {
                         </Badge>
                     </div>
                     <p className="text-sm text-muted-foreground ml-14">
-                        Interfaccia vendor-neutral per l'accesso ai dati industriali — compatibile CESMII i3X.
+                        {t('i3xPage.subtitle')}
                     </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Clock size={12} />
-                    <span>{lastRefresh.toLocaleTimeString()}</span>
+                    <span>{lastRefresh.toLocaleTimeString(i18n.language)}</span>
                     <Button variant="outline" size="sm" onClick={handleRefresh} className="ml-2 clip-chamfer-sm">
                         <RefreshCw size={14} className="mr-1" />
-                        Aggiorna
+                        {t('i3xPage.refresh')}
                     </Button>
                 </div>
             </div>
@@ -592,7 +597,7 @@ export default function I3XPage() {
                         </div>
                         <div>
                             <p className="text-2xl font-bold">{equipmentCount}</p>
-                            <p className="text-xs text-muted-foreground">Equipment</p>
+                            <p className="text-xs text-muted-foreground">{t('i3xPage.stat_equipment')}</p>
                         </div>
                     </CardContent>
                 </Card>
@@ -603,7 +608,7 @@ export default function I3XPage() {
                         </div>
                         <div>
                             <p className="text-2xl font-bold">{allEquipment.filter(e => e.type === 'Assembly').length}</p>
-                            <p className="text-xs text-muted-foreground">Assembly nodes</p>
+                            <p className="text-xs text-muted-foreground">{t('i3xPage.stat_assembly')}</p>
                         </div>
                     </CardContent>
                 </Card>
@@ -615,7 +620,7 @@ export default function I3XPage() {
                         <div>
                             <p className="text-2xl font-bold">{selectedEq?.type === 'Equipment' ? properties.length : '—'}</p>
                             <p className="text-xs text-muted-foreground">
-                                {selectedEq?.type === 'Equipment' ? `Properties (${selectedEq.name})` : 'Properties (seleziona gw)'}
+                                {selectedEq?.type === 'Equipment' ? t('i3xPage.stat_properties_of', { name: selectedEq.name }) : t('i3xPage.stat_properties_pick')}
                             </p>
                         </div>
                     </CardContent>
@@ -627,7 +632,7 @@ export default function I3XPage() {
                         </div>
                         <div>
                             <p className="text-2xl font-bold">{activeAlarmCount}</p>
-                            <p className="text-xs text-muted-foreground">Allarmi attivi</p>
+                            <p className="text-xs text-muted-foreground">{t('i3xPage.stat_active_alarms')}</p>
                         </div>
                     </CardContent>
                 </Card>
@@ -638,18 +643,18 @@ export default function I3XPage() {
                 <TabsList className="clip-chamfer-sm">
                     <TabsTrigger value="browser" className="clip-chamfer-sm">
                         <Cpu size={14} className="mr-2" />
-                        Equipment Browser
+                        {t('i3xPage.tab_browser')}
                     </TabsTrigger>
                     <TabsTrigger value="alarms" className="clip-chamfer-sm">
                         <AlertTriangle size={14} className="mr-2" />
-                        Alarms
+                        {t('i3xPage.tab_alarms')}
                         {activeAlarmCount > 0 && (
                             <Badge className="ml-2 bg-red-500/20 text-red-600 text-xs">{activeAlarmCount}</Badge>
                         )}
                     </TabsTrigger>
                     <TabsTrigger value="reference" className="clip-chamfer-sm">
                         <BookOpen size={14} className="mr-2" />
-                        API Reference
+                        {t('i3xPage.tab_reference')}
                     </TabsTrigger>
                 </TabsList>
 
@@ -661,7 +666,7 @@ export default function I3XPage() {
                             <CardHeader className="pb-2 border-b">
                                 <CardTitle className="text-sm flex items-center gap-2">
                                     <Network size={14} className="text-primary" />
-                                    Equipment Hierarchy
+                                    {t('i3xPage.hierarchy')}
                                     <Badge variant="outline" className="text-xs ml-auto">{allEquipment.length}</Badge>
                                 </CardTitle>
                             </CardHeader>
@@ -674,7 +679,7 @@ export default function I3XPage() {
                                     </div>
                                 ) : allEquipment.length === 0 ? (
                                     <div className="p-8 text-center text-sm text-muted-foreground">
-                                        Nessun equipment trovato
+                                        {t('i3xPage.no_equipment')}
                                     </div>
                                 ) : (
                                     <EquipmentTree
@@ -694,7 +699,7 @@ export default function I3XPage() {
                                 <Card className="clip-chamfer-sm h-full flex items-center justify-center min-h-[400px]">
                                     <CardContent className="text-center text-muted-foreground p-8">
                                         <Network size={40} className="mx-auto mb-3 opacity-20" />
-                                        <p className="text-sm">Seleziona un Equipment nell'albero per vedere le Properties</p>
+                                        <p className="text-sm">{t('i3xPage.pick_equipment')}</p>
                                     </CardContent>
                                 </Card>
                             ) : selectedEq.type === 'Assembly' ? (
@@ -703,7 +708,7 @@ export default function I3XPage() {
                                         <Network size={40} className="mx-auto mb-3 opacity-20" />
                                         <p className="text-sm font-medium">{selectedEq.name}</p>
                                         <p className="text-xs mt-2 max-w-xs mx-auto">
-                                            Nodo <Badge variant="outline" className="text-xs mx-1">Assembly</Badge> — espandi nell'albero per raggiungere un gateway <Badge variant="outline" className="text-xs mx-1">Equipment</Badge>.
+                                            {t('i3xPage.assembly_node')} <Badge variant="outline" className="text-xs mx-1">Assembly</Badge> — {t('i3xPage.assembly_hint')} <Badge variant="outline" className="text-xs mx-1">Equipment</Badge>.
                                         </p>
                                         <code className="text-[10px] mt-3 block text-muted-foreground/60 font-mono">{selectedEq.id}</code>
                                         <p className="text-xs mt-4 text-muted-foreground/60 italic">{selectedEq.path}</p>
@@ -717,7 +722,7 @@ export default function I3XPage() {
                                                 <CardTitle className="text-base flex items-center gap-2">
                                                     <Tag size={16} className="text-primary shrink-0" />
                                                     <span className="truncate">{selectedEq.name}</span>
-                                                    <span className="text-muted-foreground font-normal text-sm shrink-0">— Properties</span>
+                                                    <span className="text-muted-foreground font-normal text-sm shrink-0">— {t('i3xPage.properties')}</span>
                                                 </CardTitle>
                                                 <p className="text-[10px] text-muted-foreground mt-0.5 font-mono">{selectedEq.path}</p>
                                             </div>
@@ -728,7 +733,7 @@ export default function I3XPage() {
                                         <div className="mt-2 relative">
                                             <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
                                             <Input
-                                                placeholder="Cerca property..."
+                                                placeholder={t('i3xPage.search_property')}
                                                 value={propSearch}
                                                 onChange={e => setPropSearch(e.target.value)}
                                                 className="pl-7 h-10 sm:h-8 text-xs clip-chamfer-sm"
@@ -744,7 +749,7 @@ export default function I3XPage() {
                                             </div>
                                         ) : properties.length === 0 ? (
                                             <div className="p-8 text-center text-sm text-muted-foreground">
-                                                Nessuna property configurata
+                                                {t('i3xPage.no_properties')}
                                             </div>
                                         ) : (
                                             <>
@@ -752,12 +757,12 @@ export default function I3XPage() {
                                                     <Table>
                                                         <TableHeader>
                                                             <TableRow>
-                                                                <TableHead className="text-xs">ID i3X</TableHead>
-                                                                <TableHead className="text-xs">Nome</TableHead>
-                                                                <TableHead className="text-xs">Tipo</TableHead>
-                                                                <TableHead className="text-xs">Valore live</TableHead>
-                                                                <TableHead className="text-xs">Quality</TableHead>
-                                                                <TableHead className="text-xs">Timestamp</TableHead>
+                                                                <TableHead className="text-xs">{t('i3xPage.col_id')}</TableHead>
+                                                                <TableHead className="text-xs">{t('common.name')}</TableHead>
+                                                                <TableHead className="text-xs">{t('i3xPage.col_type')}</TableHead>
+                                                                <TableHead className="text-xs">{t('i3xPage.col_live_value')}</TableHead>
+                                                                <TableHead className="text-xs">{t('i3xPage.col_quality')}</TableHead>
+                                                                <TableHead className="text-xs">{t('i3xPage.col_timestamp')}</TableHead>
                                                                 <TableHead className="text-xs w-16"></TableHead>
                                                             </TableRow>
                                                         </TableHeader>
@@ -782,7 +787,7 @@ export default function I3XPage() {
                                                                                 {prop.name}
                                                                                 {prop.historize && (
                                                                                     <Badge variant="outline" className="text-[10px] py-0 px-1 text-violet-600 border-violet-400/40 bg-violet-500/10">
-                                                                                        hist
+                                                                                        {t('i3xPage.hist_badge')}
                                                                                     </Badge>
                                                                                 )}
                                                                             </div>
@@ -802,7 +807,7 @@ export default function I3XPage() {
                                                                                             prop.dataType === 'Boolean' ? 'true/false'
                                                                                             : prop.dataType === 'Float' ? '0.0'
                                                                                             : prop.dataType === 'Int32' ? '0'
-                                                                                            : 'testo'
+                                                                                            : t('i3xPage.text_placeholder')
                                                                                         }
                                                                                         className="h-9 sm:h-7 text-xs font-mono w-28 clip-chamfer-sm"
                                                                                         disabled={writing}
@@ -841,7 +846,7 @@ export default function I3XPage() {
                                                                                         size="icon" variant="ghost"
                                                                                         className={cn('h-7 w-7', isHistory ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-primary hover:bg-primary/10')}
                                                                                         onClick={() => setSelectedProp(isHistory ? null : prop)}
-                                                                                        title="Storico"
+                                                                                        title={t('i3xPage.history')}
                                                                                     >
                                                                                         <History size={12} />
                                                                                     </Button>
@@ -851,7 +856,7 @@ export default function I3XPage() {
                                                                                         size="icon" variant="ghost"
                                                                                         className="h-9 sm:h-7 w-9 sm:w-7 text-muted-foreground hover:bg-primary/10 hover:text-primary"
                                                                                         onClick={() => startEdit(prop)}
-                                                                                        title={`Scrivi su ${prop.name}`}
+                                                                                        title={t('i3xPage.write_to', { name: prop.name })}
                                                                                     >
                                                                                         <Pencil size={12} />
                                                                                     </Button>
@@ -882,7 +887,7 @@ export default function I3XPage() {
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="text-sm flex items-center gap-2">
                                 <Zap size={15} className="text-red-500" />
-                                Allarmi Attivi
+                                {t('i3xPage.active_alarms')}
                                 <Badge className="bg-red-500/15 text-red-600 border-red-500/30 text-xs">{activeAlarmCount}</Badge>
                             </CardTitle>
                         </CardHeader>
@@ -894,20 +899,20 @@ export default function I3XPage() {
                             ) : alarms.length === 0 ? (
                                 <div className="p-8 text-center flex flex-col items-center gap-2">
                                     <CheckCircle2 size={32} className="text-green-500 opacity-60" />
-                                    <p className="text-sm text-muted-foreground">Nessun allarme attivo</p>
+                                    <p className="text-sm text-muted-foreground">{t('i3xPage.no_active_alarms')}</p>
                                 </div>
                             ) : (
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead className="text-xs w-8"></TableHead>
-                                            <TableHead className="text-xs">ID i3X</TableHead>
-                                            <TableHead className="text-xs">Equipment</TableHead>
-                                            <TableHead className="text-xs">Property</TableHead>
-                                            <TableHead className="text-xs">Tipo</TableHead>
-                                            <TableHead className="text-xs">Messaggio</TableHead>
-                                            <TableHead className="text-xs">Status</TableHead>
-                                            <TableHead className="text-xs">Trigger</TableHead>
+                                            <TableHead className="text-xs">{t('i3xPage.col_id')}</TableHead>
+                                            <TableHead className="text-xs">{t('i3xPage.col_equipment')}</TableHead>
+                                            <TableHead className="text-xs">{t('i3xPage.col_property')}</TableHead>
+                                            <TableHead className="text-xs">{t('i3xPage.col_type')}</TableHead>
+                                            <TableHead className="text-xs">{t('i3xPage.col_message')}</TableHead>
+                                            <TableHead className="text-xs">{t('i3xPage.col_status')}</TableHead>
+                                            <TableHead className="text-xs">{t('i3xPage.col_trigger')}</TableHead>
                                             {writeAllowed && <TableHead className="text-xs w-24"></TableHead>}
                                         </TableRow>
                                     </TableHeader>
@@ -925,7 +930,7 @@ export default function I3XPage() {
                                                         'text-red-600 border-red-500/30':       alarm.status === 'Active',
                                                         'text-yellow-600 border-yellow-500/30': alarm.status === 'Acknowledged',
                                                     })}>
-                                                        {alarm.status}
+                                                        {t(`i3xPage.status_${alarm.status}`, { defaultValue: alarm.status })}
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell className="text-xs text-muted-foreground">{formatTs(alarm.triggerTime)}</TableCell>
@@ -944,7 +949,7 @@ export default function I3XPage() {
                                                                 ) : (
                                                                     <Bell size={11} className="mr-1" />
                                                                 )}
-                                                                ACK
+                                                                {t('i3xPage.ack')}
                                                             </Button>
                                                         )}
                                                         {alarm.status === 'Acknowledged' && (
@@ -967,25 +972,25 @@ export default function I3XPage() {
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="text-sm flex items-center gap-2">
                                 <Clock size={15} className="text-muted-foreground" />
-                                Storico Allarmi
+                                {t('i3xPage.alarm_history')}
                                 <Badge variant="outline" className="text-xs">{alarmHistory.length}</Badge>
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="p-0">
                             {alarmHistory.length === 0 ? (
-                                <div className="p-6 text-center text-sm text-muted-foreground">Nessun evento nello storico</div>
+                                <div className="p-6 text-center text-sm text-muted-foreground">{t('i3xPage.no_history_events')}</div>
                             ) : (
                                 <div className="max-h-72 overflow-y-auto">
                                     <Table>
                                         <TableHeader>
                                             <TableRow>
                                                 <TableHead className="text-xs w-8"></TableHead>
-                                                <TableHead className="text-xs">Property</TableHead>
-                                                <TableHead className="text-xs">Equipment</TableHead>
-                                                <TableHead className="text-xs">Messaggio</TableHead>
-                                                <TableHead className="text-xs">Status</TableHead>
-                                                <TableHead className="text-xs">Trigger</TableHead>
-                                                <TableHead className="text-xs">Clear</TableHead>
+                                                <TableHead className="text-xs">{t('i3xPage.col_property')}</TableHead>
+                                                <TableHead className="text-xs">{t('i3xPage.col_equipment')}</TableHead>
+                                                <TableHead className="text-xs">{t('i3xPage.col_message')}</TableHead>
+                                                <TableHead className="text-xs">{t('i3xPage.col_status')}</TableHead>
+                                                <TableHead className="text-xs">{t('i3xPage.col_trigger')}</TableHead>
+                                                <TableHead className="text-xs">{t('i3xPage.col_clear')}</TableHead>
                                             </TableRow>
                                         </TableHeader>
                                         <TableBody>
@@ -997,7 +1002,7 @@ export default function I3XPage() {
                                                     <TableCell className="text-xs max-w-[180px] truncate">{alarm.message}</TableCell>
                                                     <TableCell>
                                                         <Badge variant="outline" className="text-xs text-muted-foreground">
-                                                            {alarm.status}
+                                                            {t(`i3xPage.status_${alarm.status}`, { defaultValue: alarm.status })}
                                                         </Badge>
                                                     </TableCell>
                                                     <TableCell className="text-xs text-muted-foreground">{formatTsFull(alarm.triggerTime)}</TableCell>
@@ -1018,19 +1023,19 @@ export default function I3XPage() {
                         <CardHeader className="pb-3 border-b">
                             <CardTitle className="text-sm flex items-center gap-2">
                                 <BookOpen size={15} className="text-primary" />
-                                Endpoint i3X Access API
+                                {t('i3xPage.endpoints_title')}
                             </CardTitle>
                             <p className="text-xs text-muted-foreground mt-1">
-                                Autenticazione: <code className="bg-muted px-1 rounded text-xs">Authorization: Bearer &lt;token&gt;</code> — Multitenancy: <code className="bg-muted px-1 rounded text-xs">X-Organization-ID: &lt;n&gt;</code>
+                                {t('i3xPage.auth')} <code className="bg-muted px-1 rounded text-xs">Authorization: Bearer &lt;token&gt;</code> — {t('i3xPage.multitenancy')} <code className="bg-muted px-1 rounded text-xs">X-Organization-ID: &lt;n&gt;</code>
                             </p>
                         </CardHeader>
                         <CardContent className="p-0">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
-                                        <TableHead className="text-xs w-16">Metodo</TableHead>
-                                        <TableHead className="text-xs">Endpoint</TableHead>
-                                        <TableHead className="text-xs">Descrizione</TableHead>
+                                        <TableHead className="text-xs w-16">{t('i3xPage.col_method')}</TableHead>
+                                        <TableHead className="text-xs">{t('i3xPage.col_endpoint')}</TableHead>
+                                        <TableHead className="text-xs">{t('i3xPage.col_description')}</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -1042,7 +1047,7 @@ export default function I3XPage() {
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="font-mono text-xs">{ep.path}</TableCell>
-                                            <TableCell className="text-xs text-muted-foreground">{ep.desc}</TableCell>
+                                            <TableCell className="text-xs text-muted-foreground">{t(ep.desc)}</TableCell>
                                         </TableRow>
                                     ))}
                                 </TableBody>
@@ -1056,7 +1061,7 @@ export default function I3XPage() {
                             <CardHeader className="pb-3 border-b">
                                 <CardTitle className="text-sm flex items-center gap-2">
                                     <ArrowRight size={15} className="text-primary" />
-                                    Mapping ID OpenEdge → i3X
+                                    {t('i3xPage.id_mapping')}
                                 </CardTitle>
                             </CardHeader>
                             <CardContent className="p-4 space-y-2">
@@ -1083,18 +1088,18 @@ export default function I3XPage() {
                                 <CardHeader className="pb-3 border-b">
                                     <CardTitle className="text-sm flex items-center gap-2">
                                         <Tag size={15} className="text-primary" />
-                                        OPC-UA Quality Codes
+                                        {t('i3xPage.quality_codes')}
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="p-4 space-y-2">
                                     {[
-                                        { q: 192, label: 'Good — dato fresco e affidabile' },
-                                        { q: 64,  label: 'Uncertain — qualità degradata' },
-                                        { q: 0,   label: 'Bad — offline / errore lettura' },
+                                        { q: 192, label: 'i3xPage.quality_192' },
+                                        { q: 64,  label: 'i3xPage.quality_64' },
+                                        { q: 0,   label: 'i3xPage.quality_0' },
                                     ].map(({ q, label }) => (
                                         <div key={q} className="flex items-center gap-3 text-xs">
                                             <QualityBadge quality={q} />
-                                            <span className="text-muted-foreground">{label}</span>
+                                            <span className="text-muted-foreground">{t(label)}</span>
                                         </div>
                                     ))}
                                 </CardContent>
@@ -1104,13 +1109,13 @@ export default function I3XPage() {
                                 <CardHeader className="pb-3 border-b">
                                     <CardTitle className="text-sm flex items-center gap-2">
                                         <CheckCircle2 size={15} className="text-green-500" />
-                                        Permessi richiesti
+                                        {t('i3xPage.permissions')}
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent className="p-4 space-y-2 text-xs text-muted-foreground">
-                                    <p><Badge variant="outline" className="text-xs mr-1">any role</Badge> lettura equipment, properties, alarms</p>
-                                    <p><Badge variant="outline" className="text-xs mr-1 text-orange-600 border-orange-400/40">i3x_write</Badge> scrittura property value, acknowledge alarms</p>
-                                    <p><Badge variant="outline" className="text-xs mr-1 text-blue-600 border-blue-400/40">admin</Badge> accesso cross-org (no X-Organization-ID)</p>
+                                    <p><Badge variant="outline" className="text-xs mr-1">{t('i3xPage.perm_any_role')}</Badge> {t('i3xPage.perm_read')}</p>
+                                    <p><Badge variant="outline" className="text-xs mr-1 text-orange-600 border-orange-400/40">i3x_write</Badge> {t('i3xPage.perm_write')}</p>
+                                    <p><Badge variant="outline" className="text-xs mr-1 text-blue-600 border-blue-400/40">admin</Badge> {t('i3xPage.perm_admin')}</p>
                                 </CardContent>
                             </Card>
                         </div>

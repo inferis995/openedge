@@ -7,8 +7,10 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { profileApi } from '@/api/profile';
 import apiClient from '@/api/client';
+import { useTranslation } from 'react-i18next';
 
 export default function ProfilePage() {
+    const { t } = useTranslation();
     const { data: profile, isLoading } = useQuery({
         queryKey: ['profile'],
         queryFn: profileApi.get,
@@ -31,15 +33,15 @@ export default function ProfilePage() {
         },
         onError: (err: unknown) => {
             const axiosErr = err as { response?: { data?: { error?: string } } };
-            setPwError(axiosErr.response?.data?.error ?? 'Failed to update password.');
+            setPwError(axiosErr.response?.data?.error ?? t('profilePage.pw_failed'));
         },
     });
 
     const handleChangePw = (e: React.FormEvent) => {
         e.preventDefault();
         setPwError('');
-        if (newPw !== confirmPw) { setPwError('New passwords do not match.'); return; }
-        if (newPw.length < 12) { setPwError('New password must be at least 12 characters.'); return; }
+        if (newPw !== confirmPw) { setPwError(t('profilePage.pw_mismatch')); return; }
+        if (newPw.length < 12) { setPwError(t('profilePage.pw_too_short')); return; }
         changePw.mutate();
     };
 
@@ -66,9 +68,9 @@ export default function ProfilePage() {
             setMfaEnabled(true);
             setMfaSetup(null);
             setMfaCode('');
-            setMfaMsg('MFA attivato con successo!');
+            setMfaMsg('profilePage.mfa_enabled_ok');
         } catch {
-            setMfaMsg('Codice non valido — riprova');
+            setMfaMsg('profilePage.mfa_bad_code');
         }
     };
 
@@ -77,13 +79,13 @@ export default function ProfilePage() {
             await apiClient.delete('/auth/me/mfa/disable', { data: { password: disablePw } });
             setMfaEnabled(false);
             setDisablePw('');
-            setMfaMsg('MFA disattivato');
+            setMfaMsg('profilePage.mfa_disabled_ok');
         } catch {
-            setMfaMsg('Password errata');
+            setMfaMsg('profilePage.mfa_bad_password');
         }
     };
 
-    if (isLoading) return <div className="p-6 text-muted-foreground">Loading…</div>;
+    if (isLoading) return <div className="p-6 text-muted-foreground">{t('common.loading')}</div>;
 
     return (
         <div className="p-6 max-w-2xl space-y-8">
@@ -93,32 +95,32 @@ export default function ProfilePage() {
                     <User className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                    <h1 className="text-2xl font-bold">My Profile</h1>
-                    <p className="text-sm text-muted-foreground">Manage your account settings</p>
+                    <h1 className="text-2xl font-bold">{t('profilePage.title')}</h1>
+                    <p className="text-sm text-muted-foreground">{t('profilePage.subtitle')}</p>
                 </div>
             </div>
 
             {/* Profile info */}
             <div className="rounded-xl border bg-card p-6 space-y-4">
-                <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Account</h2>
+                <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">{t('profilePage.account')}</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                     <div>
-                        <p className="text-muted-foreground mb-0.5">Username</p>
+                        <p className="text-muted-foreground mb-0.5">{t('profilePage.username')}</p>
                         <p className="font-medium">{profile?.username}</p>
                     </div>
                     <div>
-                        <p className="text-muted-foreground mb-0.5">Role</p>
+                        <p className="text-muted-foreground mb-0.5">{t('profilePage.role')}</p>
                         <Badge variant={profile?.role === 'admin' ? 'default' : 'secondary'}>
-                            {profile?.role}
+                            {profile?.role === 'admin' ? t('nav.admin_role') : profile?.role === 'user' ? t('nav.user_role') : profile?.role}
                         </Badge>
                     </div>
                     <div>
-                        <p className="text-muted-foreground mb-0.5">Full name</p>
-                        <p className="font-medium">{profile?.full_name || <span className="text-muted-foreground italic">not set</span>}</p>
+                        <p className="text-muted-foreground mb-0.5">{t('profilePage.full_name')}</p>
+                        <p className="font-medium">{profile?.full_name || <span className="text-muted-foreground italic">{t('profilePage.not_set')}</span>}</p>
                     </div>
                     <div>
-                        <p className="text-muted-foreground mb-0.5">Email</p>
-                        <p className="font-medium">{profile?.email || <span className="text-muted-foreground italic">not set</span>}</p>
+                        <p className="text-muted-foreground mb-0.5">{t('profilePage.email')}</p>
+                        <p className="font-medium">{profile?.email || <span className="text-muted-foreground italic">{t('profilePage.not_set')}</span>}</p>
                     </div>
                 </div>
             </div>
@@ -127,12 +129,12 @@ export default function ProfilePage() {
             <div className="rounded-xl border bg-card p-6 space-y-4">
                 <div className="flex items-center gap-2">
                     <KeyRound className="h-4 w-4 text-muted-foreground" />
-                    <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">Change Password</h2>
+                    <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">{t('profilePage.change_password')}</h2>
                 </div>
 
                 <form onSubmit={handleChangePw} className="space-y-4">
                     <div className="space-y-1.5">
-                        <Label htmlFor="old-pw">Current password</Label>
+                        <Label htmlFor="old-pw">{t('profilePage.current_password')}</Label>
                         <div className="relative">
                             <Input
                                 id="old-pw"
@@ -140,7 +142,7 @@ export default function ProfilePage() {
                                 value={oldPw}
                                 onChange={e => setOldPw(e.target.value)}
                                 required
-                                placeholder="Enter current password"
+                                placeholder={t('profilePage.current_password_placeholder')}
                             />
                             <button type="button" onClick={() => setShowOld(v => !v)}
                                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" tabIndex={-1}>
@@ -150,7 +152,7 @@ export default function ProfilePage() {
                     </div>
 
                     <div className="space-y-1.5">
-                        <Label htmlFor="new-pw">New password</Label>
+                        <Label htmlFor="new-pw">{t('profilePage.new_password')}</Label>
                         <div className="relative">
                             <Input
                                 id="new-pw"
@@ -159,7 +161,7 @@ export default function ProfilePage() {
                                 onChange={e => setNewPw(e.target.value)}
                                 required
                                 minLength={12}
-                                placeholder="Min. 12 characters"
+                                placeholder={t('profilePage.new_password_placeholder')}
                             />
                             <button type="button" onClick={() => setShowNew(v => !v)}
                                 className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" tabIndex={-1}>
@@ -169,26 +171,26 @@ export default function ProfilePage() {
                     </div>
 
                     <div className="space-y-1.5">
-                        <Label htmlFor="confirm-pw">Confirm new password</Label>
+                        <Label htmlFor="confirm-pw">{t('profilePage.confirm_password')}</Label>
                         <Input
                             id="confirm-pw"
                             type="password"
                             value={confirmPw}
                             onChange={e => setConfirmPw(e.target.value)}
                             required
-                            placeholder="Repeat new password"
+                            placeholder={t('profilePage.confirm_placeholder')}
                         />
                     </div>
 
                     {pwError && <p className="text-sm text-destructive">{pwError}</p>}
                     {pwSuccess && (
                         <div className="flex items-center gap-2 text-green-600 dark:text-green-400 text-sm">
-                            <CheckCircle2 className="h-4 w-4" /> Password updated successfully!
+                            <CheckCircle2 className="h-4 w-4" /> {t('profilePage.pw_updated')}
                         </div>
                     )}
 
                     <Button type="submit" disabled={changePw.isPending || !oldPw || !newPw || !confirmPw}>
-                        {changePw.isPending ? 'Updating…' : 'Update password'}
+                        {changePw.isPending ? t('profilePage.updating') : t('profilePage.update_password')}
                     </Button>
                 </form>
             </div>
@@ -196,38 +198,38 @@ export default function ProfilePage() {
             {/* MFA Section */}
             <div className="rounded-xl border bg-card p-6 space-y-4">
                 <div className="flex items-center gap-3">
-                    <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground flex-1">Autenticazione a due fattori (MFA)</h2>
+                    <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground flex-1">{t('profilePage.mfa_title')}</h2>
                     <Badge variant={mfaEnabled ? 'default' : 'secondary'}>
-                        {mfaEnabled ? 'Attivo' : 'Non attivo'}
+                        {mfaEnabled ? t('profilePage.mfa_on') : t('profilePage.mfa_off')}
                     </Badge>
                 </div>
 
                 {mfaMsg && (
-                    <p className={`text-sm ${mfaMsg.includes('successo') || mfaMsg.includes('disattivato') ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>{mfaMsg}</p>
+                    <p className={`text-sm ${mfaMsg.endsWith('_ok') ? 'text-green-600 dark:text-green-400' : 'text-destructive'}`}>{t(mfaMsg)}</p>
                 )}
 
                 {!mfaEnabled && !mfaSetup && (
                     <div className="space-y-3">
-                        <p className="text-sm text-muted-foreground">Proteggi il tuo account con un'app autenticatore (Google Authenticator, Authy, ecc.).</p>
+                        <p className="text-sm text-muted-foreground">{t('profilePage.mfa_intro')}</p>
                         <Button variant="outline" className="gap-2" onClick={startSetup}>
-                            <QrCode className="h-4 w-4" /> Configura MFA
+                            <QrCode className="h-4 w-4" /> {t('profilePage.mfa_setup')}
                         </Button>
                     </div>
                 )}
 
                 {mfaSetup && !mfaEnabled && (
                     <div className="space-y-4">
-                        <p className="text-sm text-muted-foreground">Scansiona il QR code con la tua app autenticatore, poi inserisci il primo codice per attivare.</p>
+                        <p className="text-sm text-muted-foreground">{t('profilePage.mfa_scan')}</p>
                         <div className="flex justify-center">
                             <img
                                 src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(mfaSetup.qr_url)}`}
-                                alt="QR MFA"
+                                alt={t('profilePage.mfa_qr_alt')}
                                 className="rounded-lg border border-border"
                                 width={200} height={200}
                             />
                         </div>
                         <div className="grid gap-1">
-                            <Label className="text-xs">Chiave manuale (se non riesci a scansionare)</Label>
+                            <Label className="text-xs">{t('profilePage.mfa_manual_key')}</Label>
                             <code className="text-xs bg-muted rounded px-3 py-2 font-mono break-all select-all">{mfaSetup.secret}</code>
                         </div>
                         <div className="flex gap-2">
@@ -235,30 +237,30 @@ export default function ProfilePage() {
                                 type="text"
                                 inputMode="numeric"
                                 maxLength={6}
-                                placeholder="Codice a 6 cifre"
+                                placeholder={t('profilePage.mfa_code_placeholder')}
                                 value={mfaCode}
                                 onChange={e => setMfaCode(e.target.value.replace(/\D/g, ''))}
                                 className="font-mono text-center tracking-widest"
                                 autoComplete="one-time-code"
                             />
                             <Button onClick={enableMFA} disabled={mfaCode.length !== 6} className="gap-2">
-                                <ShieldCheck className="h-4 w-4" /> Attiva
+                                <ShieldCheck className="h-4 w-4" /> {t('profilePage.mfa_enable')}
                             </Button>
                         </div>
-                        <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => { setMfaSetup(null); setMfaCode(''); }}>Annulla</button>
+                        <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => { setMfaSetup(null); setMfaCode(''); }}>{t('common.cancel')}</button>
                     </div>
                 )}
 
                 {mfaEnabled && (
                     <div className="space-y-3">
                         <div className="flex items-center gap-2 text-green-600 dark:text-green-400 text-sm">
-                            <ShieldCheck className="h-4 w-4" /> Account protetto con MFA
+                            <ShieldCheck className="h-4 w-4" /> {t('profilePage.mfa_protected')}
                         </div>
-                        <p className="text-sm text-muted-foreground">Per disattivare l'MFA inserisci la tua password corrente.</p>
+                        <p className="text-sm text-muted-foreground">{t('profilePage.mfa_disable_hint')}</p>
                         <div className="flex gap-2">
-                            <Input type="password" placeholder="Password attuale" value={disablePw} onChange={e => setDisablePw(e.target.value)} />
+                            <Input type="password" placeholder={t('profilePage.current_password')} value={disablePw} onChange={e => setDisablePw(e.target.value)} />
                             <Button variant="destructive" onClick={disableMFA} disabled={!disablePw} className="gap-2 shrink-0">
-                                <ShieldOff className="h-4 w-4" /> Disattiva
+                                <ShieldOff className="h-4 w-4" /> {t('profilePage.mfa_disable')}
                             </Button>
                         </div>
                     </div>

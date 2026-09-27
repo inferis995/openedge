@@ -5,8 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { passwordResetApi } from '@/api/passwordReset';
+import { useTranslation } from 'react-i18next';
 
 export default function ForgotPasswordPage() {
+    const { t } = useTranslation();
     const [email, setEmail] = useState('');
     const [loading, setLoading] = useState(false);
     const [sent, setSent] = useState(false);
@@ -20,7 +22,7 @@ export default function ForgotPasswordPage() {
             await passwordResetApi.forgot(email);
             setSent(true);
         } catch {
-            setError('Something went wrong. Please try again.');
+            setError(t('forgotPassword.failed'));
         } finally {
             setLoading(false);
         }
@@ -33,31 +35,31 @@ export default function ForgotPasswordPage() {
                     <div className="h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center">
                         <Mail className="h-9 sm:h-6 w-9 sm:w-6 text-primary" />
                     </div>
-                    <h1 className="text-2xl font-bold">Forgot password?</h1>
+                    <h1 className="text-2xl font-bold">{t('forgotPassword.title')}</h1>
                     <p className="text-sm text-muted-foreground">
-                        Enter your email and we'll send you a reset link.
+                        {t('forgotPassword.subtitle')}
                     </p>
                 </div>
 
                 {sent ? (
                     <div className="rounded-xl border bg-card p-6 text-center space-y-3">
                         <CheckCircle2 className="h-10 w-10 text-green-500 mx-auto" />
-                        <p className="font-medium">Check your email</p>
+                        <p className="font-medium">{t('forgotPassword.sent_title')}</p>
                         <p className="text-sm text-muted-foreground">
-                            If <strong>{email}</strong> is registered you'll receive a password reset link within a few minutes.
+                            {t('forgotPassword.sent_before')}<strong>{email}</strong>{t('forgotPassword.sent_after')}
                         </p>
                         <Link to="/login">
-                            <Button variant="outline" className="w-full mt-2">Back to login</Button>
+                            <Button variant="outline" className="w-full mt-2">{t('forgotPassword.back_to_login')}</Button>
                         </Link>
                     </div>
                 ) : (
                     <form onSubmit={handleSubmit} className="rounded-xl border bg-card p-6 space-y-4">
                         <div className="space-y-1.5">
-                            <Label htmlFor="email">Email or username</Label>
+                            <Label htmlFor="email">{t('forgotPassword.email_label')}</Label>
                             <Input
                                 id="email"
                                 type="text"
-                                placeholder="you@company.com"
+                                placeholder={t('forgotPassword.email_placeholder')}
                                 value={email}
                                 onChange={e => setEmail(e.target.value)}
                                 required
@@ -66,13 +68,13 @@ export default function ForgotPasswordPage() {
                         </div>
                         {error && <p className="text-sm text-destructive">{error}</p>}
                         <Button type="submit" className="w-full" disabled={loading || !email}>
-                            {loading ? 'Sending…' : 'Send reset link'}
+                            {loading ? t('forgotPassword.sending') : t('forgotPassword.send')}
                         </Button>
                     </form>
                 )}
 
                 <Link to="/login" className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                    <ArrowLeft className="h-4 w-4" /> Back to login
+                    <ArrowLeft className="h-4 w-4" /> {t('forgotPassword.back_to_login')}
                 </Link>
             </div>
         </div>

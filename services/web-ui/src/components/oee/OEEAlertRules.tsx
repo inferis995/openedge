@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -27,11 +28,12 @@ import i18n from '@/i18n';
 // UX: lista compatta + dialog editor. Stato live: badge "violating" sulle
 // regole attualmente scattate (last_state='violating').
 
+// i18n keys, resolved with t() at render.
 const METRIC_LABELS: Record<string, string> = {
-    oee:          'OEE',
-    availability: 'Availability',
-    performance:  'Performance',
-    quality:      'Quality',
+    oee:          'oee.metric_oee',
+    availability: 'oee.availability',
+    performance:  'oee.performance',
+    quality:      'oee.quality',
 };
 
 const SEVERITY_BADGE: Record<string, string> = {
@@ -45,6 +47,7 @@ interface Props {
 }
 
 export const OEEAlertRules = ({ profiles }: Props) => {
+    const { t } = useTranslation();
     const [editorOpen, setEditorOpen] = useState(false);
     const [editing, setEditing] = useState<OEEAlertRule | null>(null);
     const queryClient = useQueryClient();
@@ -58,10 +61,10 @@ export const OEEAlertRules = ({ profiles }: Props) => {
         if (!(await confirmAction({ title: i18n.t('ask.delete_named', { name: r.name }), destructive: true }))) return;
         try {
             await oeeApi.deleteAlertRule(r.id);
-            toast.success('Regola eliminata.');
+            toast.success(t('oee.rule_deleted'));
             queryClient.invalidateQueries({ queryKey: ['oee-alert-rules'] });
         } catch (e: unknown) {
-            toast.error(`Errore: ${(e as Error)?.message ?? 'unknown'}`);
+            toast.error(t('oee.error_with_msg', { msg: (e as Error)?.message ?? t('oee.unknown_error') }));
         }
     };
 
@@ -70,7 +73,7 @@ export const OEEAlertRules = ({ profiles }: Props) => {
             await oeeApi.updateAlertRule(r.id, ruleToRequest(r, { enabled: !r.enabled }));
             queryClient.invalidateQueries({ queryKey: ['oee-alert-rules'] });
         } catch (e: unknown) {
-            toast.error(`Errore: ${(e as Error)?.message ?? 'unknown'}`);
+            toast.error(t('oee.error_with_msg', { msg: (e as Error)?.message ?? t('oee.unknown_error') }));
         }
     };
 
@@ -79,35 +82,34 @@ export const OEEAlertRules = ({ profiles }: Props) => {
             <div className="flex items-start justify-between gap-2">
                 <div>
                     <p className="text-sm text-muted-foreground">
-                        Regole notifica per soglie OEE. Quando una metrica resta sotto/sopra soglia
-                        per N minuti consecutivi, parte un avviso email/Telegram via il dispatcher esistente.
+                        {t('oee.rules_intro')}
                     </p>
                 </div>
                 <Button onClick={() => { setEditing(null); setEditorOpen(true); }} size="sm">
-                    <Plus size={14} className="mr-1" /> Nuova regola
+                    <Plus size={14} className="mr-1" /> {t('oee.new_rule')}
                 </Button>
             </div>
 
             <Card>
                 <CardHeader className="pb-3">
                     <CardTitle className="text-base flex items-center gap-2">
-                        <Bell size={16} /> Regole configurate
+                        <Bell size={16} /> {t('oee.rules_title')}
                     </CardTitle>
                     <CardDescription className="text-xs">
-                        {rules?.length ?? 0} regole. Valutazione ogni 5 minuti dal cron worker.
+                        {t('oee.rules_count', { count: rules?.length ?? 0 })}
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
                     {isLoading ? (
                         <div className="py-8 text-center text-sm text-muted-foreground">
-                            <Loader2 className="inline animate-spin mr-2" />Caricamento…
+                            <Loader2 className="inline animate-spin mr-2" />{t('common.loading')}
                         </div>
                     ) : (rules?.length ?? 0) === 0 ? (
                         <div className="py-12 text-center border border-dashed rounded-md">
                             <Bell size={28} className="mx-auto opacity-30 mb-2" />
-                            <p className="text-sm text-muted-foreground">Nessuna regola alert configurata.</p>
+                            <p className="text-sm text-muted-foreground">{t('oee.rules_empty')}</p>
                             <p className="text-xs text-muted-foreground mt-1">
-                                Click "Nuova regola" per ricevere notifiche quando l'OEE scende sotto target.
+                                {t('oee.rules_empty_hint')}
                             </p>
                         </div>
                     ) : (
@@ -141,9 +143,10 @@ export const OEEAlertRules = ({ profiles }: Props) => {
 const RuleRow = ({
     r, profiles, onEdit, onDelete, onToggle,
 }: { r: OEEAlertRule; profiles: OEEProfile[]; onEdit: () => void; onDelete: () => void; onToggle: () => void }) => {
+    const { t, i18n: i18nInst } = useTranslation();
     const profileLabel = r.profile_id
-        ? profiles.find((p) => p.id === r.profile_id)?.name ?? `Profilo ${r.profile_id}`
-        : 'Overall (rollup)';
+        ? profiles.find((p) => p.id === r.profile_id)?.name ?? t('oee.profile_n', { id: r.profile_id })
+        : t('oee.overall_rollup');
     const violating = r.last_state === 'violating' && r.enabled;
     return (
         <div className={`flex items-center gap-3 p-3 border rounded-md hover:bg-muted/30 transition-colors ${!r.enabled ? 'opacity-50' : ''}`}>
@@ -153,26 +156,26 @@ const RuleRow = ({
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-semibold">{r.name}</span>
-                    <Badge className={`text-[10px] ${SEVERITY_BADGE[r.severity]} border-none`}>{r.severity}</Badge>
+                    <Badge className={`text-[10px] ${SEVERITY_BADGE[r.severity]} border-none`}>{t(`oee.severity_${r.severity}`, { defaultValue: r.severity })}</Badge>
                     {violating && (
-                        <Badge variant="outline" className="text-[10px] border-red-500/40 text-red-500">in violazione</Badge>
+                        <Badge variant="outline" className="text-[10px] border-red-500/40 text-red-500">{t('oee.violating')}</Badge>
                     )}
                     {!r.enabled && (
-                        <Badge variant="outline" className="text-[10px]">disabilitata</Badge>
+                        <Badge variant="outline" className="text-[10px]">{t('oee.disabled')}</Badge>
                     )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                    Su <strong>{profileLabel}</strong>: {METRIC_LABELS[r.metric]} {r.op} {r.threshold}%
-                    {' '}per {r.sustained_minutes} min
+                    {t('oee.rule_on')} <strong>{profileLabel}</strong>: {METRIC_LABELS[r.metric] ? t(METRIC_LABELS[r.metric]) : r.metric} {r.op} {r.threshold}%
+                    {' '}{t('oee.rule_for_minutes', { count: r.sustained_minutes })}
                 </p>
                 {r.last_notified_at && (
                     <p className="text-[10px] text-muted-foreground">
-                        Ultima notifica: {new Date(r.last_notified_at).toLocaleString('it-IT')}
+                        {t('oee.last_notified', { when: new Date(r.last_notified_at).toLocaleString(i18nInst.language) })}
                     </p>
                 )}
             </div>
             <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" onClick={onToggle} title={r.enabled ? 'Disabilita' : 'Abilita'}>
+                <Button variant="ghost" size="icon" onClick={onToggle} title={r.enabled ? t('oee.disable') : t('oee.enable')}>
                     {r.enabled ? <Power size={14} /> : <PowerOff size={14} />}
                 </Button>
                 <Button variant="ghost" size="icon" onClick={onEdit}><Pencil size={14} /></Button>
@@ -205,6 +208,7 @@ const AlertRuleEditor = ({
     profiles: OEEProfile[];
     onSaved: () => void;
 }) => {
+    const { t } = useTranslation();
     const [name, setName]       = useState('');
     const [profileId, setProfileId] = useState<number | null>(null);
     const [metric, setMetric]   = useState<'oee' | 'availability' | 'performance' | 'quality'>('oee');
@@ -234,7 +238,7 @@ const AlertRuleEditor = ({
 
     const handleSave = async () => {
         if (!name.trim()) {
-            toast.error('Il nome è obbligatorio.');
+            toast.error(t('oee.name_required'));
             return;
         }
         setSaving(true);
@@ -248,15 +252,15 @@ const AlertRuleEditor = ({
             };
             if (initial) {
                 await oeeApi.updateAlertRule(initial.id, payload);
-                toast.success('Regola aggiornata.');
+                toast.success(t('oee.rule_updated'));
             } else {
                 await oeeApi.createAlertRule(payload);
-                toast.success('Regola creata.');
+                toast.success(t('oee.rule_created'));
             }
             onSaved();
             onClose();
         } catch (e: unknown) {
-            toast.error(`Errore: ${(e as Error)?.message ?? 'unknown'}`);
+            toast.error(t('oee.error_with_msg', { msg: (e as Error)?.message ?? t('oee.unknown_error') }));
         } finally {
             setSaving(false);
         }
@@ -266,31 +270,31 @@ const AlertRuleEditor = ({
         <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
             <DialogContent>
                 <DialogHeader>
-                    <DialogTitle>{initial ? 'Modifica regola alert' : 'Nuova regola alert'}</DialogTitle>
+                    <DialogTitle>{initial ? t('oee.edit_rule_title') : t('oee.new_rule_title')}</DialogTitle>
                     <DialogDescription>
-                        Notifica quando una metrica supera/scende sotto una soglia per N minuti consecutivi.
+                        {t('oee.rule_dialog_desc')}
                     </DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-3 py-2">
                     <div className="space-y-1">
-                        <Label>Nome</Label>
+                        <Label>{t('common.name')}</Label>
                         <Input
                             value={name}
                             onChange={(e) => setName(e.target.value)}
-                            placeholder="es. OEE Linea A sotto target"
+                            placeholder={t('oee.rule_name_placeholder')}
                         />
                     </div>
 
                     <div className="space-y-1">
-                        <Label>Profilo</Label>
+                        <Label>{t('oee.profile')}</Label>
                         <Select
                             value={profileId === null ? 'rollup' : String(profileId)}
                             onValueChange={(v) => setProfileId(v === 'rollup' ? null : parseInt(v, 10))}
                         >
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="rollup">OEE Overall (rollup di tutti)</SelectItem>
+                                <SelectItem value="rollup">{t('oee.overall_rollup_all')}</SelectItem>
                                 {profiles.map((p) => (
                                     <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
                                 ))}
@@ -300,29 +304,29 @@ const AlertRuleEditor = ({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         <div className="space-y-1">
-                            <Label>Metrica</Label>
+                            <Label>{t('oee.metric')}</Label>
                             <Select value={metric} onValueChange={(v) => setMetric(v as typeof metric)}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="oee">OEE</SelectItem>
-                                    <SelectItem value="availability">Availability</SelectItem>
-                                    <SelectItem value="performance">Performance</SelectItem>
-                                    <SelectItem value="quality">Quality</SelectItem>
+                                    <SelectItem value="availability">{t('oee.availability')}</SelectItem>
+                                    <SelectItem value="performance">{t('oee.performance')}</SelectItem>
+                                    <SelectItem value="quality">{t('oee.quality')}</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
                         <div className="space-y-1">
-                            <Label>Condizione</Label>
+                            <Label>{t('oee.condition')}</Label>
                             <Select value={op} onValueChange={(v) => setOp(v as '<' | '>')}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="<">&lt; (sotto)</SelectItem>
-                                    <SelectItem value=">">&gt; (sopra)</SelectItem>
+                                    <SelectItem value="<">&lt; ({t('oee.below')})</SelectItem>
+                                    <SelectItem value=">">&gt; ({t('oee.above')})</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
                         <div className="space-y-1">
-                            <Label>Soglia (%)</Label>
+                            <Label>{t('oee.threshold_pct')}</Label>
                             <Input
                                 type="number" min={0} max={100} step={1}
                                 value={threshold}
@@ -333,24 +337,24 @@ const AlertRuleEditor = ({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div className="space-y-1">
-                            <Label>Durata minima (min)</Label>
+                            <Label>{t('oee.min_duration')}</Label>
                             <Input
                                 type="number" min={60} step={60}
                                 value={sustained}
                                 onChange={(e) => setSustained(parseInt(e.target.value) || 60)}
                             />
                             <p className="text-[10px] text-muted-foreground">
-                                Minimo 60 min (granularità oee_history). Multipli di 60 consigliati.
+                                {t('oee.min_duration_hint')}
                             </p>
                         </div>
                         <div className="space-y-1">
-                            <Label>Severity</Label>
+                            <Label>{t('oee.severity')}</Label>
                             <Select value={severity} onValueChange={(v) => setSeverity(v as typeof severity)}>
                                 <SelectTrigger><SelectValue /></SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="info">Info — solo log</SelectItem>
-                                    <SelectItem value="warning">Warning — email/Telegram</SelectItem>
-                                    <SelectItem value="critical">Critical — escalation</SelectItem>
+                                    <SelectItem value="info">{t('oee.severity_info_desc')}</SelectItem>
+                                    <SelectItem value="warning">{t('oee.severity_warning_desc')}</SelectItem>
+                                    <SelectItem value="critical">{t('oee.severity_critical_desc')}</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -358,15 +362,15 @@ const AlertRuleEditor = ({
 
                     <div className="flex items-center gap-2 pt-2 border-t">
                         <Switch checked={enabled} onCheckedChange={setEnabled} />
-                        <Label className="cursor-pointer">Attiva</Label>
+                        <Label className="cursor-pointer">{t('oee.active')}</Label>
                     </div>
                 </div>
 
                 <DialogFooter>
-                    <Button variant="outline" onClick={onClose} disabled={saving}>Annulla</Button>
+                    <Button variant="outline" onClick={onClose} disabled={saving}>{t('common.cancel')}</Button>
                     <Button onClick={handleSave} disabled={saving}>
                         {saving && <Loader2 size={14} className="mr-1 animate-spin" />}
-                        Salva
+                        {t('common.save')}
                     </Button>
                 </DialogFooter>
             </DialogContent>

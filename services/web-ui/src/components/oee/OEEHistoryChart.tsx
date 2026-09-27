@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
     Legend, ReferenceLine,
@@ -25,21 +26,23 @@ interface Props {
 
 type Range = '7d' | '30d' | '90d';
 
+// label = i18n key, resolved with t() at render.
 const RANGE_CONFIG: Record<Range, { days: number; bucket: 'hour' | 'day'; label: string }> = {
-    '7d':  { days: 7,  bucket: 'hour', label: '7 giorni (orario)' },
-    '30d': { days: 30, bucket: 'day',  label: '30 giorni (giornaliero)' },
-    '90d': { days: 90, bucket: 'day',  label: '3 mesi (giornaliero)' },
+    '7d':  { days: 7,  bucket: 'hour', label: 'oee.history_range_7d' },
+    '30d': { days: 30, bucket: 'day',  label: 'oee.history_range_30d' },
+    '90d': { days: 90, bucket: 'day',  label: 'oee.history_range_90d' },
 };
 
-const formatBucketLabel = (iso: string, bucket: 'hour' | 'day'): string => {
+const formatBucketLabel = (iso: string, bucket: 'hour' | 'day', lang: string): string => {
     const d = new Date(iso);
     if (bucket === 'hour') {
-        return d.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit' });
+        return d.toLocaleString(lang, { day: '2-digit', month: '2-digit', hour: '2-digit' });
     }
-    return d.toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' });
+    return d.toLocaleDateString(lang, { day: '2-digit', month: '2-digit' });
 };
 
 export const OEEHistoryChart = ({ profileId, target }: Props) => {
+    const { t, i18n } = useTranslation();
     const [range, setRange] = useState<Range>('7d');
     const cfg = RANGE_CONFIG[range];
 
@@ -57,7 +60,7 @@ export const OEEHistoryChart = ({ profileId, target }: Props) => {
     });
 
     const chartData = (data ?? []).map((r: OEEHistoryRow) => ({
-        label: formatBucketLabel(r.bucket_start, cfg.bucket),
+        label: formatBucketLabel(r.bucket_start, cfg.bucket, i18n.language),
         OEE: parseFloat(r.oee.toFixed(1)),
         Availability: parseFloat(r.availability.toFixed(1)),
         Performance: parseFloat(r.performance.toFixed(1)),
@@ -68,7 +71,7 @@ export const OEEHistoryChart = ({ profileId, target }: Props) => {
         <Card>
             <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
                 <CardTitle className="text-sm font-semibold text-muted-foreground">
-                    Storico OEE
+                    {t('oee.history_title')}
                 </CardTitle>
                 <div className="flex items-center gap-1">
                     {(Object.keys(RANGE_CONFIG) as Range[]).map((r) => (
@@ -79,7 +82,7 @@ export const OEEHistoryChart = ({ profileId, target }: Props) => {
                             onClick={() => setRange(r)}
                             className="h-9 sm:h-7 px-2 text-xs"
                         >
-                            {RANGE_CONFIG[r].label}
+                            {t(RANGE_CONFIG[r].label)}
                         </Button>
                     ))}
                 </div>
@@ -87,17 +90,17 @@ export const OEEHistoryChart = ({ profileId, target }: Props) => {
             <CardContent>
                 {isLoading ? (
                     <div className="flex items-center justify-center h-64 text-muted-foreground">
-                        <Loader2 className="animate-spin" /> &nbsp; Caricamento…
+                        <Loader2 className="animate-spin" /> &nbsp; {t('common.loading')}
                     </div>
                 ) : isError ? (
                     <div className="h-64 flex items-center justify-center text-sm text-red-500">
-                        Errore nel caricamento dello storico.
+                        {t('oee.history_error')}
                     </div>
                 ) : chartData.length === 0 ? (
                     <div className="h-64 flex items-center justify-center text-center text-sm text-muted-foreground p-4">
-                        Nessun dato storico per questo periodo.<br />
+                        {t('oee.history_empty')}<br />
                         <span className="text-xs">
-                            Il cron salva snapshot orari — primi dati disponibili dopo la prima ora di runtime.
+                            {t('oee.history_empty_hint')}
                         </span>
                     </div>
                 ) : (
@@ -129,13 +132,13 @@ export const OEEHistoryChart = ({ profileId, target }: Props) => {
                                     y={target}
                                     stroke="hsl(var(--primary))"
                                     strokeDasharray="3 3"
-                                    label={{ value: `Target ${target}%`, fontSize: 10, fill: 'hsl(var(--primary))' }}
+                                    label={{ value: t('oee.target_line', { value: target }), fontSize: 10, fill: 'hsl(var(--primary))' }}
                                 />
                             )}
-                            <Line type="monotone" dataKey="OEE" stroke="#10b981" strokeWidth={2.5} dot={false} />
-                            <Line type="monotone" dataKey="Availability" stroke="#3b82f6" strokeWidth={1.5} dot={false} />
-                            <Line type="monotone" dataKey="Performance" stroke="#f59e0b" strokeWidth={1.5} dot={false} />
-                            <Line type="monotone" dataKey="Quality" stroke="#a855f7" strokeWidth={1.5} dot={false} />
+                            <Line type="monotone" dataKey="OEE" name="OEE" stroke="#10b981" strokeWidth={2.5} dot={false} />
+                            <Line type="monotone" dataKey="Availability" name={t('oee.availability')} stroke="#3b82f6" strokeWidth={1.5} dot={false} />
+                            <Line type="monotone" dataKey="Performance" name={t('oee.performance')} stroke="#f59e0b" strokeWidth={1.5} dot={false} />
+                            <Line type="monotone" dataKey="Quality" name={t('oee.quality')} stroke="#a855f7" strokeWidth={1.5} dot={false} />
                         </LineChart>
                     </ResponsiveContainer>
                 )}

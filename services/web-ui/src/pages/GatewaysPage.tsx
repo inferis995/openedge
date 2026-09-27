@@ -420,7 +420,7 @@ const GatewaysPage = () => {
             setTestResult({ id, ...result });
             setTimeout(() => setTestResult(null), 3000);
         } catch (error) {
-            setTestResult({ id, success: false, message: 'Connection failed' });
+            setTestResult({ id, success: false, message: t('gatewaysPage.test_failed') });
         }
     };
 
@@ -440,16 +440,16 @@ const GatewaysPage = () => {
     };
 
     if (isLoading) {
-        return <div className="p-8 text-center text-muted-foreground">Loading gateways...</div>;
+        return <div className="p-8 text-center text-muted-foreground">{t('gatewaysPage.loading')}</div>;
     }
 
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight">Gateways</h2>
+                    <h2 className="text-2xl font-bold tracking-tight">{t('nav.gateways')}</h2>
                     <p className="text-muted-foreground">
-                        Configure PLC connections and communication drivers.
+                        {t('gatewaysPage.subtitle')}
                     </p>
                 </div>
                 {isAdmin() && (
@@ -459,23 +459,23 @@ const GatewaysPage = () => {
                     }}>
                         <DialogTrigger asChild>
                             <Button className="gap-2">
-                                <Plus size={16} /> Add Gateway
+                                <Plus size={16} /> {t('gatewaysPage.add')}
                             </Button>
                         </DialogTrigger>
                         <DialogContent className="max-w-xl">
                             <DialogHeader>
-                                <DialogTitle>{updatingGatewayId ? 'Edit Gateway' : 'Create Gateway'}</DialogTitle>
+                                <DialogTitle>{updatingGatewayId ? t('gatewaysPage.edit_title') : t('gatewaysPage.create_title')}</DialogTitle>
                             </DialogHeader>
                             <div className="grid gap-4 py-4">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div className="grid gap-2">
-                                        <Label htmlFor="area">Area</Label>
+                                        <Label htmlFor="area">{t('common.area')}</Label>
                                         <Select
                                             value={selectedAreaForCreate}
                                             onValueChange={setSelectedAreaForCreate}
                                         >
                                             <SelectTrigger>
-                                                <SelectValue placeholder="Select Area" />
+                                                <SelectValue placeholder={t('common.select_area')} />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {areas.map((area) => (
@@ -487,19 +487,19 @@ const GatewaysPage = () => {
                                         </Select>
                                     </div>
                                     <div className="grid gap-2">
-                                        <Label htmlFor="driver">Driver Type</Label>
+                                        <Label htmlFor="driver">{t('gatewaysPage.driver_type')}</Label>
                                         <Select
                                             value={formData.driver_type}
                                             onValueChange={(val) => handleInputChange('driver_type', val)}
                                             disabled={!!updatingGatewayId} // Prevent changing driver type on edit
                                         >
                                             <SelectTrigger>
-                                                <SelectValue placeholder="Select Driver" />
+                                                <SelectValue placeholder={t('gatewaysPage.select_driver')} />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="S7">Siemens S7</SelectItem>
                                                 <SelectItem value="MODBUS_TCP">Modbus TCP</SelectItem>
-                                                <SelectItem value="MQTT">MQTT Native</SelectItem>
+                                                <SelectItem value="MQTT">{t('gatewaysPage.driver_mqtt')}</SelectItem>
                                                 <SelectItem value="OPC_UA">OPC UA</SelectItem>
                                                 <SelectItem value="LORAWAN">LoRaWAN (TTN / ChirpStack)</SelectItem>
                                             </SelectContent>
@@ -508,12 +508,12 @@ const GatewaysPage = () => {
                                 </div>
 
                                 <div className="grid gap-2">
-                                    <Label htmlFor="name">Gateway Name</Label>
+                                    <Label htmlFor="name">{t('gatewaysPage.name')}</Label>
                                     <Input
                                         id="name"
                                         value={formData.name}
                                         onChange={(e) => handleInputChange('name', e.target.value)}
-                                        placeholder="e.g. PLC Line 1"
+                                        placeholder={t('gatewaysPage.name_placeholder')}
                                     />
                                 </div>
 
@@ -522,7 +522,7 @@ const GatewaysPage = () => {
                                     server e un campo che non cambia niente confonde. */}
                                 {edgeAgents.length > 0 && (
                                     <div className="grid gap-2">
-                                        <Label htmlFor="edge_agent">Chi lo interroga</Label>
+                                        <Label htmlFor="edge_agent">{t('gatewaysPage.who_polls')}</Label>
                                         <Select
                                             value={String(formData.edge_agent_id ?? 0)}
                                             onValueChange={(val) => handleInputChange('edge_agent_id', parseInt(val))}
@@ -533,20 +533,18 @@ const GatewaysPage = () => {
                                             <SelectContent>
                                                 <SelectItem value="0">
                                                     {allBox
-                                                        ? `Nessuna scatola assegnata — lo interroga «${allBox.name}»`
-                                                        : 'Il server, direttamente'}
+                                                        ? t('gatewaysPage.poller_all_box', { name: allBox.name })
+                                                        : t('gatewaysPage.poller_server')}
                                                 </SelectItem>
                                                 {edgeAgents.map((a) => (
                                                     <SelectItem key={a.id} value={String(a.id)}>
-                                                        Scatola «{a.name}» ({a.gateways} gateway)
+                                                        {t('gatewaysPage.poller_box', { name: a.name, count: a.gateways })}
                                                     </SelectItem>
                                                 ))}
                                             </SelectContent>
                                         </Select>
                                         <p className="text-[11px] text-muted-foreground">
-                                            Assegnalo a una scatola solo se il server non raggiunge questo PLC.
-                                            Da quel momento lo interroga la scatola e il server smette di farlo:
-                                            mai due, mai nessuno.
+                                            {t('gatewaysPage.who_polls_hint')}
                                         </p>
                                     </div>
                                 )}
@@ -557,7 +555,7 @@ const GatewaysPage = () => {
                                     && !(formData.driver_type === 'MODBUS_TCP' && formData.modbus_transport === 'rtu') && (
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div className="grid gap-2">
-                                            <Label htmlFor="ip">IP Address</Label>
+                                            <Label htmlFor="ip">{t('gatewaysPage.ip')}</Label>
                                             <Input
                                                 id="ip"
                                                 value={formData.ip_address}
@@ -566,7 +564,7 @@ const GatewaysPage = () => {
                                             />
                                         </div>
                                         <div className="grid gap-2">
-                                            <Label htmlFor="scan">Scan Rate (ms)</Label>
+                                            <Label htmlFor="scan">{t('gatewaysPage.scan_rate')}</Label>
                                             <Input
                                                 id="scan"
                                                 type="number"
@@ -603,7 +601,7 @@ const GatewaysPage = () => {
                                 {formData.driver_type === 'MODBUS_TCP' && (
                                     <>
                                         <div className="grid gap-2">
-                                            <Label htmlFor="modbus_transport">Transport</Label>
+                                            <Label htmlFor="modbus_transport">{t('gatewaysPage.transport')}</Label>
                                             <Select
                                                 value={formData.modbus_transport || 'tcp'}
                                                 onValueChange={(v) => handleInputChange('modbus_transport', v)}
@@ -612,21 +610,20 @@ const GatewaysPage = () => {
                                                     <SelectValue />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    <SelectItem value="tcp">Modbus TCP — Ethernet</SelectItem>
-                                                    <SelectItem value="rtu">Modbus RTU — serial RS-485 / RS-232</SelectItem>
-                                                    <SelectItem value="rtuovertcp">RTU over TCP — serial gateway in transparent mode</SelectItem>
+                                                    <SelectItem value="tcp">{t('gatewaysPage.transport_tcp')}</SelectItem>
+                                                    <SelectItem value="rtu">{t('gatewaysPage.transport_rtu')}</SelectItem>
+                                                    <SelectItem value="rtuovertcp">{t('gatewaysPage.transport_rtuovertcp')}</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                             <p className="text-xs text-muted-foreground">
-                                                RTU over TCP looks like TCP on the wire and carries RTU framing inside.
-                                                Choosing plain TCP for one gives a socket that opens and then answers nothing.
+                                                {t('gatewaysPage.transport_hint')}
                                             </p>
                                         </div>
 
                                         {formData.modbus_transport === 'rtu' && (
                                             <>
                                                 <div className="grid gap-2">
-                                                    <Label htmlFor="modbus_device">Serial device</Label>
+                                                    <Label htmlFor="modbus_device">{t('gatewaysPage.serial_device')}</Label>
                                                     <Input
                                                         id="modbus_device"
                                                         value={formData.modbus_device}
@@ -634,8 +631,7 @@ const GatewaysPage = () => {
                                                         placeholder="/dev/ttyUSB0"
                                                     />
                                                     <p className="text-xs text-muted-foreground">
-                                                        The port on the machine running the driver — /dev/ttyUSB0 on Linux, COM3 on Windows.
-                                                        It must be passed through to the driver container.
+                                                        {t('gatewaysPage.serial_device_hint')}
                                                     </p>
                                                 </div>
                                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -649,7 +645,7 @@ const GatewaysPage = () => {
                                                         />
                                                     </div>
                                                     <div className="grid gap-2">
-                                                        <Label htmlFor="modbus_parity">Parity</Label>
+                                                        <Label htmlFor="modbus_parity">{t('gatewaysPage.parity')}</Label>
                                                         <Select
                                                             value={formData.modbus_parity || 'N'}
                                                             onValueChange={(v) => handleInputChange('modbus_parity', v)}
@@ -658,9 +654,9 @@ const GatewaysPage = () => {
                                                                 <SelectValue />
                                                             </SelectTrigger>
                                                             <SelectContent>
-                                                                <SelectItem value="N">None</SelectItem>
-                                                                <SelectItem value="E">Even</SelectItem>
-                                                                <SelectItem value="O">Odd</SelectItem>
+                                                                <SelectItem value="N">{t('gatewaysPage.parity_none')}</SelectItem>
+                                                                <SelectItem value="E">{t('gatewaysPage.parity_even')}</SelectItem>
+                                                                <SelectItem value="O">{t('gatewaysPage.parity_odd')}</SelectItem>
                                                             </SelectContent>
                                                         </Select>
                                                     </div>
@@ -689,7 +685,7 @@ const GatewaysPage = () => {
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                             {formData.modbus_transport !== 'rtu' && (
                                                 <div className="grid gap-2">
-                                                    <Label htmlFor="port">Port</Label>
+                                                    <Label htmlFor="port">{t('gatewaysPage.port')}</Label>
                                                     <Input
                                                         id="port"
                                                         type="number"
@@ -712,9 +708,9 @@ const GatewaysPage = () => {
                                         {/* Zero-Based Addressing Toggle */}
                                         <div className="flex items-center justify-between p-3 bg-muted/50 rounded-md border">
                                             <div>
-                                                <Label htmlFor="zero_based" className="text-sm font-semibold">Zero-Based Addressing</Label>
+                                                <Label htmlFor="zero_based" className="text-sm font-semibold">{t('gatewaysPage.zero_based')}</Label>
                                                 <p className="text-xs text-muted-foreground mt-0.5">
-                                                    Enable if your PLC documentation starts addresses from 0
+                                                    {t('gatewaysPage.zero_based_hint')}
                                                 </p>
                                             </div>
                                             <Switch
@@ -726,23 +722,23 @@ const GatewaysPage = () => {
 
                                         {/* Dynamic Addressing Note */}
                                         <div className={`p-3 text-xs rounded-md border ${formData.zero_based ? 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800' : 'bg-primary/5 text-primary border-primary/20'}`}>
-                                            <p className="font-semibold mb-1">Modbus Addressing:</p>
+                                            <p className="font-semibold mb-1">{t('gatewaysPage.addr_title')}</p>
                                             {formData.zero_based ? (
                                                 <>
-                                                    <p>Addresses map <strong>directly</strong> to PLC registers (no offset).</p>
+                                                    <p>{t('gatewaysPage.addr_zero_before')}<strong>{t('gatewaysPage.addr_zero_strong')}</strong>{t('gatewaysPage.addr_zero_after')}</p>
                                                     <ul className="list-disc list-inside mt-1 space-y-0.5 opacity-90">
-                                                        <li>Address <strong>40000</strong> → Register <strong>0</strong> (Holding)</li>
-                                                        <li>Address <strong>40001</strong> → Register <strong>1</strong> (Holding)</li>
-                                                        <li>Address <strong>30000</strong> → Register <strong>0</strong> (Input)</li>
+                                                        <li>{t('gatewaysPage.addr_address')} <strong>40000</strong> → {t('gatewaysPage.addr_register')} <strong>0</strong> (Holding)</li>
+                                                        <li>{t('gatewaysPage.addr_address')} <strong>40001</strong> → {t('gatewaysPage.addr_register')} <strong>1</strong> (Holding)</li>
+                                                        <li>{t('gatewaysPage.addr_address')} <strong>30000</strong> → {t('gatewaysPage.addr_register')} <strong>0</strong> (Input)</li>
                                                     </ul>
                                                 </>
                                             ) : (
                                                 <>
-                                                    <p>Addresses use standard Modbus convention (1-based).</p>
+                                                    <p>{t('gatewaysPage.addr_one')}</p>
                                                     <ul className="list-disc list-inside mt-1 space-y-0.5 opacity-90">
-                                                        <li>Address <strong>40001</strong> → Register <strong>0</strong> (Holding)</li>
-                                                        <li>Address <strong>40002</strong> → Register <strong>1</strong> (Holding)</li>
-                                                        <li>Address <strong>30001</strong> → Register <strong>0</strong> (Input)</li>
+                                                        <li>{t('gatewaysPage.addr_address')} <strong>40001</strong> → {t('gatewaysPage.addr_register')} <strong>0</strong> (Holding)</li>
+                                                        <li>{t('gatewaysPage.addr_address')} <strong>40002</strong> → {t('gatewaysPage.addr_register')} <strong>1</strong> (Holding)</li>
+                                                        <li>{t('gatewaysPage.addr_address')} <strong>30001</strong> → {t('gatewaysPage.addr_register')} <strong>0</strong> (Input)</li>
                                                     </ul>
                                                 </>
                                             )}
@@ -753,58 +749,58 @@ const GatewaysPage = () => {
                                 {formData.driver_type === 'MQTT' && (
                                     <div className="space-y-4">
                                         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 rounded-md border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300">
-                                            <p className="font-semibold mb-1">MQTT Native Driver</p>
+                                            <p className="font-semibold mb-1">{t('gatewaysPage.mqtt_title')}</p>
                                             <ul className="list-disc list-inside space-y-0.5 text-emerald-700 dark:text-emerald-400">
-                                                <li>Tag <strong>Code</strong> = the PLC's MQTT topic (e.g. <code>wago/sensori/T1</code>)</li>
-                                                <li>Optionally subscribe to a customer-owned external broker (below).</li>
-                                                <li>For JSON payloads use the tag's <code>json_path</code> field to extract a single field.</li>
+                                                <li>{t('gatewaysPage.tag_code_before')}<strong>{t('gatewaysPage.tag_code')}</strong>{t('gatewaysPage.mqtt_code_after')}<code>wago/sensori/T1</code>)</li>
+                                                <li>{t('gatewaysPage.mqtt_external')}</li>
+                                                <li>{t('gatewaysPage.mqtt_json_before')}<code>json_path</code>{t('gatewaysPage.mqtt_json_after')}</li>
                                             </ul>
                                         </div>
 
                                         {/* External broker (optional) */}
                                         <div className="space-y-3 border rounded-md p-3 bg-muted/30">
                                             <div>
-                                                <p className="text-sm font-semibold">External broker (optional)</p>
+                                                <p className="text-sm font-semibold">{t('gatewaysPage.broker_title')}</p>
                                                 <p className="text-[11px] text-muted-foreground">
-                                                    Leave the host empty to use OpenEdge's internal broker (the PLC publishes straight to us). Set host/port when the PLCs publish to <strong>their own</strong> broker and OpenEdge should connect to it.
+                                                    {t('gatewaysPage.broker_hint_before')}<strong>{t('gatewaysPage.broker_hint_strong')}</strong>{t('gatewaysPage.broker_hint_after')}
                                                 </p>
                                             </div>
                                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                                 <div className="col-span-2 grid gap-1">
-                                                    <Label htmlFor="broker_host" className="text-xs">Broker host (IP or hostname)</Label>
+                                                    <Label htmlFor="broker_host" className="text-xs">{t('gatewaysPage.broker_host')}</Label>
                                                     <Input id="broker_host" value={formData.broker_host || ''}
                                                         onChange={(e) => handleInputChange('broker_host', e.target.value)}
-                                                        placeholder="es. 192.168.1.40  oppure  mqtt.cliente.local" />
+                                                        placeholder={t('gatewaysPage.broker_host_placeholder')} />
                                                 </div>
                                                 <div className="grid gap-1">
-                                                    <Label htmlFor="broker_port" className="text-xs">Port</Label>
+                                                    <Label htmlFor="broker_port" className="text-xs">{t('gatewaysPage.port')}</Label>
                                                     <Input id="broker_port" type="number" value={formData.broker_port ?? 1883}
                                                         onChange={(e) => handleInputChange('broker_port', parseInt(e.target.value) || 1883)} />
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                 <div className="grid gap-1">
-                                                    <Label htmlFor="broker_username" className="text-xs">Username (optional)</Label>
+                                                    <Label htmlFor="broker_username" className="text-xs">{t('gatewaysPage.username_optional')}</Label>
                                                     <Input id="broker_username" value={formData.broker_username || ''}
                                                         onChange={(e) => handleInputChange('broker_username', e.target.value)} autoComplete="off" />
                                                 </div>
                                                 <div className="grid gap-1">
-                                                    <Label htmlFor="broker_password" className="text-xs">Password (optional)</Label>
+                                                    <Label htmlFor="broker_password" className="text-xs">{t('gatewaysPage.password_optional')}</Label>
                                                     <Input id="broker_password" type="password" value={formData.broker_password || ''}
                                                         onChange={(e) => handleInputChange('broker_password', e.target.value)} autoComplete="new-password" />
                                                 </div>
                                             </div>
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
                                                 <div className="grid gap-1">
-                                                    <Label htmlFor="broker_client_id" className="text-xs">Client ID (optional)</Label>
+                                                    <Label htmlFor="broker_client_id" className="text-xs">{t('gatewaysPage.client_id_optional')}</Label>
                                                     <Input id="broker_client_id" value={formData.broker_client_id || ''}
                                                         onChange={(e) => handleInputChange('broker_client_id', e.target.value)}
-                                                        placeholder="auto-generato se vuoto" />
+                                                        placeholder={t('gatewaysPage.client_id_placeholder')} />
                                                 </div>
                                                 <label className="flex items-center gap-2 pb-2 cursor-pointer">
                                                     <Switch checked={!!formData.broker_tls}
                                                         onCheckedChange={(v) => handleInputChange('broker_tls', v)} />
-                                                    <span className="text-xs">TLS (port 8883 typically)</span>
+                                                    <span className="text-xs">{t('gatewaysPage.broker_tls')}</span>
                                                 </label>
                                             </div>
                                         </div>
@@ -815,12 +811,12 @@ const GatewaysPage = () => {
                                     <div className="space-y-4">
                                         {/* Info box */}
                                         <div className="p-3 bg-violet-50 dark:bg-violet-950/30 rounded-md border border-violet-200 dark:border-violet-800 text-xs text-violet-800 dark:text-violet-300">
-                                            <p className="font-semibold mb-1">LoRaWAN Network Server Bridge</p>
+                                            <p className="font-semibold mb-1">{t('gatewaysPage.lora_title')}</p>
                                             <ul className="list-disc list-inside space-y-0.5 text-violet-700 dark:text-violet-400">
-                                                <li>Supporta <strong>The Things Network v3</strong> e <strong>ChirpStack v4</strong></li>
-                                                <li>Tag <strong>Code</strong> = <code>device_id/campo</code> (es. <code>sensor-01/temperature</code>)</li>
-                                                <li>Campi speciali: <code>rssi</code>, <code>snr</code>, <code>f_port</code></li>
-                                                <li>Il wildcard <code>*/campo</code> riceve da qualsiasi device</li>
+                                                <li>{t('gatewaysPage.lora_supports')} <strong>The Things Network v3</strong> {t('gatewaysPage.lora_and')} <strong>ChirpStack v4</strong></li>
+                                                <li>{t('gatewaysPage.tag_code_before')}<strong>{t('gatewaysPage.tag_code')}</strong> = <code>{t('gatewaysPage.lora_code_pattern')}</code> ({t('gatewaysPage.eg')} <code>sensor-01/temperature</code>)</li>
+                                                <li>{t('gatewaysPage.lora_special')} <code>rssi</code>, <code>snr</code>, <code>f_port</code></li>
+                                                <li>{t('gatewaysPage.lora_wildcard_before')}<code>{t('gatewaysPage.lora_wildcard_pattern')}</code>{t('gatewaysPage.lora_wildcard_after')}</li>
                                             </ul>
                                         </div>
 
@@ -858,7 +854,7 @@ const GatewaysPage = () => {
                                                 />
                                             </div>
                                             <div className="grid gap-1">
-                                                <Label htmlFor="lora_port" className="text-xs">Port</Label>
+                                                <Label htmlFor="lora_port" className="text-xs">{t('gatewaysPage.port')}</Label>
                                                 <Input id="lora_port" type="number" value={formData.lora_server_port ?? 1883}
                                                     onChange={e => handleInputChange('lora_server_port', parseInt(e.target.value) || 1883)} />
                                             </div>
@@ -868,7 +864,7 @@ const GatewaysPage = () => {
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                             <div className="grid gap-1">
                                                 <Label htmlFor="lora_user" className="text-xs">
-                                                    {formData.lora_server_type === 'chirpstack' ? 'MQTT Username' : 'Username (app-id@ttn)'}
+                                                    {formData.lora_server_type === 'chirpstack' ? t('gatewaysPage.lora_mqtt_username') : t('gatewaysPage.lora_ttn_username')}
                                                 </Label>
                                                 <Input id="lora_user" value={formData.lora_username || ''}
                                                     onChange={e => handleInputChange('lora_username', e.target.value)}
@@ -877,7 +873,7 @@ const GatewaysPage = () => {
                                             </div>
                                             <div className="grid gap-1">
                                                 <Label htmlFor="lora_pass" className="text-xs">
-                                                    {formData.lora_server_type === 'chirpstack' ? 'MQTT Password' : 'API Key'}
+                                                    {formData.lora_server_type === 'chirpstack' ? t('gatewaysPage.lora_mqtt_password') : t('gatewaysPage.lora_api_key')}
                                                 </Label>
                                                 <Input id="lora_pass" type="password" value={formData.lora_password || ''}
                                                     onChange={e => handleInputChange('lora_password', e.target.value)}
@@ -889,7 +885,7 @@ const GatewaysPage = () => {
                                         <label className="flex items-center gap-2 cursor-pointer">
                                             <Switch checked={!!formData.lora_tls_enabled}
                                                 onCheckedChange={v => handleInputChange('lora_tls_enabled', v)} />
-                                            <span className="text-xs">TLS/SSL (porta 8883 tipicamente)</span>
+                                            <span className="text-xs">{t('gatewaysPage.lora_tls')}</span>
                                         </label>
                                     </div>
                                 )}
@@ -906,7 +902,7 @@ const GatewaysPage = () => {
                                             />
                                         </div>
                                         <div className="grid gap-2">
-                                            <Label htmlFor="scan">Scan Rate (ms)</Label>
+                                            <Label htmlFor="scan">{t('gatewaysPage.scan_rate')}</Label>
                                             <Input
                                                 id="scan"
                                                 type="number"
@@ -916,18 +912,18 @@ const GatewaysPage = () => {
                                         </div>
 
                                         <div className="grid gap-2 border-t pt-4">
-                                            <Label htmlFor="auth_mode">Authentication Mode</Label>
+                                            <Label htmlFor="auth_mode">{t('gatewaysPage.auth_mode')}</Label>
                                             <Select
                                                 value={formData.auth_mode || 'Anonymous'}
                                                 onValueChange={(val) => handleInputChange('auth_mode', val)}
                                             >
                                                 <SelectTrigger>
-                                                    <SelectValue placeholder="Select Auth Mode" />
+                                                    <SelectValue placeholder={t('gatewaysPage.select_auth_mode')} />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    <SelectItem value="Anonymous">Anonymous</SelectItem>
-                                                    <SelectItem value="Username">Username / Password</SelectItem>
-                                                    <SelectItem value="Certificate">Certificate</SelectItem>
+                                                    <SelectItem value="Anonymous">{t('gatewaysPage.auth_anonymous')}</SelectItem>
+                                                    <SelectItem value="Username">{t('gatewaysPage.auth_username')}</SelectItem>
+                                                    <SelectItem value="Certificate">{t('gatewaysPage.auth_certificate')}</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>
@@ -935,7 +931,7 @@ const GatewaysPage = () => {
                                         {formData.auth_mode === 'Username' && (
                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                 <div className="grid gap-2">
-                                                    <Label htmlFor="username">Username</Label>
+                                                    <Label htmlFor="username">{t('gatewaysPage.username')}</Label>
                                                     <Input
                                                         id="username"
                                                         value={formData.username}
@@ -944,7 +940,7 @@ const GatewaysPage = () => {
                                                     />
                                                 </div>
                                                 <div className="grid gap-2">
-                                                    <Label htmlFor="password">Password</Label>
+                                                    <Label htmlFor="password">{t('gatewaysPage.password')}</Label>
                                                     <Input
                                                         id="password"
                                                         type="password"
@@ -959,7 +955,7 @@ const GatewaysPage = () => {
                                         {formData.auth_mode === 'Certificate' && (
                                             <div className="grid gap-4 bg-muted/50 p-3 rounded-md border">
                                                 <div className="grid gap-2">
-                                                    <Label htmlFor="cert_file">Certificate File Path (Server-side)</Label>
+                                                    <Label htmlFor="cert_file">{t('gatewaysPage.cert_file')}</Label>
                                                     <Input
                                                         id="cert_file"
                                                         value={formData.cert_file}
@@ -968,7 +964,7 @@ const GatewaysPage = () => {
                                                     />
                                                 </div>
                                                 <div className="grid gap-2">
-                                                    <Label htmlFor="key_file">Private Key File Path (Server-side)</Label>
+                                                    <Label htmlFor="key_file">{t('gatewaysPage.key_file')}</Label>
                                                     <Input
                                                         id="key_file"
                                                         value={formData.key_file}
@@ -977,20 +973,20 @@ const GatewaysPage = () => {
                                                     />
                                                 </div>
                                                 <div className="text-xs text-muted-foreground mt-1">
-                                                    Paths must be valid inside the <span className="font-semibold">driver-opcua</span> container.
+                                                    {t('gatewaysPage.cert_hint_before')}<span className="font-semibold">driver-opcua</span>{t('gatewaysPage.cert_hint_after')}
                                                 </div>
                                             </div>
                                         )}
 
                                         <div className="p-4 bg-indigo-50 dark:bg-indigo-950/30 rounded-md border border-indigo-200 dark:border-indigo-800 mt-2">
-                                            <p className="font-semibold text-indigo-800 dark:text-indigo-300 mb-2">OPC UA Driver</p>
+                                            <p className="font-semibold text-indigo-800 dark:text-indigo-300 mb-2">{t('gatewaysPage.opcua_title')}</p>
                                             <p className="text-sm text-indigo-700 dark:text-indigo-400 mb-2">
-                                                Connects to an OPC UA server and reads selected nodes at the configured scan rate.
+                                                {t('gatewaysPage.opcua_desc')}
                                             </p>
                                             <ul className="list-disc list-inside text-xs text-indigo-600 dark:text-indigo-400 space-y-1">
-                                                <li>Enter the server's OPC UA endpoint URL</li>
-                                                <li>After creating the gateway, use <strong>Browse Server</strong> in the Tags page to discover and add nodes</li>
-                                                <li>Tag <strong>Code</strong> = OPC UA Node ID (e.g. <code>ns=2;s=Temperature</code>)</li>
+                                                <li>{t('gatewaysPage.opcua_step1')}</li>
+                                                <li>{t('gatewaysPage.opcua_step2_before')}<strong>{t('gatewaysPage.opcua_browse')}</strong>{t('gatewaysPage.opcua_step2_after')}</li>
+                                                <li>{t('gatewaysPage.tag_code_before')}<strong>{t('gatewaysPage.tag_code')}</strong> = OPC UA Node ID ({t('gatewaysPage.eg')} <code>ns=2;s=Temperature</code>)</li>
                                             </ul>
                                         </div>
                                     </div>
@@ -1002,11 +998,11 @@ const GatewaysPage = () => {
                                         checked={formData.enabled}
                                         onCheckedChange={(checked) => handleInputChange('enabled', checked)}
                                     />
-                                    <Label htmlFor="enabled">Enabled</Label>
+                                    <Label htmlFor="enabled">{t('gatewaysPage.enabled')}</Label>
                                 </div>
                             </div>
                             <DialogFooter>
-                                <Button onClick={handleCreate}>{updatingGatewayId ? 'Update Gateway' : 'Create Gateway'}</Button>
+                                <Button onClick={handleCreate}>{updatingGatewayId ? t('gatewaysPage.save_update') : t('gatewaysPage.save_create')}</Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>
@@ -1016,24 +1012,24 @@ const GatewaysPage = () => {
             {/* Stats bar */}
             <div className="flex flex-wrap items-center gap-6 text-sm text-muted-foreground px-1">
                 <span>
-                    <strong className="text-foreground">{gateways.length}</strong> gateway
-                    {filteredGateways.length !== gateways.length && ` (${filteredGateways.length} filtrati)`}
+                    <strong className="text-foreground">{gateways.length}</strong> {t('gatewaysPage.stat_gateways', { count: gateways.length })}
+                    {filteredGateways.length !== gateways.length && ` ${t('gatewaysPage.stat_filtered', { count: filteredGateways.length })}`}
                 </span>
                 <span className="flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                    <strong className="text-emerald-600">{onlineCount}</strong> online
+                    <strong className="text-emerald-600">{onlineCount}</strong> {t('gatewaysPage.stat_online')}
                 </span>
                 {offlineCount > 0 && (
                     <span className="flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                        <strong className="text-red-500">{offlineCount}</strong> offline
+                        <strong className="text-red-500">{offlineCount}</strong> {t('gatewaysPage.stat_offline')}
                     </span>
                 )}
                 <div className="relative w-full sm:ml-auto sm:w-64">
                     <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                     <Input
                         className="pl-8 h-10 sm:h-8 text-sm"
-                        placeholder="Cerca per nome, driver, IP..."
+                        placeholder={t('gatewaysPage.search_placeholder')}
                         value={searchInput}
                         onChange={e => setSearchInput(e.target.value)}
                     />
@@ -1045,12 +1041,12 @@ const GatewaysPage = () => {
                     <TableHeader>
                         <TableRow>
                             <TableHead className="w-[60px]">ID</TableHead>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Type</TableHead>
-                            <TableHead>Config</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Enabled</TableHead>
-                            {isAdmin() && <TableHead className="text-right">Actions</TableHead>}
+                            <TableHead>{t('common.name')}</TableHead>
+                            <TableHead>{t('gatewaysPage.col_type')}</TableHead>
+                            <TableHead>{t('gatewaysPage.col_config')}</TableHead>
+                            <TableHead>{t('gatewaysPage.col_status')}</TableHead>
+                            <TableHead>{t('gatewaysPage.enabled')}</TableHead>
+                            {isAdmin() && <TableHead className="text-right">{t('common.actions')}</TableHead>}
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1092,23 +1088,23 @@ const GatewaysPage = () => {
                                         {gw.driver_type === 'S7'
                                             ? `Rack: ${gw.connection_config?.rack ?? 0}, Slot: ${gw.connection_config?.slot ?? 0}`
                                             : gw.driver_type === 'MODBUS_TCP'
-                                                ? `Port: ${gw.connection_config?.port ?? 502}, Slave: ${gw.connection_config?.slave_id ?? 1}`
+                                                ? t('gatewaysPage.cfg_modbus', { port: gw.connection_config?.port ?? 502, slave: gw.connection_config?.slave_id ?? 1 })
                                                 : gw.driver_type === 'OPC_UA'
-                                                    ? (gw.connection_config?.endpoint || 'No endpoint')
+                                                    ? (gw.connection_config?.endpoint || t('gatewaysPage.cfg_no_endpoint'))
                                                     : gw.driver_type === 'MQTT'
-                                                        ? (gw.connection_config?.broker_host ? `${gw.connection_config.broker_host}:${gw.connection_config.broker_port ?? 1883}` : 'Internal broker')
+                                                        ? (gw.connection_config?.broker_host ? `${gw.connection_config.broker_host}:${gw.connection_config.broker_port ?? 1883}` : t('gatewaysPage.cfg_internal_broker'))
                                                         : gw.driver_type === 'LORAWAN'
                                                             ? `${gw.connection_config?.server_type ?? 'ttn_v3'} · ${gw.connection_config?.server_host || '—'}`
                                                             : '—'
                                         }
                                         {gw.driver_type !== 'MQTT' && gw.driver_type !== 'LORAWAN' && (
-                                            <><br />Scan: {gw.scan_rate_ms >= 1000 ? `${gw.scan_rate_ms / 1000}s` : `${gw.scan_rate_ms}ms`}</>
+                                            <><br />{t('gatewaysPage.cfg_scan')} {gw.scan_rate_ms >= 1000 ? `${gw.scan_rate_ms / 1000}s` : `${gw.scan_rate_ms}ms`}</>
                                         )}
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">
                                             <div className={`h-2 w-2 clip-hex ${gw.connection_status === 'online' ? 'bg-[#10B981] animate-pulse' : 'bg-destructive'}`} />
-                                            <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">{gw.connection_status || 'Unknown'}</span>
+                                            <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">{gw.connection_status ? t(`gatewaysPage.status.${gw.connection_status}`, { defaultValue: gw.connection_status }) : t('gatewaysPage.status.unknown')}</span>
                                         </div>
                                     </TableCell>
                                     <TableCell>
@@ -1135,7 +1131,7 @@ const GatewaysPage = () => {
                                                         handleEditOpen(gw);
                                                     }}
                                                 >
-                                                    Edit
+                                                    {t('common.edit')}
                                                 </Button>
 
                                                 <Button
@@ -1145,7 +1141,7 @@ const GatewaysPage = () => {
                                                     onClick={(e) => handleTest(e, gw.id)}
                                                 >
                                                     <Wifi size={12} />
-                                                    Test
+                                                    {t('gatewaysPage.test')}
                                                 </Button>
                                                 {gw.driver_type === 'LORAWAN' && (
                                                     <Button
@@ -1158,7 +1154,7 @@ const GatewaysPage = () => {
                                                         }}
                                                     >
                                                         <Radio size={12} />
-                                                        Dispositivi
+                                                        {t('gatewaysPage.devices')}
                                                     </Button>
                                                 )}
                                                 <Button

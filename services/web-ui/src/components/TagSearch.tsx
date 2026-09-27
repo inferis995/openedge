@@ -9,6 +9,7 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover"
 import { Tag } from "@/types"
+import { useTranslation } from "react-i18next"
 
 interface TagSearchProps {
     tags: Tag[]
@@ -19,6 +20,7 @@ interface TagSearchProps {
 }
 
 export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear }: TagSearchProps) {
+    const { t } = useTranslation()
     const [open, setOpen] = React.useState(false)
     const [searchQuery, setSearchQuery] = React.useState("")
     const listRef = React.useRef<HTMLDivElement>(null)
@@ -58,7 +60,7 @@ export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear 
                     disabled={tags.length === 0}
                 >
                     <span className="truncate">
-                        {tags.length === 0 ? "No tags available" : "Select tag to add..."}
+                        {tags.length === 0 ? t('tagSearch.no_tags') : t('tagSearch.select_placeholder')}
                     </span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
@@ -69,7 +71,7 @@ export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear 
                         <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
                         <input
                             className="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                            placeholder="Search tag..."
+                            placeholder={t('tagSearch.search_placeholder')}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             autoFocus
@@ -86,7 +88,7 @@ export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear 
                                     onClick={handleSelectAll}
                                     disabled={filteredTags.length === 0}
                                 >
-                                    Select All ({filteredTags.length})
+                                    {t('tagSearch.select_all', { count: filteredTags.length })}
                                 </Button>
                             )}
                             {onClear && (
@@ -99,7 +101,7 @@ export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear 
                                         setOpen(false);
                                     }}
                                 >
-                                    Deselect All
+                                    {t('tagSearch.deselect_all')}
                                 </Button>
                             )}
                         </div>
@@ -111,12 +113,12 @@ export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear 
                     >
                         {filteredTags.length === 0 ? (
                             <div className="py-6 text-center text-sm text-muted-foreground">
-                                No tag found.
+                                {t('tagSearch.no_match')}
                             </div>
                         ) : (
                             <div className="flex flex-col gap-0.5">
                                 <div className="px-2 py-1.5 text-xs font-medium text-muted-foreground">
-                                    Available Tags
+                                    {t('tagSearch.available')}
                                 </div>
                                 {filteredTags.map((tag) => {
                                     const isSelected = selectedTags.includes(tag.id)
@@ -130,7 +132,7 @@ export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear 
                                             )}
                                         >
                                             <div className="flex flex-col flex-1 mr-2">
-                                                <span className="font-medium">{tag.alias || "Unnamed Tag"}</span>
+                                                <span className="font-medium">{tag.alias || t('tagSearch.unnamed')}</span>
                                                 <span className="text-xs text-muted-foreground">{tag.code} • {tag.data_type}</span>
                                             </div>
                                             {isSelected && <Check className="h-4 w-4 ml-auto" />}

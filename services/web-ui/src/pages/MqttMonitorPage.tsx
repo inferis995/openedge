@@ -31,6 +31,8 @@ import {
 import { type MqttClient } from 'mqtt';
 import { connectAuthenticatedMqtt } from '@/lib/mqtt-client';
 import { decodeSparkplugB, isProtobufData, convertSparkplugQuality } from '@/utils/sparkplugDecoder';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 type MessageFormat = 'all' | 'legacy' | 'sparkplug';
 
@@ -50,6 +52,7 @@ const MAX_MESSAGES = 200; // Reduced from 500
 const BATCH_INTERVAL = 100; // Batch updates every 100ms
 
 const MqttMonitorPage = () => {
+    const { t } = useTranslation();
     const [messages, setMessages] = useState<MqttMessage[]>([]);
     const [isConnected, setIsConnected] = useState(false);
     const [isPaused, setIsPaused] = useState(false);
@@ -182,11 +185,11 @@ const MqttMonitorPage = () => {
 
                                 if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
                                     tagAlias = `[${msgType}] ${deviceId || nodeId}`;
-                                    value = `${decoded.metrics.length} metrics`;
+                                    value = i18n.t('mqttMonitor.metrics', { count: decoded.metrics.length });
                                     quality = 0;
                                 } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
                                     tagAlias = `[${msgType}] ${deviceId || nodeId}`;
-                                    value = 'offline';
+                                    value = i18n.t('mqttMonitor.offline');
                                     quality = 2;
                                 } else {
                                     // DDATA / NDATA — just show first metric as sample
@@ -229,11 +232,11 @@ const MqttMonitorPage = () => {
 
                             if (msgType === 'DBIRTH' || msgType === 'NBIRTH') {
                                 tagAlias = `[${msgType}] ${deviceId || nodeId}`;
-                                value = `${metricCount} metric${metricCount !== 1 ? 's' : ''}`;
+                                value = i18n.t('mqttMonitor.metrics', { count: metricCount });
                                 quality = 0;
                             } else if (msgType === 'DDEATH' || msgType === 'NDEATH') {
                                 tagAlias = `[${msgType}] ${deviceId || nodeId}`;
-                                value = 'offline';
+                                value = i18n.t('mqttMonitor.offline');
                                 quality = 2;
                             } else {
                                 const metric = Array.isArray(metrics) ? metrics[0] : metrics;
@@ -264,7 +267,7 @@ const MqttMonitorPage = () => {
                                 topic: topic,
                                 tagId: 0,
                                 tagAlias: `[BINARY] ${extractAliasFromTopic(topic)}`,
-                                value: `<${payload.length} bytes>`,
+                                value: i18n.t('mqttMonitor.bytes', { count: payload.length }),
                                 timestamp: Date.now(),
                                 quality: 0,
                                 receivedAt: new Date(),
@@ -381,11 +384,11 @@ const MqttMonitorPage = () => {
 
     const getQualityBadge = (quality: number) => {
         if (quality === 0) {
-            return <Badge className="bg-green-500 text-white">GOOD</Badge>;
+            return <Badge className="bg-green-500 text-white">{t('mqttMonitor.q_good')}</Badge>;
         } else if (quality === 1) {
-            return <Badge className="bg-yellow-500 text-white">UNCERTAIN</Badge>;
+            return <Badge className="bg-yellow-500 text-white">{t('mqttMonitor.q_uncertain')}</Badge>;
         } else {
-            return <Badge className="bg-red-500 text-white">BAD</Badge>;
+            return <Badge className="bg-red-500 text-white">{t('mqttMonitor.q_bad')}</Badge>;
         }
     };
 
@@ -407,7 +410,7 @@ const MqttMonitorPage = () => {
     };
 
     const formatTime = (date: Date) => {
-        const time = date.toLocaleTimeString('it-IT', {
+        const time = date.toLocaleTimeString(i18n.language, {
             hour: '2-digit',
             minute: '2-digit',
             second: '2-digit'
@@ -438,10 +441,10 @@ const MqttMonitorPage = () => {
                 <div className="flex items-center gap-3">
                     <Radio className={`h-6 w-6 ${isConnected ? 'text-green-500 animate-pulse' : 'text-red-500'}`} />
                     <div>
-                        <h2 className="text-2xl font-bold tracking-tight">MQTT Live Monitor</h2>
+                        <h2 className="text-2xl font-bold tracking-tight">{t('mqttMonitor.title')}</h2>
                         <p className="text-muted-foreground text-sm">
-                            Real-time message stream • {stats.total.toLocaleString()} total
-                            <span className="ml-2 text-slate-500">(Legacy: {stats.legacy}, Sparkplug: {stats.sparkplug})</span>
+                            {t('mqttMonitor.subtitle', { total: stats.total.toLocaleString(i18n.language) })}
+                            <span className="ml-2 text-slate-500">{t('mqttMonitor.split', { legacy: stats.legacy, sparkplug: stats.sparkplug })}</span>
                         </p>
                     </div>
                 </div>
@@ -449,7 +452,7 @@ const MqttMonitorPage = () => {
                 <div className="flex items-center gap-2">
                     <Badge variant={isConnected ? 'default' : 'destructive'} className="gap-1">
                         <Wifi className="h-3 w-3" />
-                        {isConnected ? 'Connected' : 'Disconnected'}
+                        {isConnected ? t('mqttMonitor.connected') : t('mqttMonitor.disconnected')}
                     </Badge>
                 </div>
             </div>
@@ -462,19 +465,19 @@ const MqttMonitorPage = () => {
                         {isPaused ? (
                             <Button onClick={handleResume} variant="default" className="gap-2">
                                 <Play className="h-4 w-4" />
-                                Resume
+                                {t('mqttMonitor.resume')}
                             </Button>
                         ) : (
                             <Button onClick={() => setIsPaused(true)} variant="outline" className="gap-2">
                                 <Pause className="h-4 w-4" />
-                                Pause
+                                {t('mqttMonitor.pause')}
                             </Button>
                         )}
 
                         {/* Clear */}
                         <Button onClick={handleClear} variant="outline" className="gap-2">
                             <Trash2 className="h-4 w-4" />
-                            Clear
+                            {t('mqttMonitor.clear')}
                         </Button>
 
                         {/* Auto-scroll */}
@@ -484,18 +487,18 @@ const MqttMonitorPage = () => {
                             className="gap-2"
                         >
                             <ArrowDown className="h-4 w-4" />
-                            Auto-scroll
+                            {t('mqttMonitor.autoscroll')}
                         </Button>
 
                         {/* Format Filter */}
                         <div className="flex items-center gap-2">
-                            <span className="text-sm text-muted-foreground">Format:</span>
+                            <span className="text-sm text-muted-foreground">{t('mqttMonitor.format_label')}</span>
                             <Select value={formatFilter} onValueChange={(v) => setFormatFilter(v as MessageFormat)}>
                                 <SelectTrigger className="w-[140px]">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="all">All Messages</SelectItem>
+                                    <SelectItem value="all">{t('mqttMonitor.all')}</SelectItem>
                                     <SelectItem value="legacy">Legacy (data/#)</SelectItem>
                                     <SelectItem value="sparkplug">Sparkplug B</SelectItem>
                                 </SelectContent>
@@ -506,7 +509,7 @@ const MqttMonitorPage = () => {
                         <div className="flex-1 flex items-center gap-2 ml-4">
                             <Filter className="h-4 w-4 text-muted-foreground" />
                             <Input
-                                placeholder="Filter by topic or alias..."
+                                placeholder={t('mqttMonitor.filter_ph')}
                                 value={filter}
                                 onChange={(e) => setFilter(e.target.value)}
                                 className="max-w-sm"
@@ -515,7 +518,7 @@ const MqttMonitorPage = () => {
 
                         {/* Stats */}
                         <div className="text-sm text-muted-foreground">
-                            Showing {filteredMessages.length} / {messages.length}
+                            {t('mqttMonitor.showing', { shown: filteredMessages.length, total: messages.length })}
                         </div>
                     </div>
                 </CardContent>
@@ -524,9 +527,9 @@ const MqttMonitorPage = () => {
             {/* Messages Table */}
             <Card className="flex-1 overflow-hidden">
                 <CardHeader className="py-3">
-                    <CardTitle className="text-base">Message Stream</CardTitle>
+                    <CardTitle className="text-base">{t('mqttMonitor.stream')}</CardTitle>
                     <CardDescription>
-                        Latest MQTT messages (max {MAX_MESSAGES}) • Topics: data/# (Legacy) + spBv1.0/# (Sparkplug B)
+                        {t('mqttMonitor.stream_desc', { max: MAX_MESSAGES })}
                     </CardDescription>
                 </CardHeader>
                 <CardContent className="p-0">
@@ -534,19 +537,19 @@ const MqttMonitorPage = () => {
                         <Table>
                             <TableHeader className="sticky top-0 bg-background z-10">
                                 <TableRow>
-                                    <TableHead className="w-[100px]">Time</TableHead>
-                                    <TableHead className="w-[70px]">Format</TableHead>
-                                    <TableHead className="w-[80px]">Tag ID</TableHead>
-                                    <TableHead>Topic / Alias</TableHead>
-                                    <TableHead className="w-[120px] text-right">Value</TableHead>
-                                    <TableHead className="w-[100px] text-center">Quality</TableHead>
+                                    <TableHead className="w-[100px]">{t('mqttMonitor.col_time')}</TableHead>
+                                    <TableHead className="w-[70px]">{t('mqttMonitor.col_format')}</TableHead>
+                                    <TableHead className="w-[80px]">{t('mqttMonitor.col_tag_id')}</TableHead>
+                                    <TableHead>{t('mqttMonitor.col_topic')}</TableHead>
+                                    <TableHead className="w-[120px] text-right">{t('mqttMonitor.col_value')}</TableHead>
+                                    <TableHead className="w-[100px] text-center">{t('mqttMonitor.col_quality')}</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {filteredMessages.length === 0 ? (
                                     <TableRow>
                                         <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
-                                            {isPaused ? 'Stream paused...' : 'Waiting for messages...'}
+                                            {isPaused ? t('mqttMonitor.paused') : t('mqttMonitor.waiting')}
                                         </TableCell>
                                     </TableRow>
                                 ) : (

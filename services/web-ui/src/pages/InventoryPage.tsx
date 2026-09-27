@@ -8,15 +8,18 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle, CheckCircle2, Download, HelpCircle, PauseCircle, RefreshCw, Search } from 'lucide-react';
 import { inventoryApi, InventoryDevice, InventoryResponse } from '@/api/inventory';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 // Lo stato che il driver ha riportato per ultimo. Un gateway disabilitato non è
 // un guasto — nessuno gli sta chiedendo niente — e mostrarlo in rosso è il modo
 // più rapido per far smettere di guardare questa pagina.
 function HealthBadge({ device }: { device: InventoryDevice }) {
+    const { t } = useTranslation();
     if (!device.enabled) {
         return (
             <Badge variant="outline" className="gap-1 text-muted-foreground">
-                <PauseCircle size={12} /> Disabilitato
+                <PauseCircle size={12} /> {t('inventoryPage.health_disabled')}
             </Badge>
         );
     }
@@ -24,38 +27,39 @@ function HealthBadge({ device }: { device: InventoryDevice }) {
         case 'online':
             return (
                 <Badge variant="outline" className="gap-1 border-emerald-500/40 text-emerald-600">
-                    <CheckCircle2 size={12} /> Online
+                    <CheckCircle2 size={12} /> {t('inventoryPage.health_online')}
                 </Badge>
             );
         case 'offline':
             return (
                 <Badge variant="outline" className="gap-1 border-red-500/40 text-red-600">
-                    <AlertCircle size={12} /> Offline
+                    <AlertCircle size={12} /> {t('inventoryPage.health_offline')}
                 </Badge>
             );
         case 'error':
             return (
                 <Badge variant="outline" className="gap-1 border-red-500/40 text-red-600">
-                    <AlertCircle size={12} /> Errore
+                    <AlertCircle size={12} /> {t('inventoryPage.health_error')}
                 </Badge>
             );
         default:
             return (
                 <Badge variant="outline" className="gap-1 text-muted-foreground">
-                    <HelpCircle size={12} /> Mai contattato
+                    <HelpCircle size={12} /> {t('inventoryPage.health_unknown')}
                 </Badge>
             );
     }
 }
 
 const formatSeen = (iso?: string): string => {
-    if (!iso) return 'mai';
+    if (!iso) return i18n.t('inventoryPage.never');
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return 'mai';
-    return d.toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
+    if (Number.isNaN(d.getTime())) return i18n.t('inventoryPage.never');
+    return d.toLocaleString(i18n.language, { dateStyle: 'short', timeStyle: 'short' });
 };
 
 export function InventoryPage() {
+    const { t } = useTranslation();
     const [data, setData] = useState<InventoryResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [exporting, setExporting] = useState(false);
@@ -67,7 +71,7 @@ export function InventoryPage() {
             setData(await inventoryApi.get());
         } catch (err) {
             console.error('inventory', err);
-            toast.error('Impossibile caricare l’inventario.');
+            toast.error(t('inventoryPage.load_failed'));
         } finally {
             setLoading(false);
         }
@@ -84,12 +88,12 @@ export function InventoryPage() {
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `inventario-dispositivi-${new Date().toISOString().slice(0, 10)}.csv`;
+            a.download = `${t('inventoryPage.export_filename')}-${new Date().toISOString().slice(0, 10)}.csv`;
             a.click();
             URL.revokeObjectURL(url);
         } catch (err) {
             console.error('inventory export', err);
-            toast.error('Esportazione non riuscita.');
+            toast.error(t('inventoryPage.export_failed'));
         } finally {
             setExporting(false);
         }
@@ -111,18 +115,17 @@ export function InventoryPage() {
         <div className="space-y-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                    <h1 className="text-2xl font-semibold">Inventario dispositivi</h1>
+                    <h1 className="text-2xl font-semibold">{t('inventoryPage.title')}</h1>
                     <p className="text-sm text-muted-foreground">
-                        Tutto quello che è installato: indirizzo, protocollo, stato e ultimo contatto.
-                        È il documento da consegnare a un cliente o a un ispettore.
+                        {t('inventoryPage.subtitle')}
                     </p>
                 </div>
                 <div className="flex gap-2">
                     <Button variant="outline" onClick={() => void load()} disabled={loading} className="gap-2">
-                        <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Aggiorna
+                        <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> {t('inventoryPage.refresh')}
                     </Button>
                     <Button onClick={() => void handleExport()} disabled={exporting || loading} className="gap-2">
-                        <Download size={16} /> {exporting ? 'Esporto…' : 'Esporta CSV'}
+                        <Download size={16} /> {exporting ? t('inventoryPage.exporting') : t('inventoryPage.export_csv')}
                     </Button>
                 </div>
             </div>
@@ -130,16 +133,16 @@ export function InventoryPage() {
             {summary && (
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
                     {[
-                        { label: 'Dispositivi', value: summary.devices },
-                        { label: 'Online', value: summary.online },
-                        { label: 'Non raggiungibili', value: summary.offline },
-                        { label: 'Mai contattati', value: summary.unknown },
-                        { label: 'Tag totali', value: summary.tags },
+                        { label: 'inventoryPage.tile_devices', value: summary.devices },
+                        { label: 'inventoryPage.tile_online', value: summary.online },
+                        { label: 'inventoryPage.tile_offline', value: summary.offline },
+                        { label: 'inventoryPage.tile_unknown', value: summary.unknown },
+                        { label: 'inventoryPage.tile_tags', value: summary.tags },
                     ].map((tile) => (
                         <Card key={tile.label}>
                             <CardHeader className="pb-1">
                                 <CardTitle className="text-xs font-medium text-muted-foreground">
-                                    {tile.label}
+                                    {t(tile.label)}
                                 </CardTitle>
                             </CardHeader>
                             <CardContent>
@@ -157,7 +160,7 @@ export function InventoryPage() {
                         <Input
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
-                            placeholder="Cerca per nome, sito, indirizzo, protocollo…"
+                            placeholder={t('inventoryPage.search_placeholder')}
                             className="pl-8"
                         />
                     </div>
@@ -166,13 +169,13 @@ export function InventoryPage() {
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Gateway</TableHead>
-                                <TableHead>Sito / Area</TableHead>
-                                <TableHead>Protocollo</TableHead>
-                                <TableHead>Indirizzo</TableHead>
-                                <TableHead>Stato</TableHead>
-                                <TableHead>Ultimo contatto</TableHead>
-                                <TableHead className="text-right">Tag</TableHead>
+                                <TableHead>{t('common.gateway')}</TableHead>
+                                <TableHead>{t('inventoryPage.col_site_area')}</TableHead>
+                                <TableHead>{t('inventoryPage.col_protocol')}</TableHead>
+                                <TableHead>{t('inventoryPage.col_address')}</TableHead>
+                                <TableHead>{t('inventoryPage.col_status')}</TableHead>
+                                <TableHead>{t('inventoryPage.col_last_seen')}</TableHead>
+                                <TableHead className="text-right">{t('inventoryPage.col_tags')}</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -188,7 +191,7 @@ export function InventoryPage() {
                             {!loading && devices.length === 0 && (
                                 <TableRow>
                                     <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
-                                        {query ? 'Nessun dispositivo corrisponde alla ricerca.' : 'Nessun dispositivo censito.'}
+                                        {query ? t('inventoryPage.no_match') : t('inventoryPage.empty')}
                                     </TableCell>
                                 </TableRow>
                             )}
@@ -206,7 +209,7 @@ export function InventoryPage() {
                                         {d.tags}
                                         {d.historized_tags > 0 && (
                                             <span className="ml-1 text-xs text-muted-foreground">
-                                                ({d.historized_tags} stor.)
+                                                {t('inventoryPage.historized', { count: d.historized_tags })}
                                             </span>
                                         )}
                                     </TableCell>

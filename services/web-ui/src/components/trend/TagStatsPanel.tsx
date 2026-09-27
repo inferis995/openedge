@@ -3,6 +3,7 @@ import ReactECharts from 'echarts-for-react';
 import { TagStats } from '@/api/history';
 import { TrendDataPoint } from '@/types/trend';
 import { Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface TagStatsPanelProps {
     tagName: string;
@@ -34,6 +35,7 @@ export const TagStatsPanel: React.FC<TagStatsPanelProps> = ({
     data,
     timeRange,
 }) => {
+    const { t } = useTranslation();
     const sparkData = useMemo(() => {
         if (!data?.length) return [];
         return data
@@ -95,7 +97,7 @@ export const TagStatsPanel: React.FC<TagStatsPanelProps> = ({
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tagColor }} />
                     <span className="text-xs font-semibold text-foreground truncate">{tagName}</span>
                 </div>
-                <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">No data</div>
+                <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">{t('trend.no_data')}</div>
             </div>
         );
     }
@@ -122,9 +124,9 @@ export const TagStatsPanel: React.FC<TagStatsPanelProps> = ({
                     </span>
                 )}
                 <span className="text-[10px] text-muted-foreground tabular-nums">
-                    {stats.sample_count >= 1000
+                    {t('trend.samples', { count: stats.sample_count, value: stats.sample_count >= 1000
                         ? `${(stats.sample_count / 1000).toFixed(1)}k`
-                        : stats.sample_count} pts
+                        : stats.sample_count })}
                 </span>
             </div>
 
@@ -139,7 +141,7 @@ export const TagStatsPanel: React.FC<TagStatsPanelProps> = ({
                 </div>
             ) : (
                 <div style={{ height: 58 }} className="flex items-center justify-center">
-                    <span className="text-[10px] text-muted-foreground italic">no chart data</span>
+                    <span className="text-[10px] text-muted-foreground italic">{t('trend.no_chart_data')}</span>
                 </div>
             )}
 
@@ -149,9 +151,9 @@ export const TagStatsPanel: React.FC<TagStatsPanelProps> = ({
                         {/* Min / Avg / Max */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-0 mb-1.5">
                             {([
-                                { label: 'Min', value: stats.min_value, color: '#ef4444' },
-                                { label: 'Avg', value: stats.avg_value, color: tagColor },
-                                { label: 'Max', value: stats.max_value, color: '#22c55e' },
+                                { label: t('trend.stat_min'), value: stats.min_value, color: '#ef4444' },
+                                { label: t('trend.stat_avg'), value: stats.avg_value, color: tagColor },
+                                { label: t('trend.stat_max'), value: stats.max_value, color: '#22c55e' },
                             ] as const).map(({ label, value, color }) => (
                                 <div key={label} className="text-center">
                                     <div

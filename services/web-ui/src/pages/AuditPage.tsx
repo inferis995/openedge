@@ -13,13 +13,15 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { auditApi, AuditLog, AuditFilters } from '@/api/audit';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 
 const PRESET_RANGES = [
-    { label: 'Last 1h', hours: 1 },
-    { label: 'Last 6h', hours: 6 },
-    { label: 'Last 24h', hours: 24 },
-    { label: 'Last 7d', hours: 168 },
-    { label: 'Last 30d', hours: 720 },
+    { label: 'auditPage.range_1', hours: 1 },
+    { label: 'auditPage.range_6', hours: 6 },
+    { label: 'auditPage.range_24', hours: 24 },
+    { label: 'auditPage.range_168', hours: 168 },
+    { label: 'auditPage.range_720', hours: 720 },
 ] as const;
 
 const ACTION_COLORS: Record<string, string> = {
@@ -38,13 +40,14 @@ const actionColor = (action: string) =>
 
 function formatTs(iso: string): string {
     const d = new Date(iso);
-    return d.toLocaleString(undefined, {
+    return d.toLocaleString(i18n.language, {
         month: 'short', day: '2-digit',
         hour: '2-digit', minute: '2-digit', second: '2-digit',
     });
 }
 
 function DetailsCell({ details }: { details: Record<string, unknown> | null }) {
+    const { t } = useTranslation();
     const [open, setOpen] = useState(false);
     if (!details || Object.keys(details).length === 0) return <span className="text-muted-foreground text-xs">—</span>;
     return (
@@ -54,7 +57,7 @@ function DetailsCell({ details }: { details: Record<string, unknown> | null }) {
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
             >
                 {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                {open ? 'hide' : 'show'}
+                {open ? t('auditPage.hide') : t('auditPage.show')}
             </button>
             {open && (
                 <pre className="mt-2 rounded bg-muted px-3 py-2 text-xs leading-relaxed font-mono overflow-auto max-h-40 max-w-sm">
@@ -66,6 +69,7 @@ function DetailsCell({ details }: { details: Record<string, unknown> | null }) {
 }
 
 export default function AuditPage() {
+    const { t } = useTranslation();
     const [rangeHours, setRangeHours] = useState(24);
     const [actionFilter, setActionFilter] = useState('');
     const [successFilter, setSuccessFilter] = useState<'' | 'true' | 'false'>('');
@@ -102,31 +106,31 @@ export default function AuditPage() {
                         <Shield className="h-5 w-5 text-primary" />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-bold">Audit Log</h1>
-                        <p className="text-sm text-muted-foreground">Track every operator action for compliance</p>
+                        <h1 className="text-2xl font-bold">{t('auditPage.title')}</h1>
+                        <p className="text-sm text-muted-foreground">{t('auditPage.subtitle')}</p>
                     </div>
                 </div>
                 <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
                     <RefreshCw className={`h-4 w-4 mr-2 ${isFetching ? 'animate-spin' : ''}`} />
-                    Refresh
+                    {t('auditPage.refresh')}
                 </Button>
             </div>
 
             {/* Summary cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="rounded-xl border bg-card p-4">
-                    <p className="text-sm text-muted-foreground">Total events</p>
+                    <p className="text-sm text-muted-foreground">{t('auditPage.total')}</p>
                     <p className="text-3xl font-bold mt-1">{logs.length}</p>
                 </div>
                 <div className="rounded-xl border bg-card p-4">
                     <p className="text-sm text-muted-foreground flex items-center gap-1.5">
-                        <CheckCircle2 className="h-4 w-4 text-green-500" /> Successful
+                        <CheckCircle2 className="h-4 w-4 text-green-500" /> {t('auditPage.successful')}
                     </p>
                     <p className="text-3xl font-bold mt-1 text-green-600 dark:text-green-400">{successCount}</p>
                 </div>
                 <div className="rounded-xl border bg-card p-4">
                     <p className="text-sm text-muted-foreground flex items-center gap-1.5">
-                        <XCircle className="h-4 w-4 text-red-500" /> Failed
+                        <XCircle className="h-4 w-4 text-red-500" /> {t('auditPage.failed')}
                     </p>
                     <p className="text-3xl font-bold mt-1 text-red-600 dark:text-red-400">{failCount}</p>
                 </div>
@@ -141,17 +145,17 @@ export default function AuditPage() {
                     </SelectTrigger>
                     <SelectContent>
                         {PRESET_RANGES.map(r => (
-                            <SelectItem key={r.hours} value={String(r.hours)}>{r.label}</SelectItem>
+                            <SelectItem key={r.hours} value={String(r.hours)}>{t(r.label)}</SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
 
                 <Select value={actionFilter || 'all'} onValueChange={v => setActionFilter(v === 'all' ? '' : v)}>
                     <SelectTrigger className="w-44">
-                        <SelectValue placeholder="All actions" />
+                        <SelectValue placeholder={t('auditPage.all_actions')} />
                     </SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="all">All actions</SelectItem>
+                        <SelectItem value="all">{t('auditPage.all_actions')}</SelectItem>
                         {actions.map(a => (
                             <SelectItem key={a} value={a}>{a}</SelectItem>
                         ))}
@@ -160,17 +164,17 @@ export default function AuditPage() {
 
                 <Select value={successFilter || 'all'} onValueChange={v => setSuccessFilter(v === 'all' ? '' : v as 'true' | 'false')}>
                     <SelectTrigger className="w-36">
-                        <SelectValue placeholder="All results" />
+                        <SelectValue placeholder={t('auditPage.all_results')} />
                     </SelectTrigger>
                     <SelectContent>
-                        <SelectItem value="all">All results</SelectItem>
-                        <SelectItem value="true">Success only</SelectItem>
-                        <SelectItem value="false">Failures only</SelectItem>
+                        <SelectItem value="all">{t('auditPage.all_results')}</SelectItem>
+                        <SelectItem value="true">{t('auditPage.success_only')}</SelectItem>
+                        <SelectItem value="false">{t('auditPage.failures_only')}</SelectItem>
                     </SelectContent>
                 </Select>
 
                 <span className="ml-auto text-xs text-muted-foreground">
-                    {logs.length} event{logs.length !== 1 ? 's' : ''} · refreshes every 30s
+                    {t('auditPage.count', { count: logs.length })}
                 </span>
             </div>
 
@@ -180,19 +184,19 @@ export default function AuditPage() {
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="border-b bg-muted/40">
-                                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-44">Timestamp</th>
-                                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-32">User</th>
-                                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-44">Action</th>
-                                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-20">Result</th>
-                                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-32">IP</th>
-                                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Details</th>
+                                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-44">{t('auditPage.col_time')}</th>
+                                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-32">{t('auditPage.col_user')}</th>
+                                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-44">{t('auditPage.col_action')}</th>
+                                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-20">{t('auditPage.col_result')}</th>
+                                <th className="text-left px-4 py-3 font-medium text-muted-foreground w-32">{t('auditPage.col_ip')}</th>
+                                <th className="text-left px-4 py-3 font-medium text-muted-foreground">{t('auditPage.col_details')}</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y">
                             {logs.length === 0 && (
                                 <tr>
                                     <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
-                                        {isFetching ? 'Loading…' : 'No audit events in the selected time range.'}
+                                        {isFetching ? t('common.loading') : t('auditPage.empty')}
                                     </td>
                                 </tr>
                             )}
@@ -202,7 +206,7 @@ export default function AuditPage() {
                                         {formatTs(log.created_at)}
                                     </td>
                                     <td className="px-4 py-3 font-medium truncate max-w-[120px]" title={log.username}>
-                                        {log.username || <span className="text-muted-foreground italic">system</span>}
+                                        {log.username || <span className="text-muted-foreground italic">{t('auditPage.system')}</span>}
                                     </td>
                                     <td className="px-4 py-3">
                                         <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ${actionColor(log.action)}`}>
@@ -211,8 +215,8 @@ export default function AuditPage() {
                                     </td>
                                     <td className="px-4 py-3">
                                         {log.success
-                                            ? <Badge variant="outline" className="border-green-500 text-green-600 dark:text-green-400">OK</Badge>
-                                            : <Badge variant="outline" className="border-red-500 text-red-600 dark:text-red-400">FAIL</Badge>
+                                            ? <Badge variant="outline" className="border-green-500 text-green-600 dark:text-green-400">{t('auditPage.ok')}</Badge>
+                                            : <Badge variant="outline" className="border-red-500 text-red-600 dark:text-red-400">{t('auditPage.fail')}</Badge>
                                         }
                                     </td>
                                     <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
