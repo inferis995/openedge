@@ -2,6 +2,34 @@ import api from './client';
 import { Tag, CreateTagDto, WriteTagCommand, WriteTagResult } from '@/types';
 import { TagWithHierarchy, TagHierarchyResponse } from '@/types/trend';
 
+export interface TagSheetProblem {
+    line: number;
+    field?: string;
+    code: string;
+    value?: string;
+}
+
+export interface TagSheetRow {
+    line: number;
+    alias: string;
+    address: string;
+    data_type: string;
+    action: 'create' | 'update' | 'unchanged' | 'invalid';
+    changes?: string[];
+    problems?: TagSheetProblem[];
+}
+
+export interface TagSheetImportResult {
+    rows: TagSheetRow[];
+    problems?: TagSheetProblem[];
+    columns: string[];
+    created: number;
+    updated: number;
+    unchanged: number;
+    invalid: number;
+    applied: boolean;
+}
+
 export const tagsApi = {
     getAll: async (gatewayId?: number | null, areaId?: number | null): Promise<Tag[]> => {
         const params: Record<string, string | number> = {};
@@ -78,6 +106,32 @@ export const tagsApi = {
     exportTags: async (gatewayId: number): Promise<string> => {
         const response = await api.get('/tags/export', { params: { gateway_id: gatewayId } });
         return response.data.content;
+    },
+
+    // A CSV or Excel sheet. Without apply the server only says what would
+    // happen, row by row; with apply it writes, all or nothing.
+    importSheet: async (gatewayId: number, file: File, apply: boolean): Promise<TagSheetImportResult> => {
+        const form = new FormData();
+        form.append('gateway_id', String(gatewayId));
+        form.append('apply', String(apply));
+        form.append('file', file);
+        const response = await api.post('/tags/import/file', form, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        return response.data;
+    },
+
+    // Tags as a CSV or Excel file, or a template for this gateway's driver.
+    downloadSheet: async (
+        gatewayId: number, format: 'csv' | 'xlsx', lang: string, template = false,
+    ): Promise<{ blob: Blob; filename: string }> => {
+        const response = await api.get(template ? '/tags/import/template' : '/tags/export', {
+            params: { gateway_id: gatewayId, format, lang },
+            responseType: 'blob',
+        });
+        const cd = String(response.headers['content-disposition'] ?? '');
+        const match = /filename="([^"]+)"/.exec(cd);
+        return { blob: response.data as Blob, filename: match?.[1] ?? `tags.${format}` };
     },
 
     reorder: async (tagIds: number[]): Promise<void> => {

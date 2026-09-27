@@ -55,6 +55,9 @@ import { showApiError } from '@/lib/api-error-handler';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Tags as TagsIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import TagImportDialog from '@/components/tags/TagImportDialog';
+import { saveBlob } from '@/lib/download';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 interface CurrentValue {
     value: any;
@@ -164,11 +167,6 @@ const TagsPage = () => {
 
     // Import/Export state
     const [isImportOpen, setIsImportOpen] = useState(false);
-    const [importContent, setImportContent] = useState('');
-    const [isImporting, setIsImporting] = useState(false);
-    const [importResult, setImportResult] = useState<{ created: number; updated: number; errors?: string[] } | null>(null);
-
-    const [isHistorizeImport, setIsHistorizeImport] = useState(false);
 
     // Batch Selection State
     const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
@@ -180,46 +178,22 @@ const TagsPage = () => {
     const [isBrowsing, setIsBrowsing] = useState(false);
     const [browseError, setBrowseError] = useState<string | null>(null);
 
-    // Import/Export handlers
-    const handleImport = async () => {
+    // Export: Excel and CSV carry every column; the declaration text is what
+    // TIA Portal and Codesys read back.
+    const handleExport = async (format: 'xlsx' | 'csv' | 'txt') => {
         if (!selectedGatewayId || selectedGatewayId === 'all') return;
-
-        setIsImporting(true);
-        setImportResult(null);
-
+        const gatewayId = parseInt(selectedGatewayId);
         try {
-            const result = await tagsApi.importTags(parseInt(selectedGatewayId), importContent, isHistorizeImport);
-            setImportResult(result);
-            if (result.created > 0 || result.updated > 0) {
-                // Refresh tags
-                window.location.reload();
+            if (format === 'txt') {
+                const content = await tagsApi.exportTags(gatewayId);
+                saveBlob(new Blob([content], { type: 'text/plain' }), `tags_gateway_${selectedGatewayId}.txt`);
+            } else {
+                const lang = i18n.language?.startsWith('it') ? 'it' : 'en';
+                const { blob, filename } = await tagsApi.downloadSheet(gatewayId, format, lang);
+                saveBlob(blob, filename);
             }
         } catch (error) {
-            console.error('Import failed:', error);
-            setImportResult({ created: 0, updated: 0, errors: [tr('tagsPage.import_failed', { error: String(error) })] });
-        } finally {
-            setIsImporting(false);
-        }
-    };
-
-    const handleExport = async () => {
-        if (!selectedGatewayId || selectedGatewayId === 'all') return;
-
-        try {
-            const content = await tagsApi.exportTags(parseInt(selectedGatewayId));
-            // Download as .txt file
-            const blob = new Blob([content], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `tags_gateway_${selectedGatewayId}.txt`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        } catch (error) {
-            console.error('Export failed:', error);
-            toast.error(i18n.t('tags.export_failed'), { description: String(error) });
+            showApiError(error, i18n.t('tags.export_failed'));
         }
     };
 
@@ -805,7 +779,9 @@ const TagsPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            {/* Title above the toolbar, not beside it: side by side, six
+                controls squeezed the description to one word per line. */}
+            <div className="flex flex-col gap-3">
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">{tr('tagsPage.title')}</h2>
                     <p className="text-muted-foreground">
@@ -813,7 +789,7 @@ const TagsPage = () => {
                     </p>
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-3">
 
 
                     <div className="w-[300px]">
@@ -862,101 +838,51 @@ const TagsPage = () => {
 
                     {isAdmin() && (
                         <>
-                            {/* Export Button */}
-                            <Button
-                                variant="outline"
-                                className="gap-2"
-                                onClick={handleExport}
-                                disabled={!selectedGatewayId || selectedGatewayId === 'all'}
-                            >
-                                <Download size={16} /> {tr('common.export')}
-                            </Button>
-
-                            {/* Import Dialog */}
-                            <Dialog open={isImportOpen} onOpenChange={setIsImportOpen}>
-                                <DialogTrigger asChild>
+                            {/* Export: a small menu of formats */}
+                            <Popover>
+                                <PopoverTrigger asChild>
                                     <Button
                                         variant="outline"
                                         className="gap-2"
                                         disabled={!selectedGatewayId || selectedGatewayId === 'all'}
                                     >
-                                        <Upload size={16} /> {tr('common.import')}
+                                        <Download size={16} /> {tr('common.export')}
                                     </Button>
-                                </DialogTrigger>
-                                <DialogContent className="max-w-2xl">
-                                    <DialogHeader>
-                                        <DialogTitle>{tr('tagsPage.import_title')}</DialogTitle>
-                                        <DialogDescription>
-                                            {selectedGatewayDriverType === 'S7' ? (
-                                                <span>{tr('tagsPage.import_desc_s7')} <code className="bg-muted px-1 rounded">Alias : DataType AT Address;</code></span>
-                                            ) : (
-                                                <span>{tr('tagsPage.import_desc')} <code className="bg-muted px-1 rounded">Alias : DataType AT Address;</code></span>
-                                            )}
-                                        </DialogDescription>
-                                    </DialogHeader>
-                                    <div className="space-y-4">
-                                        {selectedGatewayDriverType === 'S7' && (
-                                            <div className="text-xs bg-blue-50 border border-blue-200 text-blue-800 p-3 rounded-md">
-                                                <p className="font-semibold mb-1">{tr('tagsPage.s7_guide_title')}</p>
-                                                <ul className="list-disc pl-4 space-y-1">
-                                                    <li>{tr('tagsPage.s7_guide_addressing')} (<code className="font-semibold">DB1.DBX0.0</code>, <code className="font-semibold">DB2.DBW4</code>, <code className="font-semibold">DB3.DBD8</code>)</li>
-                                                    <li>{tr('tagsPage.s7_guide_types')} BOOL, INT, DINT, REAL, STRING, WORD…</li>
-                                                    <li>{tr('tagsPage.s7_guide_paste')} <strong>{tr('tagsPage.s7_guide_paste_must')}</strong> {tr('tagsPage.s7_guide_paste_after')} <code>AT</code>.</li>
-                                                </ul>
-                                            </div>
-                                        )}
-                                        <textarea
-                                            className="w-full h-64 p-3 font-mono text-sm border rounded-md"
-                                            placeholder={selectedGatewayDriverType === 'S7' ?
-                                                `Totalizzatore_1 : BOOL AT DB1.DBX0.0;\nPortata_Misuratore : INT AT DB1.DBW2;\nHMI_PortataTotale : REAL AT DB1.DBD8;` :
-                                                `HMI_CFG_HBeg_1 : DINT AT 42095;\nHMI_PortataTotEM1 : REAL AT 42131;\nDO_Valvola_1 : BOOL AT 00001;`
-                                            }
-                                            value={importContent}
-                                            onChange={(e) => setImportContent(e.target.value)}
-                                        />
-                                        <div className="flex items-center space-x-2">
-                                            <Switch
-                                                id="historize-import"
-                                                checked={isHistorizeImport}
-                                                onCheckedChange={setIsHistorizeImport}
-                                            />
-                                            <Label htmlFor="historize-import">{tr('tagsPage.import_historize')}</Label>
-                                        </div>
-                                        {importResult && (
-                                            <div className={`p-3 rounded-md text-sm ${importResult.errors?.length ? 'bg-amber-50 border border-amber-200' : 'bg-green-50 border border-green-200'}`}>
-                                                <p>{tr('tagsPage.import_result', { created: importResult.created, updated: importResult.updated })}</p>
-                                                {importResult.errors && importResult.errors.length > 0 && (
-                                                    <div className="mt-2 text-red-600">
-                                                        {/* The import used to write as it walked the lines, so an
-                                                            error halfway through left half the tags in. It now writes
-                                                            nothing, and that has to be said: without this line "Created: 0"
-                                                            next to a list of errors reads as an import that failed
-                                                            halfway, which is the moment somebody goes and checks by
-                                                            hand what survived. */}
-                                                        <p className="font-medium">
-                                                            {tr('tagsPage.import_nothing')}
-                                                        </p>
-                                                        <p className="font-medium mt-2">{tr('tagsPage.import_errors')}</p>
-                                                        <ul className="list-disc list-inside max-h-32 overflow-auto">
-                                                            {importResult.errors.map((err, i) => (
-                                                                <li key={i}>{err}</li>
-                                                            ))}
-                                                        </ul>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-                                    <DialogFooter>
-                                        <Button variant="outline" onClick={() => setIsImportOpen(false)}>
-                                            {tr('common.cancel')}
-                                        </Button>
-                                        <Button onClick={handleImport} disabled={isImporting || !importContent.trim()}>
-                                            {isImporting ? tr('tagsPage.importing') : tr('common.import')}
-                                        </Button>
-                                    </DialogFooter>
-                                </DialogContent>
-                            </Dialog>
+                                </PopoverTrigger>
+                                <PopoverContent align="end" className="w-56 p-1">
+                                    {([
+                                        ['xlsx', 'tagsPage.export_xlsx'],
+                                        ['csv', 'tagsPage.export_csv'],
+                                        ['txt', 'tagsPage.export_txt'],
+                                    ] as const).map(([format, key]) => (
+                                        <button
+                                            key={format}
+                                            type="button"
+                                            onClick={() => void handleExport(format)}
+                                            className="w-full text-left text-sm px-3 py-2 rounded hover:bg-muted"
+                                        >
+                                            {tr(key)}
+                                        </button>
+                                    ))}
+                                </PopoverContent>
+                            </Popover>
+
+                            <Button
+                                variant="outline"
+                                className="gap-2"
+                                onClick={() => setIsImportOpen(true)}
+                                disabled={!selectedGatewayId || selectedGatewayId === 'all'}
+                            >
+                                <Upload size={16} /> {tr('common.import')}
+                            </Button>
+                            {selectedGatewayId && selectedGatewayId !== 'all' && (
+                                <TagImportDialog
+                                    open={isImportOpen}
+                                    onOpenChange={setIsImportOpen}
+                                    gatewayId={parseInt(selectedGatewayId)}
+                                    driverType={selectedGatewayDriverType ?? undefined}
+                                />
+                            )}
 
                             {/* OPC UA Browse Button */}
                             {selectedGatewayDriverType === 'OPC_UA' && (

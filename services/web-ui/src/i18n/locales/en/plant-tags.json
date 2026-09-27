@@ -219,7 +219,6 @@
         "delete_anyway": "Delete anyway"
     },
     "tagsPage": {
-        "import_failed": "Import failed: {{error}}",
         "overlap_full": "Same address as tag “{{alias}}” ({{code}}).",
         "overlap_partial": "The address overlaps tag “{{alias}}” ({{code}}).",
         "browse_failed": "Browse failed",
@@ -230,20 +229,6 @@
         "filter_gateway": "Filter by gateway",
         "all_gateways": "All gateways",
         "all_drivers": "All drivers",
-        "import_title": "Import tags",
-        "import_desc_s7": "Paste S7 data block (DB) definitions from TIA Portal (STL syntax). Format:",
-        "import_desc": "Paste tag definitions in the standard format. Format:",
-        "s7_guide_title": "Siemens S7 import guide:",
-        "s7_guide_addressing": "Use standard S7 absolute addressing",
-        "s7_guide_types": "Supported types:",
-        "s7_guide_paste": "You can paste the exported DB source directly, but you",
-        "s7_guide_paste_must": "must append the absolute address",
-        "s7_guide_paste_after": "after the keyword",
-        "import_historize": "Enable history for all imported tags",
-        "import_result": "Created: {{created}} | Updated: {{updated}}",
-        "import_nothing": "Nothing was imported — the file is applied whole or not at all. Fix the lines below and import again.",
-        "import_errors": "Errors:",
-        "importing": "Importing…",
         "browse_server": "Browse server",
         "add": "Add tag",
         "edit_title": "Edit tag",
@@ -339,6 +324,9 @@
         "write_type": "Type:",
         "write_placeholder": "Value",
         "writing": "Writing…",
-        "write": "Write"
+        "write": "Write",
+        "export_xlsx": "Excel (.xlsx) — every column",
+        "export_csv": "CSV — every column",
+        "export_txt": "PLC text (TIA Portal / Codesys)"
     }
 }

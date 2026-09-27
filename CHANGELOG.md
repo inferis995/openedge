@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Tags from Excel or CSV.** Tags → Import takes an .xlsx or .csv signal
+  list, with the columns named in Italian or English (Nome/Name,
+  Indirizzo/Address, Tipo/Type, plus history, deadband, unit, decimals,
+  scaling, invert, JSON path). Before anything is written it shows, row by
+  row on the spreadsheet's own line numbers, what would be created, what
+  updated and which fields change, and what is wrong and why; one wrong row
+  and nothing is written. A column that is absent leaves existing tags alone.
+  Decimal commas, a BOM, semicolons and title rows above the table — what
+  Excel in an Italian locale produces — are read. A template per gateway
+  (addresses in that driver's format, a drop-down for the type, an
+  instructions sheet) can be downloaded from the same dialog.
+  `POST /api/tags/import/file`, `GET /api/tags/import/template`.
+- **Tags export as Excel or CSV** with every column
+  (`GET /api/tags/export?format=xlsx|csv`), alongside the PLC declaration text.
+- **The web UI in Italian and English, all of it.** Until now the sidebar and
+  the system tabs were translated and the other forty pages had text fixed in
+  the source, in one language or the other or both.
+- **A menu grouped by what you are doing** (Overview, Plant, Operations,
+  Analysis, Integrations, Administration) and a quick search, Ctrl+K, that
+  finds a page by name or by what it is for.
+- Confirmations in the application's own dialog, saying what will happen,
+  instead of the browser's; empty lists that say what the thing is and offer
+  the next step.
+
+### Fixed
+
+- Creating, renaming or deleting a site, area, gateway or tag that failed said
+  nothing: the error went to the browser console. A failed write of a value to
+  the PLC from the tag list said nothing either, and a non-numeric value was
+  sent as NaN.
+- Error messages replaced the server's explanation with a fixed "Server Error"
+  or "Not Found" in English.
+- The tag export refused a global administrator who had not picked an
+  organization (400, "X-Organization-ID header required").
+- Password hints said six characters; the server requires twelve.
+
 ## [3.2.0] - 2026-09-26
 
 > **Read this before upgrading an installation that is already running.**

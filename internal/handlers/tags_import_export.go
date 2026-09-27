@@ -289,29 +289,14 @@ func (h *TagsHandler) ExportTags(c *gin.Context) {
 		return
 	}
 
-	// Get organization ID from header
-	orgIDStr := c.GetHeader("X-Organization-ID")
-	if orgIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "X-Organization-ID header required"})
+	if _, ok := h.gatewayInScope(c, gatewayID); !ok {
 		return
 	}
-	orgID, _ := strconv.Atoi(orgIDStr)
 
-	// Verify gateway belongs to organization
-	var gatewayOrgID int
-	err = h.db.QueryRow(`
-		SELECT o.id FROM gateways g
-		JOIN areas a ON g.area_id = a.id
-		JOIN sites s ON a.site_id = s.id
-		JOIN organizations o ON s.org_id = o.id
-		WHERE g.id = $1
-	`, gatewayID).Scan(&gatewayOrgID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Gateway not found"})
-		return
-	}
-	if gatewayOrgID != orgID {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Access denied"})
+	// CSV and Excel carry every column; the default stays the declaration
+	// text the old import reads.
+	if format := c.Query("format"); format == "csv" || format == "xlsx" {
+		h.exportTagSheet(c, gatewayID, format)
 		return
 	}
 

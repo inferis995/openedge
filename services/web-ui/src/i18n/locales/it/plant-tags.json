@@ -219,7 +219,6 @@
         "delete_anyway": "Elimina comunque"
     },
     "tagsPage": {
-        "import_failed": "Importazione non riuscita: {{error}}",
         "overlap_full": "Stesso indirizzo del tag «{{alias}}» ({{code}}).",
         "overlap_partial": "L'indirizzo si sovrappone al tag «{{alias}}» ({{code}}).",
         "browse_failed": "Esplorazione non riuscita",
@@ -230,20 +229,6 @@
         "filter_gateway": "Filtra per gateway",
         "all_gateways": "Tutti i gateway",
         "all_drivers": "Tutti i driver",
-        "import_title": "Importa tag",
-        "import_desc_s7": "Incolla le definizioni dei DB S7 da TIA Portal (sintassi STL). Formato:",
-        "import_desc": "Incolla le definizioni dei tag nel formato standard. Formato:",
-        "s7_guide_title": "Guida all'importazione Siemens S7:",
-        "s7_guide_addressing": "Usa l'indirizzamento assoluto S7 standard",
-        "s7_guide_types": "Tipi supportati:",
-        "s7_guide_paste": "Puoi incollare direttamente il sorgente esportato del DB, ma",
-        "s7_guide_paste_must": "devi aggiungere l'indirizzo assoluto",
-        "s7_guide_paste_after": "dopo la parola chiave",
-        "import_historize": "Attiva lo storico per tutti i tag importati",
-        "import_result": "Creati: {{created}} | Aggiornati: {{updated}}",
-        "import_nothing": "Non è stato importato nulla: il file si applica tutto o niente. Correggi le righe qui sotto e importa di nuovo.",
-        "import_errors": "Errori:",
-        "importing": "Importazione…",
         "browse_server": "Sfoglia server",
         "add": "Nuovo tag",
         "edit_title": "Modifica tag",
@@ -339,6 +324,9 @@
         "write_type": "Tipo:",
         "write_placeholder": "Valore",
         "writing": "Scrittura…",
-        "write": "Scrivi"
+        "write": "Scrivi",
+        "export_xlsx": "Excel (.xlsx) — tutte le colonne",
+        "export_csv": "CSV — tutte le colonne",
+        "export_txt": "Testo PLC (TIA Portal / Codesys)"
     }
 }

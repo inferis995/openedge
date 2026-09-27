@@ -552,6 +552,9 @@ func main() {
 			log.Println("[API] Registering Tags routes including Import/Export")
 			// Import/Export endpoints for bulk tag management - params must be registered before wildcards if possible (though Gin handles priority)
 			tags.POST("/import", middleware.RequireRole(models.RoleAdmin), tagsHandler.ImportTags)
+			// A CSV or Excel sheet: previewed row by row, then applied.
+			tags.POST("/import/file", middleware.RequireRole(models.RoleAdmin), tagsHandler.ImportTagSheet)
+			tags.GET("/import/template", tagsHandler.TagImportTemplate)
 			// Bulk export is how a tenant's data leaves the platform, and it was
 			// open to every authenticated account.
 			tags.GET("/export",
