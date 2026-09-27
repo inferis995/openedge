@@ -1,0 +1,11 @@
+{
+    "areas": {
+        "subtitle": "Departments and lines inside a site (e.g. Line 1, Warehouse). Click an area to see its gateways.",
+        "add": "New area",
+        "create_title": "New area",
+        "name": "Area name",
+        "name_placeholder": "e.g. Assembly line 1",
+        "edit_title": "Edit area",
+        "edit_desc": "Change the area's name."
+    }
+}

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import en from '@/i18n/locales/en.json';
-import itLocale from '@/i18n/locales/it.json';
+import i18n from '@/i18n';
 import { findNavItem, isActivePath, navSections, scorePage } from './navigation';
 
 type Tree = { [k: string]: string | Tree };
+
+// The merged bundles: locales/<lang>.json plus every locales/<lang>/*.json.
+const itLocale = i18n.getResourceBundle('it', 'translation') as Tree;
+const en = i18n.getResourceBundle('en', 'translation') as Tree;
 
 function lookup(tree: Tree, key: string): unknown {
     return key.split('.').reduce<unknown>(
@@ -36,7 +39,7 @@ describe('navigation', () => {
         }
     });
 
-    it('keeps the two languages in step', () => {
+    it('keeps the two languages in step, page files included', () => {
         expect(keys(itLocale as Tree).sort()).toEqual(keys(en as Tree).sort());
     });
 

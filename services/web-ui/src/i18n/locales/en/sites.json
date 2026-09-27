@@ -1,0 +1,11 @@
+{
+    "sites": {
+        "subtitle": "The organization's plants and locations. Click a site to see its areas.",
+        "add": "New site",
+        "create_title": "New site",
+        "name": "Site name",
+        "name_placeholder": "e.g. Milan plant",
+        "edit_title": "Edit site",
+        "edit_desc": "Change the site's name."
+    }
+}

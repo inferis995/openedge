@@ -270,24 +270,6 @@
         "shifts_desc": "Shifts say when the plant works: they drive OEE by shift, reports and operator assignments.",
         "shifts_create": "Create the first shift"
     },
-    "sites": {
-        "subtitle": "The organization's plants and locations. Click a site to see its areas.",
-        "add": "New site",
-        "create_title": "New site",
-        "name": "Site name",
-        "name_placeholder": "e.g. Milan plant",
-        "edit_title": "Edit site",
-        "edit_desc": "Change the site's name."
-    },
-    "areas": {
-        "subtitle": "Departments and lines inside a site (e.g. Line 1, Warehouse). Click an area to see its gateways.",
-        "add": "New area",
-        "create_title": "New area",
-        "name": "Area name",
-        "name_placeholder": "e.g. Assembly line 1",
-        "edit_title": "Edit area",
-        "edit_desc": "Change the area's name."
-    },
     "cookies": {
         "text": "We only use technical cookies, needed for the platform to work. No profiling or marketing cookies.",
         "privacy": "Privacy",

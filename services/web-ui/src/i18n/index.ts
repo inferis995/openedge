@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 // i18n bootstrap.
 //
 // Strategy:
@@ -24,13 +25,34 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 import en from './locales/en.json';
 import it from './locales/it.json';
 
+// Page-specific strings live in locales/<lang>/<page>.json, one file per page
+// or group of pages, each under its own top-level key. The shared strings
+// (common, nav, errors…) stay in locales/<lang>.json. Splitting them keeps a
+// change to one page from touching — and conflicting with — every other.
+type Tree = { [k: string]: string | Tree };
+const pageFiles = import.meta.glob<{ default: Tree }>('./locales/*/*.json', { eager: true });
+
+function withPages(base: Tree, lang: string): Tree {
+    const out: Tree = { ...base };
+    for (const [path, mod] of Object.entries(pageFiles)) {
+        if (path.split('/')[2] !== lang) continue;
+        for (const [key, value] of Object.entries(mod.default)) {
+            if (key in out) {
+                throw new Error(`i18n: "${key}" in ${path} is already defined elsewhere`);
+            }
+            out[key] = value;
+        }
+    }
+    return out;
+}
+
 void i18n
     .use(LanguageDetector)
     .use(initReactI18next)
     .init({
         resources: {
-            en: { translation: en },
-            it: { translation: it },
+            en: { translation: withPages(en as Tree, 'en') },
+            it: { translation: withPages(it as Tree, 'it') },
         },
         fallbackLng: 'en',
         // 'localStorage' first → operator's choice persists across reloads

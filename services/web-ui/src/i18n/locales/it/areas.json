@@ -1,0 +1,11 @@
+{
+    "areas": {
+        "subtitle": "Reparti e linee dentro un sito (es. Linea 1, Magazzino). Clicca un'area per vederne i gateway.",
+        "add": "Nuova area",
+        "create_title": "Nuova area",
+        "name": "Nome dell'area",
+        "name_placeholder": "es. Linea di assemblaggio 1",
+        "edit_title": "Modifica area",
+        "edit_desc": "Cambia il nome dell'area."
+    }
+}

@@ -1,0 +1,11 @@
+{
+    "sites": {
+        "subtitle": "Gli stabilimenti e le sedi dell'organizzazione. Clicca un sito per vederne le aree.",
+        "add": "Nuovo sito",
+        "create_title": "Nuovo sito",
+        "name": "Nome del sito",
+        "name_placeholder": "es. Stabilimento di Milano",
+        "edit_title": "Modifica sito",
+        "edit_desc": "Cambia il nome del sito."
+    }
+}

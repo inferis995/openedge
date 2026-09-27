@@ -270,24 +270,6 @@
         "shifts_desc": "I turni dicono quando si lavora: servono per l'OEE per turno, i report e le assegnazioni degli operatori.",
         "shifts_create": "Crea il primo turno"
     },
-    "sites": {
-        "subtitle": "Gli stabilimenti e le sedi dell'organizzazione. Clicca un sito per vederne le aree.",
-        "add": "Nuovo sito",
-        "create_title": "Nuovo sito",
-        "name": "Nome del sito",
-        "name_placeholder": "es. Stabilimento di Milano",
-        "edit_title": "Modifica sito",
-        "edit_desc": "Cambia il nome del sito."
-    },
-    "areas": {
-        "subtitle": "Reparti e linee dentro un sito (es. Linea 1, Magazzino). Clicca un'area per vederne i gateway.",
-        "add": "Nuova area",
-        "create_title": "Nuova area",
-        "name": "Nome dell'area",
-        "name_placeholder": "es. Linea di assemblaggio 1",
-        "edit_title": "Modifica area",
-        "edit_desc": "Cambia il nome dell'area."
-    },
     "cookies": {
         "text": "Utilizziamo solo cookie tecnici, necessari al funzionamento della piattaforma. Nessun cookie di profilazione o marketing.",
         "privacy": "Privacy",
