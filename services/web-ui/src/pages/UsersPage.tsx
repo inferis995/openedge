@@ -37,6 +37,9 @@ import { Site, Area } from '@/types';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
 import { useTranslation } from 'react-i18next';
+import apiClient from '@/api/client';
+import { toast } from 'sonner';
+import { showApiError } from '@/lib/api-error-handler';
 
 // ---------- scope selector sub-component ----------
 
@@ -247,13 +250,14 @@ const UsersPage = () => {
         if (!permsUser) return;
         setPermsSaving(true);
         try {
-            await fetch(`/api/users/${permsUser.id}/permissions`, {
-                method: 'PUT',
-                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify(perms),
-            });
+            // fetch() does not throw on a 403 or a 500, and the error was
+            // ignored anyway: the dialog closed as if the rights were saved.
+            await apiClient.put(`/users/${permsUser.id}/permissions`, perms);
+            toast.success(t('feedback.saved'));
             setIsPermsOpen(false);
-        } catch { /* ignore */ } finally {
+        } catch (e) {
+            showApiError(e);
+        } finally {
             setPermsSaving(false);
         }
     };
@@ -293,8 +297,8 @@ const UsersPage = () => {
             resetCreateForm();
             fetchUsers();
         } catch (err: unknown) {
-            const error = err as { response?: { data?: { error?: string } } };
-            if (error.response?.data?.error === 'Username already exists') {
+            const error = err as { response?: { status?: number } };
+            if (error.response?.status === 409) {
                 setError(t('usersPage.username_exists'));
             } else {
                 setError(t('usersPage.create_failed'));

@@ -16,6 +16,11 @@ import { Badge } from '@/components/ui/badge';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
 
+// Local wall-clock time. toISOString() gave UTC: a 06:00–14:00 shift read
+// 04:00–12:00 in Italy in summer.
+const hhmm = (iso: string) =>
+    new Date(iso).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit', hour12: false });
+
 // Refresh ogni 30s — bilancia "dati freschi" col carico DB. Sparkplug WS
 // (già in piedi globalmente via useSparkplugListener) aggiorna i tag tra
 // un refresh e l'altro per chi guarda valori specifici (Trend page).
@@ -425,7 +430,7 @@ const ShiftCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
                 <div className="flex items-baseline justify-between">
                     <span className="text-xl font-bold tracking-tight">{s.name}</span>
                     <span className="text-xs text-muted-foreground font-mono">
-                        {new Date(s.started_at).toISOString().slice(11, 16)}–{new Date(s.ends_at).toISOString().slice(11, 16)}
+                        {hhmm(s.started_at)}–{hhmm(s.ends_at)}
                     </span>
                 </div>
                 {/* progress bar */}

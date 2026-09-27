@@ -58,6 +58,7 @@ import { useTranslation } from 'react-i18next';
 import TagImportDialog from '@/components/tags/TagImportDialog';
 import { saveBlob } from '@/lib/download';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface CurrentValue {
     value: any;
@@ -72,6 +73,7 @@ function SortIcon({ field, current, dir }: { field: string; current: string | nu
 
 const TagsPage = () => {
     const { t: tr } = useTranslation();
+    const queryClient = useQueryClient();
     const [searchParams] = useSearchParams();
     const gatewayIdParam = searchParams.get('gateway_id');
     const [selectedGatewayId, setSelectedGatewayId] = useState<string>(gatewayIdParam || 'all');
@@ -671,7 +673,9 @@ const TagsPage = () => {
             await tagsApi.reorder(newOrderIds);
             // Trigger refresh or rely on realtime update if implemented? 
             // tagsApi.reorder should theoretically trigger a reload if we listened, but here we just reload the list
-            window.location.reload(); // Simple reload to get new order
+            // Refetch the list rather than reload the page, which threw away
+            // the scroll position, the filters and any open dialog.
+            await queryClient.invalidateQueries({ queryKey: ['tags'] });
         } catch (error) {
             console.error("Failed to reorder tags", error);
             toast.error(i18n.t('tags.reorder_failed'));
@@ -696,7 +700,7 @@ const TagsPage = () => {
 
         try {
             await tagsApi.reorder(newOrderIds);
-            window.location.reload();
+            await queryClient.invalidateQueries({ queryKey: ['tags'] });
         } catch (error) {
             console.error("Failed to reorder tag", error);
             toast.error(i18n.t('tags.reorder_failed'));
@@ -1347,7 +1351,7 @@ const TagsPage = () => {
                     <TableBody>
                         {tagsList.length === 0 ? (
                             <TableRow>
-                                <TableCell colSpan={7}>
+                                <TableCell colSpan={isAdmin() ? 7 : 6}>
                                     <EmptyState
                                         icon={TagsIcon}
                                         title={tr('empty.tags_title')}

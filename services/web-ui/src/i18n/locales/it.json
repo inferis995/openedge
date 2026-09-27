@@ -196,7 +196,10 @@
         "write_value": "Scrivere {{value}} su «{{name}}»?",
         "write_value_desc": "Il valore viene inviato al PLC e agisce sull'impianto.",
         "delete_site_desc": "Si può eliminare solo se non contiene aree. L'operazione non si può annullare.",
-        "delete_area_desc": "Si può eliminare solo se non contiene gateway. L'operazione non si può annullare."
+        "delete_area_desc": "Si può eliminare solo se non contiene gateway. L'operazione non si può annullare.",
+        "restart_edge": "Riavviare la scatola edge di «{{name}}»?",
+        "restart_edge_desc": "Tutti i servizi della scatola ripartono: per qualche decina di secondi i PLC di quell'impianto non vengono letti.",
+        "delete_webhook": "Eliminare questo webhook?"
     },
     "tags": {
         "export_failed": "Esportazione non riuscita",

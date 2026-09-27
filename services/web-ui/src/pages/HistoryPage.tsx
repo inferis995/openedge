@@ -152,7 +152,9 @@ const HistoryPage = () => {
                         type="date"
                         className="flex h-10 w-full pl-10 pr-3 rounded-md border border-input bg-card text-foreground text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
                         value={date ? format(date, 'yyyy-MM-dd') : ''}
-                        onChange={e => setDate(e.target.value ? new Date(e.target.value) : undefined)}
+                        // "yyyy-MM-dd" alone parses as UTC midnight: west of
+                        // Greenwich that is the day before. With a time it is local.
+                        onChange={e => setDate(e.target.value ? new Date(`${e.target.value}T00:00:00`) : undefined)}
                         aria-label={t('historyPage.pick_day')}
                     />
                 </div>

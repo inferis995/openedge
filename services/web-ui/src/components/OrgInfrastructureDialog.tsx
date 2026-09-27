@@ -562,7 +562,12 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                             </TableCell>
                                             <TableCell>
                                                 <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7 text-destructive hover:text-destructive"
-                                                    onClick={() => deleteWebhookMutation.mutate(wh.id)}>
+                                                    aria-label={i18n.t('common.delete')}
+                                                    onClick={async () => {
+                                                        if (await confirmAction({ title: i18n.t('ask.delete_webhook'), description: wh.url, destructive: true })) {
+                                                            deleteWebhookMutation.mutate(wh.id);
+                                                        }
+                                                    }}>
                                                     <Trash2 size={13} />
                                                 </Button>
                                             </TableCell>

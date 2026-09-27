@@ -551,6 +551,12 @@ const OEEProfilesPage = () => {
                 window_minutes: p.window_minutes,
                 target_oee: p.target_oee,
                 display_order: p.display_order,
+                // Sent back as they are: the server defaults an absent value
+                // to true, so switching a profile on or off used to turn
+                // "respect shifts/maintenance" back on for a profile that had
+                // them off.
+                respect_shifts: p.respect_shifts,
+                respect_maintenance: p.respect_maintenance,
                 enabled: !p.enabled,
             });
             queryClient.invalidateQueries({ queryKey: ['oee-profiles'] });
@@ -781,9 +787,11 @@ const ByShiftTab = ({ profiles }: { profiles: OEEProfile[] }) => {
 // le perdite sono per profilo). Mostra MTBF/MTTR + Pareto delle 6 cause.
 const LossesTab = ({ profiles }: { profiles: OEEProfile[] }) => {
     const { t: tr } = useTranslation();
-    const [selected, setSelected] = useState<number | null>(
-        profiles.length > 0 ? profiles[0].id : null,
-    );
+    const [picked, setSelected] = useState<number | null>(null);
+    // Until the user picks one, the first profile — whenever the list arrives.
+    // Initialising the state from profiles[0] only worked if the profiles had
+    // loaded before the tab mounted; otherwise nothing was ever selected.
+    const selected = picked ?? (profiles.length > 0 ? profiles[0].id : null);
     const selectedProfile = profiles.find((p) => p.id === selected);
 
     if (profiles.length === 0) {

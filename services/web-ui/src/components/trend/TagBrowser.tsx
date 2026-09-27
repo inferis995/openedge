@@ -155,13 +155,15 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
         return allTags.filter(tag => favoriteTagIds.includes(tag.id));
     }, [allTags, favoriteTagIds]);
 
+    // The trend page keeps its own pens and never sets an active chart in the
+    // store, so requiring one here turned every click on a tag into "select a
+    // chart first" and the tag was never added. The page's callback always
+    // runs; the store is updated too when a stored chart is active.
     const handleTagSelect = (tag: TagWithHierarchy) => {
         if (activeChartId) {
             addTagToChart(activeChartId, tag.id);
-            onAddTagToChart(tag.id);
-        } else {
-            toast.info(tr('trend.select_chart_first'));
         }
+        onAddTagToChart(tag.id);
     };
 
     // Current values panel for selected tags

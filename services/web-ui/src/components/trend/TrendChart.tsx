@@ -8,6 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { X, Settings2, Eye, EyeOff, Minus, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
+import { escapeHtml } from '@/lib/escape-html';
 
 interface TrendChartProps {
     chart: ChartConfig;
@@ -463,7 +464,11 @@ export const TrendChart: React.FC<TrendChartProps> = ({
             if (!firstValid) return '';
             const ts: number = firstValid.data[0];
 
-            let html = `<div style="font-size:10px;color:#94a3b8;font-weight:600;margin-bottom:5px;border-bottom:1px solid rgba(148,163,184,0.2);padding-bottom:4px;">${fmt.datetime(ts)}</div>`;
+            // ECharts puts this string into innerHTML. The alias (a tag name
+            // anyone with tag rights can set) and the value (a STRING tag holds
+            // whatever the PLC sends) are escaped; UPlotChart had the same hole
+            // and builds its tooltip with the DOM instead.
+            let html = `<div style="font-size:10px;color:#94a3b8;font-weight:600;margin-bottom:5px;border-bottom:1px solid rgba(148,163,184,0.2);padding-bottom:4px;">${escapeHtml(fmt.datetime(ts))}</div>`;
 
             p.forEach((param: any) => {
                 if (!Array.isArray(param.data)) return;
@@ -476,11 +481,11 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                 html += `
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:16px;padding:2px 0;">
                     <div style="display:flex;align-items:center;gap:6px;min-width:0;">
-                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColour};flex-shrink:0;"></span>
-                        <span style="color:#cbd5e1;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px;">${param.seriesName}</span>
+                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${escapeHtml(dotColour)};flex-shrink:0;"></span>
+                        <span style="color:#cbd5e1;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px;">${escapeHtml(param.seriesName)}</span>
                     </div>
-                    <span style="font-family:'JetBrains Mono',monospace,sans-serif;font-weight:700;font-size:12px;color:${isNull ? '#f87171' : (si?.isBool ? dotColour : '#f1f5f9')};flex-shrink:0;">
-                        ${displayVal}
+                    <span style="font-family:'JetBrains Mono',monospace,sans-serif;font-weight:700;font-size:12px;color:${isNull ? '#f87171' : (si?.isBool ? escapeHtml(dotColour) : '#f1f5f9')};flex-shrink:0;">
+                        ${escapeHtml(displayVal)}
                     </span>
                 </div>`;
             });

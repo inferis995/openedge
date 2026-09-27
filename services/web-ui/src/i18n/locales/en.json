@@ -196,7 +196,10 @@
         "write_value": "Write {{value}} to “{{name}}”?",
         "write_value_desc": "The value is sent to the PLC and acts on the plant.",
         "delete_site_desc": "Only possible once it has no areas. This cannot be undone.",
-        "delete_area_desc": "Only possible once it has no gateways. This cannot be undone."
+        "delete_area_desc": "Only possible once it has no gateways. This cannot be undone.",
+        "restart_edge": "Restart the edge box of “{{name}}”?",
+        "restart_edge_desc": "Every service on the box restarts: for a few tens of seconds that plant's PLCs are not read.",
+        "delete_webhook": "Delete this webhook?"
     },
     "tags": {
         "export_failed": "Export failed",

@@ -109,15 +109,13 @@ const OrganizationsPage = () => {
     return (
         <div className="space-y-6">
             {/* Tenant stats banner */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="rounded-lg border bg-card p-4 text-center">
                     <div className="text-3xl font-bold text-primary">{organizations.length}</div>
                     <div className="text-sm text-muted-foreground mt-1">{t('organizationsPage.stat_total')}</div>
                 </div>
-                <div className="rounded-lg border bg-card p-4 text-center">
-                    <div className="text-3xl font-bold text-green-600">{organizations.length}</div>
-                    <div className="text-sm text-muted-foreground mt-1">{t('organizationsPage.stat_active')}</div>
-                </div>
+                {/* There was an "Active" count here, equal to the total: an
+                    organization has no active/inactive state to count. */}
                 <div className="rounded-lg border bg-card p-4 text-center flex flex-col items-center justify-center">
                     <a
                         href="/fleet"

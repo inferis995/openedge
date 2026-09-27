@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"image/png"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/pquerna/otp"
 	totpLib "github.com/pquerna/otp/totp"
 	"github.com/ralph/industrial-edge-middleware/internal/auth"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
@@ -458,9 +461,29 @@ func (h *AuthHandler) MFASetup(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"secret":   key.Secret(),
 		"qr_url":   key.URL(),
+		"qr_png":   totpQRDataURL(key),
 		"issuer":   "OpenEdge",
 		"username": username,
 	})
+}
+
+// totpQRDataURL draws the enrolment QR code here, as a PNG data URL.
+//
+// The web UI used to build it by sending the otpauth:// URL — the TOTP secret
+// itself — to api.qrserver.com in an <img> src: every enrolment handed the
+// second factor of an account to a third party, and on a plant network with no
+// internet the code never appeared at all. Empty on failure; the UI then shows
+// only the key to type in.
+func totpQRDataURL(key *otp.Key) string {
+	img, err := key.Image(240, 240)
+	if err != nil {
+		return ""
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return ""
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes())
 }
 
 // MFAEnable handles POST /api/auth/mfa/enable (authenticated).

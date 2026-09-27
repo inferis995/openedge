@@ -1,3 +1,4 @@
+import { showApiError } from '@/lib/api-error-handler';
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { User, KeyRound, CheckCircle2, Eye, EyeOff, ShieldCheck, ShieldOff, QrCode } from 'lucide-react';
@@ -47,7 +48,7 @@ export default function ProfilePage() {
 
     // MFA state
     const [mfaEnabled, setMfaEnabled] = useState(false);
-    const [mfaSetup, setMfaSetup] = useState<{ secret: string; qr_url: string } | null>(null);
+    const [mfaSetup, setMfaSetup] = useState<{ secret: string; qr_url: string; qr_png?: string } | null>(null);
     const [mfaCode, setMfaCode] = useState('');
     const [mfaMsg, setMfaMsg] = useState('');
     const [disablePw, setDisablePw] = useState('');
@@ -58,8 +59,13 @@ export default function ProfilePage() {
 
     const startSetup = async () => {
         setMfaMsg('');
-        const r = await apiClient.post('/auth/me/mfa/setup');
-        setMfaSetup(r.data);
+        try {
+            const r = await apiClient.post('/auth/me/mfa/setup');
+            setMfaSetup(r.data);
+        } catch (e) {
+            // Used to reject unhandled: the button did nothing, silently.
+            showApiError(e);
+        }
     };
 
     const enableMFA = async () => {
@@ -220,14 +226,18 @@ export default function ProfilePage() {
                 {mfaSetup && !mfaEnabled && (
                     <div className="space-y-4">
                         <p className="text-sm text-muted-foreground">{t('profilePage.mfa_scan')}</p>
-                        <div className="flex justify-center">
-                            <img
-                                src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(mfaSetup.qr_url)}`}
-                                alt={t('profilePage.mfa_qr_alt')}
-                                className="rounded-lg border border-border"
-                                width={200} height={200}
-                            />
-                        </div>
+                        {/* Drawn by the server. It used to come from
+                            api.qrserver.com, with the secret in the URL. */}
+                        {mfaSetup.qr_png && (
+                            <div className="flex justify-center">
+                                <img
+                                    src={mfaSetup.qr_png}
+                                    alt={t('profilePage.mfa_qr_alt')}
+                                    className="rounded-lg border border-border bg-white p-2"
+                                    width={200} height={200}
+                                />
+                            </div>
+                        )}
                         <div className="grid gap-1">
                             <Label className="text-xs">{t('profilePage.mfa_manual_key')}</Label>
                             <code className="text-xs bg-muted rounded px-3 py-2 font-mono break-all select-all">{mfaSetup.secret}</code>

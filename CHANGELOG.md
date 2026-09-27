@@ -44,6 +44,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The tag export refused a global administrator who had not picked an
   organization (400, "X-Organization-ID header required").
 - Password hints said six characters; the server requires twelve.
+- **Security:** the trend chart's tooltip put the tag alias and a STRING
+  tag's value into HTML unescaped: anyone able to name a tag could run script
+  in the browser of whoever hovered the chart. Both are escaped.
+- **Security:** the MFA enrolment QR code was fetched from api.qrserver.com
+  with the TOTP secret in the URL, handing the second factor to a third party
+  (and showing nothing on a plant network without internet). The server now
+  draws it.
+- Clicking a tag in the trend page's tag list only said "select a chart
+  first": the page never has one, so tags could not be added from the list.
+- Switching an OEE profile on or off turned "respect shifts" and "respect
+  maintenance" back on.
+- The loss/Pareto tab stayed empty when it opened before the profiles loaded.
+- The dashboard showed the current shift's times in UTC.
+- Dates picked in the trend and history pages could fall on the day before
+  (a UTC date next to a local time).
+- Saving a user's permissions ignored the server's answer: a refused change
+  closed the dialog as if saved. Setting up MFA failed silently on an error.
+- Removing an SSO provider, deleting a webhook and restarting a plant's edge
+  box now ask first; the SSO removal also reports a failure.
+- The gateway list's columns shifted for non-admins; the tag list reloaded the
+  whole page after reordering; the organizations page counted "active"
+  organizations, a state they do not have.
+- Synoptic editor: bringing a widget forward or back can be undone; a setpoint
+  widget's decimals no longer become NaN; its confirmation stays inside it.
+- The audit report card is shown only to the global administrator, the only
+  one the server serves it to. The cloud MQTT password and the broker password
+  have separate show/hide buttons.
 
 ## [3.2.0] - 2026-09-26
 

@@ -254,7 +254,6 @@
         "edge_offline": "Edge offline",
         "loading": "Loading organizations…",
         "stat_total": "Total organizations",
-        "stat_active": "Active",
         "see_fleet": "Go to Fleet →",
         "fleet_hint": "Edge box status per organization",
         "subtitle": "Manage organizations (separate customers or plants), install edge boxes and invite people.",

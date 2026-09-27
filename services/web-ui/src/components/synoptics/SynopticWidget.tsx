@@ -461,7 +461,9 @@ function SetpointWidget({ widget, live, onWrite }: {
         : null;
 
     return (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-1 bg-slate-900/80 border border-slate-700 rounded-md px-2 overflow-hidden">
+        // relative: the confirmation overlay below is absolute and must cover
+        // this widget, not whatever positioned ancestor happens to be above it.
+        <div className="relative w-full h-full flex flex-col items-center justify-center gap-1 bg-slate-900/80 border border-slate-700 rounded-md px-2 overflow-hidden">
             {confirmPending !== null && (
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-slate-950/95 rounded-md px-2">
                     <span className="text-[10px] text-amber-400 text-center">{t('synopticWidget.confirm_write', { value: `${confirmPending}${cfg.unit ? ` ${cfg.unit}` : ''}` })}</span>

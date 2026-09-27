@@ -67,7 +67,7 @@ const ExportCard = ({ icon, title, description, onExport, extraControls, busy, d
 };
 
 const ReportsPage = () => {
-    const { isAdmin } = useAuthStore();
+    const { isAdmin, isGlobalAdmin } = useAuthStore();
     const { t: tr, i18n } = useTranslation();
 
     const [start, setStart] = useState(defaultStart());
@@ -200,7 +200,9 @@ const ReportsPage = () => {
                     }
                 />
 
-                {isAdmin() && (
+                {/* The server serves it to the global admin only; an org
+                    admin saw the card and got a 403. */}
+                {isGlobalAdmin() && (
                     <ExportCard
                         icon={<ShieldCheck size={16} />}
                         title={tr('reportsPage.audit_title')}

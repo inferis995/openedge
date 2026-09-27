@@ -27,6 +27,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
+import apiClient from '@/api/client';
+import { showApiError } from '@/lib/api-error-handler';
 
 const PUBLISH_MODES = [
     {
@@ -94,7 +96,9 @@ const SystemPage = () => {
     const [mqttUsername, setMqttUsername] = useState<string>('');
     const [mqttPassword, setMqttPassword] = useState<string>('');
     const [mqttClientId, setMqttClientId] = useState<string>('industrial-edge');
+    // One per field: a single flag revealed both passwords at once.
     const [showPassword, setShowPassword] = useState<boolean>(false);
+    const [showCloudPassword, setShowCloudPassword] = useState<boolean>(false);
     const [dbRetention, setDbRetention] = useState<number>(30); // Default 30 days
     const [cloudSyncEnabled, setCloudSyncEnabled] = useState<boolean>(false);
     const [cloudMqttHost, setCloudMqttHost] = useState<string>('');
@@ -172,11 +176,19 @@ const SystemPage = () => {
 
     const deleteSSOProvider = async (provider: string) => {
         if (!selectedOrgId) return;
-        const token = useAuthStore.getState().token;
-        await fetch(`/api/organizations/${selectedOrgId}/sso-providers/${provider}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
-        });
+        // Asked first, and a failure is shown: it used to delete on one click
+        // and ignore whatever the server answered.
+        if (!(await confirmAction({
+            title: i18n.t('ask.remove_sso', { provider }),
+            description: i18n.t('ask.remove_sso_desc'),
+            confirmLabel: i18n.t('ask.remove'),
+            destructive: true,
+        }))) return;
+        try {
+            await apiClient.delete(`/organizations/${selectedOrgId}/sso-providers/${provider}`);
+        } catch (e) {
+            showApiError(e);
+        }
         loadSSOProviders();
     };
 
@@ -668,8 +680,8 @@ const SystemPage = () => {
                                             <Input
                                                 type="number"
                                                 value={cloudMqttPort}
-                                                onChange={(e) => setCloudMqttPort(parseInt(e.target.value) || 8883)}
-                                                placeholder="8883"
+                                                onChange={(e) => setCloudMqttPort(parseInt(e.target.value) || 1883)}
+                                                placeholder="1883"
                                                 className="h-9 font-mono text-sm"
                                             />
                                         </div>
@@ -690,7 +702,7 @@ const SystemPage = () => {
                                             <Label className="text-xs text-muted-foreground">{t('systemPage.cloud_password')}</Label>
                                             <div className="relative">
                                                 <Input
-                                                    type={showPassword ? "text" : "password"}
+                                                    type={showCloudPassword ? "text" : "password"}
                                                     value={cloudMqttPassword}
                                                     onChange={(e) => setCloudMqttPassword(e.target.value)}
                                                     placeholder="••••••••••••••••"
@@ -702,9 +714,9 @@ const SystemPage = () => {
                                                     variant="ghost"
                                                     size="icon"
                                                     className="absolute right-0 top-0 h-9 w-9 hover:bg-transparent"
-                                                    onClick={() => setShowPassword(!showPassword)}
+                                                    onClick={() => setShowCloudPassword(!showCloudPassword)}
                                                 >
-                                                    {showPassword ? (
+                                                    {showCloudPassword ? (
                                                         <EyeOff className="h-4 w-4 text-muted-foreground" />
                                                     ) : (
                                                         <Eye className="h-4 w-4 text-muted-foreground" />
@@ -1358,7 +1370,7 @@ const SystemPage = () => {
                                                 {p.enabled ? t('systemPage.enabled') : t('systemPage.disabled')}
                                             </span>
                                             <Button size="sm" variant="outline" onClick={() => setSsoEdit({ ...p, client_secret: '' })}>{t('common.edit')}</Button>
-                                            <Button size="sm" variant="ghost" className="text-destructive" onClick={() => deleteSSOProvider(p.provider)}>
+                                            <Button size="sm" variant="ghost" className="text-destructive" aria-label={t('common.delete')} onClick={() => void deleteSSOProvider(p.provider)}>
                                                 <Trash2 className="h-4 w-4" />
                                             </Button>
                                         </div>

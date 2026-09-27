@@ -1046,7 +1046,9 @@ const GatewaysPage = () => {
                             <TableHead>{t('gatewaysPage.col_config')}</TableHead>
                             <TableHead>{t('gatewaysPage.col_status')}</TableHead>
                             <TableHead>{t('gatewaysPage.enabled')}</TableHead>
-                            {isAdmin() && <TableHead className="text-right">{t('common.actions')}</TableHead>}
+                            {/* Always there: every row has the cell, and a header
+                                that disappeared for non-admins shifted the columns. */}
+                            <TableHead className="text-right">{isAdmin() ? t('common.actions') : ''}</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>

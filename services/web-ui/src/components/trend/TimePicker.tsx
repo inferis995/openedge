@@ -43,8 +43,12 @@ const INDUSTRIAL_PRESETS: { value: TimePreset; labelKey: string; descriptionKey:
     { value: 'yesterday', labelKey: 'trend.preset_yesterday', descriptionKey: 'trend.preset_yesterday_desc' },
 ];
 
+// Local date, like formatTimeForInput below. toISOString() gave the UTC date,
+// so between midnight and 01:00/02:00 in Italy the date field showed the day
+// before while the time field showed the local time.
 const formatDateForInput = (date: Date): string => {
-    return date.toISOString().split('T')[0];
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`;
 };
 
 const formatTimeForInput = (date: Date): string => {

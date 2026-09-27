@@ -254,7 +254,6 @@
         "edge_offline": "Edge offline",
         "loading": "Caricamento organizzazioni…",
         "stat_total": "Organizzazioni totali",
-        "stat_active": "Attive",
         "see_fleet": "Vai alla Flotta →",
         "fleet_hint": "Stato delle scatole edge per organizzazione",
         "subtitle": "Gestisci le organizzazioni (clienti o stabilimenti separati), installa le scatole edge e invita le persone.",

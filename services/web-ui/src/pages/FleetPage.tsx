@@ -10,6 +10,7 @@ import { RefreshCw, RotateCcw, Upload, Wifi, WifiOff, Loader2 } from 'lucide-rea
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
+import { confirmAction } from '@/lib/confirm';
 
 interface EdgeStatus {
     org_id: number;
@@ -76,7 +77,15 @@ const FleetPage = () => {
         setTimeout(() => setToast(null), 3000);
     };
 
-    const handleRestart = async (orgId: number) => {
+    const handleRestart = async (orgId: number, orgName: string) => {
+        // It restarts every service on the plant's box, which stops reading
+        // the PLCs for a while: not something a stray click should do.
+        if (!(await confirmAction({
+            title: i18n.t('ask.restart_edge', { name: orgName }),
+            description: i18n.t('ask.restart_edge_desc'),
+            confirmLabel: i18n.t('ask.restart'),
+            destructive: true,
+        }))) return;
         setActionOrgId(orgId);
         setActionLoading(true);
         try {
@@ -189,7 +198,7 @@ const FleetPage = () => {
                                         <Button
                                             size="sm"
                                             variant="outline"
-                                            onClick={() => handleRestart(org.org_id)}
+                                            onClick={() => void handleRestart(org.org_id, org.org_name)}
                                             disabled={actionLoading && actionOrgId === org.org_id}
                                         >
                                             {actionLoading && actionOrgId === org.org_id ? (

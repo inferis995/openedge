@@ -1526,7 +1526,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         </div>
                                         <div className="grid gap-1">
                                             <Label className="text-xs">{tr('synopticEditor.decimals')}</Label>
-                                            <Input className="h-10 sm:h-8 text-xs" type="number" min={0} max={6} value={selected.config?.decimals ?? 2} onChange={e => patchConfig(selected.id, { decimals: parseInt(e.target.value) ?? 2 })} />
+                                            <Input className="h-10 sm:h-8 text-xs" type="number" min={0} max={6} value={selected.config?.decimals ?? 2} onChange={e => { const d = parseInt(e.target.value, 10); patchConfig(selected.id, { decimals: Number.isNaN(d) ? 2 : Math.min(6, Math.max(0, d)) }); }} />
                                         </div>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                             <div className="grid gap-1">
@@ -1565,6 +1565,8 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             if (idx <= 0) return prev;
                                             const next = [...prev];
                                             [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                                            // Undoable, like every other edit.
+                                            pushHistory(next);
                                             return next;
                                         })}>↓ {tr('synopticEditor.send_backward')}</Button>
                                     <Button variant="outline" size="sm" className="flex-1 h-9 sm:h-7 text-xs"
@@ -1573,6 +1575,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             if (idx >= prev.length - 1) return prev;
                                             const next = [...prev];
                                             [next[idx], next[idx + 1]] = [next[idx + 1], next[idx]];
+                                            pushHistory(next);
                                             return next;
                                         })}>↑ {tr('synopticEditor.bring_forward')}</Button>
                                 </div>
