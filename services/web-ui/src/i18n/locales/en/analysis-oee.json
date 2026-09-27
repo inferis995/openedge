@@ -267,7 +267,9 @@
         "to_optional": "To (optional)",
         "assign": "Assign",
         "operator": "Operator",
-        "no_operators": "No operators assigned."
+        "no_operators": "No operators assigned.",
+        "platform": "Default",
+        "platform_hint": "A platform default shift: it applies until your organization creates its own."
     },
     "maintenancePage": {
         "saved": "Window saved",

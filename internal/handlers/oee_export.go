@@ -220,7 +220,7 @@ func (h *OEEExportHandler) ExportLossTreeCSV(c *gin.Context) {
 }
 
 func (h *OEEExportHandler) ExportProfilesCSV(c *gin.Context) {
-	profiles := h.oee.loadEnabledProfiles()
+	profiles := h.oee.loadEnabledProfilesFor(oeeOrg(c))
 
 	h.writeCSV(c, "oee_profiles.csv", func(w *csvWriter) {
 		w.row("ID", "Nome", "Descrizione", "Area", "Abilitato",

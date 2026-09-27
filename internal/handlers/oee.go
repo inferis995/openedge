@@ -25,14 +25,15 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
+	"github.com/ralph/industrial-edge-middleware/internal/shifts"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/lib/pq"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 )
 
@@ -57,6 +58,9 @@ type oeeConfig struct {
 	TargetPPH          float64 // pezzi/ora atteso
 	RespectShifts      bool    // true → Availability divide per PPT, no per wall clock
 	RespectMaintenance bool    // true → finestre manutenzione sottratte da PPT
+	// OrgID is the profile's organization: whose shifts plan its production
+	// time. 0 for the legacy single-snapshot mode, which reads every shift.
+	OrgID int
 }
 
 // OEESnapshot è un calcolo OEE singolo (per un profilo o per la modalità
@@ -106,13 +110,13 @@ type OEEOverview struct {
 
 // Snapshot GET /api/oee — restituisce l'overview corrente.
 func (h *OEEHandler) Snapshot(c *gin.Context) {
-	c.JSON(http.StatusOK, h.overview())
+	c.JSON(http.StatusOK, h.overviewFor(oeeOrg(c)))
 }
 
 // overview è il punto di ingresso che decide tra modalità profiles e
 // modalità legacy.
-func (h *OEEHandler) overview() OEEOverview {
-	profiles := h.loadEnabledProfiles()
+func (h *OEEHandler) overviewFor(org *int) OEEOverview {
+	profiles := h.loadEnabledProfilesFor(org)
 	if len(profiles) == 0 {
 		// Modalità legacy: una sola snapshot dai settings globali.
 		cfg := h.legacyConfig()
@@ -313,7 +317,7 @@ type OEEHistoryPoint struct {
 // History GET /api/oee/history — trend OEE ultimi 7 giorni. In modalità
 // profili usa il rollup; in modalità legacy usa il singolo calcolo.
 func (h *OEEHandler) History(c *gin.Context) {
-	profiles := h.loadEnabledProfiles()
+	profiles := h.loadEnabledProfilesFor(oeeOrg(c))
 	out := []OEEHistoryPoint{}
 	now := time.Now().UTC()
 	for i := 6; i >= 0; i-- {
@@ -569,6 +573,7 @@ func (p OEEProfile) config() oeeConfig {
 		TargetPPH:          p.TargetPiecesPerHour,
 		RespectShifts:      p.RespectShifts,
 		RespectMaintenance: p.RespectMaintenance,
+		OrgID:              p.OrgID,
 	}
 	if p.RunTimeTagID != nil {
 		cfg.RunTimeTagID = *p.RunTimeTagID
@@ -586,6 +591,29 @@ func (p OEEProfile) config() oeeConfig {
 // corrente (multi-tenant via OrganizationContext middleware). Nessuna org
 // = profilo vuoto, vai in legacy mode.
 func (h *OEEHandler) loadEnabledProfiles() []OEEProfile {
+	return h.loadEnabledProfilesFor(nil)
+}
+
+// oeeOrg is the organization filter for an OEE request: the caller's, or nil
+// (every organization) for the global admin with none selected.
+func oeeOrg(c *gin.Context) *int {
+	if org, ok := middleware.GetOrganizationID(c); ok {
+		return &org
+	}
+	if middleware.IsGlobalAdmin(c) {
+		return nil
+	}
+	none := -1
+	return &none
+}
+
+// loadEnabledProfilesFor reads the enabled profiles of org, or of every
+// organization when org is nil (the hourly snapshot job).
+//
+// The comment above said "of the current organization" and the query had no
+// organization in it: the OEE overview, hierarchy and profile export, and the
+// dashboard's OEE card, showed every organization's lines to everybody.
+func (h *OEEHandler) loadEnabledProfilesFor(org *int) []OEEProfile {
 	rows, err := h.db.Query(`
 		SELECT p.id, p.org_id, p.name, COALESCE(p.description,''),
 			p.area_id, COALESCE(a.name,''),
@@ -595,8 +623,8 @@ func (h *OEEHandler) loadEnabledProfiles() []OEEProfile {
 			COALESCE(p.respect_shifts, true), COALESCE(p.respect_maintenance, true)
 		FROM oee_profiles p
 		LEFT JOIN areas a ON a.id = p.area_id
-		WHERE p.enabled = true
-		ORDER BY p.display_order, p.name`)
+		WHERE p.enabled = true AND ($1::int IS NULL OR p.org_id = $1)
+		ORDER BY p.display_order, p.name`, org)
 	if err != nil {
 		return nil
 	}
@@ -921,11 +949,15 @@ func (h *OEEHandler) computePPT(start, end time.Time, cfg oeeConfig) float64 {
 	}
 	var totalMin float64
 	if cfg.RespectShifts {
-		totalMin = h.sumShiftIntersections(start, end)
-		// Se non esiste nessun turno attivo nel sistema, fallback a wall
-		// clock — altrimenti installazioni senza turni vedrebbero PPT=0
-		// e Availability sempre 100% (sbagliato).
-		if totalMin == 0 && !h.hasActiveShifts() {
+		// The profile's organization's shifts, on the plant's clock (see
+		// internal/shifts). This read every organization's shifts, in UTC.
+		scope := shifts.Scope{OrgID: cfg.OrgID, All: cfg.OrgID == 0}
+		list, err := shifts.Load(context.Background(), h.db, scope)
+		totalMin = shifts.PlannedMinutes(list, start, end)
+		// Se non esiste nessun turno attivo, fallback a wall clock —
+		// altrimenti installazioni senza turni vedrebbero PPT=0 e
+		// Availability sempre 100% (sbagliato).
+		if err != nil || len(list) == 0 {
 			totalMin = windowMin
 		}
 	} else {
@@ -939,81 +971,6 @@ func (h *OEEHandler) computePPT(start, end time.Time, cfg oeeConfig) float64 {
 		}
 	}
 	return totalMin
-}
-
-// sumShiftIntersections somma le durate dei segmenti di turno che
-// intersecano la finestra [start, end]. Itera giorno per giorno;
-// per ogni giorno proietta ogni turno attivo su quel weekday in
-// timestamp UTC e calcola l'intersezione con [start, end].
-//
-// Per turni "wrap midnight" (es. 22-06), si proiettano normalmente:
-// shiftEnd = day + endMin + 24h. L'intersezione con la finestra del
-// giorno successivo viene contata nell'iterazione del giorno corrente.
-func (h *OEEHandler) sumShiftIntersections(start, end time.Time) float64 {
-	type shiftRow struct {
-		startMin, endMin int
-		weekdays         []int
-		wraps            bool
-	}
-	rows, err := h.db.Query(`
-		SELECT start_time::text, end_time::text, weekdays
-		FROM shifts WHERE active = true`)
-	if err != nil {
-		return 0
-	}
-	defer rows.Close()
-	var shifts []shiftRow
-	for rows.Next() {
-		var startS, endS string
-		var weekdays pq.Int64Array
-		if err := rows.Scan(&startS, &endS, &weekdays); err != nil {
-			continue
-		}
-		startS = trimSeconds(startS)
-		endS = trimSeconds(endS)
-		shifts = append(shifts, shiftRow{
-			startMin: minutesOfDay(startS),
-			endMin:   minutesOfDay(endS),
-			weekdays: int64sToInts(weekdays),
-			wraps:    wrapsMidnight(startS, endS),
-		})
-	}
-	if len(shifts) == 0 {
-		return 0
-	}
-
-	total := 0.0
-	// Itero giorno per giorno. dayCursor parte dal giorno di "start"
-	// (mezzanotte UTC) e va fino a "end" — con margine 1 giorno per
-	// coprire turni wrap.
-	dayCursor := time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
-	for !dayCursor.After(end) {
-		weekday := int(dayCursor.Weekday()) // 0=Sun .. 6=Sat
-		for _, s := range shifts {
-			if !contains(s.weekdays, weekday) {
-				continue
-			}
-			shiftStart := dayCursor.Add(time.Duration(s.startMin) * time.Minute)
-			shiftEnd := dayCursor.Add(time.Duration(s.endMin) * time.Minute)
-			if s.wraps {
-				shiftEnd = shiftEnd.Add(24 * time.Hour)
-			}
-			// Intersezione [max(shiftStart, start), min(shiftEnd, end)]
-			iStart := shiftStart
-			if start.After(iStart) {
-				iStart = start
-			}
-			iEnd := shiftEnd
-			if end.Before(iEnd) {
-				iEnd = end
-			}
-			if iEnd.After(iStart) {
-				total += iEnd.Sub(iStart).Minutes()
-			}
-		}
-		dayCursor = dayCursor.Add(24 * time.Hour)
-	}
-	return total
 }
 
 // sumMaintenanceIntersections somma le durate delle finestre di
@@ -1050,21 +1007,10 @@ func (h *OEEHandler) sumMaintenanceIntersections(start, end time.Time) float64 {
 	return total
 }
 
-// hasActiveShifts indica se almeno un turno attivo esiste nel sistema.
-// Usato per il fallback "PPT=window quando non ci sono turni".
-func (h *OEEHandler) hasActiveShifts() bool {
-	var n int
-	_ = h.db.QueryRow(`SELECT COUNT(*) FROM shifts WHERE active = true`).Scan(&n)
-	return n > 0
-}
-
 // ── dashboard integration ───────────────────────────────────────────────
 
 // compute è il punto di ingresso per il DashboardHandler — restituisce
 // la stessa OEEOverview di /api/oee.
-func (h *OEEHandler) compute() OEEOverview {
-	return h.overview()
-}
 
 // ── Hierarchy (Site → Area → Profile) ──────────────────────────────────
 
@@ -1082,7 +1028,7 @@ type OEEHierarchyNode struct {
 // Snapshot di ogni Area = media aritmetica dei profili figli abilitati.
 // Profili senza area finiscono in un nodo "Unassigned".
 func (h *OEEHandler) Hierarchy(c *gin.Context) {
-	profiles := h.loadEnabledProfiles()
+	profiles := h.loadEnabledProfilesFor(oeeOrg(c))
 	now := time.Now().UTC()
 
 	// snapshot per profilo

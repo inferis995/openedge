@@ -195,12 +195,14 @@ func (h *CustomKPIsHandler) Delete(c *gin.Context) {
 // Chiamata dal DashboardHandler per popolare il blocco custom_kpi della
 // response overview. Per ogni KPI esegue UNA query — la performance è
 // OK fino a ~50 KPI attive (la maggior parte degli impianti ne ha 5-10).
-func EvaluateAll(db *sql.DB) []KPIWidget {
+// EvaluateAllFor computes the custom KPIs whose tag belongs to the scope's
+// organization. It computed every KPI of every organization for everybody.
+func EvaluateAllFor(db *sql.DB, sc dashScope) []KPIWidget {
 	out := []KPIWidget{}
 	rows, err := db.Query(`
 		SELECT k.id, k.name, k.tag_id, k.aggregation, k.window_minutes,
 		       COALESCE(k.unit,''), k.multiplier, k.good_when, k.target_value
-		FROM custom_kpis k WHERE k.active = true ORDER BY k.name`)
+		FROM custom_kpis k WHERE k.active = true AND ` + sc.tags("k.tag_id") + ` ORDER BY k.name`)
 	if err != nil {
 		return out
 	}

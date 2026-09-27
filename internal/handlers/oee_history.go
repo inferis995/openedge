@@ -16,13 +16,14 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
+	"github.com/ralph/industrial-edge-middleware/internal/shifts"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/lib/pq"
 )
 
 // OEEHistoryHandler espone la lettura del rollup storico.
@@ -378,56 +379,17 @@ func parseHistoryTime(s string) (time.Time, error) {
 
 var errInvalidTime = errMsg("timestamp must be RFC3339 or YYYY-MM-DD")
 
-// findActiveShiftAt ritorna l'id del turno attivo al timestamp `at`,
-// oppure nil se nessun turno copre quel momento (es. weekend o pause
-// non coperte). Usato dal cron worker per stampare oee_history.shift_id.
-//
-// Replica la logica di ShiftsHandler.Current ma su un timestamp arbitrario
-// (non solo "adesso") — necessaria per backfill o se il cron parte in
-// ritardo rispetto all'ora esatta.
+// findActiveShiftAt is the id of the shift running at `at`, on the plant's
+// clock (internal/shifts), for the hourly rollup. It was computed in UTC, so
+// an hour was attributed to the shift before or after it.
 func findActiveShiftAt(db *sql.DB, at time.Time) *int {
-	weekday := int(at.Weekday())
-	prevWeekday := (weekday + 6) % 7
-	nowMin := at.Hour()*60 + at.Minute()
-
-	rows, err := db.Query(`
-		SELECT id, start_time::text, end_time::text, weekdays
-		FROM shifts WHERE active = true`)
+	list, err := shifts.Load(context.Background(), db, shifts.Scope{All: true})
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var id int
-		var startS, endS string
-		var weekdays pq.Int64Array
-		if err := rows.Scan(&id, &startS, &endS, &weekdays); err != nil {
-			continue
-		}
-		startS = trimSeconds(startS)
-		endS = trimSeconds(endS)
-		sMin := minutesOfDay(startS)
-		eMin := minutesOfDay(endS)
-		wraps := wrapsMidnight(startS, endS)
-		wd := int64sToInts(weekdays)
-
-		if !wraps {
-			if contains(wd, weekday) && nowMin >= sMin && nowMin < eMin {
-				v := id
-				return &v
-			}
-			continue
-		}
-		// Wrap midnight: due casi.
-		if contains(wd, weekday) && nowMin >= sMin {
-			v := id
-			return &v
-		}
-		if contains(wd, prevWeekday) && nowMin < eMin {
-			v := id
-			return &v
-		}
+	if sh, _, _ := shifts.ActiveAt(list, at); sh != nil {
+		id := sh.ID
+		return &id
 	}
 	return nil
 }

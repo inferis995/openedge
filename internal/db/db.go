@@ -224,22 +224,48 @@ func runAutoMigrations(db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_shift_assignments_shift ON shift_assignments(shift_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_shift_assignments_user ON shift_assignments(user_id)`,
-		// Seed dei 3 turni standard se non ce ne sono — così l'utente vede
-		// subito qualcosa nella UI e può modificarli/disattivarli.
+		// Seed dei 3 turni standard, una volta sola, su un database senza
+		// turni. Il guard era per nome sugli ultimi due: cancellare
+		// "Pomeriggio" lo faceva ricomparire al riavvio seguente.
 		`INSERT INTO shifts (name, start_time, end_time, weekdays, active)
-		SELECT 'Mattina',   '06:00', '14:00', '{1,2,3,4,5}', true
+		SELECT v.name, v.st::time, v.et::time, '{1,2,3,4,5}', true
+		FROM (VALUES ('Mattina','06:00','14:00'), ('Pomeriggio','14:00','22:00'), ('Notte','22:00','06:00'))
+		     AS v(name, st, et)
 		WHERE NOT EXISTS (SELECT 1 FROM shifts LIMIT 1)`,
-		`INSERT INTO shifts (name, start_time, end_time, weekdays, active)
-		SELECT 'Pomeriggio','14:00', '22:00', '{1,2,3,4,5}', true
-		WHERE NOT EXISTS (SELECT 1 FROM shifts WHERE name = 'Pomeriggio')`,
-		`INSERT INTO shifts (name, start_time, end_time, weekdays, active)
-		SELECT 'Notte',     '22:00', '06:00', '{1,2,3,4,5}', true
-		WHERE NOT EXISTS (SELECT 1 FROM shifts WHERE name = 'Notte')`,
 	}
 	for _, stmt := range shifts {
 		if _, err := db.Exec(stmt); err != nil {
 			return fmt.Errorf("shifts migration: %w", err)
 		}
+	}
+
+	// Shifts belong to an organization. They did not: one table for the whole
+	// installation, so on a multi-tenant server one company's admin edited —
+	// and deleted — the shifts every other company's OEE was computed on, and
+	// read who worked them. A shift with no organization stays as the
+	// platform's default and applies to an organization until it defines its
+	// own. Names are unique per organization, not across all of them.
+	for _, stmt := range []string{
+		`ALTER TABLE shifts ADD COLUMN IF NOT EXISTS org_id INT REFERENCES organizations(id) ON DELETE CASCADE`,
+		`ALTER TABLE shifts DROP CONSTRAINT IF EXISTS shifts_name_key`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_shifts_org_name ON shifts (COALESCE(org_id, 0), name)`,
+	} {
+		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+			log.Printf("Warning: shifts org scoping migration: %v", err)
+		}
+	}
+	// Once: on an installation with a single organization the existing shifts
+	// are that organization's. Marked, so a platform-wide shift the global
+	// admin creates later is not claimed at the next restart.
+	if _, err := db.ExecContext(context.Background(), `
+		WITH done AS (
+			INSERT INTO global_settings (key, value) VALUES ('shifts_org_backfilled', 'true')
+			ON CONFLICT (key) DO NOTHING RETURNING 1
+		)
+		UPDATE shifts SET org_id = (SELECT id FROM organizations LIMIT 1)
+		WHERE org_id IS NULL AND EXISTS (SELECT 1 FROM done)
+		  AND (SELECT count(*) FROM organizations) = 1`); err != nil {
+		log.Printf("Warning: shifts org backfill: %v", err)
 	}
 
 	// Migration: maintenance windows. Periodi di manutenzione programmata

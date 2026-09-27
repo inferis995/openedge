@@ -149,6 +149,9 @@ services:
     pids_limit: 512
     container_name: openedge-core-api
     environment:
+      # The plant's clock. Shift times ("06:00–14:00") are read on it; without
+      # it the container runs on UTC and a shift starts an hour or two late.
+      TZ: ${TZ:-Europe/Rome}
       DB_HOST: postgres
       DB_PORT: ${DB_PORT:-5432}
       DB_USER: ${POSTGRES_USER:-industrial_user}

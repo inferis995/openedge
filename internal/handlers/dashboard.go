@@ -7,14 +7,15 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
+	"github.com/ralph/industrial-edge-middleware/internal/shifts"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/lib/pq"
 )
 
 // DashboardHandler aggrega lo stato del sistema in una sola response.
@@ -164,23 +165,24 @@ type KPIWidget struct {
 // Overview risponde al GET. Ogni blocco è popolato indipendentemente —
 // un fallimento in una query NON impedisce alle altre di tornare valori.
 func (h *DashboardHandler) Overview(c *gin.Context) {
+	sc := dashScopeOf(c)
 	resp := DashboardOverview{
 		GeneratedAt: time.Now().UTC(),
 		System:      h.system(),
 	}
-	resp.Alarms = h.alarms()
-	resp.Gateways = h.gateways()
-	resp.Operations = h.operations()
-	resp.Activity = h.activity()
+	resp.Alarms = h.alarms(sc)
+	resp.Gateways = h.gateways(sc)
+	resp.Operations = h.operations(sc)
+	resp.Activity = h.activity(sc)
 	// I KPI di sistema + i custom KPI definiti dall'utente vivono insieme
 	// nella stessa lista perché l'UI li renderizza uguale. Custom KPIs
 	// vengono dopo i system KPIs così l'ordine è prevedibile.
-	resp.KPI = h.applyTargets(h.kpis())
-	resp.KPI = append(resp.KPI, EvaluateAll(h.db)...)
-	resp.Shift = h.currentShift()
+	resp.KPI = h.applyTargets(h.kpis(sc))
+	resp.KPI = append(resp.KPI, EvaluateAllFor(h.db, sc)...)
+	resp.Shift = h.currentShift(c.Request.Context(), sc)
 	resp.Maintenance = h.currentMaintenance()
 	if h.OEE != nil {
-		o := h.OEE.compute()
+		o := h.OEE.overviewFor(sc.orgPtr())
 		resp.OEE = &o
 	}
 	c.JSON(http.StatusOK, resp)
@@ -210,92 +212,35 @@ func (h *DashboardHandler) currentMaintenance() *MaintenanceBlock {
 // currentShift riusa la stessa logica di ShiftsHandler.Current ma rende
 // solo i campi che la dashboard mostra (nome + tempo restante + operatori
 // + conteggio allarmi del turno). Nil se nessun turno è in corso.
-func (h *DashboardHandler) currentShift() *ShiftBlock {
-	shifts := NewShiftsHandler(h.db)
-	now := time.Now().UTC()
-	weekday := int(now.Weekday())
-	prevWeekday := (weekday + 6) % 7
-	nowMin := now.Hour()*60 + now.Minute()
-
-	rows, err := h.db.Query(`
-		SELECT id, name, start_time::text, end_time::text, weekdays, active
-		FROM shifts WHERE active = true`)
+func (h *DashboardHandler) currentShift(ctx context.Context, sc dashScope) *ShiftBlock {
+	list, err := shifts.Load(ctx, h.db, sc.shifts())
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
-
-	type candidate struct {
-		id        int
-		name      string
-		startMin  int
-		endMin    int
-		wraps     bool
-		startedAt time.Time
-		endsAt    time.Time
-	}
-	var found *candidate
-	for rows.Next() {
-		var s Shift
-		var weekdays pq.Int64Array
-		if err := rows.Scan(&s.ID, &s.Name, &s.StartTime, &s.EndTime, &weekdays, &s.Active); err != nil {
-			continue
-		}
-		s.StartTime = trimSeconds(s.StartTime)
-		s.EndTime = trimSeconds(s.EndTime)
-		s.Weekdays = int64sToInts(weekdays)
-		s.Wraps = wrapsMidnight(s.StartTime, s.EndTime)
-		sMin := minutesOfDay(s.StartTime)
-		eMin := minutesOfDay(s.EndTime)
-
-		startMinResolved := -1
-		if !s.Wraps && contains(s.Weekdays, weekday) && nowMin >= sMin && nowMin < eMin {
-			startMinResolved = sMin
-		} else if s.Wraps && contains(s.Weekdays, weekday) && nowMin >= sMin {
-			startMinResolved = sMin
-		} else if s.Wraps && contains(s.Weekdays, prevWeekday) && nowMin < eMin {
-			startMinResolved = sMin - 24*60
-		}
-		if startMinResolved < 0 {
-			continue
-		}
-		startedAt := time.Date(now.Year(), now.Month(), now.Day(),
-			startMinResolved/60, ((startMinResolved%60)+60)%60, 0, 0, time.UTC)
-		if startMinResolved < 0 {
-			startedAt = startedAt.Add(-24 * time.Hour)
-		}
-		endMin := eMin
-		if s.Wraps && startMinResolved >= 0 {
-			endMin += 24 * 60
-		}
-		endsAt := time.Date(startedAt.Year(), startedAt.Month(), startedAt.Day(),
-			endMin/60, endMin%60, 0, 0, time.UTC)
-		found = &candidate{id: s.ID, name: s.Name, startMin: startMinResolved, endMin: endMin, wraps: s.Wraps, startedAt: startedAt, endsAt: endsAt}
-		break
-	}
-	if found == nil {
-		_ = shifts // riservato per uso futuro
+	now := time.Now()
+	sh, startedAt, endsAt := shifts.ActiveAt(list, now)
+	if sh == nil {
 		return nil
 	}
-
 	out := &ShiftBlock{
-		ShiftID:     found.id,
-		Name:        found.name,
-		StartedAt:   found.startedAt,
-		EndsAt:      found.endsAt,
-		TimeLeftMin: int(found.endsAt.Sub(now).Minutes()),
+		ShiftID:     sh.ID,
+		Name:        sh.Name,
+		StartedAt:   startedAt,
+		EndsAt:      endsAt,
+		TimeLeftMin: int(endsAt.Sub(now).Minutes()),
 		Operators:   []string{},
 	}
 
 	// Operatori designati per oggi (string list — basta lo username per
 	// la card "turno corrente"; il dettaglio sta nella pagina Shifts).
-	opsRows, err := h.db.Query(`
+	opsRows, err := h.db.QueryContext(ctx, `
 		SELECT u.username FROM shift_assignments a
 		JOIN users u ON u.id = a.user_id
 		WHERE a.shift_id = $1
 		  AND a.valid_from <= CURRENT_DATE
 		  AND (a.valid_to IS NULL OR a.valid_to >= CURRENT_DATE)
-		ORDER BY u.username`, found.id)
+		  AND `+sc.users("u.id")+`
+		ORDER BY u.username`, sh.ID)
 	if err == nil {
 		defer opsRows.Close()
 		for opsRows.Next() {
@@ -307,10 +252,10 @@ func (h *DashboardHandler) currentShift() *ShiftBlock {
 	}
 
 	// Allarmi scattati dall'inizio di questo turno.
-	_ = h.db.QueryRow(`
+	_ = h.db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM alarm_events
-		WHERE trigger_time >= $1 AND trigger_time <= $2`,
-		found.startedAt, now,
+		WHERE trigger_time >= $1 AND trigger_time <= $2 AND `+sc.tags("tag_id"),
+		startedAt, now,
 	).Scan(&out.AlarmsThisShift)
 
 	return out
@@ -325,7 +270,7 @@ func (h *DashboardHandler) system() SystemStatus {
 	}
 }
 
-func (h *DashboardHandler) alarms() AlarmsBlock {
+func (h *DashboardHandler) alarms(sc dashScope) AlarmsBlock {
 	out := AlarmsBlock{
 		ActiveByLevel: map[string]int{"critical": 0, "high": 0, "medium": 0, "low": 0},
 		Trend7d:       []TrendBucket{},
@@ -334,7 +279,7 @@ func (h *DashboardHandler) alarms() AlarmsBlock {
 	// Active counts.
 	rows, err := h.db.Query(`
 		SELECT LOWER(severity), COUNT(*) FROM alarm_events
-		WHERE status = 'ACTIVE' GROUP BY LOWER(severity)`)
+		WHERE status = 'ACTIVE' AND ` + sc.tags("tag_id") + ` GROUP BY LOWER(severity)`)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -347,7 +292,7 @@ func (h *DashboardHandler) alarms() AlarmsBlock {
 		}
 	}
 	// Fired last 24h.
-	_ = h.db.QueryRow(`SELECT COUNT(*) FROM alarm_events WHERE trigger_time > NOW() - INTERVAL '24 hours'`).
+	_ = h.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM alarm_events WHERE trigger_time > NOW() - INTERVAL '24 hours' AND ` + sc.tags("tag_id")).
 		Scan(&out.Last24hFired)
 
 	// 7d trend — one bucket per day, oldest first. Empty days are zero
@@ -356,7 +301,7 @@ func (h *DashboardHandler) alarms() AlarmsBlock {
 	rows2, err := h.db.Query(`
 		SELECT date_trunc('day', trigger_time) AS bucket, COUNT(*)
 		FROM alarm_events
-		WHERE trigger_time > NOW() - INTERVAL '7 days'
+		WHERE trigger_time > NOW() - INTERVAL '7 days' AND ` + sc.tags("tag_id") + `
 		GROUP BY bucket ORDER BY bucket`)
 	if err == nil {
 		defer rows2.Close()
@@ -382,6 +327,7 @@ func (h *DashboardHandler) alarms() AlarmsBlock {
 		FROM alarm_events e
 		LEFT JOIN tags t ON t.id = e.tag_id
 		LEFT JOIN gateways g ON g.id = t.gateway_id
+		WHERE ` + sc.tags("e.tag_id") + `
 		ORDER BY e.trigger_time DESC LIMIT 5`)
 	if err == nil {
 		defer rows3.Close()
@@ -395,7 +341,7 @@ func (h *DashboardHandler) alarms() AlarmsBlock {
 	return out
 }
 
-func (h *DashboardHandler) gateways() GatewaysBlock {
+func (h *DashboardHandler) gateways(sc dashScope) GatewaysBlock {
 	out := GatewaysBlock{OfflineList: []GatewayBrief{}}
 	// connection_status non è in DB — viene da Redis. Per evitare la
 	// dipendenza Redis qui, contiamo i gateway totali e li mostriamo come
@@ -403,12 +349,12 @@ func (h *DashboardHandler) gateways() GatewaysBlock {
 	// il widget. Il frontend già fa quella chiamata; usiamo questo blocco
 	// per il conteggio TOTALE che è quello che pilota la status bar.
 	var total int
-	_ = h.db.QueryRow(`SELECT COUNT(*) FROM gateways WHERE enabled = true`).Scan(&total)
+	_ = h.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM gateways WHERE enabled = true AND ` + sc.gateways("id")).Scan(&total)
 	out.Unknown = total
 	return out
 }
 
-func (h *DashboardHandler) operations() OperationsBlock {
+func (h *DashboardHandler) operations(sc dashScope) OperationsBlock {
 	out := OperationsBlock{
 		NotifMinSeverity: "medium",
 	}
@@ -425,13 +371,13 @@ func (h *DashboardHandler) operations() OperationsBlock {
 	}
 
 	// Conteggio attività operatori ultime 24h — recipe_runs, audit_logs(tag.write), audit_logs(login).
-	_ = h.db.QueryRow(`SELECT COUNT(*) FROM recipe_runs WHERE triggered_at > NOW() - INTERVAL '24 hours'`).Scan(&out.RecipeLoads24h)
-	_ = h.db.QueryRow(`SELECT COUNT(*) FROM audit_logs WHERE action = 'tag.write' AND created_at > NOW() - INTERVAL '24 hours'`).Scan(&out.Writes24h)
-	_ = h.db.QueryRow(`SELECT COUNT(*) FROM audit_logs WHERE action = 'login' AND success = true AND created_at > NOW() - INTERVAL '24 hours'`).Scan(&out.Logins24h)
+	_ = h.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM recipe_runs WHERE triggered_at > NOW() - INTERVAL '24 hours' AND ` + sc.orgCol("org_id")).Scan(&out.RecipeLoads24h)
+	_ = h.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM audit_logs WHERE action = 'tag.write' AND created_at > NOW() - INTERVAL '24 hours' AND ` + sc.users("user_id")).Scan(&out.Writes24h)
+	_ = h.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM audit_logs WHERE action = 'login' AND success = true AND created_at > NOW() - INTERVAL '24 hours' AND ` + sc.users("user_id")).Scan(&out.Logins24h)
 	return out
 }
 
-func (h *DashboardHandler) activity() []ActivityEvent {
+func (h *DashboardHandler) activity(sc dashScope) []ActivityEvent {
 	// Timeline unificata: ultimi 5 di ogni tipo, fusi e riordinati per timestamp.
 	events := []ActivityEvent{}
 
@@ -439,7 +385,7 @@ func (h *DashboardHandler) activity() []ActivityEvent {
 	rows, err := h.db.Query(`
 		SELECT trigger_time, severity, COALESCE(message,''), COALESCE((
 			SELECT alias FROM tags WHERE id = tag_id), '')
-		FROM alarm_events ORDER BY trigger_time DESC LIMIT 5`)
+		FROM alarm_events WHERE ` + sc.tags("tag_id") + ` ORDER BY trigger_time DESC LIMIT 5`)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -462,7 +408,7 @@ func (h *DashboardHandler) activity() []ActivityEvent {
 	rows2, err := h.db.Query(`
 		SELECT triggered_at, COALESCE(triggered_username,''),
 		       COALESCE((SELECT name FROM recipes WHERE id = recipe_id), '?'), status
-		FROM recipe_runs ORDER BY triggered_at DESC LIMIT 5`)
+		FROM recipe_runs WHERE ` + sc.orgCol("org_id") + ` ORDER BY triggered_at DESC LIMIT 5`)
 	if err == nil {
 		defer rows2.Close()
 		for rows2.Next() {
@@ -481,7 +427,7 @@ func (h *DashboardHandler) activity() []ActivityEvent {
 	// Tag writes (audit).
 	rows3, err := h.db.Query(`
 		SELECT created_at, COALESCE(username,''), COALESCE(details::text,'')
-		FROM audit_logs WHERE action = 'tag.write' AND success = true
+		FROM audit_logs WHERE action = 'tag.write' AND success = true AND ` + sc.users("user_id") + `
 		ORDER BY created_at DESC LIMIT 5`)
 	if err == nil {
 		defer rows3.Close()
@@ -501,7 +447,7 @@ func (h *DashboardHandler) activity() []ActivityEvent {
 	// Logins.
 	rows4, err := h.db.Query(`
 		SELECT created_at, COALESCE(username,''), COALESCE(ip_address,'')
-		FROM audit_logs WHERE action = 'login' AND success = true
+		FROM audit_logs WHERE action = 'login' AND success = true AND ` + sc.users("user_id") + `
 		ORDER BY created_at DESC LIMIT 5`)
 	if err == nil {
 		defer rows4.Close()
@@ -536,42 +482,44 @@ func sortByTimestampDesc(events []ActivityEvent) {
 	}
 }
 
-func (h *DashboardHandler) kpis() []KPIWidget {
+func (h *DashboardHandler) kpis(sc dashScope) []KPIWidget {
 	out := []KPIWidget{}
 
 	// KPI #1 — Allarmi/giorno (media ultimi 7gg vs 7gg precedenti).
-	currentAvg := h.alarmAvgPerDay(7, 0)
-	prevAvg := h.alarmAvgPerDay(7, 7)
+	currentAvg := h.alarmAvgPerDay(sc, 7, 0)
+	prevAvg := h.alarmAvgPerDay(sc, 7, 7)
 	out = append(out, kpi("alarms_per_day", "Allarmi al giorno", currentAvg, "/g", prevAvg, "down"))
 
 	// KPI #2 — Allarmi critical aperti (snapshot, no delta).
 	var crit int
-	_ = h.db.QueryRow(`SELECT COUNT(*) FROM alarm_events WHERE status='ACTIVE' AND LOWER(severity)='critical'`).Scan(&crit)
+	_ = h.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM alarm_events WHERE status='ACTIVE' AND LOWER(severity)='critical' AND ` + sc.tags("tag_id")).Scan(&crit)
 	out = append(out, KPIWidget{
 		Key: "open_critical", Label: "Critical attivi", Value: float64(crit),
 		Unit: "", Trend: "flat", DeltaPct: 0, GoodWhen: "down",
 	})
 
 	// KPI #3 — Write PLC nelle 24h vs 24h precedenti.
-	cur24w := h.countSince(`audit_logs`, "action='tag.write' AND success=true", "24 hours", 0)
-	prev24w := h.countSince(`audit_logs`, "action='tag.write' AND success=true", "24 hours", 24)
+	writes := "action='tag.write' AND success=true AND " + sc.users("user_id")
+	cur24w := h.countSince(`audit_logs`, writes, "24 hours", 0)
+	prev24w := h.countSince(`audit_logs`, writes, "24 hours", 24)
 	out = append(out, kpi("writes_24h", "Write PLC (24h)", float64(cur24w), "", float64(prev24w), "up"))
 
 	// KPI #4 — Caricamenti ricette nelle 24h.
-	cur24r := h.countSince(`recipe_runs`, "1=1", "24 hours", 0)
-	prev24r := h.countSince(`recipe_runs`, "1=1", "24 hours", 24)
+	cur24r := h.countSince(`recipe_runs`, sc.orgCol("org_id"), "24 hours", 0)
+	prev24r := h.countSince(`recipe_runs`, sc.orgCol("org_id"), "24 hours", 24)
 	out = append(out, kpi("recipe_loads_24h", "Ricette caricate (24h)", float64(cur24r), "", float64(prev24r), "up"))
 
 	// KPI #5 — Login operatori nelle 24h.
-	cur24l := h.countSince(`audit_logs`, "action='login' AND success=true", "24 hours", 0)
-	prev24l := h.countSince(`audit_logs`, "action='login' AND success=true", "24 hours", 24)
+	logins := "action='login' AND success=true AND " + sc.users("user_id")
+	cur24l := h.countSince(`audit_logs`, logins, "24 hours", 0)
+	prev24l := h.countSince(`audit_logs`, logins, "24 hours", 24)
 	out = append(out, kpi("logins_24h", "Login (24h)", float64(cur24l), "", float64(prev24l), "flat"))
 
 	// KPI #6 — Tag con quality BAD nell'ultima ora.
 	var bad int
 	_ = h.db.QueryRow(`
 		SELECT COUNT(DISTINCT tag_id) FROM tag_history
-		WHERE time > NOW() - INTERVAL '1 hour' AND quality > 0`).Scan(&bad)
+		WHERE time > NOW() - INTERVAL '1 hour' AND quality > 0 AND ` + sc.tags("tag_id")).Scan(&bad)
 	out = append(out, KPIWidget{
 		Key: "bad_quality_1h", Label: "Tag in errore (1h)", Value: float64(bad),
 		Unit: "", Trend: "flat", GoodWhen: "down",
@@ -583,13 +531,13 @@ func (h *DashboardHandler) kpis() []KPIWidget {
 // alarmAvgPerDay calcola la media giornaliera nelle ultime `windowDays`
 // giorni, traslata indietro di `offsetDays` (per il confronto periodo
 // precedente). Restituisce 0 se non ci sono dati — l'UI mostra "—".
-func (h *DashboardHandler) alarmAvgPerDay(windowDays, offsetDays int) float64 {
+func (h *DashboardHandler) alarmAvgPerDay(sc dashScope, windowDays, offsetDays int) float64 {
 	var n int
 	q := `SELECT COUNT(*) FROM alarm_events
 	      WHERE trigger_time > NOW() - INTERVAL '` +
 		itoaDash(windowDays+offsetDays) + ` days'
 	      AND trigger_time <= NOW() - INTERVAL '` +
-		itoaDash(offsetDays) + ` days'`
+		itoaDash(offsetDays) + ` days' AND ` + sc.tags("tag_id")
 	_ = h.db.QueryRow(q).Scan(&n)
 	if windowDays == 0 {
 		return 0

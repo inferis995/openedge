@@ -267,7 +267,9 @@
         "to_optional": "Al (facoltativo)",
         "assign": "Assegna",
         "operator": "Operatore",
-        "no_operators": "Nessun operatore assegnato."
+        "no_operators": "Nessun operatore assegnato.",
+        "platform": "Predefinito",
+        "platform_hint": "Turno predefinito della piattaforma: vale finché la tua organizzazione non crea i propri turni."
     },
     "maintenancePage": {
         "saved": "Finestra salvata",

@@ -17,6 +17,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lib/pq"
+
+	"github.com/ralph/industrial-edge-middleware/internal/middleware"
+	"github.com/ralph/industrial-edge-middleware/internal/shifts"
 )
 
 // ShiftsHandler espone la CRUD turni + assegnazione operatori +
@@ -42,6 +45,53 @@ type Shift struct {
 	// Wraps è true quando StartTime > EndTime (turno notte che attraversa
 	// la mezzanotte). Calcolato lato server e ritornato pronto per l'UI.
 	Wraps bool `json:"wraps"`
+	// Platform: a default shift of the installation (no organization). It
+	// applies to an organization until that defines its own, and only the
+	// global administrator edits it.
+	Platform bool `json:"platform"`
+}
+
+// shiftScope is whose shifts the caller sees.
+func shiftScope(c *gin.Context) shifts.Scope {
+	if orgID, ok := middleware.GetOrganizationID(c); ok {
+		return shifts.Scope{OrgID: orgID}
+	}
+	if middleware.IsGlobalAdmin(c) {
+		return shifts.Scope{All: true}
+	}
+	return shifts.Scope{OrgID: -1}
+}
+
+// canEditShift says whether the caller may change shift id: their
+// organization's own, or any for the global administrator. It writes the
+// response when not.
+func (h *ShiftsHandler) canEditShift(c *gin.Context, id int) bool {
+	var org sql.NullInt64
+	err := h.db.QueryRowContext(c.Request.Context(), `SELECT org_id FROM shifts WHERE id = $1`, id).Scan(&org)
+	if err == sql.ErrNoRows {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Shift not found"})
+		return false
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read the shift"})
+		return false
+	}
+	if middleware.IsGlobalAdmin(c) {
+		return true
+	}
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok || !org.Valid || int(org.Int64) != orgID {
+		// A platform default or another organization's: not this caller's
+		// to change. 404 for another's, so ids of other tenants' shifts are
+		// not confirmed.
+		if org.Valid {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Shift not found"})
+		} else {
+			c.JSON(http.StatusForbidden, gin.H{"error": "default shifts are changed by the platform administrator; create your own shifts instead"})
+		}
+		return false
+	}
+	return true
 }
 
 // ShiftAssignment associa un operatore (user) a un turno per un periodo.
@@ -79,9 +129,15 @@ type CreateShiftRequest struct {
 
 // List restituisce tutti i turni configurati, attivi e non.
 func (h *ShiftsHandler) List(c *gin.Context) {
-	rows, err := h.db.Query(`
-		SELECT id, name, start_time::text, end_time::text, weekdays, active
-		FROM shifts ORDER BY start_time, name`)
+	scope := shiftScope(c)
+	q := `SELECT id, name, start_time::text, end_time::text, weekdays, active, org_id IS NULL
+		FROM shifts`
+	var args []interface{}
+	if !scope.All {
+		q += ` WHERE org_id = $1 OR org_id IS NULL`
+		args = append(args, scope.OrgID)
+	}
+	rows, err := h.db.QueryContext(c.Request.Context(), q+` ORDER BY start_time, name`, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list shifts"})
 		return
@@ -91,7 +147,7 @@ func (h *ShiftsHandler) List(c *gin.Context) {
 	for rows.Next() {
 		var s Shift
 		var weekdays pq.Int64Array
-		if err := rows.Scan(&s.ID, &s.Name, &s.StartTime, &s.EndTime, &weekdays, &s.Active); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.StartTime, &s.EndTime, &weekdays, &s.Active, &s.Platform); err != nil {
 			continue
 		}
 		s.StartTime = trimSeconds(s.StartTime)
@@ -128,11 +184,20 @@ func (h *ShiftsHandler) Create(c *gin.Context) {
 	if req.Active != nil {
 		active = *req.Active
 	}
+	// The caller's organization's; a global admin with none selected
+	// creates a platform default.
+	var org interface{}
+	if orgID, ok := middleware.GetOrganizationID(c); ok {
+		org = orgID
+	} else if !middleware.IsGlobalAdmin(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Organization context required"})
+		return
+	}
 	var id int
 	err := h.db.QueryRow(`
-		INSERT INTO shifts (name, start_time, end_time, weekdays, active)
-		VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		strings.TrimSpace(req.Name), req.StartTime, req.EndTime, pq.Array(weekdays), active,
+		INSERT INTO shifts (name, start_time, end_time, weekdays, active, org_id)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+		strings.TrimSpace(req.Name), req.StartTime, req.EndTime, pq.Array(weekdays), active, org,
 	).Scan(&id)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to create (duplicate name?)"})
@@ -155,6 +220,9 @@ func (h *ShiftsHandler) Update(c *gin.Context) {
 	}
 	if !validHHMM(req.StartTime) || !validHHMM(req.EndTime) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "start_time and end_time must be in HH:MM format"})
+		return
+	}
+	if !h.canEditShift(c, id) {
 		return
 	}
 	weekdays := req.Weekdays
@@ -190,6 +258,9 @@ func (h *ShiftsHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid id"})
 		return
 	}
+	if !h.canEditShift(c, id) {
+		return
+	}
 	res, err := h.db.Exec(`DELETE FROM shifts WHERE id = $1`, id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete"})
@@ -210,13 +281,18 @@ func (h *ShiftsHandler) ListAssignments(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid id"})
 		return
 	}
-	rows, err := h.db.Query(`
+	// Who works a shift is the organization's business: another tenant's
+	// people are not listed, even on a shared platform default.
+	scope := shiftScope(c)
+	rows, err := h.db.QueryContext(c.Request.Context(), `
 		SELECT a.id, a.shift_id, a.user_id, u.username, COALESCE(u.full_name, ''),
 		       a.valid_from, a.valid_to
 		FROM shift_assignments a
 		JOIN users u ON u.id = a.user_id
+		JOIN shifts s ON s.id = a.shift_id
 		WHERE a.shift_id = $1
-		ORDER BY a.valid_from DESC, u.username`, id)
+		  AND ($2 OR ((s.org_id = $3 OR s.org_id IS NULL) AND u.org_id = $3))
+		ORDER BY a.valid_from DESC, u.username`, id, scope.All, scope.OrgID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list assignments"})
 		return
@@ -252,7 +328,7 @@ func (h *ShiftsHandler) CreateAssignment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	from := time.Now().UTC()
+	from := time.Now()
 	if req.ValidFrom != "" {
 		t, err := time.Parse("2006-01-02", req.ValidFrom)
 		if err != nil {
@@ -269,6 +345,19 @@ func (h *ShiftsHandler) CreateAssignment(c *gin.Context) {
 			return
 		}
 		to = &t
+	}
+	// The shift must be one the caller sees, and the person one of theirs:
+	// assigning another tenant's user, or to another tenant's shift, was
+	// accepted.
+	scope := shiftScope(c)
+	var allowed bool
+	if chkErr := h.db.QueryRowContext(c.Request.Context(), `
+		SELECT EXISTS (SELECT 1 FROM shifts s, users u
+		               WHERE s.id = $1 AND u.id = $2
+		                 AND ($3 OR ((s.org_id = $4 OR s.org_id IS NULL) AND u.org_id = $4)))`,
+		id, req.UserID, scope.All, scope.OrgID).Scan(&allowed); chkErr != nil || !allowed {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Shift or user not found"})
+		return
 	}
 	var aid int
 	err = h.db.QueryRow(`
@@ -290,7 +379,11 @@ func (h *ShiftsHandler) DeleteAssignment(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid assignment id"})
 		return
 	}
-	res, err := h.db.Exec(`DELETE FROM shift_assignments WHERE id = $1`, aid)
+	scope := shiftScope(c)
+	res, err := h.db.ExecContext(c.Request.Context(), `
+		DELETE FROM shift_assignments a USING shifts s, users u
+		WHERE a.id = $1 AND s.id = a.shift_id AND u.id = a.user_id
+		  AND ($2 OR ((s.org_id = $3 OR s.org_id IS NULL) AND u.org_id = $3))`, aid, scope.All, scope.OrgID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete assignment"})
 		return
@@ -307,86 +400,30 @@ func (h *ShiftsHandler) DeleteAssignment(c *gin.Context) {
 // l'ora attuale (gestendo il wraparound mezzanotte). Se trova match,
 // ritorna anche gli operatori designati per oggi.
 func (h *ShiftsHandler) Current(c *gin.Context) {
-	now := time.Now().UTC()
-	weekday := int(now.Weekday())    // 0=Sun..6=Sat
-	prevWeekday := (weekday + 6) % 7 // weekday di "ieri"
-	nowMin := now.Hour()*60 + now.Minute()
-
-	rows, err := h.db.Query(`
-		SELECT id, name, start_time::text, end_time::text, weekdays, active
-		FROM shifts WHERE active = true`)
+	scope := shiftScope(c)
+	list, err := shifts.Load(c.Request.Context(), h.db, scope)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load shifts"})
 		return
 	}
-	defer rows.Close()
-
-	var match *Shift
-	var startMin int
-	for rows.Next() {
-		var s Shift
-		var weekdays pq.Int64Array
-		if err := rows.Scan(&s.ID, &s.Name, &s.StartTime, &s.EndTime, &weekdays, &s.Active); err != nil {
-			continue
-		}
-		s.StartTime = trimSeconds(s.StartTime)
-		s.EndTime = trimSeconds(s.EndTime)
-		s.Weekdays = int64sToInts(weekdays)
-		s.Wraps = wrapsMidnight(s.StartTime, s.EndTime)
-		sMin := minutesOfDay(s.StartTime)
-		eMin := minutesOfDay(s.EndTime)
-
-		// Caso 1: turno NON wrap (08:00-16:00). Match se oggi è nei
-		// weekday del turno E ora attuale è tra start e end.
-		if !s.Wraps {
-			if contains(s.Weekdays, weekday) && nowMin >= sMin && nowMin < eMin {
-				m := s
-				match = &m
-				startMin = sMin
-				break
-			}
-			continue
-		}
-		// Caso 2: turno wrap (22:00-06:00).
-		//   a) Inizio in "oggi" (es. è venerdì 23:00, turno notte di venerdì).
-		if contains(s.Weekdays, weekday) && nowMin >= sMin {
-			m := s
-			match = &m
-			startMin = sMin
-			break
-		}
-		//   b) Inizio in "ieri" (es. è sabato 04:00, turno notte di venerdì).
-		if contains(s.Weekdays, prevWeekday) && nowMin < eMin {
-			m := s
-			match = &m
-			startMin = sMin - 24*60 // start ieri
-			break
-		}
-	}
-
+	now := time.Now()
 	resp := CurrentShift{Operators: []ShiftAssignment{}}
-	if match == nil {
+	sh, startedAt, endsAt := shifts.ActiveAt(list, now)
+	if sh == nil {
 		c.JSON(http.StatusOK, resp)
 		return
 	}
-	resp.Shift = match
-
-	// Calcola started_at + ends_at proiettando sull'oggi (o ieri per il
-	// wrap-b). Approssimazione UTC; sufficiente per la dashboard.
-	startedAt := time.Date(now.Year(), now.Month(), now.Day(),
-		startMin/60, startMin%60, 0, 0, time.UTC)
-	endMin := minutesOfDay(match.EndTime)
-	if match.Wraps && startMin >= 0 {
-		endMin += 24 * 60 // ends in the next calendar day
+	resp.Shift = &Shift{
+		ID: sh.ID, Name: sh.Name,
+		StartTime: fmt.Sprintf("%02d:%02d", sh.StartMin/60, sh.StartMin%60),
+		EndTime:   fmt.Sprintf("%02d:%02d", sh.EndMin/60, sh.EndMin%60),
+		Weekdays:  sh.Weekdays, Active: true, Wraps: sh.Wraps,
 	}
-	endsAt := time.Date(startedAt.Year(), startedAt.Month(), startedAt.Day(),
-		endMin/60, endMin%60, 0, 0, time.UTC)
 	resp.StartedAt = &startedAt
 	resp.EndsAt = &endsAt
 	resp.TimeLeftMin = int(endsAt.Sub(now).Minutes())
 
-	// Operatori designati per oggi.
-	aRows, err := h.db.Query(`
+	aRows, err := h.db.QueryContext(c.Request.Context(), `
 		SELECT a.id, a.shift_id, a.user_id, u.username, COALESCE(u.full_name, ''),
 		       a.valid_from, a.valid_to
 		FROM shift_assignments a
@@ -394,12 +431,13 @@ func (h *ShiftsHandler) Current(c *gin.Context) {
 		WHERE a.shift_id = $1
 		  AND a.valid_from <= CURRENT_DATE
 		  AND (a.valid_to IS NULL OR a.valid_to >= CURRENT_DATE)
-		ORDER BY u.username`, match.ID)
+		  AND ($2 OR u.org_id = $3)
+		ORDER BY u.username`, sh.ID, scope.All, scope.OrgID)
 	if err == nil {
 		defer aRows.Close()
 		for aRows.Next() {
 			var a ShiftAssignment
-			if err := aRows.Scan(&a.ID, &a.ShiftID, &a.UserID, &a.Username, &a.FullName, &a.ValidFrom, &a.ValidTo); err == nil {
+			if scanErr := aRows.Scan(&a.ID, &a.ShiftID, &a.UserID, &a.Username, &a.FullName, &a.ValidFrom, &a.ValidTo); scanErr == nil {
 				resp.Operators = append(resp.Operators, a)
 			}
 		}

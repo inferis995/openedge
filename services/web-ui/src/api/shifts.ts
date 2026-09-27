@@ -10,6 +10,8 @@ export interface Shift {
     weekdays: number[];          // 0=Domenica … 6=Sabato
     active: boolean;
     wraps: boolean;              // start > end (turno notte attraverso mezzanotte)
+    /** A platform default: applies until the organization defines its own shifts. */
+    platform?: boolean;
 }
 
 export interface ShiftAssignment {

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+> **Read before upgrading a multi-organization server.**
+> The broker now denies receiving by default; a client receives only what a
+> role grants it. That is what every organization's role was written for, but
+> the plugin's stock default allowed everything, so until now any broker
+> login — an edge box's, and the read-only one every browser gets —
+> received every organization's data. The broker applies the new default at
+> its next start. Shift times are now read on the plant's clock (`TZ`,
+> default Europe/Rome) instead of UTC: shifts start and end at the times
+> written, and OEE planned time and per-shift reports move with them.
+
 ### Added
 
 - **Tags from Excel or CSV.** Tags → Import takes an .xlsx or .csv signal
@@ -61,6 +71,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The tag export refused a global administrator who had not picked an
   organization (400, "X-Organization-ID header required").
 - Password hints said six characters; the server requires twelve.
+- **Security:** the MQTT broker let any login receive any organization's
+  messages: the dynamic-security plugin allows receiving by default and every
+  per-organization grant assumed the opposite. Found by the new test for
+  external logins; it affected the browsers' own login too.
+- **Security:** the dashboard showed every organization's alarms, tag names,
+  logins, PLC writes, recipe loads, OEE lines and custom KPIs to any signed-in
+  user; the OEE overview, hierarchy and profile export listed every
+  organization's lines. They show the caller's organization.
+- **Security:** shifts belonged to nobody — one company's admin could change
+  or delete the shifts every other company's OEE was planned on, and see who
+  worked them. Shifts belong to an organization now; the existing ones go to
+  the organization when there is only one, otherwise they stay as platform
+  defaults, which apply to an organization until it creates its own. Only
+  people of the same organization can be assigned.
+- Shift times were read in UTC: a 06:00 shift started at 08:00 in summer in
+  Italy, and OEE counted the wrong hours as planned. Deleting the default
+  "Pomeriggio" or "Notte" shift brought it back at the next restart.
 - **Security:** an organization's administrator could read and change the
   platform settings — broker, cloud sync, retention, notification channels —
   which belong to the whole installation: pointing the cloud sync at a broker

@@ -27,6 +27,22 @@ else
     grep -q "\"$PLATFORM_ROLE\"" "$DYNSEC_FILE" || NEEDS_PLATFORM_ROLE=1
 fi
 
+# Receiving is denied unless a role allows it.
+#
+# The dynamic-security plugin's stock default ALLOWS publishClientReceive.
+# Every per-organization role (internal/mqtt/dynsec.go) confines a client by
+# granting receive on its own topics and relying on everything else being
+# denied — so with the stock default the grants narrowed nothing: any
+# organization's edge login, and the read-only login every browser gets,
+# received every other organization's data as soon as it subscribed to data/#.
+# The platform role grants receive on '#' explicitly, so the services are
+# unaffected. Checked on every start, so an installation that booted with the
+# stock default is corrected on its next restart.
+NEEDS_RECEIVE_DENY=0
+if grep -A6 '"defaultACLAccess"' "$DYNSEC_FILE" | grep -Eq '"publishClientReceive"[[:space:]]*:[[:space:]]*true'; then
+    NEEDS_RECEIVE_DENY=1
+fi
+
 # Ownership, every start — not just on create.
 #
 # This script runs as root, so the file dynsec init writes is root-owned; the
@@ -81,7 +97,7 @@ fi
 #
 # It is done here, before the real listener accepts anything, so no service can
 # race ahead of the grant and sit on a subscription that was silently denied.
-if [ "$NEEDS_PLATFORM_ROLE" = "1" ]; then
+if [ "$NEEDS_PLATFORM_ROLE" = "1" ] || [ "$NEEDS_RECEIVE_DENY" = "1" ]; then
     BOOT_CONF=$(mktemp)
     BOOT_PORT=11883
     cat > "$BOOT_CONF" <<EOF
@@ -127,25 +143,31 @@ EOF
         fi
     }
 
-    # Tolerated on its own line: a re-run after a partial bootstrap finds the
-    # role already there, and that is not a failure.
-    mosquitto_ctrl -h 127.0.0.1 -p "$BOOT_PORT" -u "$ADMIN_USER" -P "$ADMIN_PASS" \
-        dynsec createRole "$PLATFORM_ROLE" >/dev/null 2>&1 || true
+    if [ "$NEEDS_PLATFORM_ROLE" = "1" ]; then
+        # Tolerated on its own line: a re-run after a partial bootstrap finds the
+        # role already there, and that is not a failure.
+        mosquitto_ctrl -h 127.0.0.1 -p "$BOOT_PORT" -u "$ADMIN_USER" -P "$ADMIN_PASS" \
+            dynsec createRole "$PLATFORM_ROLE" >/dev/null 2>&1 || true
 
-    # addRoleACL is <rolename> <acltype> <topicFilter> allow|deny [priority].
-    # allow/deny is REQUIRED and comes BEFORE the priority; anything else in that
-    # slot is rejected with a bare "Error: Invalid input." (the usage line
-    # `dynsec init` prints omits it, which is what sent this the wrong way twice).
-    #
-    # '#' does not match topics beginning with $SYS, so the broker's own status
-    # tree needs its own grant — the healthcheck reads it to prove that
-    # authentication AND authorization work, which is the check that would have
-    # caught this whole class of failure.
-    for acl in publishClientSend publishClientReceive subscribePattern unsubscribePattern; do
-        ctrl dynsec addRoleACL "$PLATFORM_ROLE" "$acl" '#' allow 1
-    done
-    ctrl dynsec addRoleACL "$PLATFORM_ROLE" subscribePattern '$SYS/#' allow 1
-    ctrl dynsec addClientRole "$ADMIN_USER" "$PLATFORM_ROLE" 1
+        # addRoleACL is <rolename> <acltype> <topicFilter> allow|deny [priority].
+        # allow/deny is REQUIRED and comes BEFORE the priority; anything else in that
+        # slot is rejected with a bare "Error: Invalid input." (the usage line
+        # `dynsec init` prints omits it, which is what sent this the wrong way twice).
+        #
+        # '#' does not match topics beginning with $SYS, so the broker's own status
+        # tree needs its own grant — the healthcheck reads it to prove that
+        # authentication AND authorization work, which is the check that would have
+        # caught this whole class of failure.
+        for acl in publishClientSend publishClientReceive subscribePattern unsubscribePattern; do
+            ctrl dynsec addRoleACL "$PLATFORM_ROLE" "$acl" '#' allow 1
+        done
+        ctrl dynsec addRoleACL "$PLATFORM_ROLE" subscribePattern '$SYS/#' allow 1
+        ctrl dynsec addClientRole "$ADMIN_USER" "$PLATFORM_ROLE" 1
+    fi
+    if [ "$NEEDS_RECEIVE_DENY" = "1" ]; then
+        ctrl dynsec setDefaultACLAccess publishClientReceive deny
+        echo "[MQTT-INIT] Receiving is now denied unless a role allows it"
+    fi
 
     kill "$BOOT_PID" 2>/dev/null || true
     wait "$BOOT_PID" 2>/dev/null || true

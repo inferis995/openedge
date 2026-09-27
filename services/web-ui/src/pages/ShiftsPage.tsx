@@ -24,6 +24,7 @@ import i18n from '@/i18n';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Clock as ClockIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 // Mostra "Lun-Ven" se i weekdays sono 1..5, "Sab-Dom" se 0+6, altrimenti
 // la lista esplicita. Più leggibile dei badge singoli quando i pattern
@@ -40,6 +41,7 @@ const formatWeekdays = (weekdays: number[]): string => {
 
 const ShiftsPage = () => {
     const { t } = useTranslation();
+    const { isGlobalAdmin } = useAuthStore();
     const qc = useQueryClient();
 
     const { data: shifts = [], isLoading } = useQuery({
@@ -153,7 +155,14 @@ const ShiftsPage = () => {
                         ) : shifts.map((s) => (
                             <TableRow key={s.id}>
                                 <TableCell className="font-medium">{s.id}</TableCell>
-                                <TableCell className="font-semibold">{s.name}</TableCell>
+                                <TableCell className="font-semibold">
+                                    {s.name}
+                                    {s.platform && (
+                                        <Badge variant="secondary" className="ml-2 text-[10px]" title={t('shiftsPage.platform_hint')}>
+                                            {t('shiftsPage.platform')}
+                                        </Badge>
+                                    )}
+                                </TableCell>
                                 <TableCell className="font-mono text-xs">
                                     {s.start_time} → {s.end_time}
                                     {s.wraps && <Badge className="ml-2 bg-purple-500/10 text-purple-500 border-none text-xs">{t('shiftsPage.night')}</Badge>}
@@ -171,16 +180,23 @@ const ShiftsPage = () => {
                                             onClick={() => setAssignShift(s)}>
                                             <Users size={16} />
                                         </Button>
-                                        <Button variant="ghost" size="icon" title={t('common.edit')}
-                                            className="h-10 sm:h-8 w-10 sm:w-8 text-blue-500 hover:bg-blue-500/10"
-                                            onClick={() => openEdit(s)}>
-                                            <Pencil size={16} />
-                                        </Button>
-                                        <Button variant="ghost" size="icon" title={t('common.delete')}
-                                            className="h-10 sm:h-8 w-10 sm:w-8 text-red-500 hover:bg-red-500/10"
-                                            onClick={() => handleDelete(s)}>
-                                            <Trash2 size={16} />
-                                        </Button>
+                                        {/* A platform default is changed by the platform
+                                            administrator; an organization overrides it by
+                                            creating its own shifts. */}
+                                        {(!s.platform || isGlobalAdmin()) && (
+                                            <>
+                                                <Button variant="ghost" size="icon" title={t('common.edit')}
+                                                    className="h-10 sm:h-8 w-10 sm:w-8 text-blue-500 hover:bg-blue-500/10"
+                                                    onClick={() => openEdit(s)}>
+                                                    <Pencil size={16} />
+                                                </Button>
+                                                <Button variant="ghost" size="icon" title={t('common.delete')}
+                                                    className="h-10 sm:h-8 w-10 sm:w-8 text-red-500 hover:bg-red-500/10"
+                                                    onClick={() => handleDelete(s)}>
+                                                    <Trash2 size={16} />
+                                                </Button>
+                                            </>
+                                        )}
                                     </div>
                                 </TableCell>
                             </TableRow>
