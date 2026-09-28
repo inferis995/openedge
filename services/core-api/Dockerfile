@@ -1,5 +1,5 @@
 # Build stage
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
 
 ARG TARGETOS TARGETARCH
 WORKDIR /app
@@ -28,7 +28,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 # confirmed `apk add postgresql16-client` resolves there — or bumped the client
 # to match whatever major 3.24 ships, which is safe in the other direction
 # (a newer pg_dump reads an older server).
-FROM alpine:3.22
+FROM alpine:3.24
 
 # The release this image was built from, set by build.yml. The edge installer
 # pins every box it generates to it; a local build has none and says "latest".
