@@ -19,7 +19,7 @@ toolchain go1.26.8
 require (
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/eclipse/paho.mqtt.golang v1.5.1
-	github.com/gin-contrib/cors v1.7.8
+	github.com/gin-contrib/cors v1.7.9
 	github.com/gin-gonic/gin v1.12.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gopcua/opcua v0.9.1
