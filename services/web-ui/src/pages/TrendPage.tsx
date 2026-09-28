@@ -82,7 +82,6 @@ export default function TrendPage() {
     const [liveMode, setLiveMode] = useState(false);
     const [aggregation, setAggregation] = useState<AggregationType>('mean');
     const [pens, setPens] = useState<Pen[]>([]);
-    const [tagMap, setTagMap] = useState<Map<number, TagWithHierarchy>>(new Map());
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [penPanelOpen, setPenPanelOpen] = useState(true);
     const [zoomStack, setZoomStack] = useState<HistorianRange[]>([]);
@@ -95,11 +94,11 @@ export default function TrendPage() {
         staleTime: 60_000,
     });
 
-    useEffect(() => {
-        if (!allTags) return;
+    // Derived, not copied into state by an effect.
+    const tagMap = useMemo(() => {
         const m = new Map<number, TagWithHierarchy>();
-        for (const t of allTags) m.set(t.id, t);
-        setTagMap(m);
+        for (const t of allTags ?? []) m.set(t.id, t);
+        return m;
     }, [allTags]);
 
     // Live mode: shift the time window every 10 s

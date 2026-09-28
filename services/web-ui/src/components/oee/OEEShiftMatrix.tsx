@@ -46,12 +46,17 @@ export const OEEShiftMatrix = ({ profileId }: Props) => {
     const [range, setRange] = useState<Range>('7d');
     const cfg = RANGE_CFG[range];
 
-    const to = new Date().toISOString();
-    const from = new Date(Date.now() - cfg.days * 86400_000).toISOString();
-
     const { data, isLoading, isError } = useQuery({
         queryKey: ['oee-by-shift', profileId, range],
-        queryFn: () => oeeApi.byShift({ profile_id: profileId, from, to }),
+        // Window computed at fetch time: reading the clock during render is impure.
+        queryFn: () => {
+            const now = Date.now();
+            return oeeApi.byShift({
+                profile_id: profileId,
+                from: new Date(now - cfg.days * 86400_000).toISOString(),
+                to: new Date(now).toISOString(),
+            });
+        },
     });
 
     // Trasformazione: { shift_id → { shift_name, byDate: {date → row} } }.

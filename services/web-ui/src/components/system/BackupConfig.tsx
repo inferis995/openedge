@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronUp, Clock, HardDrive, Loader2, PlayCircle, ShieldCheck, Upload } from 'lucide-react';
 
 import { systemApi, GlobalSettings } from '@/api/system';
@@ -81,26 +81,30 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
     const [audit, setAudit]               = useState<AuditEntry[]>([]);
     const [auditLoading, setAuditLoading] = useState(false);
 
-    useEffect(() => {
-        if (!initial) return;
-        setEnabled((initial.backup_enabled ?? 'true') !== 'false');
+    // Seed the form when initial settings arrive (or change after a save).
+    // Adjusted during render rather than in an effect, so the stale form is never painted.
+    const [seededFrom, setSeededFrom] = useState<{ v: Props['initial'] } | null>(null);
+    if (seededFrom === null || seededFrom.v !== initial) {
+        setSeededFrom({ v: initial });
+        if (initial) {
+            setEnabled((initial.backup_enabled ?? 'true') !== 'false');
 
-        const sched = initial.backup_schedule ?? '0 3 * * *';
-        const known = SCHEDULES.find(s => s.value === sched);
-        setPreset(known ? sched : 'custom');
-        if (!known) setCustomCron(sched);
+            const sched = initial.backup_schedule ?? '0 3 * * *';
+            const known = SCHEDULES.find(s => s.value === sched);
+            setPreset(known ? sched : 'custom');
+            if (!known) setCustomCron(sched);
 
-        setRetention(initial.backup_retention_days ?? '30');
-        setAgeRecipient(initial.backup_age_recipient ?? '');
+            setRetention(initial.backup_retention_days ?? '30');
+            setAgeRecipient(initial.backup_age_recipient ?? '');
 
-
-        setS3Enabled(initial.backup_s3_enabled === 'true');
-        setS3Bucket(initial.backup_s3_bucket ?? '');
-        setS3Endpoint(initial.backup_s3_endpoint ?? '');
-        setS3Region(initial.backup_s3_region ?? 'us-east-1');
-        setS3AccessKey(initial.backup_s3_access_key ?? '');
-        setS3SecretKey(initial.backup_s3_secret_key ?? '');
-    }, [initial]);
+            setS3Enabled(initial.backup_s3_enabled === 'true');
+            setS3Bucket(initial.backup_s3_bucket ?? '');
+            setS3Endpoint(initial.backup_s3_endpoint ?? '');
+            setS3Region(initial.backup_s3_region ?? 'us-east-1');
+            setS3AccessKey(initial.backup_s3_access_key ?? '');
+            setS3SecretKey(initial.backup_s3_secret_key ?? '');
+        }
+    }
 
     const loadAudit = async () => {
         setAuditLoading(true);

@@ -13,6 +13,7 @@ import { PackageOpen, Plus, Download, RefreshCw, CheckCircle2, Clock, AlertCircl
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
+import { startLoad } from '@/lib/startLoad';
 
 function statusBadge(status: string) {
     switch (status) {
@@ -48,8 +49,8 @@ const ReleasesPage = () => {
     });
     const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-    const loadData = async () => {
-        setLoading(true);
+    // Fetch without flipping the loading flag first: on mount it is already true.
+    const fetchData = async () => {
         try {
             const [r, f] = await Promise.all([
                 updatesApi.listReleases(),
@@ -65,7 +66,12 @@ const ReleasesPage = () => {
         }
     };
 
-    useEffect(() => { loadData(); }, []);
+    const loadData = () => {
+        setLoading(true);
+        return fetchData();
+    };
+
+    useEffect(() => { startLoad(fetchData); }, []);
 
     const validate = () => {
         const errs: Record<string, string> = {};

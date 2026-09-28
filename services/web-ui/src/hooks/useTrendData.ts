@@ -1,4 +1,4 @@
-import { useMemo, useRef, useCallback } from 'react';
+import { useMemo, useCallback } from 'react';
 import { useQueries, useQueryClient } from '@tanstack/react-query';
 import { historyApi } from '@/api/history';
 import { tagsApi } from '@/api/tags';
@@ -135,7 +135,6 @@ export const useTrendData = (options: UseTrendDataOptions): UseTrendDataResult =
     } = options;
 
     const queryClient = useQueryClient();
-    const refreshTriggerRef = useRef(0);
 
     // Calculate actual date range
     const { start, end } = useMemo(() => {
@@ -167,7 +166,7 @@ export const useTrendData = (options: UseTrendDataOptions): UseTrendDataResult =
     // Query historical data for each tag
     const historyQueries = useQueries({
         queries: tagIds.map(tagId => ({
-            queryKey: ['history', tagId, start.toISOString(), end.toISOString(), aggregation, interval, refreshTriggerRef.current],
+            queryKey: ['history', tagId, start.toISOString(), end.toISOString(), aggregation, interval],
             queryFn: async () => {
                 const response = await historyApi.query({
                     tag_id: tagId,
@@ -242,8 +241,9 @@ export const useTrendData = (options: UseTrendDataOptions): UseTrendDataResult =
     const error = historyQueries.find(q => q.error)?.error || tagsQuery[0].error || null;
 
     // Refresh function
+    // Invalidation refetches. A counter in the query key, bumped through a ref,
+    // only changed the key on some later render and fetched a second time.
     const refresh = useCallback(() => {
-        refreshTriggerRef.current++;
         tagIds.forEach(tagId => {
             queryClient.invalidateQueries({
                 queryKey: ['history', tagId],

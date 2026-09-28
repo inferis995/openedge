@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -219,9 +219,12 @@ const AlertRuleEditor = ({
     const [enabled, setEnabled] = useState(true);
     const [saving, setSaving]   = useState(false);
 
-    useEffect(() => {
-        if (!open) return;
-        if (initial) {
+    // Re-seed the form whenever the dialog opens or the edited rule changes.
+    // Adjusted during render (not in an effect) so the form never paints stale values.
+    const [seededFor, setSeededFor] = useState<{ open: boolean; initial: OEEAlertRule | null } | null>(null);
+    if (seededFor === null || seededFor.open !== open || seededFor.initial !== initial) {
+        setSeededFor({ open, initial });
+        if (open && initial) {
             setName(initial.name);
             setProfileId(initial.profile_id ?? null);
             setMetric(initial.metric);
@@ -230,11 +233,11 @@ const AlertRuleEditor = ({
             setSustained(initial.sustained_minutes);
             setSeverity(initial.severity);
             setEnabled(initial.enabled);
-        } else {
+        } else if (open) {
             setName(''); setProfileId(null); setMetric('oee'); setOp('<');
             setThreshold(70); setSustained(60); setSeverity('warning'); setEnabled(true);
         }
-    }, [open, initial]);
+    }
 
     const handleSave = async () => {
         if (!name.trim()) {

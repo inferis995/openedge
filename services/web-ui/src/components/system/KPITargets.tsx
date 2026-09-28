@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Target as TargetIcon, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 
 import { systemApi, GlobalSettings } from '@/api/system';
@@ -33,14 +33,19 @@ const KPITargets = ({ initial, onSaved }: Props) => {
     const [saving, setSaving] = useState(false);
     const [toast, setToast] = useState<Toast>(null);
 
-    useEffect(() => {
-        if (!initial) return;
-        const seed: Record<string, string> = {};
-        for (const t of TARGETS) {
-            seed[t.key as string] = (initial as unknown as Record<string, string | undefined>)[t.key as string] ?? '';
+    // Seed the form when initial settings arrive (or change after a save).
+    // Adjusted during render rather than in an effect, so the stale form is never painted.
+    const [seededFrom, setSeededFrom] = useState<{ v: Props['initial'] } | null>(null);
+    if (seededFrom === null || seededFrom.v !== initial) {
+        setSeededFrom({ v: initial });
+        if (initial) {
+            const seed: Record<string, string> = {};
+            for (const t of TARGETS) {
+                seed[t.key as string] = (initial as unknown as Record<string, string | undefined>)[t.key as string] ?? '';
+            }
+            setValues(seed);
         }
-        setValues(seed);
-    }, [initial]);
+    }
 
     const handleSave = async () => {
         setSaving(true);

@@ -11,7 +11,7 @@ import { useSparkplugDeviceStore } from '@/stores/useSparkplugDeviceStore';
  * @returns Object with getDataStatus function
  */
 export function useStaleData() {
-    const [currentTime, setCurrentTime] = useState(Date.now());
+    const [currentTime, setCurrentTime] = useState(() => Date.now());
     const getDeviceStatus = useSparkplugDeviceStore((state) => state.getDeviceStatus);
 
     // Update current time every second for time formatting

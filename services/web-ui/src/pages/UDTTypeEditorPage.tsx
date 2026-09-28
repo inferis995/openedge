@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -60,12 +60,15 @@ const UDTTypeEditorPage = () => {
     const [refusal, setRefusal] = useState<DataLossRefusal | null>(null);
     const [lastResult, setLastResult] = useState<ReconcileResult | null>(null);
 
-    useEffect(() => {
-        if (!type) return;
+    // Seed the form each time the type is (re)loaded. Adjusted during render
+    // rather than in an effect, so the empty form is never painted first.
+    const [seededFrom, setSeededFrom] = useState<typeof type>(undefined);
+    if (type && type !== seededFrom) {
+        setSeededFrom(type);
         setName(type.name);
         setDescription(type.description);
         setMembers(type.members.map((m) => ({ ...m, alarms: m.alarms ?? [] })));
-    }, [type]);
+    }
 
     const patchMember = (i: number, patch: Partial<UDTMember>) =>
         setMembers((prev) => prev.map((m, k) => (k === i ? { ...m, ...patch } : m)));

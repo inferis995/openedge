@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Cookie } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
@@ -25,14 +25,8 @@ function saveConsent(v: string) {
 }
 
 export function CookieBanner() {
-    const [visible, setVisible] = useState(false);
+    const [visible, setVisible] = useState(() => !readConsent());
     const { t } = useTranslation();
-
-    useEffect(() => {
-        if (!readConsent()) {
-            setVisible(true);
-        }
-    }, []);
 
     const accept = () => {
         saveConsent('accepted');

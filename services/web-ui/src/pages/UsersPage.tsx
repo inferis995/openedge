@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { usersApi, User, CreateUserRequest, UpdateUserRequest } from '@/api/users';
 import { sitesApi } from '@/api/sites';
 import { areasApi } from '@/api/areas';
@@ -40,6 +41,7 @@ import { useTranslation } from 'react-i18next';
 import apiClient from '@/api/client';
 import { toast } from 'sonner';
 import { showApiError } from '@/lib/api-error-handler';
+import { startLoad } from '@/lib/startLoad';
 
 // ---------- scope selector sub-component ----------
 
@@ -59,46 +61,44 @@ const ScopeSelector = ({
     onAreaIdsChange,
 }: ScopeSelectorProps) => {
     const { t } = useTranslation();
-    const [sites, setSites] = useState<Site[]>([]);
-    const [areas, setAreas] = useState<Area[]>([]);
-    const [loadingSites, setLoadingSites] = useState(false);
-    const [loadingAreas, setLoadingAreas] = useState(false);
+    // Sites of the organization and areas of the selected sites, as queries:
+    // the effects that fetched them into local state are what react-hooks 7
+    // flags, and a query also caches them between openings of the dialog.
+    const sitesQuery = useQuery({
+        queryKey: ['scope-sites', orgId],
+        queryFn: () => sitesApi.getByOrg(orgId as number),
+        enabled: !!orgId,
+    });
+    const siteKey = selectedSiteIds.join(',');
+    const areasQuery = useQuery({
+        queryKey: ['scope-areas', siteKey],
+        queryFn: async () => (await Promise.all(selectedSiteIds.map((sid) => areasApi.getAll(sid)))).flat(),
+        enabled: selectedSiteIds.length > 0,
+    });
+    const sites: Site[] = orgId ? (sitesQuery.data ?? []) : [];
+    const areas: Area[] = selectedSiteIds.length > 0 ? (areasQuery.data ?? []) : [];
+    const loadingSites = !!orgId && sitesQuery.isLoading;
+    const loadingAreas = selectedSiteIds.length > 0 && areasQuery.isLoading;
 
-    // Load sites when org changes
+    // A different organization empties the site and area choice; different
+    // sites empty the area choice. Only on a CHANGE: these effects used to run
+    // on mount too, so opening an existing user's edit dialog wiped the sites
+    // and areas they were restricted to, and saving removed the restriction.
+    const prevOrg = useRef(orgId);
+    const prevSites = useRef(siteKey);
     useEffect(() => {
-        if (!orgId) {
-            setSites([]);
-            setAreas([]);
-            onSiteIdsChange([]);
-            onAreaIdsChange([]);
-            return;
-        }
-        setLoadingSites(true);
-        sitesApi.getByOrg(orgId)
-            .then(setSites)
-            .catch(() => setSites([]))
-            .finally(() => setLoadingSites(false));
-        // reset area selection when org changes
-        setAreas([]);
+        if (prevOrg.current === orgId) return;
+        prevOrg.current = orgId;
         onSiteIdsChange([]);
         onAreaIdsChange([]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [orgId]);
-
-    // Load areas for all selected sites
     useEffect(() => {
-        if (selectedSiteIds.length === 0) {
-            setAreas([]);
-            onAreaIdsChange([]);
-            return;
-        }
-        setLoadingAreas(true);
-        Promise.all(selectedSiteIds.map((sid) => areasApi.getAll(sid)))
-            .then((results) => setAreas(results.flat()))
-            .catch(() => setAreas([]))
-            .finally(() => setLoadingAreas(false));
-        // drop area selections that no longer belong to selected sites
+        if (prevSites.current === siteKey) return;
+        prevSites.current = siteKey;
         onAreaIdsChange([]);
-    }, [selectedSiteIds.join(',')]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [siteKey]);
 
     const toggleSite = (siteId: number, checked: boolean) => {
         onSiteIdsChange(checked ? [...selectedSiteIds, siteId] : selectedSiteIds.filter((id) => id !== siteId));
@@ -277,7 +277,7 @@ const UsersPage = () => {
     };
 
     useEffect(() => {
-        fetchUsers();
+        startLoad(fetchUsers);
     }, []);
 
     const handleCreate = async () => {

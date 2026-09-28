@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/useAuthStore';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
 import { confirmAction } from '@/lib/confirm';
+import { startLoad } from '@/lib/startLoad';
 
 interface EdgeStatus {
     org_id: number;
@@ -59,8 +60,8 @@ const FleetPage = () => {
     const [actionLoading, setActionLoading] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
 
-    const load = async () => {
-        setLoading(true);
+    // Fetch without flipping the loading flag first: on mount it is already true.
+    const fetchFleet = async () => {
         try {
             setFleet(await fleetApi.getStatus());
         } catch {
@@ -70,7 +71,12 @@ const FleetPage = () => {
         }
     };
 
-    useEffect(() => { load(); }, []);
+    const load = () => {
+        setLoading(true);
+        return fetchFleet();
+    };
+
+    useEffect(() => { startLoad(fetchFleet); }, []);
 
     const showToast = (msg: string) => {
         setToast(msg);

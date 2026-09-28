@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -30,6 +30,11 @@ import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
 import { useTranslation } from 'react-i18next';
 import MqttClientsPanel from '@/components/MqttClientsPanel';
+
+const EMPTY_SSO: SSOProviderInput = {
+    provider: 'google', client_id: '', client_secret: '',
+    tenant_id: '', domain_hint: '', enabled: true,
+};
 
 interface Props {
     org: { id: number; name: string };
@@ -155,11 +160,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
     };
 
     // ── SSO Providers ─────────────────────────────────────────────────────────
-    const emptySSO: SSOProviderInput = {
-        provider: 'google', client_id: '', client_secret: '',
-        tenant_id: '', domain_hint: '', enabled: true,
-    };
-    const [ssoForm, setSSOForm] = useState<SSOProviderInput>(emptySSO);
+    const [ssoForm, setSSOForm] = useState<SSOProviderInput>(EMPTY_SSO);
     const [ssoEditing, setSSOEditing] = useState(false);
 
     const { data: ssoProviders = [], refetch: refetchSSO } = useQuery<SSOProvider[]>({
@@ -172,7 +173,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
         mutationFn: (data: SSOProviderInput) => organizationsApi.upsertSSOProvider(org.id, data),
         onSuccess: () => {
             refetchSSO();
-            setSSOForm(emptySSO);
+            setSSOForm(EMPTY_SSO);
             setSSOEditing(false);
             toast.success(t('orgInfra.sso_saved'));
         },
@@ -193,18 +194,20 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
         setSSOEditing(true);
     };
 
-    // Reset local state when dialog closes
-    useEffect(() => {
+    // Reset local state when dialog closes (adjusted during render, not in an effect)
+    const [prevOpen, setPrevOpen] = useState(open);
+    if (open !== prevOpen) {
+        setPrevOpen(open);
         if (!open) {
             setShownKey(null);
             setCreatedInvite(null);
             setInviteEmail('');
             setNewKeyName('');
             setShownWhSecret(null);
-            setSSOForm(emptySSO);
+            setSSOForm(EMPTY_SSO);
             setSSOEditing(false);
         }
-    }, [open]);
+    }
 
     const activeKeys = apiKeys.filter((k: ApiKey) => !k.revoked_at);
 
@@ -739,7 +742,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                             <Button
                                                 variant="ghost"
                                                 size="sm"
-                                                onClick={() => { setSSOEditing(false); setSSOForm(emptySSO); }}
+                                                onClick={() => { setSSOEditing(false); setSSOForm(EMPTY_SSO); }}
                                             >
                                                 {t('common.cancel')}
                                             </Button>

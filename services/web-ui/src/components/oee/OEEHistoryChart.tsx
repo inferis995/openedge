@@ -46,17 +46,18 @@ export const OEEHistoryChart = ({ profileId, target }: Props) => {
     const [range, setRange] = useState<Range>('7d');
     const cfg = RANGE_CONFIG[range];
 
-    const to = new Date().toISOString();
-    const from = new Date(Date.now() - cfg.days * 86400_000).toISOString();
-
     const { data, isLoading, isError } = useQuery({
         queryKey: ['oee-history-v2', profileId, range],
-        queryFn: () => oeeApi.historyV2({
-            profile_id: profileId,
-            from,
-            to,
-            bucket: cfg.bucket,
-        }),
+        // Window computed at fetch time: reading the clock during render is impure.
+        queryFn: () => {
+            const now = Date.now();
+            return oeeApi.historyV2({
+                profile_id: profileId,
+                from: new Date(now - cfg.days * 86400_000).toISOString(),
+                to: new Date(now).toISOString(),
+                bucket: cfg.bucket,
+            });
+        },
     });
 
     const chartData = (data ?? []).map((r: OEEHistoryRow) => ({

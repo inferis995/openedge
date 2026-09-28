@@ -10,6 +10,7 @@ import { inventoryApi, InventoryDevice, InventoryResponse } from '@/api/inventor
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
+import { startLoad } from '@/lib/startLoad';
 
 // Lo stato che il driver ha riportato per ultimo. Un gateway disabilitato non è
 // un guasto — nessuno gli sta chiedendo niente — e mostrarlo in rosso è il modo
@@ -65,8 +66,8 @@ export function InventoryPage() {
     const [exporting, setExporting] = useState(false);
     const [query, setQuery] = useState('');
 
-    const load = async () => {
-        setLoading(true);
+    // Fetch without flipping the loading flag first: on mount it is already true.
+    const fetchInventory = async () => {
         try {
             setData(await inventoryApi.get());
         } catch (err) {
@@ -77,8 +78,13 @@ export function InventoryPage() {
         }
     };
 
+    const load = () => {
+        setLoading(true);
+        return fetchInventory();
+    };
+
     useEffect(() => {
-        void load();
+        startLoad(fetchInventory);
     }, []);
 
     const handleExport = async () => {

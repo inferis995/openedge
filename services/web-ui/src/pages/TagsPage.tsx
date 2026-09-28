@@ -59,6 +59,7 @@ import TagImportDialog from '@/components/tags/TagImportDialog';
 import { saveBlob } from '@/lib/download';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useQueryClient } from '@tanstack/react-query';
+import type { Tag } from '@/types';
 
 interface CurrentValue {
     value: any;
@@ -85,11 +86,13 @@ const TagsPage = () => {
     const { selectedOrgId } = useNavigationStore();
     const { isAdmin } = useAuthStore();
 
-    useEffect(() => {
-        if (gatewayIdParam) {
-            setSelectedGatewayId(gatewayIdParam);
-        }
-    }, [gatewayIdParam]);
+    // Follow ?gateway_id= when it changes (a link from another page).
+    // Adjusted during render rather than in an effect.
+    const [seenGatewayParam, setSeenGatewayParam] = useState(gatewayIdParam);
+    if (gatewayIdParam !== seenGatewayParam) {
+        setSeenGatewayParam(gatewayIdParam);
+        if (gatewayIdParam) setSelectedGatewayId(gatewayIdParam);
+    }
 
     const { gateways } = useGateways(); // Get all gateways for filter
 
@@ -247,31 +250,28 @@ const TagsPage = () => {
         return gw?.driver_type;
     }, [selectedGatewayId, gateways]);
 
-    // Auto-generate Modbus code
-    useEffect(() => {
-        if (selectedGatewayDriverType !== 'MODBUS_TCP') return;
+    const handleInputChange = (field: keyof CreateTagDto, value: any) => {
+        setFormData(prev => ({ ...prev, [field]: value }));
+    };
 
-        let offset = 0;
-
-        switch (modbusType) {
-            case 'coil': offset = 0; break;
-            case 'discrete': offset = 10000; break;
-            case 'input': offset = 30000; break;
-            case 'holding': offset = 40000; break;
+    // Auto-generate the Modbus code from register type, address and bit.
+    // Recomputed during render when one of them changes (null at first, so the
+    // first render applies it, as the effect it replaces did on mount).
+    const codeInputs = [modbusType, modbusAddress, modbusBit, formData.data_type, selectedGatewayDriverType] as const;
+    const [prevCodeInputs, setPrevCodeInputs] = useState<typeof codeInputs | null>(null);
+    if (prevCodeInputs === null || codeInputs.some((v, i) => v !== prevCodeInputs[i])) {
+        setPrevCodeInputs(codeInputs);
+        if (selectedGatewayDriverType === 'MODBUS_TCP') {
+            const offset = { coil: 0, discrete: 10000, input: 30000, holding: 40000 }[modbusType] ?? 0;
+            // Standard 5-digit format (e.g. 40001); address '1' is offset+1.
+            let code = (offset + modbusAddress).toString().padStart(5, '0');
+            // Bit offset for BOOL in registers
+            if (formData.data_type === 'BOOL' && (modbusType === 'holding' || modbusType === 'input')) {
+                code += `.${modbusBit}`;
+            }
+            if (formData.code !== code) handleInputChange('code', code);
         }
-
-        // Standard 5-digit format (e.g. 40001)
-        // Adjust for address '1' being offset+1
-        const codeNum = offset + modbusAddress;
-        let code = codeNum.toString().padStart(5, '0');
-
-        // Add bit offset for BOOL in registers
-        if (formData.data_type === 'BOOL' && (modbusType === 'holding' || modbusType === 'input')) {
-            code += `.${modbusBit}`;
-        }
-
-        handleInputChange('code', code);
-    }, [modbusType, modbusAddress, modbusBit, formData.data_type, selectedGatewayDriverType]);
+    }
 
     const handleModbusTypeChange = (val: string) => setModbusType(val);
     const handleModbusAddressChange = (val: number) => setModbusAddress(val);
@@ -341,29 +341,21 @@ const TagsPage = () => {
     };
 
     // Real-time value integration
-    const [currentValues, setCurrentValues] = useState<Map<number, CurrentValue>>(new Map());
+    // Values read once per tag list, then overlaid with the live updates.
+    // Derived rather than merged into state by an effect.
+    const [fetchedValues, setFetchedValues] = useState<Map<number, CurrentValue>>(new Map());
     const { values: realtimeValues, connected: realtimeConnected } = useRealtime(selectedOrgId || undefined);
 
     // Data status detection hook (uses Sparkplug B BIRTH/DEATH)
     const { isDeviceOnline } = useStaleData();
 
-    // Merge real-time updates into currentValues
-    useEffect(() => {
-        if (realtimeValues.size > 0) {
-            setCurrentValues(prev => {
-                const next = new Map(prev);
-                realtimeValues.forEach((val, id) => {
-                    next.set(id, val);
-                });
-                return next;
-            });
-        }
-    }, [realtimeValues]);
+    const currentValues = useMemo(() => {
+        if (realtimeValues.size === 0) return fetchedValues;
+        const next = new Map(fetchedValues);
+        realtimeValues.forEach((val, id) => next.set(id, val));
+        return next;
+    }, [fetchedValues, realtimeValues]);
 
-
-    const handleInputChange = (field: keyof CreateTagDto, value: any) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
-    };
 
     const handleSave = async () => {
         try {
@@ -480,12 +472,16 @@ const TagsPage = () => {
     };
 
     // Update address when type changes
-    useEffect(() => {
+    // Suggest the next free address when the register type (or the dialog,
+    // or the tag list) changes. Adjusted during render rather than in an effect.
+    const addrInputs = [modbusType, isOpen, updatingTagId, selectedGatewayDriverType, tags] as const;
+    const [prevAddrInputs, setPrevAddrInputs] = useState(addrInputs);
+    if (addrInputs.some((v, i) => v !== prevAddrInputs[i])) {
+        setPrevAddrInputs(addrInputs);
         if (isOpen && !updatingTagId && selectedGatewayDriverType === 'MODBUS_TCP') {
-            const next = calculateNextAddress(modbusType);
-            setModbusAddress(next);
+            setModbusAddress(calculateNextAddress(modbusType));
         }
-    }, [modbusType, isOpen, updatingTagId, selectedGatewayDriverType, tags]);
+    }
 
     const handleCreateOpen = () => {
         setUpdatingTagId(null);
@@ -728,7 +724,7 @@ const TagsPage = () => {
             );
 
             if (newValues.size > 0) {
-                setCurrentValues(prev => {
+                setFetchedValues(prev => {
                     const merged = new Map(prev);
                     newValues.forEach((v, k) => merged.set(k, v));
                     return merged;
@@ -741,41 +737,22 @@ const TagsPage = () => {
 
     // (Active alarms are already fetched in the other useEffect hook 'fetchAlarmData' at the top of the file)
 
-    // Clear current values when gateway changes
-    useEffect(() => {
-        setCurrentValues(new Map());
-    }, [selectedGatewayId]);
+    // Clear the values read for the previous gateway when it changes.
+    const [valuesForGateway, setValuesForGateway] = useState(selectedGatewayId);
+    if (valuesForGateway !== selectedGatewayId) {
+        setValuesForGateway(selectedGatewayId);
+        setFetchedValues(new Map());
+    }
 
-    const tagsList = useMemo(() => {
-        let filtered = [...tags];
-
-        // Driver type filter
-        if (filterDriverType !== 'all') {
-            const gwDriverMap = new Map(gateways.map(g => [g.id, g.driver_type]));
-            filtered = filtered.filter(t => gwDriverMap.get(t.gateway_id) === filterDriverType);
-        }
-
-        // Search filter
-        if (searchQuery) {
-            const lower = searchQuery.toLowerCase();
-            filtered = filtered.filter(t =>
-                t.code.toLowerCase().includes(lower) ||
-                (t.alias && t.alias.toLowerCase().includes(lower))
-            );
-        }
-
-        // Sort
-        if (sortField) {
-            filtered.sort((a, b) => {
-                const av = (a as any)[sortField] ?? '';
-                const bv = (b as any)[sortField] ?? '';
-                const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true });
-                return sortDir === 'asc' ? cmp : -cmp;
-            });
-        }
-
-        return filtered;
-    }, [tags, searchQuery, filterDriverType, gateways, sortField, sortDir]);
+    // The React Compiler cannot preserve this memo inside a component this
+    // size (it reports so, not a wrong dependency), and it is not enabled in
+    // the build anyway. Without the memo every live value update would
+    // re-filter and re-sort the whole tag list.
+    // eslint-disable-next-line react-hooks/preserve-manual-memoization
+    const tagsList = useMemo(
+        () => filterAndSortTags(tags, gateways, filterDriverType, searchQuery, sortField, sortDir),
+        [tags, searchQuery, filterDriverType, gateways, sortField, sortDir],
+    );
 
     if (isLoading) {
         return <div className="p-8 text-center text-muted-foreground">{tr('tagsPage.loading')}</div>;
@@ -1714,5 +1691,34 @@ const TagsPage = () => {
         </div >
     );
 };
+
+// Filter by driver and search text, then sort. A plain function so the page's
+// memo has one call to cache, which the React Compiler can preserve.
+function filterAndSortTags(
+    tags: Tag[], gateways: { id: number; driver_type: string }[], filterDriverType: string,
+    searchQuery: string, sortField: string | null, sortDir: 'asc' | 'desc',
+): Tag[] {
+    let filtered = [...tags];
+    if (filterDriverType !== 'all') {
+        const gwDriverMap = new Map(gateways.map(g => [g.id, g.driver_type]));
+        filtered = filtered.filter(t => gwDriverMap.get(t.gateway_id) === filterDriverType);
+    }
+    if (searchQuery) {
+        const lower = searchQuery.toLowerCase();
+        filtered = filtered.filter(t =>
+            t.code.toLowerCase().includes(lower) ||
+            (t.alias && t.alias.toLowerCase().includes(lower))
+        );
+    }
+    if (sortField) {
+        filtered.sort((a, b) => {
+            const av = (a as unknown as Record<string, unknown>)[sortField] ?? '';
+            const bv = (b as unknown as Record<string, unknown>)[sortField] ?? '';
+            const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true });
+            return sortDir === 'asc' ? cmp : -cmp;
+        });
+    }
+    return filtered;
+}
 
 export default TagsPage;

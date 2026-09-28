@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -58,9 +58,14 @@ export default function SetupWizardPage() {
         queryFn: organizationsApi.getAll,
         enabled: isGlobalAdmin(),
     });
-    useEffect(() => {
-        if (!orgId && orgs.length === 1) setOrgId(orgs[0].id);
-    }, [orgs, orgId]);
+    // Preselect the only organization, once. Adjusted during render rather
+    // than in an effect; done once so that picking "+ New organization"
+    // afterwards is not undone on the next render.
+    const [autoPicked, setAutoPicked] = useState(false);
+    if (!autoPicked && !orgId && orgs.length === 1) {
+        setAutoPicked(true);
+        setOrgId(orgs[0].id);
+    }
 
     // Step 2 — PLC
     const [gwName, setGwName] = useState('');

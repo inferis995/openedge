@@ -55,6 +55,7 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
+import { startLoad } from '@/lib/startLoad';
 
 // ─── Quality helpers ────────────────────────────────────────────────────────
 
@@ -250,10 +251,18 @@ function PropertyHistoryPanel({ property }: { property: I3XProperty }) {
     const { t } = useTranslation();
     const [range, setRange]   = useState(1);
     const [points, setPoints] = useState<I3XHistoryPoint[]>([]);
-    const [loading, setLoading] = useState(false);
+    // Starts true: the effect below fetches on mount.
+    const [loading, setLoading] = useState(true);
+    const [loadedPropertyId, setLoadedPropertyId] = useState(property.id);
 
-    const load = useCallback(async () => {
+    // A different property refetches via the effect; flag it during render
+    // instead of synchronously inside the effect.
+    if (loadedPropertyId !== property.id) {
+        setLoadedPropertyId(property.id);
         setLoading(true);
+    }
+
+    const fetchHistory = useCallback(async () => {
         try {
             const to   = new Date();
             const from = new Date(to.getTime() - range * 3600_000);
@@ -271,7 +280,18 @@ function PropertyHistoryPanel({ property }: { property: I3XProperty }) {
         }
     }, [property.id, range]);
 
-    useEffect(() => { load(); }, [load]);
+    const load = () => {
+        setLoading(true);
+        fetchHistory();
+    };
+
+    const changeRange = (next: number) => {
+        if (next === range) return;
+        setLoading(true);
+        setRange(next);
+    };
+
+    useEffect(() => { startLoad(fetchHistory); }, [fetchHistory]);
 
     const chartData = useMemo(
         () =>
@@ -293,7 +313,7 @@ function PropertyHistoryPanel({ property }: { property: I3XProperty }) {
                     </Badge>
                 </div>
                 <div className="flex items-center gap-2">
-                    <Select value={String(range)} onValueChange={v => setRange(Number(v))}>
+                    <Select value={String(range)} onValueChange={v => changeRange(Number(v))}>
                         <SelectTrigger className="h-9 sm:h-7 text-xs w-20 clip-chamfer-sm">
                             <SelectValue />
                         </SelectTrigger>
@@ -413,9 +433,8 @@ export default function I3XPage() {
         [properties, propSearch],
     );
 
-    const loadBase = useCallback(async () => {
-        setLoadingEquipment(true);
-        setLoadingAlarms(true);
+    // Fetch without flipping the loading flags first: on mount they are already true.
+    const fetchBase = useCallback(async () => {
         try {
             const [eqRes, alRes, histRes] = await Promise.all([
                 i3xApi.listEquipment(),
@@ -443,6 +462,12 @@ export default function I3XPage() {
         }
     }, []);
 
+    const loadBase = useCallback(() => {
+        setLoadingEquipment(true);
+        setLoadingAlarms(true);
+        return fetchBase();
+    }, [fetchBase]);
+
     const loadProperties = useCallback(async (eq: I3XEquipment) => {
         setLoadingProps(true);
         setProperties([]);
@@ -459,10 +484,10 @@ export default function I3XPage() {
     }, []);
 
     useEffect(() => {
-        loadBase();
+        startLoad(fetchBase);
         const interval = setInterval(loadBase, 30_000);
         return () => clearInterval(interval);
-    }, [loadBase]);
+    }, [fetchBase, loadBase]);
 
     const handleSelectEquipment = (eq: I3XEquipment) => {
         setSelectedEq(eq);

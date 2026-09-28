@@ -165,7 +165,6 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                     }
 
                     let displayValue: string;
-                    let isTrue = false;
 
                     if (isBool) {
                         let numValue: number;
@@ -177,7 +176,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
                         } else {
                             numValue = Number(value);
                         }
-                        isTrue = numValue >= 0.5;
+                        const isTrue = numValue >= 0.5;
                         displayValue = isTrue ? 'TRUE' : 'FALSE';
 
                         return (

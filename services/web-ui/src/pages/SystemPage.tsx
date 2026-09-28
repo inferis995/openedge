@@ -32,6 +32,7 @@ import { showApiError } from '@/lib/api-error-handler';
 import MqttConnectGuide from '@/components/system/MqttConnectGuide';
 import MqttProbeButton from '@/components/system/MqttProbeButton';
 import { useSearchParams } from 'react-router-dom';
+import { startLoad } from '@/lib/startLoad';
 
 const PUBLISH_MODES = [
     {
@@ -129,7 +130,8 @@ const SystemPage = () => {
 
     // Database stats
     const [dbStats, setDbStats] = useState<DBStatsResponse | null>(null);
-    const [dbStatsLoading, setDbStatsLoading] = useState(false);
+    // True from the start: the mount effect fetches the stats straight away.
+    const [dbStatsLoading, setDbStatsLoading] = useState(true);
     const [historianRetentionDays, setHistorianRetentionDays] = useState<number>(365);
     const [historianRetentionSaving, setHistorianRetentionSaving] = useState(false);
 
@@ -147,15 +149,23 @@ const SystemPage = () => {
     const { selectedOrgId } = useNavigationStore();
     const { isGlobalAdmin } = useAuthStore();
     const [ssoProviders, setSsoProviders] = useState<SSOProvider[]>([]);
-    const [ssoLoading, setSsoLoading] = useState(false);
+    // Starts true when there is an org: the mount effect fetches its providers.
+    const [ssoLoading, setSsoLoading] = useState(() => !!selectedOrgId);
+
+    // When the org changes the effect below reloads everything; raise the
+    // loading flags here, during render, so the effect only has to fetch.
+    const [loadedOrgId, setLoadedOrgId] = useState(selectedOrgId);
+    if (selectedOrgId !== loadedOrgId) {
+        setLoadedOrgId(selectedOrgId);
+        setDbStatsLoading(true);
+        if (selectedOrgId) setSsoLoading(true);
+    }
     const [ssoEdit, setSsoEdit] = useState<SSOProvider | null>(null);
     const [ssoSaving, setSsoSaving] = useState(false);
     const [ssoMsg, setSsoMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-    const loadSSOProviders = async () => {
-        const orgId = selectedOrgId;
-        if (!orgId) return;
-        setSsoLoading(true);
+    // Fetches only; callers raise ssoLoading first.
+    const fetchSSOProviders = async (orgId: number) => {
         try {
             const token = useAuthStore.getState().token;
             const r = await fetch(`/api/organizations/${orgId}/sso-providers`, {
@@ -164,6 +174,13 @@ const SystemPage = () => {
             if (r.ok) setSsoProviders(await r.json());
         } catch { /* ignore */ }
         finally { setSsoLoading(false); }
+    };
+
+    const loadSSOProviders = () => {
+        const orgId = selectedOrgId;
+        if (!orgId) return;
+        setSsoLoading(true);
+        fetchSSOProviders(orgId);
     };
 
     const saveSSOProvider = async () => {
@@ -203,16 +220,6 @@ const SystemPage = () => {
         }
         loadSSOProviders();
     };
-
-    useEffect(() => {
-        loadSettings();
-        loadBackupList();
-        loadDBStats();
-        loadSSOProviders();
-        const dbStatsInterval = setInterval(loadDBStats, 60000);
-        return () => clearInterval(dbStatsInterval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedOrgId]);
 
     const loadSettings = async () => {
         try {
@@ -258,8 +265,8 @@ const SystemPage = () => {
         }
     };
 
-    const loadDBStats = async () => {
-        setDbStatsLoading(true);
+    // Fetches only; callers raise dbStatsLoading first.
+    const fetchDBStats = async () => {
         try {
             const data = await healthApi.dbStats();
             setDbStats(data);
@@ -268,6 +275,11 @@ const SystemPage = () => {
         } finally {
             setDbStatsLoading(false);
         }
+    };
+
+    const loadDBStats = () => {
+        setDbStatsLoading(true);
+        fetchDBStats();
     };
 
     const loadBackupList = async () => {
@@ -279,6 +291,18 @@ const SystemPage = () => {
             setBackupList([]);
         }
     };
+
+    // Loading flags are already true here (initial state, or raised during
+    // render when the org changed), so this effect only starts the fetches.
+    useEffect(() => {
+        startLoad(loadSettings);
+        startLoad(loadBackupList);
+        startLoad(fetchDBStats);
+        if (selectedOrgId) startLoad(() => fetchSSOProviders(selectedOrgId));
+        const dbStatsInterval = setInterval(loadDBStats, 60000);
+        return () => clearInterval(dbStatsInterval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedOrgId]);
 
     const handleSaveSettings = async () => {
         setLoading(true);
@@ -1513,33 +1537,28 @@ const SystemPage = () => {
 };
 
 // InfluxDB v2 integration settings component
+const influxForm = (s?: GlobalSettings) => ({
+    influx_enabled: s?.influx_enabled ?? 'false',
+    influx_url: s?.influx_url ?? '',
+    influx_token: s?.influx_token ?? '',
+    influx_org: s?.influx_org ?? '',
+    influx_bucket: s?.influx_bucket ?? '',
+    influx_batch_size: s?.influx_batch_size ?? '500',
+    influx_flush_interval: s?.influx_flush_interval ?? '10',
+});
+
 const InfluxDBSettings = ({ initial, onSaved }: { initial?: GlobalSettings; onSaved: () => void }) => {
     const { t } = useTranslation();
-    const [form, setForm] = useState({
-        influx_enabled: initial?.influx_enabled ?? 'false',
-        influx_url: initial?.influx_url ?? '',
-        influx_token: initial?.influx_token ?? '',
-        influx_org: initial?.influx_org ?? '',
-        influx_bucket: initial?.influx_bucket ?? '',
-        influx_batch_size: initial?.influx_batch_size ?? '500',
-        influx_flush_interval: initial?.influx_flush_interval ?? '10',
-    });
+    const [form, setForm] = useState(() => influxForm(initial));
     const [saving, setSaving] = useState(false);
     const [msg, setMsg] = useState<string | null>(null);
 
-    useEffect(() => {
-        if (initial) {
-            setForm({
-                influx_enabled: initial.influx_enabled ?? 'false',
-                influx_url: initial.influx_url ?? '',
-                influx_token: initial.influx_token ?? '',
-                influx_org: initial.influx_org ?? '',
-                influx_bucket: initial.influx_bucket ?? '',
-                influx_batch_size: initial.influx_batch_size ?? '500',
-                influx_flush_interval: initial.influx_flush_interval ?? '10',
-            });
-        }
-    }, [initial]);
+    // Reload the form whenever fresh settings arrive (adjusted during render).
+    const [prevInitial, setPrevInitial] = useState(initial);
+    if (initial !== prevInitial) {
+        setPrevInitial(initial);
+        if (initial) setForm(influxForm(initial));
+    }
 
     const save = async () => {
         setSaving(true);

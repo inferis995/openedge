@@ -37,6 +37,15 @@ const formatMinutes = (m: number): string => {
     return `${(m / 1440).toFixed(1)} ${i18n.t('oee.unit_days_short')}`;
 };
 
+// Window computed at fetch time (inside queryFn): reading the clock during render is impure.
+const windowEndingNow = (hours: number): { from: string; to: string } => {
+    const now = Date.now();
+    return {
+        from: new Date(now - hours * 3600_000).toISOString(),
+        to: new Date(now).toISOString(),
+    };
+};
+
 const pillarBadge = (pillar: string): string => {
     if (pillar === 'availability') return 'bg-blue-500/10 text-blue-500';
     if (pillar === 'performance')  return 'bg-amber-500/10 text-amber-500';
@@ -48,17 +57,20 @@ export const OEELossPareto = ({ profileId, profileName }: Props) => {
     const [range, setRange] = useState<Range>('7d');
     const cfg = RANGE_CFG[range];
 
-    const to = new Date().toISOString();
-    const from = new Date(Date.now() - cfg.hours * 3600_000).toISOString();
-
     const { data: lossData, isLoading } = useQuery({
         queryKey: ['oee-loss-tree', profileId, range],
-        queryFn: () => oeeApi.lossTree({ profile_id: profileId, from, to }),
+        queryFn: () => {
+            const { from, to } = windowEndingNow(cfg.hours);
+            return oeeApi.lossTree({ profile_id: profileId, from, to });
+        },
     });
 
     const { data: reliab } = useQuery({
         queryKey: ['oee-reliability', profileId, range],
-        queryFn: () => oeeApi.reliability(profileId, from, to),
+        queryFn: () => {
+            const { from, to } = windowEndingNow(cfg.hours);
+            return oeeApi.reliability(profileId, from, to);
+        },
     });
 
     return (

@@ -226,28 +226,33 @@ const ProfileEditor = ({
     });
     const allTags = filteredTags ?? [];
 
-    useEffect(() => {
-        if (!open) return;
-        if (initial) {
-            setName(initial.name);
-            setDescription(initial.description ?? '');
-            setAreaId(initial.area_id ?? null);
-            setRunId(initial.run_time_tag_id ?? null);
-            setProdId(initial.produced_tag_id ?? null);
-            setGoodId(initial.good_tag_id ?? null);
-            setPph(initial.target_pieces_per_hour);
-            setWindowMin(initial.window_minutes);
-            setTargetOEE(initial.target_oee);
-            setEnabled(initial.enabled);
-            setRespectShifts(initial.respect_shifts ?? true);
-            setRespectMaintenance(initial.respect_maintenance ?? true);
-        } else {
-            setName(''); setDescription(''); setAreaId(null);
-            setRunId(null); setProdId(null); setGoodId(null);
-            setPph(0); setWindowMin(480); setTargetOEE(85); setEnabled(true);
-            setRespectShifts(true); setRespectMaintenance(true);
+    // Reset the form whenever the dialog opens or the edited profile changes,
+    // adjusting state during render rather than in an effect.
+    const [syncedWith, setSyncedWith] = useState<{ open: boolean; initial: OEEProfile | null }>({ open: false, initial: null });
+    if (syncedWith.open !== open || syncedWith.initial !== initial) {
+        setSyncedWith({ open, initial });
+        if (open) {
+            if (initial) {
+                setName(initial.name);
+                setDescription(initial.description ?? '');
+                setAreaId(initial.area_id ?? null);
+                setRunId(initial.run_time_tag_id ?? null);
+                setProdId(initial.produced_tag_id ?? null);
+                setGoodId(initial.good_tag_id ?? null);
+                setPph(initial.target_pieces_per_hour);
+                setWindowMin(initial.window_minutes);
+                setTargetOEE(initial.target_oee);
+                setEnabled(initial.enabled);
+                setRespectShifts(initial.respect_shifts ?? true);
+                setRespectMaintenance(initial.respect_maintenance ?? true);
+            } else {
+                setName(''); setDescription(''); setAreaId(null);
+                setRunId(null); setProdId(null); setGoodId(null);
+                setPph(0); setWindowMin(480); setTargetOEE(85); setEnabled(true);
+                setRespectShifts(true); setRespectMaintenance(true);
+            }
         }
-    }, [open, initial]);
+    }
 
     const handleSave = async () => {
         if (!name.trim()) {

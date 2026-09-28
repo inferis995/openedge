@@ -9,6 +9,13 @@ interface Props {
     externalPort: number;
 }
 
+const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-1 sm:gap-3 py-2 border-b border-border last:border-0">
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <div className="text-sm min-w-0">{children}</div>
+    </div>
+);
+
 /**
  * How another system — a SCADA, Node-RED, a MES — reads OpenEdge's data.
  *
@@ -20,13 +27,6 @@ export default function MqttConnectGuide({ brokerMode, externalHost, externalPor
     const { t } = useTranslation();
     const host = brokerMode === 'external' && externalHost ? externalHost : window.location.hostname;
     const port = brokerMode === 'external' ? externalPort : 1883;
-
-    const Row = ({ label, children }: { label: string; children: React.ReactNode }) => (
-        <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-1 sm:gap-3 py-2 border-b border-border last:border-0">
-            <span className="text-xs font-medium text-muted-foreground">{label}</span>
-            <div className="text-sm min-w-0">{children}</div>
-        </div>
-    );
 
     return (
         <Card className="border-border shadow-sm bg-card">

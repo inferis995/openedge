@@ -26,6 +26,7 @@ import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
 import { useTranslation } from 'react-i18next';
 import { SYNOPTIC_TEMPLATES, templateLayout, type SynopticTemplateId } from '@/components/synoptics/templates';
+import { startLoad } from '@/lib/startLoad';
 
 // Scope of the currently selected tree node — drives the right-hand panel and
 // pre-fills the "new synoptic" dialog so a page is filed under the right line.
@@ -113,7 +114,7 @@ const SynopticsPage = () => {
         }
     };
 
-    useEffect(() => { load(); }, [selectedOrgId]);
+    useEffect(() => { startLoad(load); }, [selectedOrgId]);
 
     const areasBySite = useMemo(() => {
         const m = new Map<number, Area[]>();

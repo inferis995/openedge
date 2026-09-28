@@ -28,6 +28,73 @@ interface TagBrowserProps {
     realtimeValues?: Map<number, { value: number; timestamp: number; quality: number }>;
 }
 
+// Build hierarchy from flat tag list (fallback). Pure, so it lives at module
+// level where the fetch effect can use it.
+const buildHierarchyFromFlat = (tags: TagWithHierarchy[]): TagHierarchyResponse => {
+    const orgMap = new Map<number, { id: number; name: string; sites: Map<number, SiteHierarchy> }>();
+
+    tags.forEach(tag => {
+        if (!tag.org_id || !tag.org_name) return;
+
+        if (!orgMap.has(tag.org_id)) {
+            orgMap.set(tag.org_id, {
+                id: tag.org_id,
+                name: tag.org_name,
+                sites: new Map(),
+            });
+        }
+
+        const org = orgMap.get(tag.org_id)!;
+
+        if (tag.site_id && tag.site_name) {
+            if (!org.sites.has(tag.site_id)) {
+                org.sites.set(tag.site_id, {
+                    id: tag.site_id,
+                    name: tag.site_name,
+                    areas: [],
+                });
+            }
+
+            const site = org.sites.get(tag.site_id)!;
+
+            if (tag.area_id && tag.area_name) {
+                let area = site.areas.find(a => a.id === tag.area_id);
+                if (!area) {
+                    area = {
+                        id: tag.area_id,
+                        name: tag.area_name,
+                        gateways: [],
+                    };
+                    site.areas.push(area);
+                }
+
+                if (tag.gateway_id && tag.gateway_name) {
+                    let gateway = area.gateways.find(g => g.id === tag.gateway_id);
+                    if (!gateway) {
+                        gateway = {
+                            id: tag.gateway_id,
+                            name: tag.gateway_name,
+                            driver_type: 'Unknown',
+                            tags: [],
+                        };
+                        area.gateways.push(gateway);
+                    }
+                    gateway.tags.push(tag);
+                }
+            }
+        }
+    });
+
+    // Convert maps to arrays
+    const organizations: OrganizationHierarchy[] = Array.from(orgMap.values()).map(org => ({
+        id: org.id,
+        name: org.name,
+        sites: Array.from(org.sites.values()),
+    }));
+
+    return { organizations };
+};
+
 export const TagBrowser: React.FC<TagBrowserProps> = ({
     onAddTagToChart,
     selectedTagIds,
@@ -68,72 +135,6 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
 
         fetchHierarchy();
     }, []);
-
-    // Build hierarchy from flat tag list (fallback)
-    const buildHierarchyFromFlat = (tags: TagWithHierarchy[]): TagHierarchyResponse => {
-        const orgMap = new Map<number, { id: number; name: string; sites: Map<number, SiteHierarchy> }>();
-
-        tags.forEach(tag => {
-            if (!tag.org_id || !tag.org_name) return;
-
-            if (!orgMap.has(tag.org_id)) {
-                orgMap.set(tag.org_id, {
-                    id: tag.org_id,
-                    name: tag.org_name,
-                    sites: new Map(),
-                });
-            }
-
-            const org = orgMap.get(tag.org_id)!;
-
-            if (tag.site_id && tag.site_name) {
-                if (!org.sites.has(tag.site_id)) {
-                    org.sites.set(tag.site_id, {
-                        id: tag.site_id,
-                        name: tag.site_name,
-                        areas: [],
-                    });
-                }
-
-                const site = org.sites.get(tag.site_id)!;
-
-                if (tag.area_id && tag.area_name) {
-                    let area = site.areas.find(a => a.id === tag.area_id);
-                    if (!area) {
-                        area = {
-                            id: tag.area_id,
-                            name: tag.area_name,
-                            gateways: [],
-                        };
-                        site.areas.push(area);
-                    }
-
-                    if (tag.gateway_id && tag.gateway_name) {
-                        let gateway = area.gateways.find(g => g.id === tag.gateway_id);
-                        if (!gateway) {
-                            gateway = {
-                                id: tag.gateway_id,
-                                name: tag.gateway_name,
-                                driver_type: 'Unknown',
-                                tags: [],
-                            };
-                            area.gateways.push(gateway);
-                        }
-                        gateway.tags.push(tag);
-                    }
-                }
-            }
-        });
-
-        // Convert maps to arrays
-        const organizations: OrganizationHierarchy[] = Array.from(orgMap.values()).map(org => ({
-            id: org.id,
-            name: org.name,
-            sites: Array.from(org.sites.values()),
-        }));
-
-        return { organizations };
-    };
 
     // Get all tags from hierarchy for favorites
     const allTags = useMemo(() => {

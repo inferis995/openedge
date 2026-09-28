@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Dependencies
+
+- Web UI lint on eslint 10, @eslint/js 10, eslint-plugin-react-hooks 7 (with
+  the React Compiler rules) and globals 17. The code was brought in line with
+  the new rules rather than the rules switched off: state copied from props
+  into effects is set during render or derived, data loads start from effects
+  and set state when the response arrives (`lib/startLoad`), components are
+  no longer created inside render.
+
+### Fixed
+
+- Editing an existing user reset the sites and areas they were restricted to
+  as soon as the dialog opened; saving removed the restriction.
+- In getting started, choosing "+ New organization" when one already existed
+  was undone on the next render.
+- The trend page fetched history twice after a manual refresh.
+- Removed an unused trend dashboard component.
+
 ## [3.3.0] - 2026-09-27
 
 > **Read before upgrading a multi-organization server.**

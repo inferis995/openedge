@@ -51,11 +51,11 @@ const UpdateNotificationBanner = () => {
         }
     };
 
-    let bannerClass = '';
-    let icon: React.ReactNode = null;
-    let message = '';
+    let bannerClass: string;
+    let icon: React.ReactNode;
+    let message: string;
     let actionLabel = '';
-    let showAction = false;
+    let showAction: boolean;
 
     switch (status.status) {
         case 'pending':

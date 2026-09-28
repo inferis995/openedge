@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertCircle, Bell, BellRing, CheckCircle2, Eye, EyeOff, Loader2, Mail, MessageCircle, Send, AlertTriangle } from 'lucide-react';
 
 import { systemApi, NotificationSettings as NS, NotificationTestResult } from '@/api/system';
@@ -103,34 +103,38 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
     const [testResult, setTestResult] = useState<NotificationTestResult | null>(null);
 
     // Seed the form when initial settings arrive (or change after a save).
-    useEffect(() => {
-        if (!initial) return;
-        setEmailEnabled(isTrue(initial.notif_email_enabled));
-        setEmailHost(initial.notif_email_smtp_host ?? '');
-        setEmailPort(initial.notif_email_smtp_port ?? '587');
-        setEmailUseTLS(isTrue(initial.notif_email_use_tls));
-        setEmailUser(initial.notif_email_username ?? '');
-        // password stays blank — the server returned '' for masking
-        setEmailFrom(initial.notif_email_from ?? '');
-        setEmailTo(initial.notif_email_to ?? '');
+    // Adjusted during render rather than in an effect, so the stale form is never painted.
+    const [seededFrom, setSeededFrom] = useState<{ v: Props['initial'] } | null>(null);
+    if (seededFrom === null || seededFrom.v !== initial) {
+        setSeededFrom({ v: initial });
+        if (initial) {
+            setEmailEnabled(isTrue(initial.notif_email_enabled));
+            setEmailHost(initial.notif_email_smtp_host ?? '');
+            setEmailPort(initial.notif_email_smtp_port ?? '587');
+            setEmailUseTLS(isTrue(initial.notif_email_use_tls));
+            setEmailUser(initial.notif_email_username ?? '');
+            // password stays blank — the server returned '' for masking
+            setEmailFrom(initial.notif_email_from ?? '');
+            setEmailTo(initial.notif_email_to ?? '');
 
-        setTgEnabled(isTrue(initial.notif_telegram_enabled));
-        setTgChatID(initial.notif_telegram_chat_id ?? '');
+            setTgEnabled(isTrue(initial.notif_telegram_enabled));
+            setTgChatID(initial.notif_telegram_chat_id ?? '');
 
-        setSlackEnabled(isTrue(initial.notif_slack_enabled));
-        setSlackWebhookUrl(initial.notif_slack_webhook_url ?? '');
+            setSlackEnabled(isTrue(initial.notif_slack_enabled));
+            setSlackWebhookUrl(initial.notif_slack_webhook_url ?? '');
 
-        setTeamsEnabled(isTrue(initial.notif_teams_enabled));
-        setTeamsWebhookUrl(initial.notif_teams_webhook_url ?? '');
+            setTeamsEnabled(isTrue(initial.notif_teams_enabled));
+            setTeamsWebhookUrl(initial.notif_teams_webhook_url ?? '');
 
-        setPdEnabled(isTrue(initial.notif_pagerduty_enabled));
-        // routing key stays blank — masked on server
-        setPdRoutingKey('');
+            setPdEnabled(isTrue(initial.notif_pagerduty_enabled));
+            // routing key stays blank — masked on server
+            setPdRoutingKey('');
 
-        setMinSeverity(initial.notif_min_severity ?? 'medium');
-        setOnCleared(isTrue(initial.notif_on_cleared));
-        setRateLimit(initial.notif_rate_limit_per_min ?? '60');
-    }, [initial]);
+            setMinSeverity(initial.notif_min_severity ?? 'medium');
+            setOnCleared(isTrue(initial.notif_on_cleared));
+            setRateLimit(initial.notif_rate_limit_per_min ?? '60');
+        }
+    }
 
     // ── Validation ──────────────────────────────────────────────────────
     const emailErrors = useMemo(() => {

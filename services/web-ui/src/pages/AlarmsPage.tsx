@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { alarmTypeBadgeLabel } from '@/lib/alarmTypes';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useTranslation } from 'react-i18next';
+import { startLoad } from '@/lib/startLoad';
 
 function TableSkeletonRows({ cols, rows = 6 }: { cols: number; rows?: number }) {
     return (
@@ -54,8 +55,8 @@ export default function AlarmsPage() {
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
 
-    const loadData = async () => {
-        setIsLoading(true);
+    // Fetch without flipping the loading flag first: on mount it is already true.
+    const fetchData = async () => {
         try {
             const tags = await tagsApi.getAllTags();
             const tMap: Record<number, Tag> = {};
@@ -76,8 +77,13 @@ export default function AlarmsPage() {
         }
     };
 
+    const loadData = () => {
+        setIsLoading(true);
+        return fetchData();
+    };
+
     useEffect(() => {
-        loadData();
+        startLoad(fetchData);
         const interval = setInterval(loadData, 30000);
         return () => clearInterval(interval);
     }, []);

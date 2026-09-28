@@ -35,7 +35,7 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
     const qc = useQueryClient();
     const key = ['edge-agents', orgId];
 
-    const { data, isLoading } = useQuery({
+    const { data, isLoading, dataUpdatedAt } = useQuery({
         queryKey: key,
         queryFn: () => edgeAgentsApi.list(orgId),
         refetchInterval: 30_000,
@@ -68,8 +68,9 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
         return <p className="text-xs text-muted-foreground">{t('edgeBoxes.loading')}</p>;
     }
 
+    // Measured against when the list was fetched (every 30s), so render stays pure.
     const online = (a: EdgeAgent) =>
-        !!a.last_seen_at && Date.now() - new Date(a.last_seen_at).getTime() < OFFLINE_AFTER_MS;
+        !!a.last_seen_at && dataUpdatedAt - new Date(a.last_seen_at).getTime() < OFFLINE_AFTER_MS;
 
     return (
         <div className="space-y-3">
