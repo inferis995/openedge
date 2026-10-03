@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version 3 page by page: buttons keep the pointer cursor and borders their
   colour; form labels sit a few pixels closer to their field.
 
+### Security
+
+- Web UI: ip-address 10.7.3 (via mqtt → socks), for GHSA-rpw4-54j3-4h4q,
+  GHSA-2vr4-cq9g-pvrc, GHSA-j6r3-76f7-8jcv and GHSA-h3mg-xc3c-68pw.
+
 ### Fixed
 
 - Editing an existing user reset the sites and areas they were restricted to
