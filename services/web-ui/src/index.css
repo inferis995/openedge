@@ -155,6 +155,40 @@ layer(base);
 }
 
 /*
+  A label in a space-y-* form, laid out as it was with Tailwind v3.
+
+  v3 spaced the children of space-y-* with margin-top on every child but the
+  first; v4 uses margin-bottom on every child but the last. A label is inline,
+  and an inline element ignores a bottom margin: in v4 the label sat flush on
+  its field. v3's gap was the parent's line box (the label sat in it) plus the
+  field's margin-top. Here the label becomes a block one parent line tall, and
+  takes the bottom margin v4 gives it: the same height, the same gap.
+
+  1lh is taken on the parent, through a registered property, because v4
+  writes line heights as ratios that a smaller label would scale down. The
+  line height is !important because a label's own text-xs or leading-none
+  set it too, and in v3 neither changed the parent's line it sat in. The
+  display is not: a label given its own (flex, hidden) keeps it, and a flex
+  or grid label keeps its line height as well, as in v3.
+*/
+@property --oe-parent-lh {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
+}
+@layer base {
+  [class*='space-y-'] {
+    --oe-parent-lh: 1lh;
+  }
+  [class*='space-y-'] > label {
+    display: block;
+  }
+  [class*='space-y-'] > label:not([class*='flex']):not([class*='grid']) {
+    line-height: var(--oe-parent-lh) !important;
+  }
+}
+
+/*
   Tailwind v4 leaves buttons with the browser's default arrow cursor; v3 set
   a pointer. Kept so every clickable control still looks clickable.
 */

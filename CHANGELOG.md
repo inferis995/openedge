@@ -24,8 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   autoprefixer is gone. Class names were renamed by the official upgrade tool
   (`shadow-sm` → `shadow-xs`, `outline-none` → `outline-hidden`, …), with its
   rewrite of the button variant `outline` undone. Screens were compared with
-  version 3 page by page: buttons keep the pointer cursor and borders their
-  colour; form labels sit a few pixels closer to their field.
+  version 3 page by page and dialog by dialog, element positions identical:
+  buttons keep the pointer cursor, borders their colour, and form labels
+  their distance from the field (v4 spaces `space-y-*` with a bottom margin,
+  which an inline label ignored).
 
 ### Security
 
