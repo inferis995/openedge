@@ -260,7 +260,7 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 	_, _ = s.db.ExecContext(ctx,
 		`UPDATE users SET last_login_at=NOW(), last_login_ip=$1 WHERE id=$2`, ipAddress, user.ID)
 
-	token, err := s.generateToken(ctx, user)
+	token, err := s.generateToken(ctx, &user)
 	if err != nil {
 		return nil, err
 	}
@@ -382,7 +382,7 @@ func (s *Service) CompleteMFALogin(ctx context.Context, mfaToken, code, ipAddres
 	_, _ = s.db.ExecContext(ctx,
 		`UPDATE users SET last_login_at=NOW(), last_login_ip=$1 WHERE id=$2`, ipAddress, user.ID)
 
-	fullToken, err := s.generateToken(ctx, user)
+	fullToken, err := s.generateToken(ctx, &user)
 	if err != nil {
 		return nil, err
 	}
@@ -409,7 +409,36 @@ func (s *Service) tokenVersion(ctx context.Context, userID int) int {
 	return v
 }
 
-func (s *Service) generateToken(ctx context.Context, user models.User) (string, error) {
+// mustChangePassword reads users.must_change_password. An error reads as
+// false: like tokenVersion, it must never block a login.
+func (s *Service) mustChangePassword(ctx context.Context, userID int) bool {
+	if s.db == nil {
+		return false
+	}
+	var v bool
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(must_change_password, false) FROM users WHERE id=$1`, userID).Scan(&v); err != nil {
+		return false
+	}
+	return v
+}
+
+// TokenForUser mints a fresh session token for userID, as a login would: the
+// caller has already proven who it is (a password change, for one).
+func (s *Service) TokenForUser(ctx context.Context, userID int) (string, error) {
+	var user models.User
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT id, username, role, full_name, org_id, i3x_write, created_at FROM users WHERE id = $1`, userID,
+	).Scan(&user.ID, &user.Username, &user.Role, &user.FullName, &user.OrgID, &user.I3xWrite, &user.CreatedAt); err != nil {
+		return "", err
+	}
+	return s.generateToken(ctx, &user)
+}
+
+// generateToken signs a session token for user, and sets user.MustChangePassword
+// from the database so the login response tells the UI too.
+func (s *Service) generateToken(ctx context.Context, user *models.User) (string, error) {
+	user.MustChangePassword = s.mustChangePassword(ctx, user.ID)
 	claims := jwt.MapClaims{
 		"user_id":   user.ID,
 		"username":  user.Username,
@@ -430,10 +459,17 @@ func (s *Service) generateToken(ctx context.Context, user models.User) (string, 
 	if user.OrgID != nil {
 		claims["org_id"] = *user.OrgID
 	}
+	if user.MustChangePassword {
+		claims[PasswordChangeClaim] = true
+	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(SecretKey)
 }
+
+// PasswordChangeClaim marks the token of an account still on the default
+// password. middleware.RequireAuth confines it to changing the password.
+const PasswordChangeClaim = "pwd_change"
 
 // GenerateTokenForUser creates a JWT for an SSO-provisioned user.
 // orgID = 0 is treated as global admin (org_id = NULL in claims).

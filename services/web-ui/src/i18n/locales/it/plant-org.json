@@ -479,5 +479,12 @@
         "new_password": "Nuova password",
         "new_password_placeholder": "Lascia vuoto per non cambiarla",
         "save_changes": "Salva le modifiche"
+    },
+    "forcedPassword": {
+        "title": "Cambia la password per continuare",
+        "intro": "Hai effettuato l'accesso con la password predefinita, che è pubblica (è scritta nella documentazione). Finché non la cambi, OpenEdge non permette altre operazioni con questo account.",
+        "submit": "Cambia password e continua",
+        "logout": "Esci",
+        "relogin": "Password cambiata. Accedi di nuovo con la nuova password."
     }
 }

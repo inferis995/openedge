@@ -65,9 +65,34 @@ func RequireAuth(c *gin.Context) {
 		return
 	}
 
+	// An account still on the built-in default password may only change it.
+	// Its password is public — it is in the README — so a session opened with
+	// it is not trusted with anything else, whoever opened it.
+	if pc, _ := claims[auth.PasswordChangeClaim].(bool); pc && !allowedBeforePasswordChange(c.Request) {
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+			"error": "Forbidden: this account still uses the default password; change it first",
+			"code":  PasswordChangeRequired,
+		})
+		return
+	}
+
 	// Add user info to context
 	c.Set(UserKey, claims)
 	c.Next()
+}
+
+// PasswordChangeRequired is the error code of a request refused because the
+// account must change its default password first; the UI keys on it.
+const PasswordChangeRequired = "password_change_required"
+
+// allowedBeforePasswordChange lists what a default-password session can do:
+// read who it is, change the password, sign out.
+func allowedBeforePasswordChange(r *http.Request) bool {
+	switch r.Method + " " + strings.TrimSuffix(r.URL.Path, "/") {
+	case "GET /api/auth/me", "PUT /api/auth/me/password", "POST /api/auth/logout":
+		return true
+	}
+	return false
 }
 
 // The write scope. Declared here rather than imported from handlers because

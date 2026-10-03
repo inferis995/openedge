@@ -127,7 +127,8 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 		 SET password_hash = $1,
 		     failed_login_count = 0,
 		     locked_until = NULL,
-		     token_version = COALESCE(token_version, 0) + 1
+		     token_version = COALESCE(token_version, 0) + 1,
+		     must_change_password = false
 		 WHERE id = $2`, string(hash), userID); err != nil {
 		return errors.New("failed to update password")
 	}

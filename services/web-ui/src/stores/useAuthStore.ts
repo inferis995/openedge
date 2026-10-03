@@ -10,6 +10,8 @@ export interface User {
     full_name: string;
     org_id?: number | null; // null = global admin, set = org-scoped
     i3x_write?: boolean;
+    /** Still on the default password: the server allows nothing but changing it. */
+    must_change_password?: boolean;
 }
 
 interface AuthState {
@@ -17,6 +19,8 @@ interface AuthState {
     user: User | null;
     login: (token: string, user: User) => void;
     logout: () => void;
+    /** The server refused a request because the default password must be changed first. */
+    requirePasswordChange: () => void;
     isAuthenticated: () => boolean;
     isAdmin: () => boolean;
     isGlobalAdmin: () => boolean; // admin with no org (superuser)
@@ -32,6 +36,10 @@ export const useAuthStore = create<AuthState>()(
             user: null,
             login: (token, user) => set({ token, user }),
             logout: () => set({ token: null, user: null }),
+            requirePasswordChange: () => {
+                const u = get().user;
+                if (u && !u.must_change_password) set({ user: { ...u, must_change_password: true } });
+            },
             isAuthenticated: () => !!get().token,
             isAdmin: () => get().user?.role === 'admin',
             isGlobalAdmin: () => get().user?.role === 'admin' && !get().user?.org_id,

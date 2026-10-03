@@ -598,9 +598,10 @@ func (h *OAuthHandler) issueTokens(c *gin.Context, clientID string, userID int, 
 	var username, role string
 	var tokenVersion int
 	var orgID sql.NullInt64
+	var mustChange bool
 	if err := h.db.QueryRowContext(ctx,
-		`SELECT username, role, org_id, COALESCE(token_version,0) FROM users WHERE id=$1`, userID).
-		Scan(&username, &role, &orgID, &tokenVersion); err != nil {
+		`SELECT username, role, org_id, COALESCE(token_version,0), COALESCE(must_change_password,false) FROM users WHERE id=$1`, userID).
+		Scan(&username, &role, &orgID, &tokenVersion, &mustChange); err != nil {
 		log.Printf("[OAUTH] user lookup: %v", err)
 		oauthError(c, http.StatusBadRequest, "invalid_grant", "the user no longer exists")
 		return
@@ -619,6 +620,11 @@ func (h *OAuthHandler) issueTokens(c *gin.Context, clientID string, userID int, 
 	}
 	if orgID.Valid {
 		claims["org_id"] = int(orgID.Int64)
+	}
+	// An application acting for an account still on the default password gets
+	// no more than the account's own session does (middleware.RequireAuth).
+	if mustChange {
+		claims[auth.PasswordChangeClaim] = true
 	}
 	access, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(auth.SecretKey)
 	if err != nil {

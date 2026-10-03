@@ -225,6 +225,14 @@ func (h *UsersHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	// Create checked the length and Update did not: an administrator could set
+	// any account, the global admin's included, to an eight-letter password.
+	if req.Password != "" {
+		if pwErr := auth.ValidatePassword(req.Password); pwErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": pwErr.Error()})
+			return
+		}
+	}
 
 	var existingUser models.User
 	checkQuery := `SELECT id, username, role, full_name, org_id, i3x_write, created_at FROM users WHERE id = $1`
@@ -275,7 +283,7 @@ func (h *UsersHandler) Update(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 			return
 		}
-		_, err = tx.ExecContext(c.Request.Context(), `UPDATE users SET password_hash = $1 WHERE id = $2`, string(hashedPassword), id)
+		_, err = tx.ExecContext(c.Request.Context(), `UPDATE users SET password_hash = $1, must_change_password = false WHERE id = $2`, string(hashedPassword), id)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})
 			return

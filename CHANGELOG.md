@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.4.0] - 2026-10-03
 
+### Changed (action may be needed)
+
+- **Write commands from the cloud broker are refused unless enabled.** Cloud
+  sync is one connection for the whole platform, and its write path
+  (`{prefix}/sys/write/{org_id}/…`) took the organization from the topic,
+  which anybody able to publish on the cloud broker chooses: they could drive
+  any organization's PLCs. The platform administrator now picks, in System →
+  Cloud sync → Writes from the cloud, which organizations accept them
+  (`cloud_write_org_ids`). The list starts empty: an installation that sends
+  commands from the cloud must tick its organization after upgrading.
+- **An account still on the default password `admin123` must change it at
+  the next sign-in.** Until then the session can only read who it is, change
+  the password and sign out; the web UI shows nothing but the change-password
+  screen. This applies to a new installation started without
+  `OPENEDGE_INITIAL_ADMIN_PASSWORD`, and at startup to every existing global
+  admin whose password is still the default (it used to be a log warning
+  only). The password itself is not rotated, so nobody is locked out. Sessions
+  opened before the upgrade keep working until they expire (24 h).
+
 ### Dependencies
 
 - Web UI lint on eslint 10, @eslint/js 10, eslint-plugin-react-hooks 7 (with
@@ -33,6 +52,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- An organization without OEE profiles was shown the "legacy" OEE, computed
+  from the platform's `oee_*` settings — tag ids that may be another
+  company's line. Those settings now belong to the platform administrator,
+  and to the organization only when it is the platform's only one (the rule
+  the hourly OEE history already followed); everybody else has no OEE until
+  they create a profile.
+- Editing a user accepted any password length; it now requires 12
+  characters, as creating one did.
 - Web UI: ip-address 10.7.3 (via mqtt → socks), for GHSA-rpw4-54j3-4h4q,
   GHSA-2vr4-cq9g-pvrc, GHSA-j6r3-76f7-8jcv and GHSA-h3mg-xc3c-68pw.
 

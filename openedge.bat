@@ -102,7 +102,7 @@ echo  │  Core API: http://localhost:8081            │
 echo  │  Login:    admin / admin123                 │
 echo  │                                             │
 echo  │  Wait ~30s for all services to be healthy.  │
-echo  │  Change the default password after login.   │
+echo  │  You will be asked to change it at login.   │
 echo  └─────────────────────────────────────────────┘
 echo.
 pause

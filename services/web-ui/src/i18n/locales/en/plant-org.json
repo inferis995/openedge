@@ -479,5 +479,12 @@
         "new_password": "New password",
         "new_password_placeholder": "Leave empty to keep the current one",
         "save_changes": "Save changes"
+    },
+    "forcedPassword": {
+        "title": "Change your password to continue",
+        "intro": "You signed in with the default password, which is public (it is in the documentation). Until you change it, OpenEdge allows nothing else on this account.",
+        "submit": "Change password and continue",
+        "logout": "Sign out",
+        "relogin": "Password changed. Sign in again with the new password."
     }
 }

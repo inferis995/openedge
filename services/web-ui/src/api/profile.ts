@@ -15,7 +15,9 @@ export const profileApi = {
         return r.data;
     },
 
-    changePassword: async (oldPassword: string, newPassword: string): Promise<void> => {
-        await api.put('/auth/me/password', { old_password: oldPassword, new_password: newPassword });
+    /** Returns a fresh token when the session was one opened with the default password. */
+    changePassword: async (oldPassword: string, newPassword: string): Promise<{ token?: string }> => {
+        const res = await api.put<{ token?: string }>('/auth/me/password', { old_password: oldPassword, new_password: newPassword });
+        return res.data ?? {};
     },
 };

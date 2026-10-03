@@ -20,6 +20,9 @@ type User struct {
 	SiteIDs      []int     `json:"site_ids"` // empty = access all org sites
 	AreaIDs      []int     `json:"area_ids"` // empty = access all accessible areas
 	CreatedAt    time.Time `json:"created_at"`
+	// Still on the built-in default password: the session may do nothing but
+	// change it (middleware.RequireAuth).
+	MustChangePassword bool `json:"must_change_password,omitempty"`
 }
 
 type LoginRequest struct {

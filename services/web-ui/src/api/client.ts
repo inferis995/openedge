@@ -82,7 +82,12 @@ api.interceptors.response.use(
         });
 
         // Handle specific error cases
-        if (error.response?.status === 403) {
+        if (error.response?.status === 403 &&
+            (error.response.data as { code?: string } | undefined)?.code === 'password_change_required') {
+            // The account still has the default password; RequireAuth shows
+            // the change-password screen instead of the page.
+            useAuthStore.getState().requirePasswordChange();
+        } else if (error.response?.status === 403) {
             console.error('403 Forbidden - Organization access denied. Check X-Organization-ID header.');
         } else if (error.response?.status === 401) {
             console.error('401 Unauthorized - Authentication required');

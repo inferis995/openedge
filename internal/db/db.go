@@ -1110,6 +1110,11 @@ func runAutoMigrations(db *sql.DB) error {
 		// embedded as a claim by auth.generateToken. TODO(security): middleware.RequireAuth
 		// must still compare the claim against this column to actually revoke old sessions.
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0`,
+		// must_change_password — the account still has the built-in default
+		// password: its token carries pwd_change and middleware.RequireAuth
+		// lets it do nothing but change it. Set by bootstrapAdminIfMissing and
+		// requireChangeOfDefaultPassword, cleared by a password change or reset.
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false`,
 	}
 	for _, stmt := range securityUserCols {
 		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
@@ -1634,7 +1639,7 @@ func BootstrapAdmin(db *sql.DB) {
 	if err := bootstrapAdminIfMissing(db); err != nil {
 		log.Printf("Warning: bootstrap admin check failed: %v", err)
 	}
-	warnAboutDefaultAdminPassword(db)
+	requireChangeOfDefaultPassword(db)
 }
 
 // bootstrapAdminIfMissing assicura che esista almeno un utente admin
@@ -1689,9 +1694,9 @@ func bootstrapAdminIfMissing(db *sql.DB) error {
 	}
 
 	if _, err := db.Exec(`
-		INSERT INTO users (username, password_hash, role, full_name, org_id)
-		VALUES ('admin', $1, 'admin', 'System Administrator', NULL)
-		ON CONFLICT (username) DO NOTHING`, string(hash)); err != nil {
+		INSERT INTO users (username, password_hash, role, full_name, org_id, must_change_password)
+		VALUES ('admin', $1, 'admin', 'System Administrator', NULL, $2)
+		ON CONFLICT (username) DO NOTHING`, string(hash), usingDefault); err != nil {
 		return err
 	}
 
@@ -1703,29 +1708,38 @@ func bootstrapAdminIfMissing(db *sql.DB) error {
 	return nil
 }
 
-// warnAboutDefaultAdminPassword checks, at every startup, whether any account
-// still authenticates with the built-in default password and says so loudly.
+// requireChangeOfDefaultPassword checks, at every startup, whether a global
+// admin still authenticates with the built-in default password, says so
+// loudly, and makes the account change it at its next sign-in.
 //
-// Existing installations were all seeded with it, and rotating a live
-// credential automatically would be worse than reporting it — so this only
-// reports. It runs after bootstrap and is best-effort: any error is ignored,
-// since this must never block startup.
-func warnAboutDefaultAdminPassword(db *sql.DB) {
+// Reporting alone left every such installation reachable with admin/admin123
+// until somebody read the log. Rotating a live credential automatically would
+// lock the operator out, so the password is left as it is: signing in with it
+// still works, and leads to nothing but the change-password screen
+// (users.must_change_password, middleware.RequireAuth). It runs after
+// bootstrap and is best-effort: any error is ignored, since this must never
+// block startup.
+func requireChangeOfDefaultPassword(db *sql.DB) {
 	rows, err := db.Query(`SELECT username, password_hash FROM users WHERE role = 'admin' AND org_id IS NULL`)
 	if err != nil {
 		return
 	}
 	defer func() { _ = rows.Close() }()
 
+	var stale []string
 	for rows.Next() {
 		var username, hash string
 		if err := rows.Scan(&username, &hash); err != nil {
 			continue
 		}
 		if bcrypt.CompareHashAndPassword([]byte(hash), []byte(defaultInitialAdminPassword)) == nil {
-			warnDefaultAdminPassword(fmt.Sprintf("global admin %q still uses the DEFAULT password", username))
-			return
+			warnDefaultAdminPassword(fmt.Sprintf("global admin %q still uses the DEFAULT password: it must be changed at the next sign-in", username))
+			stale = append(stale, username)
 		}
+	}
+	_ = rows.Close()
+	for _, u := range stale {
+		_, _ = db.ExecContext(context.Background(), `UPDATE users SET must_change_password = true WHERE username = $1`, u)
 	}
 }
 
