@@ -57,10 +57,10 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
                 <div key={pen.tagId} className="p-2 hover:bg-muted/40 transition-colors">
                     {/* Pen header row */}
                     <div className="flex items-center gap-1.5 mb-1">
-                        <GripVertical className="w-3 h-3 text-muted-foreground/40 cursor-grab flex-shrink-0" />
+                        <GripVertical className="w-3 h-3 text-muted-foreground/40 cursor-grab shrink-0" />
 
                         {/* Color swatch / picker */}
-                        <div className="relative flex-shrink-0">
+                        <div className="relative shrink-0">
                             <div
                                 className="w-3 h-3 rounded-sm cursor-pointer ring-1 ring-border"
                                 style={{ background: pen.color }}

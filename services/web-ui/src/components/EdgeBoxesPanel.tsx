@@ -120,7 +120,7 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
                         <TableBody>
                             {data.agents.map((a) => (
                                 <TableRow key={a.id}>
-                                    <TableCell className="min-w-[10rem]">
+                                    <TableCell className="min-w-40">
                                         {editing === a.id ? (
                                             <div className="flex items-center gap-1">
                                                 <Input
@@ -160,7 +160,7 @@ export default function EdgeBoxesPanel({ orgId }: Props) {
                                             </Badge>
                                         )}
                                     </TableCell>
-                                    <TableCell className="min-w-[13rem]">
+                                    <TableCell className="min-w-52">
                                         <Select
                                             value={a.scope}
                                             onValueChange={(v) => update.mutate({ id: a.id, scope: v as EdgeAgentScope })}

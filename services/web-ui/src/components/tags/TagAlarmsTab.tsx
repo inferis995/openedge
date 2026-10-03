@@ -176,7 +176,7 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                 <p className="text-sm text-muted-foreground">
                     {t('tagAlarms.intro')}
                 </p>
-                <Button onClick={addAlarm} size="sm" variant="outline" className="gap-2 flex-shrink-0">
+                <Button onClick={addAlarm} size="sm" variant="outline" className="gap-2 shrink-0">
                     <Plus size={16} /> {t('tagAlarms.add')}
                 </Button>
             </div>
@@ -194,7 +194,7 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                         const needsThreshold = !NO_THRESHOLD_TYPES.has(alarm.alarm_type);
                         const isHealth = HEALTH_TYPES.has(alarm.alarm_type);
                         return (
-                            <div key={idx} className="p-4 border rounded-md shadow-sm space-y-3 bg-card relative">
+                            <div key={idx} className="p-4 border rounded-md shadow-xs space-y-3 bg-card relative">
                                 <Button
                                     variant="ghost"
                                     size="icon"

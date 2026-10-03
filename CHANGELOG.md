@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into effects is set during render or derived, data loads start from effects
   and set state when the response arrives (`lib/startLoad`), components are
   no longer created inside render.
+- Go 1.27.1 (builder images golang:1.27-alpine, runtime alpine:3.24),
+  golangci-lint 2.14, gin-contrib/cors 1.7.9.
+- Web UI on vitest 5 with coverage-v8 5, and minor updates of react-query,
+  react-i18next, prettier and typescript-eslint.
+- Web UI on Tailwind CSS 4: the configuration moved from `tailwind.config.js`
+  into `src/index.css` (`@theme`), PostCSS uses `@tailwindcss/postcss` and
+  autoprefixer is gone. Class names were renamed by the official upgrade tool
+  (`shadow-sm` → `shadow-xs`, `outline-none` → `outline-hidden`, …), with its
+  rewrite of the button variant `outline` undone. Screens were compared with
+  version 3 page by page: buttons keep the pointer cursor and borders their
+  colour; form labels sit a few pixels closer to their field.
 
 ### Fixed
 

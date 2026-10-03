@@ -725,7 +725,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                 isEdit ? 'grid-cols-1 lg:grid-cols-[160px_1fr_280px]' : 'grid-cols-1')}>
                 {/* Palette (edit only) */}
                 {isEdit && (
-                    <div className="order-2 lg:order-none space-y-2">
+                    <div className="order-2 lg:order-0 space-y-2">
                         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{tr('synopticEditor.palette')}</p>
                         <div className="flex gap-2 overflow-x-auto pb-1 lg:grid lg:grid-cols-2 lg:overflow-visible
                                         [&>button]:shrink-0 [&>button]:w-20 lg:[&>button]:w-auto">
@@ -779,7 +779,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                 {/* Canvas. order-first below lg: with the palette above it, the
                     thing being edited started off-screen. */}
                 <div ref={canvasWrapRef}
-                    className={cn('order-first lg:order-none overflow-auto rounded-md border bg-muted/20 p-0.5',
+                    className={cn('order-first lg:order-0 overflow-auto rounded-md border bg-muted/20 p-0.5',
                         !isEdit && mobileList && 'hidden sm:block')}>
                     <div
                         className="relative mx-auto"
@@ -807,7 +807,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                     onClick={(e) => { if (isEdit) { e.stopPropagation(); } }}
                                     className={cn('absolute select-none',
                                         isEdit && (w.locked ? 'cursor-default' : 'cursor-move'),
-                                        isEdit && selectedIds.includes(w.id) && 'outline outline-2 outline-primary outline-offset-2',
+                                        isEdit && selectedIds.includes(w.id) && 'outline-solid outline-2 outline-primary outline-offset-2',
                                         isEdit && w.locked && 'opacity-80')}
                                     style={{ left: w.x, top: w.y, width: w.w, height: w.h, transform: w.rotation ? `rotate(${w.rotation}deg)` : undefined }}
                                 >
@@ -875,7 +875,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
 
                 {/* Properties panel (edit only) */}
                 {isEdit && (
-                    <div className="order-3 lg:order-none space-y-3">
+                    <div className="order-3 lg:order-0 space-y-3">
                         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{tr('synopticEditor.properties')}</p>
                         {selectedIds.length > 1 ? (
                             <div className="space-y-3">

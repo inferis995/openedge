@@ -70,7 +70,7 @@ export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear 
                     <div className="flex items-center border-b px-3">
                         <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
                         <input
-                            className="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                            className="flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
                             placeholder={t('tagSearch.search_placeholder')}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
@@ -127,7 +127,7 @@ export function TagSearch({ tags, onSelect, selectedTags, onSelectTags, onClear 
                                             key={tag.id}
                                             onClick={() => handleSelect(tag)}
                                             className={cn(
-                                                "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
+                                                "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden hover:bg-accent hover:text-accent-foreground",
                                                 isSelected && "opacity-70"
                                             )}
                                         >

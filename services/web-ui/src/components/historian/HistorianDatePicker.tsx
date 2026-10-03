@@ -113,7 +113,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
                         // a mis-tap. Roomier below sm, unchanged above it.
                         className={`px-3 py-2.5 sm:px-2 sm:py-1 text-xs font-medium rounded transition-all ${
                             isPresetActive(p.label)
-                                ? 'bg-background text-primary shadow-sm'
+                                ? 'bg-background text-primary shadow-xs'
                                 : 'text-muted-foreground hover:text-foreground'
                         }`}
                     >

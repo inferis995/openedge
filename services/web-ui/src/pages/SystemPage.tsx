@@ -476,8 +476,8 @@ const SystemPage = () => {
                         : 'bg-destructive/10 border-destructive/20 text-destructive'
                         }`}>
                         {message.type === 'success'
-                            ? <CheckCircle className="h-4 w-4 flex-shrink-0" />
-                            : <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                            ? <CheckCircle className="h-4 w-4 shrink-0" />
+                            : <AlertTriangle className="h-4 w-4 shrink-0" />
                         }
                         {message.text}
                     </div>
@@ -506,10 +506,10 @@ const SystemPage = () => {
                             externalPort={mqttExternalPort}
                         />
                         {/* MQTT Broker Configuration */}
-                        <Card className="border-border shadow-sm bg-card">
+                        <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                                         <Server className="h-4 w-4 text-primary" />
                                     </div>
                                     <div>
@@ -538,10 +538,10 @@ const SystemPage = () => {
                                                     : 'border-border bg-card hover:border-primary/30'
                                                     }`}
                                             >
-                                                <RadioGroupItem value="internal" id="broker-internal" className="mt-0.5 flex-shrink-0" />
+                                                <RadioGroupItem value="internal" id="broker-internal" className="mt-0.5 shrink-0" />
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2">
-                                                        <Network className={`h-3.5 w-3.5 flex-shrink-0 ${mqttBrokerMode === 'internal' ? 'text-primary' : 'text-muted-foreground'}`} />
+                                                        <Network className={`h-3.5 w-3.5 shrink-0 ${mqttBrokerMode === 'internal' ? 'text-primary' : 'text-muted-foreground'}`} />
                                                         <span className={`text-sm font-medium ${mqttBrokerMode === 'internal' ? 'text-foreground' : 'text-foreground'}`}>
                                                             {t('systemPage.broker_internal')}
                                                         </span>
@@ -565,10 +565,10 @@ const SystemPage = () => {
                                                     : 'border-border bg-card hover:border-primary/30'
                                                     }`}
                                             >
-                                                <RadioGroupItem value="external" id="broker-external" className="mt-0.5 flex-shrink-0" />
+                                                <RadioGroupItem value="external" id="broker-external" className="mt-0.5 shrink-0" />
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center gap-2">
-                                                        <Server className={`h-3.5 w-3.5 flex-shrink-0 ${mqttBrokerMode === 'external' ? 'text-primary' : 'text-muted-foreground'}`} />
+                                                        <Server className={`h-3.5 w-3.5 shrink-0 ${mqttBrokerMode === 'external' ? 'text-primary' : 'text-muted-foreground'}`} />
                                                         <span className={`text-sm font-medium ${mqttBrokerMode === 'external' ? 'text-foreground' : 'text-foreground'}`}>
                                                             {t('systemPage.broker_external')}
                                                         </span>
@@ -671,7 +671,7 @@ const SystemPage = () => {
                                                 />
 
                                                 <p className="text-xs text-destructive flex items-center gap-1.5">
-                                                    <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                                                    <AlertTriangle className="h-3 w-3 shrink-0" />
                                                     {t('systemPage.restart_needed')}
                                                 </p>
                                             </div>
@@ -682,11 +682,11 @@ const SystemPage = () => {
                         </Card>
 
                         {/* Cloud Sync (Forwarder) Card */}
-                        <Card className="border-border shadow-sm bg-card">
+                        <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3">
-                                        <div className="w-9 h-9 clip-hex bg-blue-500/10 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
+                                        <div className="w-9 h-9 clip-hex bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
                                             <Server className="h-4 w-4 text-blue-500" />
                                         </div>
                                         <div>
@@ -818,10 +818,10 @@ const SystemPage = () => {
                         </Card>
 
                         {/* MQTT Publish Mode Configuration */}
-                        <Card className="border-border shadow-sm bg-card">
+                        <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                                         <RefreshCw className="h-4 w-4 text-primary" />
                                     </div>
                                     <div>
@@ -854,10 +854,10 @@ const SystemPage = () => {
                                                             : 'border-border bg-card hover:border-primary/30'
                                                             }`}
                                                     >
-                                                        <RadioGroupItem value={mode.value} id={mode.value} className="mt-0.5 flex-shrink-0" />
+                                                        <RadioGroupItem value={mode.value} id={mode.value} className="mt-0.5 shrink-0" />
                                                         <div className="flex-1 min-w-0">
                                                             <div className="flex items-center gap-2">
-                                                                <Icon className={`h-3.5 w-3.5 flex-shrink-0 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
+                                                                <Icon className={`h-3.5 w-3.5 shrink-0 ${isSelected ? 'text-primary' : 'text-muted-foreground'}`} />
                                                                 <span className={`text-sm font-medium ${isSelected ? 'text-foreground' : 'text-foreground'}`}>
                                                                     {t(mode.label)}
                                                                 </span>
@@ -966,7 +966,7 @@ const SystemPage = () => {
                                                 // Corretto all'uscita dal campo, non a ogni tasto: altrimenti
                                                 // digitando "15" il primo "1" diventerebbe subito 5.
                                                 onBlur={() => setWriteMaxAge((v) => Math.min(3600, Math.max(5, v || 30)))}
-                                                className="max-w-[8rem]"
+                                                className="max-w-32"
                                             />
                                             <p className="text-xs text-muted-foreground">
                                                 {t('systemPage.write_age_hint')}
@@ -1034,10 +1034,10 @@ const SystemPage = () => {
                         {/* Backup manuale + ripristino, riga a 2 colonne */}
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Manual Backup */}
-                    <Card className="border-border shadow-sm bg-card">
+                    <Card className="border-border shadow-xs bg-card">
                         <CardHeader className="pb-4 border-b border-border">
                             <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                                <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                                     <Download className="h-4 w-4 text-primary" />
                                 </div>
                                 <div>
@@ -1062,10 +1062,10 @@ const SystemPage = () => {
                     </Card>
 
                     {/* Restore */}
-                    <Card className="border-border shadow-sm bg-card">
+                    <Card className="border-border shadow-xs bg-card">
                         <CardHeader className="pb-4 border-b border-border">
                             <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                                <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                                     <HardDrive className="h-4 w-4 text-primary" />
                                 </div>
                                 <div>
@@ -1114,7 +1114,7 @@ const SystemPage = () => {
                                 )}
                             </div>
                             <p className="text-xs text-destructive flex items-center gap-1.5">
-                                <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                                <AlertTriangle className="h-3 w-3 shrink-0" />
                                 {t('systemPage.restore_warn')}
                             </p>
                         </CardContent>
@@ -1123,10 +1123,10 @@ const SystemPage = () => {
 
                 {/* Backup Files List */}
                 {backupList.length > 0 && (
-                    <Card className="border-border shadow-sm bg-card">
+                    <Card className="border-border shadow-xs bg-card">
                         <CardHeader className="pb-4 border-b border-border">
                             <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 clip-hex bg-muted border border-border flex items-center justify-center flex-shrink-0">
+                                <div className="w-9 h-9 clip-hex bg-muted border border-border flex items-center justify-center shrink-0">
                                     <FileArchive className="h-4 w-4 text-muted-foreground" />
                                 </div>
                                 <div>
@@ -1204,10 +1204,10 @@ const SystemPage = () => {
 
                     <TabsContent value="database" className="space-y-6 mt-4">
                         {/* DB Stats Card */}
-                        <Card className="border-border shadow-sm bg-card">
+                        <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                                         <HardDrive className="h-4 w-4 text-primary" />
                                     </div>
                                     <div>
@@ -1283,10 +1283,10 @@ const SystemPage = () => {
                         </Card>
 
                         {/* Historian Retention Card */}
-                        <Card className="border-border shadow-sm bg-card">
+                        <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 clip-hex bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
+                                    <div className="w-9 h-9 clip-hex bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
                                         <Settings2 className="h-4 w-4 text-amber-500" />
                                     </div>
                                     <div>
@@ -1320,17 +1320,17 @@ const SystemPage = () => {
                                     <Trans i18nKey="systemPage.hist_retention_hint" components={{ code: <code /> }} />
                                 </p>
                                 <p className="text-xs text-destructive flex items-center gap-1.5">
-                                    <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                                    <AlertTriangle className="h-3 w-3 shrink-0" />
                                     {t('systemPage.hist_retention_warn')}
                                 </p>
                             </CardContent>
                         </Card>
 
                         {/* CLI Backup Card */}
-                        <Card className="border-border shadow-sm bg-card">
+                        <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 clip-hex bg-muted border border-border flex items-center justify-center flex-shrink-0">
+                                    <div className="w-9 h-9 clip-hex bg-muted border border-border flex items-center justify-center shrink-0">
                                         <FileArchive className="h-4 w-4 text-muted-foreground" />
                                     </div>
                                     <div>
@@ -1360,10 +1360,10 @@ const SystemPage = () => {
 
                     {/* SSO / OIDC Tab */}
                     <TabsContent value="sso" className="space-y-6 mt-4">
-                        <Card className="border-border shadow-sm bg-card">
+                        <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center flex-shrink-0">
+                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                                         <Shield className="h-4 w-4 text-primary" />
                                     </div>
                                     <div className="flex-1">

@@ -215,17 +215,17 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                 >
                                     <div className="flex items-center gap-2 min-w-0">
                                         <div
-                                            className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                                            className="w-2.5 h-2.5 rounded-full shrink-0"
                                             style={{ backgroundColor: color }}
                                         />
                                         <span className="text-xs font-medium text-foreground truncate">{tag.alias || tag.code}</span>
                                         {deviceOnline === false && (
                                             <span title={tr('trend.device_offline')}>
-                                                <AlertTriangle className="w-3 h-3 text-destructive flex-shrink-0" />
+                                                <AlertTriangle className="w-3 h-3 text-destructive shrink-0" />
                                             </span>
                                         )}
                                     </div>
-                                    <div className="text-right flex-shrink-0">
+                                    <div className="text-right shrink-0">
                                         {isBool && rv !== undefined ? (
                                             <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded ${
                                                 rv.value >= 0.5
@@ -272,7 +272,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                 </div>
 
                 <Tabs defaultValue="hierarchy" className="flex-1 flex flex-col min-h-0">
-                    <TabsList className="mx-3 mt-2 grid w-[calc(100%-24px)] grid-cols-1 sm:grid-cols-2 h-10 sm:h-8 flex-shrink-0">
+                    <TabsList className="mx-3 mt-2 grid w-[calc(100%-24px)] grid-cols-1 sm:grid-cols-2 h-10 sm:h-8 shrink-0">
                         <TabsTrigger value="hierarchy" className="text-xs">{tr('trend.tab_hierarchy')}</TabsTrigger>
                         <TabsTrigger value="favorites" className="text-xs">
                             {tr('trend.tab_favorites')}

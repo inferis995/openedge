@@ -124,7 +124,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                         {/* Tag header */}
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
-                                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: s.color }} />
+                                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
                                 <span className="text-xs font-semibold truncate">{s.tagName}</span>
                                 {s.isBool && (
                                     <span className="text-[9px] bg-muted px-1 rounded font-bold text-muted-foreground">BOOL</span>
@@ -282,7 +282,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                                 }))
                                             }
                                         />
-                                        <Minus className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                                        <Minus className="w-3 h-3 text-muted-foreground shrink-0" />
                                         <Input
                                             type="number"
                                             placeholder={t('trend.stat_max')}
@@ -731,7 +731,7 @@ const ChartHeader: React.FC<ChartHeaderProps> = ({
     };
 
     return (
-        <div className="chart-header cursor-move flex-shrink-0 flex items-center gap-2 px-2 py-1.5 border-b bg-muted/30 select-none">
+        <div className="chart-header cursor-move shrink-0 flex items-center gap-2 px-2 py-1.5 border-b bg-muted/30 select-none">
             {/* Title */}
             {isEditingTitle ? (
                 <Input
@@ -740,12 +740,12 @@ const ChartHeader: React.FC<ChartHeaderProps> = ({
                     onChange={(e) => setTitleDraft(e.target.value)}
                     onBlur={commitTitle}
                     onKeyDown={(e) => { if (e.key === 'Enter') commitTitle(); if (e.key === 'Escape') setIsEditingTitle(false); }}
-                    className="h-5 text-xs px-1 py-0 w-28 flex-shrink-0"
+                    className="h-5 text-xs px-1 py-0 w-28 shrink-0"
                     onClick={(e) => e.stopPropagation()}
                 />
             ) : (
                 <span
-                    className="text-xs font-semibold text-muted-foreground truncate flex-shrink-0 cursor-text hover:text-foreground transition-colors"
+                    className="text-xs font-semibold text-muted-foreground truncate shrink-0 cursor-text hover:text-foreground transition-colors"
                     title={tr('trend.rename_hint')}
                     onDoubleClick={(e) => { e.stopPropagation(); setIsEditingTitle(true); }}
                 >
@@ -774,7 +774,7 @@ const ChartHeader: React.FC<ChartHeaderProps> = ({
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-5 w-5 flex-shrink-0 text-muted-foreground hover:text-foreground"
+                            className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
                             title={tr('trend.series_settings')}
                             onClick={(e) => e.stopPropagation()}
                         >
@@ -805,7 +805,7 @@ const ChartHeader: React.FC<ChartHeaderProps> = ({
                 <Button
                     variant="ghost"
                     size="icon"
-                    className="h-5 w-5 flex-shrink-0 text-muted-foreground hover:text-destructive"
+                    className="h-5 w-5 shrink-0 text-muted-foreground hover:text-destructive"
                     title={tr('trend.remove_chart')}
                     onClick={(e) => { e.stopPropagation(); onRemove(); }}
                 >

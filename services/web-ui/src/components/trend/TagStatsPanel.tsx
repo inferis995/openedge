@@ -94,7 +94,7 @@ export const TagStatsPanel: React.FC<TagStatsPanelProps> = ({
         return (
             <div className="bg-card rounded-lg border border-border p-3 h-[160px] flex flex-col">
                 <div className="flex items-center gap-2 mb-2">
-                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: tagColor }} />
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: tagColor }} />
                     <span className="text-xs font-semibold text-foreground truncate">{tagName}</span>
                 </div>
                 <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">{t('trend.no_data')}</div>
@@ -108,11 +108,11 @@ export const TagStatsPanel: React.FC<TagStatsPanelProps> = ({
         : 50;
 
     return (
-        <div className="bg-card rounded-lg border border-border overflow-hidden shadow-sm hover:border-primary/40 transition-colors">
+        <div className="bg-card rounded-lg border border-border overflow-hidden shadow-xs hover:border-primary/40 transition-colors">
             {/* Header */}
             <div className="flex items-center gap-2 px-2.5 pt-2 pb-0.5">
                 <div
-                    className="w-2 h-2 rounded-full flex-shrink-0"
+                    className="w-2 h-2 rounded-full shrink-0"
                     style={{ backgroundColor: tagColor }}
                 />
                 <span className="text-xs font-semibold text-foreground truncate flex-1" title={tagName}>

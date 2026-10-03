@@ -413,7 +413,7 @@ const ProfileEditor = ({
                     {/* Banner auto-detect quando tutto è ancora vuoto */}
                     {usingFallback && allTags.length > 0 && (
                         <div className="flex items-start gap-2 text-xs px-3 py-2 rounded border border-primary/20 bg-primary/5">
-                            <Sparkles size={14} className="text-primary mt-0.5 flex-shrink-0" />
+                            <Sparkles size={14} className="text-primary mt-0.5 shrink-0" />
                             <span>
                                 {tr('oeeProfiles.autodetect')}
                                 <code className="mx-1 px-1 bg-muted rounded">running</code> /
@@ -587,7 +587,7 @@ const OEEProfilesPage = () => {
                         {tr('oeeProfiles.subtitle')}
                     </p>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-2 shrink-0">
                     <Link to="/tv/oee" target="_blank">
                         <Button variant="outline" size="sm" title={tr('oeeProfiles.tv_mode_hint')}>
                             <Monitor size={14} className="mr-1.5" /> {tr('oeeProfiles.tv_mode')}

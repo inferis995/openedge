@@ -24,9 +24,9 @@ const TagNode: React.FC<TagNodeProps> = ({ tag, onSelect, isSelected, isFavorite
             onClick={() => onSelect(tag)}
         >
             <div className="flex items-center gap-1.5 flex-1 min-w-0 pr-2">
-                <TagIcon className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                <TagIcon className="w-3 h-3 text-muted-foreground shrink-0" />
                 <span className={cn("text-xs truncate", isSelected ? 'text-primary font-medium' : 'text-foreground')}>{tag.alias || tag.code}</span>
-                <span className="text-[10px] text-muted-foreground flex-shrink-0">{tag.data_type}</span>
+                <span className="text-[10px] text-muted-foreground shrink-0">{tag.data_type}</span>
             </div>
             <button
                 onClick={(e) => {
@@ -34,7 +34,7 @@ const TagNode: React.FC<TagNodeProps> = ({ tag, onSelect, isSelected, isFavorite
                     onToggleFavorite?.();
                 }}
                 className={cn(
-                    'flex-shrink-0 ml-1 transition-opacity',
+                    'shrink-0 ml-1 transition-opacity',
                     isFavorite ? 'opacity-100' : 'opacity-60 group-hover:opacity-100'
                 )}
                 title={isFavorite ? t('trend.favorite_remove') : t('trend.favorite_add')}
@@ -87,13 +87,13 @@ const GatewayNode: React.FC<GatewayNodeProps> = ({
                 onClick={() => setIsOpen(!isOpen)}
             >
                 {isOpen ? (
-                    <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                    <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
                 ) : (
-                    <ChevronRight className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                    <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
                 )}
-                <Server className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
+                <Server className="w-3.5 h-3.5 text-purple-500 shrink-0" />
                 <span className="text-xs font-medium text-foreground truncate flex-1 min-w-0">{gateway.name}</span>
-                <span className="text-[10px] text-muted-foreground ml-auto flex-shrink-0">{gateway.tags.length}</span>
+                <span className="text-[10px] text-muted-foreground ml-auto shrink-0">{gateway.tags.length}</span>
             </div>
             {isOpen && (
                 <div className="ml-4 border-l border-border pl-1">
@@ -149,13 +149,13 @@ const AreaNode: React.FC<AreaNodeProps> = ({
                 onClick={() => setIsOpen(!isOpen)}
             >
                 {isOpen ? (
-                    <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                    <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
                 ) : (
-                    <ChevronRight className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                    <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
                 )}
-                <MapPin className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                <MapPin className="w-3.5 h-3.5 text-green-500 shrink-0" />
                 <span className="text-xs font-medium text-foreground truncate flex-1 min-w-0">{area.name}</span>
-                <span className="text-[10px] text-muted-foreground ml-auto flex-shrink-0">
+                <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
                     {area.gateways.reduce((sum, g) => sum + g.tags.length, 0)}
                 </span>
             </div>
@@ -216,13 +216,13 @@ const SiteNode: React.FC<SiteNodeProps> = ({
                 onClick={() => setIsOpen(!isOpen)}
             >
                 {isOpen ? (
-                    <ChevronDown className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                    <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
                 ) : (
-                    <ChevronRight className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                    <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
                 )}
-                <Building2 className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                <Building2 className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                 <span className="text-xs font-medium text-foreground truncate flex-1 min-w-0">{site.name}</span>
-                <span className="text-[10px] text-muted-foreground ml-auto flex-shrink-0">
+                <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
                     {site.areas.reduce((sum, a) => sum + a.gateways.reduce((s, g) => s + g.tags.length, 0), 0)}
                 </span>
             </div>
@@ -285,13 +285,13 @@ export const OrganizationNode: React.FC<OrganizationNodeProps> = ({
                 onClick={() => setIsOpen(!isOpen)}
             >
                 {isOpen ? (
-                    <ChevronDown className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                    <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                 ) : (
-                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                    <ChevronRight className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                 )}
-                <Building2 className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+                <Building2 className="w-4 h-4 text-indigo-500 shrink-0" />
                 <span className="text-sm font-semibold text-foreground truncate flex-1 min-w-0">{org.name}</span>
-                <span className="text-[10px] text-muted-foreground ml-auto flex-shrink-0">
+                <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
                     {org.sites.reduce((sum, s) => sum + s.areas.reduce((ss, a) => ss + a.gateways.reduce((sss, g) => sss + g.tags.length, 0), 0), 0)}
                 </span>
             </div>

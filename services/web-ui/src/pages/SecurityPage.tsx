@@ -234,8 +234,8 @@ const SecurityPage = () => {
                                         </div>
                                     </div>
                                     {value
-                                        ? <CheckCircle2 className="h-4 w-4 text-green-600 flex-shrink-0" />
-                                        : <XCircle className="h-4 w-4 text-red-600 flex-shrink-0" />
+                                        ? <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+                                        : <XCircle className="h-4 w-4 text-red-600 shrink-0" />
                                     }
                                 </div>
                             );
@@ -259,10 +259,10 @@ const SecurityPage = () => {
                         {compliance.map(check => (
                             <div key={check.id} className="flex items-start gap-2 py-1">
                                 {check.state === 'pass'
-                                    ? <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                                    ? <CheckCircle2 className="h-4 w-4 text-green-600 mt-0.5 shrink-0" />
                                     : check.state === 'fail'
-                                        ? <XCircle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
-                                        : <MinusCircle className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
+                                        ? <XCircle className="h-4 w-4 text-red-600 mt-0.5 shrink-0" />
+                                        : <MinusCircle className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                                 }
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
@@ -296,7 +296,7 @@ const SecurityPage = () => {
                                 </div>
                             ) : events.map((event, idx) => (
                                 <div key={`${event.id}-${idx}`} className="flex items-start gap-2 py-1.5 border-b last:border-0">
-                                    <Badge className={cn('text-xs flex-shrink-0', severityColor(event.severity))}>
+                                    <Badge className={cn('text-xs shrink-0', severityColor(event.severity))}>
                                         {t(`securityPage.sev_${event.severity}`, { defaultValue: event.severity })}
                                     </Badge>
                                     <div className="flex-1 min-w-0">
@@ -307,7 +307,7 @@ const SecurityPage = () => {
                                             </div>
                                         )}
                                     </div>
-                                    <div className="text-xs text-muted-foreground flex-shrink-0">
+                                    <div className="text-xs text-muted-foreground shrink-0">
                                         {timeAgo(event.created_at)}
                                     </div>
                                 </div>

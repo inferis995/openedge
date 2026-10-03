@@ -96,7 +96,7 @@ export default function AcceptInvitePage() {
                 </div>
 
                 {/* Form */}
-                <div className="rounded-xl border bg-card p-6 shadow-sm space-y-5">
+                <div className="rounded-xl border bg-card p-6 shadow-xs space-y-5">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="space-y-1.5">
                             <Label htmlFor="full_name">{t('acceptInvite.full_name')} <span className="text-muted-foreground">{t('acceptInvite.optional')}</span></Label>

@@ -150,7 +150,7 @@ const HistoryPage = () => {
                     <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground z-10 pointer-events-none" />
                     <input
                         type="date"
-                        className="flex h-10 w-full pl-10 pr-3 rounded-md border border-input bg-card text-foreground text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                        className="flex h-10 w-full pl-10 pr-3 rounded-md border border-input bg-card text-foreground text-sm focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-primary"
                         value={date ? format(date, 'yyyy-MM-dd') : ''}
                         // "yyyy-MM-dd" alone parses as UTC midnight: west of
                         // Greenwich that is the day before. With a time it is local.

@@ -110,7 +110,7 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
                 aria-hidden={!mobileOpen}
                 onClick={onMobileClose}
                 className={cn(
-                    "fixed inset-0 z-[55] bg-black/60 md:hidden transition-opacity duration-300",
+                    "fixed inset-0 z-55 bg-black/60 md:hidden transition-opacity duration-300",
                     mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"
                 )}
             />
@@ -118,10 +118,10 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
                 className={cn(
                     "h-screen bg-[hsl(var(--sidebar-bg))] text-[hsl(var(--sidebar-fg))] flex flex-col border-r border-[hsl(var(--sidebar-border))] transition-transform duration-300 ease-in-out",
                     // Phone: a panel laid over the page, off-screen until asked for.
-                    // z-[60]: above the cookie banner (z-50), which otherwise covers
+                    // z-60: above the cookie banner (z-50), which otherwise covers
                     // the drawer's footer and puts logout and language out of reach
                     // on a first visit.
-                    "fixed inset-y-0 left-0 z-[60] w-72 max-w-[85vw]",
+                    "fixed inset-y-0 left-0 z-60 w-72 max-w-[85vw]",
                     mobileOpen ? "translate-x-0" : "-translate-x-full",
                     // Desktop: part of the layout again, and it may collapse.
                     "md:static md:z-20 md:translate-x-0 md:max-w-none md:transition-all",
@@ -178,7 +178,7 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
                     {!collapsed && (
                         <>
                             <span className="truncate">{t('nav.search_placeholder')}</span>
-                            <kbd className="ml-auto hidden md:inline whitespace-nowrap text-[10px] border border-[hsl(var(--sidebar-border))] px-1.5 py-0.5 rounded">Ctrl K</kbd>
+                            <kbd className="ml-auto hidden md:inline whitespace-nowrap text-[10px] leading-5 border border-[hsl(var(--sidebar-border))] px-1.5 py-0.5 rounded">Ctrl K</kbd>
                         </>
                     )}
                 </button>

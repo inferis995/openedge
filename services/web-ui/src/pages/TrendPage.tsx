@@ -218,7 +218,7 @@ export default function TrendPage() {
     return (
         <div className="flex flex-col h-full overflow-hidden bg-background">
             {/* ── TOOLBAR ────────────────────────────────────────────── */}
-            <div className="flex-shrink-0 bg-card border-b px-3 py-2 space-y-2">
+            <div className="shrink-0 bg-card border-b px-3 py-2 space-y-2">
                 {/* Row 1: title + actions */}
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div className="flex items-center gap-2">
@@ -315,7 +315,7 @@ export default function TrendPage() {
 
                 {/* Left: tag browser */}
                 {sidebarOpen && (
-                    <div className="w-64 flex-shrink-0 border-r overflow-y-auto bg-card/50">
+                    <div className="w-64 shrink-0 border-r overflow-y-auto bg-card/50">
                         <TagBrowser
                             onAddTagToChart={addPen}
                             selectedTagIds={penIds}
@@ -348,7 +348,7 @@ export default function TrendPage() {
 
                 {/* Right: pen panel + stats */}
                 {penPanelOpen && (
-                    <div className="w-56 flex-shrink-0 border-l flex flex-col bg-card/50">
+                    <div className="w-56 shrink-0 border-l flex flex-col bg-card/50">
                         <div className="px-3 py-2 border-b flex items-center gap-1.5">
                             <Settings2 className="w-3.5 h-3.5 text-muted-foreground" />
                             <span className="text-xs font-medium">{tr('trendPage.pens')}</span>

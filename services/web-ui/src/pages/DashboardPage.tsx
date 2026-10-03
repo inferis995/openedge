@@ -109,7 +109,7 @@ const StatusBar = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
             onClick={() => to && navigate(to)}
             disabled={!to}
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border transition-all ${
-                to ? 'hover:shadow cursor-pointer' : 'cursor-default'
+                to ? 'hover:shadow-sm cursor-pointer' : 'cursor-default'
             } ${
                 ok ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/5'
                    : 'border-red-500/30 text-red-500 bg-red-500/5'
@@ -132,20 +132,20 @@ const StatusBar = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
             <button
                 type="button"
                 onClick={() => navigate('/diagnostics')}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-border bg-background hover:shadow cursor-pointer transition-all">
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-border bg-background hover:shadow-sm cursor-pointer transition-all">
                 <Activity size={12} /> {t('dashboardPage.uptime', { value: formatDuration(data.system.api_uptime_sec) })}
             </button>
             <button
                 type="button"
                 onClick={() => navigate('/alarms')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border hover:shadow cursor-pointer transition-all ${alarmsToneClass}`}>
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border hover:shadow-sm cursor-pointer transition-all ${alarmsToneClass}`}>
                 <Bell size={12} />
                 {crit > 0 ? t('dashboardPage.n_critical', { count: crit }) : high > 0 ? t('dashboardPage.n_high', { count: high }) : t('dashboardPage.no_active_alarms')}
             </button>
             <button
                 type="button"
                 onClick={() => navigate('/gateways')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border hover:shadow cursor-pointer transition-all ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border hover:shadow-sm cursor-pointer transition-all ${
                     offlineGw > 0 ? 'border-red-500/30 text-red-500 bg-red-500/5'
                                   : 'border-border text-foreground bg-background'
                 }`}>

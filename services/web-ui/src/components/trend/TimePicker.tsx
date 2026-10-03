@@ -146,7 +146,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
                         key={preset.value}
                         onClick={() => handlePresetClick(preset.value)}
                         className={`px-2.5 py-1 text-xs font-medium rounded transition-all ${value.preset === preset.value
-                            ? 'bg-background text-primary shadow-sm'
+                            ? 'bg-background text-primary shadow-xs'
                             : 'text-muted-foreground hover:text-foreground'
                             }`}
                     >

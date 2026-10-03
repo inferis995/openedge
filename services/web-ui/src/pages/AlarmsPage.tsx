@@ -412,7 +412,7 @@ export default function AlarmsPage() {
 
             <Card className="flex-1 overflow-hidden flex flex-col shadow-md border-border/50">
                 <Tabs defaultValue="active" className="h-full flex flex-col">
-                    <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0 flex-shrink-0">
+                    <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0 shrink-0">
                         <TabsList className="bg-muted">
                             <TabsTrigger value="active" className="gap-2 px-6">
                                 <AlertTriangle size={16} className="text-red-500" />
