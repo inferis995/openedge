@@ -1636,6 +1636,13 @@ func runHistorianCleanup(db *sql.DB, retentionDays int) {
 // other containers would paper over that, and would still leave the outcome
 // dependent on a start-up race.
 func BootstrapAdmin(db *sql.DB) {
+	// The column is added by runAutoMigrations, but every service runs those
+	// at the same time on a fresh install, and core-api can get here while
+	// another service's run has not reached it yet: the admin was then never
+	// created. Idempotent, and an error (no users table yet) is the
+	// bootstrap's own to report.
+	_, _ = db.ExecContext(context.Background(),
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT false`)
 	if err := bootstrapAdminIfMissing(db); err != nil {
 		log.Printf("Warning: bootstrap admin check failed: %v", err)
 	}
