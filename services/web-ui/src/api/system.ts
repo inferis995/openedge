@@ -18,6 +18,8 @@ export interface GlobalSettings {
     cloud_mqtt_username?: string;
     cloud_mqtt_password?: string;
     cloud_mqtt_topic?: string;
+    /** Comma-separated ids of the organizations that accept writes from the cloud broker. */
+    cloud_write_org_ids?: string;
     // Notification channel settings — flat passthrough from the server's
     // global_settings table. Strings everywhere (the DB type is text);
     // boolean-ish fields come as "true"/"false".
@@ -99,6 +101,7 @@ export interface UpdateSettingsRequest {
     cloud_mqtt_username?: string;
     cloud_mqtt_password?: string;
     cloud_mqtt_topic?: string;
+    cloud_write_org_ids?: number[];
     // Flat key→value map of `notif_*` settings — flexible enough to add
     // new channels later without bumping this interface.
     notifications?: Record<string, string>;

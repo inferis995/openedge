@@ -33,6 +33,9 @@ import MqttConnectGuide from '@/components/system/MqttConnectGuide';
 import MqttProbeButton from '@/components/system/MqttProbeButton';
 import { useSearchParams } from 'react-router-dom';
 import { startLoad } from '@/lib/startLoad';
+import { useQuery } from '@tanstack/react-query';
+import { organizationsApi } from '@/api/organizations';
+import { Checkbox } from '@/components/ui/checkbox';
 
 const PUBLISH_MODES = [
     {
@@ -119,6 +122,11 @@ const SystemPage = () => {
     const [cloudMqttUsername, setCloudMqttUsername] = useState<string>('');
     const [cloudMqttPassword, setCloudMqttPassword] = useState<string>('');
     const [cloudMqttTopic, setCloudMqttTopic] = useState<string>('spBv1.0/EdgeNode/');
+    // Organizations whose PLCs may be written from the cloud broker. Empty
+    // means none: the topic names the organization, and anybody on the cloud
+    // broker chooses the topic.
+    const [cloudWriteOrgIds, setCloudWriteOrgIds] = useState<number[]>([]);
+    const { data: allOrgs = [] } = useQuery({ queryKey: ['organizations'], queryFn: organizationsApi.getAll });
 
     // Backup file list (la config automatic backup vive in BackupConfig
     // component che persiste via flat-passthrough nei backup_* settings).
@@ -252,6 +260,7 @@ const SystemPage = () => {
             if (data.cloud_mqtt_username) setCloudMqttUsername(data.cloud_mqtt_username);
             if (data.cloud_mqtt_password) setCloudMqttPassword(data.cloud_mqtt_password);
             if (data.cloud_mqtt_topic) setCloudMqttTopic(data.cloud_mqtt_topic);
+            setCloudWriteOrgIds((data.cloud_write_org_ids ?? '').split(',').map(Number).filter((n) => n > 0));
 
             if (data.historian_retention_days !== undefined) {
                 const days = parseInt(data.historian_retention_days, 10);
@@ -332,6 +341,7 @@ const SystemPage = () => {
             update.cloud_mqtt_username = cloudMqttUsername;
             update.cloud_mqtt_password = cloudMqttPassword;
             update.cloud_mqtt_topic = cloudMqttTopic;
+            update.cloud_write_org_ids = cloudWriteOrgIds;
 
             await systemApi.updateSettings(update);
             setMessage({ type: 'success', text: t('systemPage.settings_saved') });
@@ -802,6 +812,34 @@ const SystemPage = () => {
                                             ) : (
                                                 <>{t('systemPage.cloud_no_prefix_hint')} <code>spBv1.0/DDATA/...</code>)</>
                                             )}
+                                        </p>
+                                    </div>
+
+                                    <div className="space-y-2 pt-3">
+                                        <Label className="text-xs text-muted-foreground">{t('systemPage.cloud_write_title')}</Label>
+                                        <p className="text-[10px] text-muted-foreground">{t('systemPage.cloud_write_hint')}</p>
+                                        {allOrgs.length === 0 ? (
+                                            <p className="text-xs text-muted-foreground italic">{t('systemPage.cloud_write_no_orgs')}</p>
+                                        ) : (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                {allOrgs.map((o) => (
+                                                    <label key={o.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                                                        <Checkbox
+                                                            checked={cloudWriteOrgIds.includes(o.id)}
+                                                            onCheckedChange={(on) => setCloudWriteOrgIds((ids) =>
+                                                                on ? [...ids, o.id] : ids.filter((id) => id !== o.id))}
+                                                        />
+                                                        <span className="truncate">{o.name}</span>
+                                                        <span className="text-[10px] text-muted-foreground font-mono">#{o.id}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <p className="text-[10px] text-muted-foreground">
+                                            {cloudWriteOrgIds.length === 0
+                                                ? t('systemPage.cloud_write_none')
+                                                : t('systemPage.cloud_write_some', { count: cloudWriteOrgIds.length })}
+                                            {' '}<code>{cloudMqttTopic.split('/').filter(Boolean)[0] || '…'}/sys/write/&#123;org_id&#125;/…</code>
                                         </p>
                                     </div>
 

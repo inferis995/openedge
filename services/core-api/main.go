@@ -300,10 +300,19 @@ func main() {
 			// Subscribe to write commands from cloud broker
 			cloudWriteTopic := fmt.Sprintf("%s/sys/write/#", cloudConfig.Prefix)
 			if err := cloudMqttClient.Subscribe(cloudWriteTopic, func(topic string, payload []byte) {
-				// Remove MQTT prefix and handle normally
-				// {prefix}/sys/write/do_valvola_1 -> sys/write/do_valvola_1
+				// {prefix}/sys/write/{org_id}/... -> sys/write/{org_id}/...
 				cleanTopic := strings.TrimPrefix(topic, cloudConfig.Prefix+"/")
 				log.Printf("[CLOUD MQTT] Received write command from cloud: %s -> %s", topic, cleanTopic)
+				// The organization comes from a topic anybody on the cloud
+				// broker can choose: only those the platform administrator
+				// enabled accept writes from it (handlers.CloudWriteOrgsSetting).
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				org, ok := handlers.CloudWriteAllowed(ctx, database, cleanTopic)
+				cancel()
+				if !ok {
+					log.Printf("[CLOUD MQTT] REJECTED write on %q: organization %d does not accept writes from the cloud broker (System > Cloud sync)", topic, org)
+					return
+				}
 				handleWriteCommand(cleanTopic, payload, database, mqttClient)
 			}); err != nil {
 				log.Printf("[CLOUD MQTT] Failed to subscribe to cloud write topic: %v", err)

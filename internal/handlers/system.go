@@ -265,6 +265,9 @@ type UpdateSettingsRequest struct {
 	CloudMqttUsername         *string `json:"cloud_mqtt_username"`
 	CloudMqttPassword         *string `json:"cloud_mqtt_password"`
 	CloudMqttTopic            *string `json:"cloud_mqtt_topic"`
+	// Organizations that accept writes from the cloud broker; see
+	// CloudWriteOrgsSetting. Nil leaves the list as it is, [] empties it.
+	CloudWriteOrgIDs *[]int `json:"cloud_write_org_ids"`
 	// Notification channel config — flat key→value map of notif_* keys.
 	// Validated to only allow that prefix server-side. Lets the UI add
 	// new channels without bumping the API schema every time.
@@ -510,6 +513,13 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 	if req.CloudMqttTopic != nil {
 		if err := h.upsertSetting("cloud_mqtt_topic", *req.CloudMqttTopic); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update cloud_mqtt_topic"})
+			return
+		}
+	}
+
+	if req.CloudWriteOrgIDs != nil {
+		if err := h.upsertSetting(CloudWriteOrgsSetting, FormatOrgIDList(*req.CloudWriteOrgIDs)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update " + CloudWriteOrgsSetting})
 			return
 		}
 	}
