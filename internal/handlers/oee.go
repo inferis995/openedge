@@ -120,7 +120,11 @@ func (h *OEEHandler) Snapshot(c *gin.Context) {
 func (h *OEEHandler) overviewFor(org *int) OEEOverview {
 	profiles := h.loadEnabledProfilesFor(org)
 	if len(profiles) == 0 {
-		// Modalità legacy: una sola snapshot dai settings globali.
+		// Modalità legacy: una sola snapshot dai settings globali — only for
+		// whoever those settings belong to (legacyAppliesTo).
+		if !h.legacyAppliesTo(org) {
+			return OEEOverview{Mode: "legacy"}
+		}
 		cfg := h.legacyConfig()
 		snap := h.computeSnapshotAt(time.Now().UTC(), cfg)
 		return OEEOverview{Mode: "legacy", Legacy: &snap}
@@ -319,7 +323,9 @@ type OEEHistoryPoint struct {
 // History GET /api/oee/history — trend OEE ultimi 7 giorni. In modalità
 // profili usa il rollup; in modalità legacy usa il singolo calcolo.
 func (h *OEEHandler) History(c *gin.Context) {
-	profiles := h.loadEnabledProfilesFor(oeeOrg(c))
+	org := oeeOrg(c)
+	profiles := h.loadEnabledProfilesFor(org)
+	legacy := len(profiles) == 0 && h.legacyAppliesTo(org)
 	out := []OEEHistoryPoint{}
 	now := time.Now().UTC()
 	for i := 6; i >= 0; i-- {
@@ -330,6 +336,10 @@ func (h *OEEHandler) History(c *gin.Context) {
 		}
 		var oeeVal float64
 		if len(profiles) == 0 {
+			if !legacy {
+				out = append(out, OEEHistoryPoint{Bucket: d})
+				continue
+			}
 			cfg := h.legacyConfig()
 			cfg.WindowMin = 24 * 60
 			oeeVal = h.computeSnapshotAt(end, cfg).OEE
@@ -933,6 +943,23 @@ func (h *OEEHandler) legacyConfig() oeeConfig {
 		GoodTagID:     h.intSetting("oee_good_tag", 0),
 		TargetPPH:     h.floatSetting("oee_target_pieces_per_hour"),
 	}
+}
+
+// legacyAppliesTo says whether the platform's oee_* settings are org's.
+//
+// They are global settings, the platform administrator's: tag ids that may
+// belong to any organization. Every organization without OEE profiles was
+// shown an OEE computed from them — another company's production, when the
+// tags were theirs. They belong to the global administrator (org nil) and,
+// when the platform has a single organization, to that one: the same rule
+// the hourly history job applies (soleOrganization). Everybody else has no
+// OEE until they create a profile.
+func (h *OEEHandler) legacyAppliesTo(org *int) bool {
+	if org == nil {
+		return true
+	}
+	sole := soleOrganization(context.Background(), h.db)
+	return sole != nil && *sole == *org
 }
 
 // ── helpers ────────────────────────────────────────────────────────────

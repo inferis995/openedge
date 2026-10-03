@@ -157,3 +157,35 @@ func TestOEEHistoryAndAlertRulesBelongToTheirOrganization(t *testing.T) {
 		t.Errorf("a rule on the organization's own profile was refused: %d %s", status, truncate(body))
 	}
 }
+
+// An organization without OEE profiles was shown the "legacy" OEE, computed
+// from the platform's oee_* settings: tag ids the platform administrator
+// chose, possibly another company's line. With more than one organization
+// those settings belong to the platform administrator only.
+func TestTheLegacyOEEIsNotShownToOtherOrganizations(t *testing.T) {
+	admin, _ := adminSession(t)
+	suffix := uniqueSuffix()
+	b := createOrg(t, admin, "oee-legacy-"+suffix)
+	// A second organization, so b is not the platform's only one.
+	createOrg(t, admin, "oee-legacy-other-"+suffix)
+	adminB := createOrgAdmin(t, admin, b.ID, "oee-legacy-"+suffix, "e2e-Password-"+suffix)
+
+	status, body := adminB.do(http.MethodGet, "/api/oee", nil)
+	if status != http.StatusOK {
+		t.Fatalf("/api/oee returned %d: %s", status, truncate(body))
+	}
+	var o struct {
+		Mode   string          `json:"mode"`
+		Legacy json.RawMessage `json:"legacy"`
+	}
+	if err := json.Unmarshal(body, &o); err != nil {
+		t.Fatal(err)
+	}
+	if o.Mode != "legacy" || len(o.Legacy) != 0 {
+		t.Errorf("an organization without profiles got the platform's legacy OEE: %s", truncate(body))
+	}
+	if status, body := adminB.do(http.MethodGet, "/api/dashboard/overview", nil); status == http.StatusOK &&
+		strings.Contains(string(body), `"legacy":{`) {
+		t.Errorf("the dashboard shows organization B the platform's legacy OEE: %s", truncate(body))
+	}
+}
