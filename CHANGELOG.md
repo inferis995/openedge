@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-10-03
+
 ### Dependencies
 
 - Web UI lint on eslint 10, @eslint/js 10, eslint-plugin-react-hooks 7 (with
