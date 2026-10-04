@@ -239,6 +239,8 @@
         "band_critical": "Critico",
         "source_tag": "tag",
         "source_auto": "auto",
+        "source_none": "non misurato",
+        "source_none_hint": "Nessun tag configurato per questo valore nel profilo OEE: non viene misurato e non abbassa l'OEE.",
         "oee_overall": "OEE complessivo",
         "average_of_one": "Media di {{count}} profilo",
         "average_of_other": "Media di {{count}} profili",

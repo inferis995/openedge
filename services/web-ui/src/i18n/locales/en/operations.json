@@ -239,6 +239,8 @@
         "band_critical": "Critical",
         "source_tag": "tag",
         "source_auto": "auto",
+        "source_none": "not measured",
+        "source_none_hint": "No tag is configured for this value in the OEE profile: it is not measured and does not lower the OEE.",
         "oee_overall": "Overall OEE",
         "average_of_one": "Average of {{count}} profile",
         "average_of_other": "Average of {{count}} profiles",

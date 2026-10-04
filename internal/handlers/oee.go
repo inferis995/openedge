@@ -63,7 +63,16 @@ type oeeConfig struct {
 	// OrgID is the profile's organization: whose shifts plan its production
 	// time. 0 for the legacy single-snapshot mode, which reads every shift.
 	OrgID int
+	// The profile's line, when it names one: the critical alarms that count
+	// as its downtime when no run-time tag is configured. 0 = not set.
+	AreaID    int
+	GatewayID int
 }
+
+// sourceNone marks a factor that is not measured: no tag is configured for
+// it. Its value is 100, a neutral factor, so the OEE is the product of what
+// is measured; the UI shows it as not measured rather than as a number.
+const sourceNone = "none"
 
 // OEESnapshot è un calcolo OEE singolo (per un profilo o per la modalità
 // legacy). La UI ne mostra il numero grande + breakdown A/P/Q.
@@ -433,19 +442,31 @@ func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (f
 		}
 	}
 
+	// Downtime is the time the line's critical alarms were open: the
+	// profile's gateway, else its area, else its organization. It used to be
+	// every critical alarm on the platform, so one company's stopped press
+	// lowered every other company's availability. The legacy snapshot
+	// (OrgID 0) is the platform administrator's and still reads them all.
 	var downSec float64
 	_ = h.db.QueryRow(`
 		SELECT COALESCE(SUM(
 			EXTRACT(EPOCH FROM (
-				LEAST(COALESCE(clear_time, NOW()), $2) -
-				GREATEST(trigger_time, $1)
+				LEAST(COALESCE(ae.clear_time, NOW()), $2) -
+				GREATEST(ae.trigger_time, $1)
 			))
 		), 0)
-		FROM alarm_events
-		WHERE LOWER(severity) = 'critical'
-		  AND trigger_time < $2
-		  AND COALESCE(clear_time, NOW()) > $1`,
-		start, end,
+		FROM alarm_events ae
+		JOIN tags t ON t.id = ae.tag_id
+		JOIN gateways g ON g.id = t.gateway_id
+		JOIN areas a ON a.id = g.area_id
+		JOIN sites s ON s.id = a.site_id
+		WHERE LOWER(ae.severity) = 'critical'
+		  AND ae.trigger_time < $2
+		  AND COALESCE(ae.clear_time, NOW()) > $1
+		  AND ($3 = 0 OR s.org_id = $3)
+		  AND ($4 = 0 OR a.id = $4)
+		  AND ($5 = 0 OR g.id = $5)`,
+		start, end, cfg.OrgID, cfg.AreaID, cfg.GatewayID,
 	).Scan(&downSec)
 
 	if downSec < 0 {
@@ -502,16 +523,12 @@ func (h *OEEHandler) computePerformance(start, end time.Time, cfg oeeConfig) (fl
 		}
 	}
 
-	var total, good int
-	_ = h.db.QueryRow(`
-		SELECT COUNT(*), COUNT(*) FILTER (WHERE quality = 0)
-		FROM tag_history WHERE time > $1 AND time <= $2`,
-		start, end,
-	).Scan(&total, &good)
-	if total == 0 {
-		return 100, "fallback", 0, cfg.TargetPPH
-	}
-	return float64(good) / float64(total) * 100, "fallback", 0, cfg.TargetPPH
+	// No pieces counter: performance is not measured. The "fallback" here
+	// counted tag_history rows by a quality column the table does not have;
+	// the query failed, the error was dropped, and every line showed 100%
+	// performance as if it had been measured — counted, had it worked, over
+	// every organization's samples.
+	return 100, sourceNone, 0, cfg.TargetPPH
 }
 
 // computeQuality — tag-driven se cfg.GoodTagID > 0 && produced > 0.
@@ -534,16 +551,8 @@ func (h *OEEHandler) computeQuality(start, end time.Time, produced float64, cfg 
 		}
 	}
 
-	var total, goodSamples int
-	_ = h.db.QueryRow(`
-		SELECT COUNT(*), COUNT(*) FILTER (WHERE quality = 0)
-		FROM tag_history WHERE time > $1 AND time <= $2`,
-		start, end,
-	).Scan(&total, &goodSamples)
-	if total == 0 {
-		return 100, "fallback", 0
-	}
-	return float64(goodSamples) / float64(total) * 100, "fallback", 0
+	// No good-pieces counter: quality is not measured (see computePerformance).
+	return 100, sourceNone, 0
 }
 
 // ── Profili ─────────────────────────────────────────────────────────────
@@ -586,6 +595,12 @@ func (p OEEProfile) config() oeeConfig {
 		RespectShifts:      p.RespectShifts,
 		RespectMaintenance: p.RespectMaintenance,
 		OrgID:              p.OrgID,
+	}
+	if p.AreaID != nil {
+		cfg.AreaID = *p.AreaID
+	}
+	if p.GatewayID != nil {
+		cfg.GatewayID = *p.GatewayID
 	}
 	if p.RunTimeTagID != nil {
 		cfg.RunTimeTagID = *p.RunTimeTagID

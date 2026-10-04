@@ -12,8 +12,7 @@ import { useGateways } from '@/hooks/useGateways';
 import {
     dashboardApi, oeeApi,
     ActivityEvent, AlarmSummary, KPIWidget,
-    OEESnapshot, OEEHistoryPoint, OEEOverview, OEEProfileSnapshot,
-} from '@/api/dashboard';
+    OEESnapshot, OEEHistoryPoint, OEEOverview, OEEProfileSnapshot, type OEESource } from '@/api/dashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useTranslation } from 'react-i18next';
@@ -542,9 +541,26 @@ const OEEHistorySpark = ({ data }: { data: OEEHistoryPoint[] }) => {
 
 const OEEComponentBar = ({
     label, value, source,
-}: { label: string; value: number; source: 'tag' | 'fallback' }) => {
+}: { label: string; value: number; source: OEESource }) => {
     const { t } = useTranslation();
     const band = oeeBand(value);
+    if (source === 'none') {
+        // Not measured: the 100 behind it is a neutral factor, not a reading.
+        return (
+            <div className="space-y-1" title={t('dashboardPage.source_none_hint')}>
+                <div className="flex items-baseline justify-between text-xs">
+                    <span className="text-muted-foreground uppercase tracking-wider font-semibold">{label}</span>
+                    <div className="flex items-center gap-1.5">
+                        <span className="font-mono font-bold text-base text-muted-foreground">—</span>
+                        <Badge variant="outline" className="text-[9px] font-normal h-4 px-1 leading-none">
+                            {t('dashboardPage.source_none')}
+                        </Badge>
+                    </div>
+                </div>
+                <div className="w-full h-2 bg-muted rounded" />
+            </div>
+        );
+    }
     return (
         <div className="space-y-1">
             <div className="flex items-baseline justify-between text-xs">
@@ -679,9 +695,9 @@ const OEECard = ({
 
     const targetMet = o.target !== undefined ? o.oee >= o.target : null;
     const allFallback =
-        o.availability_source === 'fallback' &&
-        o.performance_source  === 'fallback' &&
-        o.quality_source      === 'fallback';
+        o.availability_source !== 'tag' &&
+        o.performance_source  !== 'tag' &&
+        o.quality_source      !== 'tag';
 
     return (
         <Card className={`border-2 ${band.ring}`}>

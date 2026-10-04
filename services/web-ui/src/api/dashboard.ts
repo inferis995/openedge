@@ -97,6 +97,8 @@ export interface ShiftBlock {
     alarms_this_shift: number;
 }
 
+export type OEESource = 'tag' | 'fallback' | 'none' | 'rollup';
+
 // OEESnapshot è la "card lampante" della dashboard — Availability ×
 // Performance × Quality, ognuno con la propria source ("tag" = calcolato
 // da tag configurati; "fallback" = euristica out-of-the-box).
@@ -105,9 +107,11 @@ export interface OEESnapshot {
     availability: number;
     performance: number;
     quality: number;
-    availability_source: 'tag' | 'fallback';
-    performance_source: 'tag' | 'fallback';
-    quality_source: 'tag' | 'fallback';
+    // 'none': not measured (no tag configured). The value is then 100, a
+    // neutral factor in the product, and must not be shown as a measurement.
+    availability_source: OEESource;
+    performance_source: OEESource;
+    quality_source: OEESource;
     window_minutes: number;
     target?: number;
     critical_downtime_min: number;
