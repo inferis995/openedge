@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -334,7 +335,10 @@ func main() {
 	router.Use(middleware.Metrics())
 
 	// Security headers — applied to every response.
-	// HSTS is intentionally omitted until TLS is configured.
+	// No HSTS here: core-api speaks plain HTTP behind the proxy, and HSTS is
+	// set where TLS ends — Traefik (docker-compose.vps.yml, asserted by
+	// test/e2e/deployment_vps_test.go), Coolify's Traefik labels and
+	// caddy/Caddyfile.onprem.
 	router.Use(func(c *gin.Context) {
 		c.Header("X-Content-Type-Options", "nosniff")
 		c.Header("X-Frame-Options", "DENY")
@@ -394,6 +398,16 @@ func main() {
 	diagnosticsHandler := handlers.NewDiagnosticsHandler(database, redisClient)
 
 	// Create auth service and handler
+	// Every authenticated request checks that its token has not been retired
+	// (password change, new role, deleted user): see middleware.RequireAuth.
+	middleware.TokenVersionLookup = func(ctx context.Context, userID int) (int, error) {
+		var v int
+		err := database.QueryRowContext(ctx, `SELECT COALESCE(token_version, 0) FROM users WHERE id = $1`, userID).Scan(&v)
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, middleware.ErrUserGone
+		}
+		return v, err
+	}
 	authService := auth.NewService(database)
 	authHandler := handlers.NewAuthHandler(authService, database)
 

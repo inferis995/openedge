@@ -115,13 +115,7 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 	//   - clear the lockout counters, otherwise the user resets their password and
 	//     still cannot log in for 30 minutes;
 	//   - bump token_version, the JWT invalidation epoch, so sessions minted with
-	//     the OLD password are repudiated.
-	//
-	// TODO(security): token_version is only half of JWT invalidation. generateToken
-	// now embeds it as a claim, but nothing rejects a JWT whose token_version is
-	// stale — that check belongs in middleware.RequireAuth (compare the claim against
-	// users.token_version and 401 on mismatch), which is outside this change's scope.
-	// Until that lands, pre-reset JWTs remain valid until their 24h expiry.
+	//     the OLD password are refused (middleware.RequireAuth).
 	if _, err = tx.ExecContext(ctx,
 		`UPDATE users
 		 SET password_hash = $1,
@@ -142,6 +136,11 @@ func (s *Service) ResetPassword(ctx context.Context, token, newPassword string) 
 	if _, err = tx.ExecContext(ctx,
 		`DELETE FROM password_reset_tokens WHERE user_id = $1 AND id <> $2`, userID, tokenID); err != nil {
 		return errors.New("failed to invalidate outstanding reset tokens")
+	}
+	// Applications the user authorized hold refresh tokens that would mint
+	// new access tokens at the new token_version: a reset revokes them too.
+	if _, err = tx.ExecContext(ctx, `DELETE FROM oauth_refresh_tokens WHERE user_id = $1`, userID); err != nil {
+		return errors.New("failed to revoke application tokens")
 	}
 	return tx.Commit()
 }

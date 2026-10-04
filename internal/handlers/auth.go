@@ -110,23 +110,24 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	}
 
 	if _, err = h.db.ExecContext(c.Request.Context(),
-		`UPDATE users SET password_hash = $1, must_change_password = false WHERE id = $2`, string(newHash), userID); err != nil {
+		`UPDATE users SET password_hash = $1, must_change_password = false,
+			token_version = COALESCE(token_version, 0) + 1 WHERE id = $2`, string(newHash), userID); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update password"})
 		return
 	}
-	// A session opened with the default password is confined to this endpoint
-	// (middleware.RequireAuth); hand it a token without that restriction, so
-	// the user carries on instead of signing in again.
-	resp := gin.H{"message": "Password updated successfully."}
-	if pc, _ := claims[auth.PasswordChangeClaim].(bool); pc {
-		token, err := h.service.TokenForUser(c.Request.Context(), userID)
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{"message": "Password updated. Sign in again with the new password."})
-			return
-		}
-		resp["token"] = token
+	// Applications the user authorized would otherwise keep refreshing their
+	// way past the change.
+	_, _ = h.db.ExecContext(c.Request.Context(), `DELETE FROM oauth_refresh_tokens WHERE user_id = $1`, userID)
+
+	// The change retires every session of this user (token_version), this
+	// one included; hand it a new token so the user carries on here. A
+	// session opened with the default password also loses its confinement.
+	token, err := h.service.TokenForUser(c.Request.Context(), userID)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"message": "Password updated. Sign in again with the new password."})
+		return
 	}
-	c.JSON(http.StatusOK, resp)
+	c.JSON(http.StatusOK, gin.H{"message": "Password updated successfully.", "token": token})
 }
 
 func (h *AuthHandler) Login(c *gin.Context) {

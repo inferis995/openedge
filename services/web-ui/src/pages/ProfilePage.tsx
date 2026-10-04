@@ -1,3 +1,4 @@
+import { useAuthStore } from '@/stores/useAuthStore';
 import { showApiError } from '@/lib/api-error-handler';
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
@@ -27,7 +28,11 @@ export default function ProfilePage() {
 
     const changePw = useMutation({
         mutationFn: () => profileApi.changePassword(oldPw, newPw),
-        onSuccess: () => {
+        onSuccess: (res) => {
+            // The change retires every session of this account, this one
+            // included: carry on with the token the server hands back.
+            const { user, login } = useAuthStore.getState();
+            if (res.token && user) login(res.token, user);
             setPwSuccess(true);
             setOldPw(''); setNewPw(''); setConfirmPw('');
             setTimeout(() => setPwSuccess(false), 3000);

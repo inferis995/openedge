@@ -283,9 +283,14 @@ func (h *UsersHandler) Update(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 			return
 		}
-		_, err = tx.ExecContext(c.Request.Context(), `UPDATE users SET password_hash = $1, must_change_password = false WHERE id = $2`, string(hashedPassword), id)
+		_, err = tx.ExecContext(c.Request.Context(), `UPDATE users SET password_hash = $1, must_change_password = false,
+			token_version = COALESCE(token_version, 0) + 1 WHERE id = $2`, string(hashedPassword), id)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update password"})
+			return
+		}
+		if _, err = tx.ExecContext(c.Request.Context(), `DELETE FROM oauth_refresh_tokens WHERE user_id = $1`, id); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke the user's application tokens"})
 			return
 		}
 	}
@@ -297,8 +302,17 @@ func (h *UsersHandler) Update(c *gin.Context) {
 		newI3xWrite = *req.I3xWrite
 	}
 
+	// The session token carries role, org_id and i3x_write: a change to any of
+	// them retires the user's open sessions (token_version, checked by
+	// middleware.RequireAuth), or a demoted admin stayed admin for a day.
 	_, err = tx.ExecContext(c.Request.Context(),
-		`UPDATE users SET role = COALESCE(NULLIF($1, ''), role), full_name = $2, org_id = $3, i3x_write = $4 WHERE id = $5`,
+		`UPDATE users SET
+			token_version = COALESCE(token_version, 0) + CASE WHEN
+				role IS DISTINCT FROM COALESCE(NULLIF($1, ''), role)
+				OR org_id IS DISTINCT FROM $3::int
+				OR i3x_write IS DISTINCT FROM $4 THEN 1 ELSE 0 END,
+			role = COALESCE(NULLIF($1, ''), role), full_name = $2, org_id = $3, i3x_write = $4
+		WHERE id = $5`,
 		req.Role, req.FullName, req.OrgID, newI3xWrite, id,
 	)
 	if err != nil {

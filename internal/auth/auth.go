@@ -445,13 +445,10 @@ func (s *Service) generateToken(ctx context.Context, user *models.User) (string,
 		"role":      user.Role,
 		"i3x_write": user.I3xWrite,
 		"exp":       time.Now().Add(24 * time.Hour).Unix(),
-		// JWT invalidation epoch. ResetPassword bumps users.token_version so that
-		// sessions minted with the old password can be repudiated.
-		//
-		// TODO(security): nothing VERIFIES this claim yet. middleware.RequireAuth must
-		// compare it against users.token_version and reject on mismatch — that file is
-		// outside the scope of this change, so today the claim is informational only
-		// and pre-reset JWTs stay valid until their 24h expiry.
+		// JWT invalidation epoch, checked on every request by
+		// middleware.RequireAuth: a password change or reset, or a change of
+		// role, organization or i3x_write, bumps users.token_version and
+		// retires every token minted before it.
 		"token_version": s.tokenVersion(ctx, user.ID),
 	}
 
@@ -475,10 +472,11 @@ const PasswordChangeClaim = "pwd_change"
 // orgID = 0 is treated as global admin (org_id = NULL in claims).
 func (s *Service) GenerateTokenForUser(userID int, username, role string, orgID int) (string, error) {
 	claims := jwt.MapClaims{
-		"user_id":  userID,
-		"username": username,
-		"role":     role,
-		"exp":      time.Now().Add(24 * time.Hour).Unix(),
+		"user_id":       userID,
+		"username":      username,
+		"role":          role,
+		"exp":           time.Now().Add(24 * time.Hour).Unix(),
+		"token_version": s.tokenVersion(context.Background(), userID),
 	}
 	if orgID > 0 {
 		claims["org_id"] = orgID

@@ -1,8 +1,11 @@
 package middleware
 
 import (
+	"context"
 	"crypto/subtle"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -53,6 +56,15 @@ func RequireAuth(c *gin.Context) {
 		return
 	}
 
+	// A token minted before the user's token_version was bumped — a password
+	// change or reset, a new role or organization — or for a user deleted
+	// since, is refused. Signed tokens cannot be recalled; the version is how
+	// they are retired before their 24 hours are up.
+	if !tokenVersionCurrent(c.Request.Context(), claims) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: session revoked, sign in again"})
+		return
+	}
+
 	// A token minted by the OAuth flow carries the scope the user consented to.
 	// A password login carries none, and stays unrestricted — so existing
 	// sessions behave exactly as before and only delegated access is narrowed.
@@ -93,6 +105,39 @@ func allowedBeforePasswordChange(r *http.Request) bool {
 		return true
 	}
 	return false
+}
+
+// TokenVersionLookup returns a user's current token_version, or ErrUserGone
+// when the user no longer exists. core-api sets it at startup; left nil (the
+// package's own tests, a service without a database) nothing is checked.
+var TokenVersionLookup func(ctx context.Context, userID int) (int, error)
+
+// ErrUserGone is what TokenVersionLookup returns for a deleted user.
+var ErrUserGone = errors.New("user no longer exists")
+
+// tokenVersionCurrent reports whether the token's token_version is the
+// user's current one. A token without the claim is version 0. A failure to
+// read the version lets the request through and logs it: refusing would sign
+// every user out on a database hiccup, and the database being down stops the
+// request soon after anyway.
+func tokenVersionCurrent(ctx context.Context, claims jwt.MapClaims) bool {
+	if TokenVersionLookup == nil {
+		return true
+	}
+	uid, ok := claims["user_id"].(float64)
+	if !ok {
+		return false
+	}
+	tv, _ := claims["token_version"].(float64)
+	current, err := TokenVersionLookup(ctx, int(uid))
+	if errors.Is(err, ErrUserGone) {
+		return false
+	}
+	if err != nil {
+		log.Printf("[AUTH] token_version check skipped for user %d: %v", int(uid), err)
+		return true
+	}
+	return current == int(tv)
 }
 
 // The write scope. Declared here rather than imported from handlers because

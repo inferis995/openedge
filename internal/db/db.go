@@ -1106,9 +1106,9 @@ func runAutoMigrations(db *sql.DB) error {
 		// an observed code can be replayed. auth.CompleteMFALogin requires each accepted
 		// counter to be strictly greater than this value.
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_totp_counter BIGINT`,
-		// token_version — JWT invalidation epoch, bumped by auth.ResetPassword and
-		// embedded as a claim by auth.generateToken. TODO(security): middleware.RequireAuth
-		// must still compare the claim against this column to actually revoke old sessions.
+		// token_version — JWT invalidation epoch, embedded as a claim by
+		// auth.generateToken and compared on every request by
+		// middleware.RequireAuth: bumping it retires the user's open sessions.
 		`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0`,
 		// must_change_password — the account still has the built-in default
 		// password: its token carries pwd_change and middleware.RequireAuth
