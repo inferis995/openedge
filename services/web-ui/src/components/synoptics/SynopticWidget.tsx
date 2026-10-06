@@ -1,4 +1,4 @@
-import { useEffect, useState, useId } from 'react';
+import { useEffect, useRef, useState, useId } from 'react';
 import { SynopticWidget } from '@/api/synoptics';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
@@ -13,13 +13,37 @@ export interface LiveValue {
 
 const num = (v: unknown): number | null => {
     if (v === null || v === undefined || v === '') return null;
-    const n = typeof v === 'boolean' ? (v ? 1 : 0) : Number(v);
+    if (typeof v === 'boolean') return v ? 1 : 0;
+    // A BOOL can arrive as text from some drivers; "true" used to read as NaN,
+    // so a running machine showed as stopped.
+    if (typeof v === 'string') {
+        const s = v.trim().toLowerCase();
+        if (s === 'true' || s === 'on') return 1;
+        if (s === 'false' || s === 'off') return 0;
+    }
+    const n = Number(v);
     return Number.isFinite(n) ? n : null;
 };
 
+/**
+ * Whether a state tag reads as "on".
+ *
+ * With the default onValue (1) anything from 1 up is on: a BOOL, or a speed
+ * where any running speed counts. An explicit other onValue is a state code
+ * and must match exactly — with ">=" a state tag whose "running" is 2 showed
+ * fault (3) as running, and onValue 0 made every value on.
+ */
 const isOn = (n: number | null, cfg: SynopticWidget['config']): boolean => {
     if (n === null) return false;
-    return n >= (cfg?.onValue ?? 1);
+    const target = typeof cfg?.onValue === 'number' && Number.isFinite(cfg.onValue) ? cfg.onValue : 1;
+    return target === 1 ? n >= 1 : n === target;
+};
+
+/** Decimal places that toFixed accepts. A -1 or 101 typed in the editor threw
+ *  a RangeError and blanked the whole page, the operator's view included. */
+const dp = (d: unknown, fallback = 1): number => {
+    const n = Math.trunc(Number(d ?? fallback));
+    return Number.isFinite(n) ? Math.min(10, Math.max(0, n)) : fallback;
 };
 
 // Resolve color for NUMERIC widgets: colorBands → warnAbove/critAbove → default
@@ -37,7 +61,9 @@ const resolveNumericColor = (
         for (const band of sorted) {
             if (n >= band.above) return band.color;
         }
-        return '#64748b';
+        // Below every band: the widget's own colour. It used to be the same
+        // grey as "no data", so a low reading looked like a missing one.
+        return cfg?.color || '#10b981';
     }
     // Legacy warnAbove/critAbove
     if (cfg?.critAbove !== undefined && n >= cfg.critAbove) return '#ef4444';
@@ -311,7 +337,7 @@ function GaugeSymbol({ n, min, max, color, label, decimals, cfg }: {
                 <text x={polar(startA + sweep, 28)[0]} y={polar(startA + sweep, 28)[1]} textAnchor="middle" fontSize="7" fill="#94a3b8">{max}</text>
             </>}
             <text x="50" y="52" textAnchor="middle" fontSize="20" fontWeight="bold" fill="#e2e8f0">
-                {n === null ? '—' : n.toFixed(decimals ?? 1)}
+                {n === null ? '—' : n.toFixed(dp(decimals))}
             </text>
             <text x="50" y="68" textAnchor="middle" fontSize="9" fill="#94a3b8">{label}</text>
         </svg>
@@ -324,7 +350,7 @@ function BargraphSymbol({ pct, color, vertical, showBarValue, value, decimals, u
 }) {
     const clamped = Math.max(0, Math.min(100, pct));
     const txt = showBarValue && value !== null && value !== undefined
-        ? `${value.toFixed(decimals ?? 1)}${unit ? ` ${unit}` : ''}` : '';
+        ? `${value.toFixed(dp(decimals))}${unit ? ` ${unit}` : ''}` : '';
     return vertical ? (
         <svg viewBox="0 0 30 100" className="w-full h-full" preserveAspectRatio="none">
             <rect x="4" y="2" width="22" height="96" rx="4" fill="#1e293b" stroke="#475569" strokeWidth="2" />
@@ -349,7 +375,9 @@ function PipeSymbol({ color, pipeShape, cfg, flowOn, w, h }: {
     const shape = pipeShape || 'straight';
     const animDir = cfg?.flowDirection ?? 'right';
     const animOffset = animDir === 'left' || animDir === 'up' ? '0;20' : '20;0';
-    const animId = `flow-${shape}`;
+    // The name carries the direction: two corner pipes flowing opposite ways
+    // shared one @keyframes name and the last one drawn won.
+    const animId = `flow-${shape}-${animDir}`;
 
     const flowPath = (() => {
         if (shape === 'corner') return 'M 0 50 L 50 50 L 50 100';
@@ -402,9 +430,12 @@ function PipeSymbol({ color, pipeShape, cfg, flowOn, w, h }: {
     );
 }
 
-function ButtonWidget({ widget, active, color, live, onWrite, onNavigate }: {
+function ButtonWidget({ widget, active, color, preview, stateKnown, onWrite, onNavigate }: {
     widget: SynopticWidget; active: boolean; color: string;
-    live?: LiveValue; onWrite?: (v: number) => Promise<void>;
+    preview: boolean;
+    /** The tag's state is known (a value of good quality). */
+    stateKnown: boolean;
+    onWrite?: (v: number) => Promise<void>;
     onNavigate?: () => void;
 }) {
     const { t } = useTranslation();
@@ -412,8 +443,15 @@ function ButtonWidget({ widget, active, color, live, onWrite, onNavigate }: {
     const [feedback, setFeedback] = useState<'ok' | 'err' | null>(null);
     const [confirmPending, setConfirmPending] = useState(false);
     const cfg = widget.config || {};
-    const isPreview = live === undefined;
+    const isPreview = preview;
     const isMomentary = !!cfg.momentary;
+    // A toggle writes the opposite of what it reads. With no reading (no data,
+    // bad quality) it wrote Start to a machine that might already be running.
+    const blocked = !isPreview && !isMomentary && !!onWrite && !stateKnown;
+    // Momentary: the OFF write must follow the ON write, and must happen
+    // however the press ends. pressed says whether an ON went out unanswered.
+    const pressed = useRef(false);
+    const chain = useRef<Promise<unknown>>(Promise.resolve());
     const bShape = cfg.buttonShape as string | undefined;
     const radius = bShape === 'rect' ? 2 : bShape === 'circle' ? '50%' : 6;
 
@@ -436,8 +474,8 @@ function ButtonWidget({ widget, active, color, live, onWrite, onNavigate }: {
     const handleClick = async (e: React.MouseEvent) => {
         e.stopPropagation();
         if (isMomentary) return;
-        if (!onWrite && onNavigate) { onNavigate(); return; }
-        if (!onWrite || isPreview) return;
+        if (!onWrite && onNavigate) { if (!isPreview) onNavigate(); return; }
+        if (!onWrite || isPreview || blocked) return;
         if (cfg.requireConfirm && !confirmPending) { setConfirmPending(true); return; }
         setConfirmPending(false);
         await doWrite(getWriteVal());
@@ -445,14 +483,20 @@ function ButtonWidget({ widget, active, color, live, onWrite, onNavigate }: {
 
     const handlePointerDown = (e: React.PointerEvent) => {
         e.stopPropagation();
-        if (!isMomentary || isPreview) return;
+        if (!isMomentary || isPreview || !onWrite || pressed.current) return;
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-        void doWrite(cfg.writeValue ?? 1);
+        pressed.current = true;
+        chain.current = chain.current.then(() => doWrite(cfg.writeValue ?? 1));
     };
-    const handlePointerUp = (e: React.PointerEvent) => {
+    // Release, cancel (a touch turned into a scroll) and a lost capture (the
+    // window lost focus) all end the press. Only pointerup used to, and the
+    // button was disabled while the ON write was in flight, so a release could
+    // be missed altogether: a jog output stayed on.
+    const release = (e: React.PointerEvent) => {
         e.stopPropagation();
-        if (!isMomentary || isPreview) return;
-        void doWrite(cfg.writeOffValue ?? 0);
+        if (!isMomentary || !pressed.current) return;
+        pressed.current = false;
+        chain.current = chain.current.then(() => doWrite(cfg.writeOffValue ?? 0));
     };
 
     const borderColor = active ? color : '#475569';
@@ -466,7 +510,8 @@ function ButtonWidget({ widget, active, color, live, onWrite, onNavigate }: {
                 <span style={{ fontSize: 9, color: '#f59e0b', fontWeight: 600 }}>{confirmMsg}</span>
                 <div style={{ display: 'flex', gap: 4 }}>
                     <button type="button" style={{ fontSize: 9, padding: '2px 8px', borderRadius: 4, background: '#10b981', color: 'white', border: 'none', cursor: 'pointer' }}
-                        onClick={(e) => { e.stopPropagation(); setConfirmPending(false); void doWrite(getWriteVal()); }}>{t('common.yes')}</button>
+                        disabled={sending}
+                        onClick={(e) => { e.stopPropagation(); if (sending) return; setConfirmPending(false); void doWrite(getWriteVal()); }}>{t('common.yes')}</button>
                     <button type="button" style={{ fontSize: 9, padding: '2px 8px', borderRadius: 4, background: '#475569', color: 'white', border: 'none', cursor: 'pointer' }}
                         onClick={(e) => { e.stopPropagation(); setConfirmPending(false); }}>{t('common.no')}</button>
                 </div>
@@ -478,18 +523,22 @@ function ButtonWidget({ widget, active, color, live, onWrite, onNavigate }: {
     const iconChar = cfg.buttonIcon ? (iconMap[cfg.buttonIcon as string] ?? '') : '';
 
     return (
-        <button onClick={handleClick} onPointerDown={handlePointerDown} onPointerUp={handlePointerUp}
-            disabled={sending || isPreview}
-            className={cn('w-full h-full flex flex-col items-center justify-center gap-0.5 border-2 transition-all duration-150 font-medium select-none',
-                !isPreview && !sending && 'hover:brightness-110 active:scale-95',
-                sending && 'opacity-60')}
+        <button onClick={handleClick} onPointerDown={handlePointerDown} onPointerUp={release}
+            onPointerCancel={release} onLostPointerCapture={release}
+            // A momentary button is never disabled mid-press: a disabled
+            // control may not get the pointerup that sends OFF.
+            disabled={isPreview || blocked || (sending && !isMomentary)}
+            title={blocked ? t('synopticWidget.state_unknown') : undefined}
+            className={cn('w-full h-full flex flex-col items-center justify-center gap-0.5 border-2 transition-all duration-150 font-medium select-none touch-none',
+                !isPreview && !sending && !blocked && 'hover:brightness-110 active:scale-95',
+                (sending || blocked) && 'opacity-60')}
             style={{ borderColor, background: bgColor, color: textColor, fontSize: cfg.fontSize ?? 13, borderRadius: radius }}>
             {feedback === 'ok' ? <span className="text-emerald-400 text-xs">✓</span>
                 : feedback === 'err' ? <span className="text-red-400 text-xs">✗</span>
                 : <>
                     {iconChar && <span style={{ fontSize: '1.2em' }}>{iconChar}</span>}
                     <span className="truncate px-1 leading-tight">{widget.label || t('synopticWidget.button_default')}</span>
-                    {!isPreview && <span className="text-[9px] opacity-60 leading-tight">{active ? 'ON' : 'OFF'}</span>}
+                    {!isPreview && onWrite && <span className="text-[9px] opacity-60 leading-tight">{stateKnown ? (active ? 'ON' : 'OFF') : '?'}</span>}
                 </>}
         </button>
     );
@@ -545,8 +594,8 @@ function ClockWidget({ widget }: { widget: SynopticWidget }) {
     );
 }
 
-function SetpointWidget({ widget, live, onWrite }: {
-    widget: SynopticWidget; live?: LiveValue; onWrite?: (v: number) => Promise<void>;
+function SetpointWidget({ widget, live, preview, onWrite }: {
+    widget: SynopticWidget; live?: LiveValue; preview: boolean; onWrite?: (v: number) => Promise<void>;
 }) {
     const { t } = useTranslation();
     const cfg = widget.config ?? {};
@@ -555,16 +604,24 @@ function SetpointWidget({ widget, live, onWrite }: {
     const [sending, setSending] = useState(false);
     const [feedback, setFeedback] = useState<'ok' | 'err' | null>(null);
     const [confirmPending, setConfirmPending] = useState<number | null>(null);
-    const isPreview = live === undefined;
+    const [errMsg, setErrMsg] = useState<string | null>(null);
+    const isPreview = preview;
+    const lim = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+    const spMin = lim(cfg.spMin), spMax = lim(cfg.spMax);
 
     const doWrite = async (v: number) => {
-        if (!onWrite) return;
+        if (!onWrite || sending) return;
         setSending(true);
+        setErrMsg(null);
         try {
             await onWrite(v);
             setInput('');
             setFeedback('ok');
-        } catch {
+        } catch (e) {
+            // Say why: a bare ✗ left the operator guessing whether the PLC
+            // refused, the permission was missing, or the network failed.
+            const ax = e as { response?: { data?: { error?: string } }; message?: string };
+            setErrMsg(ax.response?.data?.error ?? ax.message ?? null);
             setFeedback('err');
         } finally {
             setSending(false);
@@ -577,14 +634,18 @@ function SetpointWidget({ widget, live, onWrite }: {
         if (!onWrite || isPreview) return;
         const v = parseFloat(input);
         if (!Number.isFinite(v)) return;
-        if (cfg.spMin !== undefined && v < (cfg.spMin as number)) { setFeedback('err'); setTimeout(() => setFeedback(null), 1500); return; }
-        if (cfg.spMax !== undefined && v > (cfg.spMax as number)) { setFeedback('err'); setTimeout(() => setFeedback(null), 1500); return; }
+        // Limits that are not numbers are ignored rather than compared: NaN
+        // made every comparison false, so a broken limit let any value through.
+        if ((spMin !== undefined && v < spMin) || (spMax !== undefined && v > spMax)) {
+            setErrMsg(t('synopticWidget.out_of_range', { min: spMin ?? '—', max: spMax ?? '—' }));
+            setFeedback('err'); setTimeout(() => setFeedback(null), 2500); return;
+        }
         if (cfg.confirmWrite) { setConfirmPending(v); return; }
         await doWrite(v);
     };
 
-    const rangeHint = (cfg.spMin !== undefined || cfg.spMax !== undefined)
-        ? `[${cfg.spMin ?? '—'} … ${cfg.spMax ?? '—'}]`
+    const rangeHint = (spMin !== undefined || spMax !== undefined)
+        ? `[${spMin ?? '—'} … ${spMax ?? '—'}]`
         : null;
 
     return (
@@ -595,7 +656,7 @@ function SetpointWidget({ widget, live, onWrite }: {
                 <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-1 bg-slate-950/95 rounded-md px-2">
                     <span className="text-[10px] text-amber-400 text-center">{t('synopticWidget.confirm_write', { value: `${confirmPending}${cfg.unit ? ` ${cfg.unit}` : ''}` })}</span>
                     <div className="flex gap-1">
-                        <button type="button" onClick={() => void doWrite(confirmPending)} className="h-5 px-2 text-[10px] rounded bg-green-600 text-white">✓ {t('common.yes')}</button>
+                        <button type="button" disabled={sending} onClick={() => void doWrite(confirmPending)} className="h-5 px-2 text-[10px] rounded bg-green-600 text-white disabled:opacity-50">✓ {t('common.yes')}</button>
                         <button type="button" onClick={() => setConfirmPending(null)} className="h-5 px-2 text-[10px] rounded bg-slate-600 text-white">✗ {t('common.no')}</button>
                     </div>
                 </div>
@@ -603,18 +664,20 @@ function SetpointWidget({ widget, live, onWrite }: {
             {widget.label && <span className="text-[10px] text-slate-400 truncate w-full text-center">{widget.label}</span>}
             <span className="text-xs text-slate-400">
                 PV: <span className="text-slate-200 font-mono">
-                    {current !== null ? current.toFixed(cfg.decimals ?? 1) : '—'}{cfg.unit ? ` ${cfg.unit}` : ''}
+                    {current !== null ? current.toFixed(dp(cfg.decimals)) : '—'}{cfg.unit ? ` ${cfg.unit}` : ''}
                 </span>
             </span>
-            {rangeHint && <span className="text-[9px] text-slate-500">{rangeHint}</span>}
+            {feedback === 'err' && errMsg
+                ? <span className="text-[9px] text-red-400 truncate w-full text-center" title={errMsg}>{errMsg}</span>
+                : rangeHint && <span className="text-[9px] text-slate-500">{rangeHint}</span>}
             <div className="flex gap-1 w-full">
                 <input type="number"
                     value={input}
                     onChange={e => setInput(e.target.value)}
                     disabled={isPreview || sending}
                     step={cfg.spStep ?? 1 as number}
-                    min={cfg.spMin as number | undefined}
-                    max={cfg.spMax as number | undefined}
+                    min={spMin}
+                    max={spMax}
                     onKeyDown={e => { if (e.key === 'Enter') void handleSend(); }}
                     className="flex-1 h-9 sm:h-6 bg-slate-800 border border-slate-600 rounded text-xs text-center text-white px-1 min-w-0"
                     placeholder={cfg.unit ? String(cfg.unit) : 'SP'} />
@@ -648,14 +711,52 @@ function ImageWidget({ cfg }: { cfg: SynopticWidget['config'] }) {
 
 // ── Widget dispatcher ───────────────────────────────────────────────────────
 
-export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSecondary, onNavigate }: {
+interface WidgetProps {
     widget: SynopticWidget;
     live?: LiveValue;
     onWrite?: (value: number) => Promise<void>;
     inAlarm?: boolean;
     liveSecondary?: LiveValue;
     onNavigate?: () => void;
-}) {
+    /**
+     * Drawing the widget for the editor or the palette, with sample values.
+     * Omitted, it is inferred from the absence of a live value — which is why
+     * it is passed explicitly now: a pipe or a label has no main tag, so in
+     * the operator's view it was taken for a preview, its flow never animated
+     * and its {{value}} was never filled in.
+     */
+    preview?: boolean;
+}
+
+// Widgets whose drawing already says what the reading is worth, or that show
+// no reading at all.
+const SHOWS_OWN_QUALITY = new Set(['value', 'setpoint', 'label', 'clock', 'image', 'pipe', 'button']);
+
+export function SynopticWidgetView(props: WidgetProps) {
+    const { t } = useTranslation();
+    const { widget, live } = props;
+    const isPreview = props.preview ?? live === undefined;
+    const body = <WidgetBody {...props} preview={isPreview} />;
+    // A symbol drawn from a bad or missing reading must not look like the
+    // plant. A pump fed {v:1, q:2} spun green as RUN, and a tank at q:3 showed
+    // its last level in the normal colour: 18 of the 20 widget types ignored
+    // the quality the value widget already showed.
+    if (isPreview || widget.tagId == null || live === undefined || SHOWS_OWN_QUALITY.has(widget.type)) return body;
+    const bad = live.quality >= 2;
+    const uncertain = live.quality === 1;
+    if (!bad && !uncertain) return body;
+    return (
+        <div className="relative w-full h-full" title={t(bad ? 'synopticWidget.quality_bad' : 'synopticWidget.quality_uncertain')}>
+            <div className="w-full h-full" style={{ filter: bad ? 'grayscale(1) opacity(.45)' : 'saturate(.5) opacity(.8)' }}>{body}</div>
+            <span className={cn('absolute top-0 left-0 rounded px-1 text-[8px] font-bold uppercase leading-tight',
+                bad ? 'bg-red-600/90 text-white' : 'bg-amber-500/90 text-black')}>
+                {bad ? t('synopticWidget.quality_bad') : '?'}
+            </span>
+        </div>
+    );
+}
+
+function WidgetBody({ widget, live, onWrite, inAlarm, liveSecondary, onNavigate, preview }: WidgetProps & { preview: boolean }) {
     const { t, i18n } = useTranslation();
     const cfg = widget.config || {};
     const n = num(live?.value);
@@ -671,9 +772,9 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
     switch (widget.type) {
         case 'value': {
             const color = resolveNumericColor(n, cfg, alarm);
-            const decimals = cfg.decimals ?? 1;
+            const decimals = dp(cfg.decimals);
             const noDataText = (cfg.noDataText as string | undefined) ?? '—';
-            const txt = n === null ? (live === undefined ? '123.4' : noDataText) : n.toFixed(decimals);
+            const txt = n === null ? (preview ? '123.4' : noDataText) : n.toFixed(decimals);
             const prefix = cfg.prefix as string | undefined;
             const n2 = num(liveSecondary?.value);
             const bgColor = (cfg.bgColor as string | undefined) ?? undefined;
@@ -761,7 +862,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
         case 'tank': {
             const min = cfg.min ?? 0, max = cfg.max ?? 100;
             const color = resolveNumericColor(n, cfg, alarm);
-            const pct = n === null ? (live === undefined ? 60 : 0) : ((n - min) / ((max - min) || 1)) * 100;
+            const pct = n === null ? (preview ? 60 : 0) : ((n - min) / ((max - min) || 1)) * 100;
             const clamped = Math.max(0, Math.min(100, pct));
             const showPct = cfg.showPercentage;
             const showVal = cfg.showValue;
@@ -772,7 +873,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
                         <TankSymbol pct={clamped} color={color} horizontal={isHoriz} />
                         {(showPct || showVal) && n !== null && (
                             <span className="absolute inset-0 flex items-center justify-center text-xs text-white font-mono font-bold">
-                                {showPct ? `${clamped.toFixed(0)}%` : `${n.toFixed(cfg.decimals ?? 1)}${cfg.unit ? ` ${cfg.unit}` : ''}`}
+                                {showPct ? `${clamped.toFixed(0)}%` : `${n.toFixed(dp(cfg.decimals))}${cfg.unit ? ` ${cfg.unit}` : ''}`}
                             </span>
                         )}
                     </div>
@@ -781,7 +882,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
             );
         }
         case 'pump': {
-            const on = live === undefined ? true : isOn(n, cfg);
+            const on = preview ? true : !badQuality && isOn(n, cfg);
             const color = resolveBinaryColor(on, cfg, alarm);
             return (
                 <div className={cn('w-full h-full flex flex-col', blinkClass)}>
@@ -791,7 +892,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
             );
         }
         case 'valve': {
-            const on = live === undefined ? true : isOn(n, cfg);
+            const on = preview ? true : !badQuality && isOn(n, cfg);
             const color = resolveBinaryColor(on, cfg, alarm);
             const posTag = num(liveSecondary?.value);
             return (
@@ -807,7 +908,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
             );
         }
         case 'motor': {
-            const on = live === undefined ? true : isOn(n, cfg);
+            const on = preview ? true : !badQuality && isOn(n, cfg);
             const color = resolveBinaryColor(on, cfg, alarm);
             return (
                 <div className={cn('w-full h-full', blinkClass)}>
@@ -820,7 +921,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
         case 'mixer':
         case 'compressor':
         case 'heater': {
-            const on = live === undefined ? true : isOn(n, cfg);
+            const on = preview ? true : !badQuality && isOn(n, cfg);
             const color = resolveBinaryColor(on, cfg, alarm);
             const Sym = { fan: FanSymbol, conveyor: ConveyorSymbol, mixer: MixerSymbol, compressor: CompressorSymbol, heater: HeaterSymbol }[widget.type];
             return (
@@ -837,7 +938,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
         case 'silo': {
             const min = cfg.min ?? 0, max = cfg.max ?? 100;
             const color = resolveNumericColor(n, cfg, alarm);
-            const pct = n === null ? (live === undefined ? 60 : 0) : ((n - min) / ((max - min) || 1)) * 100;
+            const pct = n === null ? (preview ? 60 : 0) : ((n - min) / ((max - min) || 1)) * 100;
             const clamped = Math.max(0, Math.min(100, pct));
             return (
                 <div className={cn('w-full h-full flex flex-col', blinkClass)}>
@@ -845,7 +946,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
                         <SiloSymbol pct={clamped} color={color} />
                         {(cfg.showPercentage || cfg.showValue) && n !== null && (
                             <span className="absolute inset-0 flex items-center justify-center text-xs text-white font-mono font-bold">
-                                {cfg.showPercentage ? `${clamped.toFixed(0)}%` : `${n.toFixed(cfg.decimals ?? 1)}${cfg.unit ? ` ${cfg.unit}` : ''}`}
+                                {cfg.showPercentage ? `${clamped.toFixed(0)}%` : `${n.toFixed(dp(cfg.decimals))}${cfg.unit ? ` ${cfg.unit}` : ''}`}
                             </span>
                         )}
                     </div>
@@ -854,7 +955,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
             );
         }
         case 'pipe': {
-            const flowTagValue = num(liveSecondary?.value);
+            const flowTagValue = liveSecondary && liveSecondary.quality < 2 ? num(liveSecondary.value) : null;
             const flowOn = cfg.flowEnabled ? (
                 cfg.tagFlow != null ? isOn(flowTagValue, cfg) : true
             ) : false;
@@ -864,14 +965,16 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
                     cfg={cfg}
                     w={widget.w}
                     h={widget.h}
-                    flowOn={live === undefined ? false : flowOn} />
+                    flowOn={preview ? false : flowOn} />
             );
         }
         case 'label': {
-            const boundValue = num(live?.value);
+            // The bound tag is config.tagBinding, delivered as liveSecondary: a
+            // label has no main tag, so reading live left {{value}} unfilled.
+            const boundValue = liveSecondary && liveSecondary.quality < 2 ? num(liveSecondary.value) : null;
             const rawText = widget.label || t('synopticWidget.label_default');
-            const displayText = cfg.tagBinding != null && boundValue !== null
-                ? rawText.replace('{{value}}', boundValue.toFixed(cfg.decimals ?? 1))
+            const displayText = cfg.tagBinding != null && !preview
+                ? rawText.split('{{value}}').join(boundValue !== null ? boundValue.toFixed(dp(cfg.decimals)) : '—')
                 : rawText;
             const align = (cfg.textAlign as 'left' | 'center' | 'right' | undefined) ?? 'center';
             return (
@@ -893,7 +996,7 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
         case 'bargraph': {
             const min = cfg.min ?? 0, max = cfg.max ?? 100;
             const color = resolveNumericColor(n, cfg, alarm);
-            const pct = n === null ? (live === undefined ? 50 : 0) : ((n - min) / ((max - min) || 1)) * 100;
+            const pct = n === null ? (preview ? 50 : 0) : ((n - min) / ((max - min) || 1)) * 100;
             return (
                 <div className={cn('w-full h-full flex flex-col', blinkClass)}>
                     <BargraphSymbol pct={pct} color={color} vertical={!!cfg.vertical}
@@ -906,12 +1009,14 @@ export function SynopticWidgetView({ widget, live, onWrite, inAlarm, liveSeconda
         case 'button': {
             const on = isOn(n, cfg);
             const color = alarm ? '#ef4444' : (cfg.color || '#3b82f6');
-            return <ButtonWidget widget={widget} active={on} color={color} live={live} onWrite={onWrite} onNavigate={onNavigate} />;
+            return <ButtonWidget widget={widget} active={on} color={color} preview={preview}
+                stateKnown={live !== undefined && !badQuality && n !== null}
+                onWrite={onWrite} onNavigate={onNavigate} />;
         }
         case 'clock':
             return <ClockWidget widget={widget} />;
         case 'setpoint':
-            return <SetpointWidget widget={widget} live={live} onWrite={onWrite} />;
+            return <SetpointWidget widget={widget} live={live} preview={preview} onWrite={onWrite} />;
         case 'image':
             return <ImageWidget cfg={cfg} />;
         default:

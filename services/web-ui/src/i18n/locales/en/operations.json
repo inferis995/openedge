@@ -134,7 +134,8 @@
         "image_loaded": "Loaded",
         "unit_placeholder": "e.g. °C, bar, %",
         "send_backward": "Send backward",
-        "bring_forward": "Bring forward"
+        "bring_forward": "Bring forward",
+        "unsaved_confirm": "This synoptic has unsaved changes. Leave and lose them?"
     },
     "synopticsPage": {
         "loading": "Loading synoptics…",
@@ -157,7 +158,10 @@
         "none_site": "None",
         "none_area": "None",
         "line_area": "Line / area",
-        "create_open": "Create and open the editor"
+        "create_open": "Create and open the editor",
+        "create_failed": "Could not create the synoptic",
+        "delete_failed": "Could not delete the synoptic",
+        "delete_linked": "Buttons on these synoptics lead here and will stop working: {{pages}}."
     },
     "synopticWidget": {
         "confirm_default": "Confirm?",
@@ -186,7 +190,9 @@
         "type_mixer": "Mixer",
         "type_compressor": "Compressor",
         "type_heater": "Heater",
-        "type_silo": "Silo"
+        "type_silo": "Silo",
+        "state_unknown": "Tag state unknown: command disabled until a valid value arrives.",
+        "out_of_range": "Out of range ({{min}} … {{max}})"
     },
     "dashboardPage": {
         "dur_dh": "{{d}}d {{h}}h",

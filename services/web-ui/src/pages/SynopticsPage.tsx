@@ -27,6 +27,7 @@ import i18n from '@/i18n';
 import { useTranslation } from 'react-i18next';
 import { SYNOPTIC_TEMPLATES, templateLayout, type SynopticTemplateId } from '@/components/synoptics/templates';
 import { startLoad } from '@/lib/startLoad';
+import { showApiError } from '@/lib/api-error-handler';
 
 // Scope of the currently selected tree node — drives the right-hand panel and
 // pre-fills the "new synoptic" dialog so a page is filed under the right line.
@@ -92,6 +93,7 @@ const SynopticsPage = () => {
     // Create dialog
     const [isOpen, setIsOpen] = useState(false);
     const [name, setName] = useState('');
+    const [creating, setCreating] = useState(false);
     const [description, setDescription] = useState('');
     const [template, setTemplate] = useState<SynopticTemplateId>('blank');
     const [formSiteId, setFormSiteId] = useState<string>('none');
@@ -151,7 +153,9 @@ const SynopticsPage = () => {
     };
 
     const handleCreate = async () => {
-        if (!name.trim()) return;
+        // One page per click: a double click used to create two.
+        if (!name.trim() || creating) return;
+        setCreating(true);
         try {
             const { id } = await synopticsApi.create({
                 name: name.trim(), description,
@@ -162,15 +166,28 @@ const SynopticsPage = () => {
             setIsOpen(false);
             navigate(`/synoptics/${id}/edit`);
         } catch (e) {
-            console.error('Failed to create synoptic', e);
+            // A taken name, for one, is the user's to fix: say so.
+            showApiError(e, t('synopticsPage.create_failed'));
+        } finally {
+            setCreating(false);
         }
     };
 
     const handleDelete = async (e: React.MouseEvent, id: number) => {
         e.stopPropagation();
-        if (!(await confirmAction({ title: i18n.t('ask.delete_synoptic'), description: i18n.t('ask.irreversible'), destructive: true }))) return;
-        await synopticsApi.remove(id);
-        load();
+        // Buttons on other pages that open this one would lead nowhere: name
+        // them before the user decides.
+        const linking = items.filter(s => s.id !== id && (s.layout ?? []).some(w => w.config?.navigateSynopticId === id)).map(s => s.name);
+        const description = linking.length > 0
+            ? `${i18n.t('synopticsPage.delete_linked', { pages: linking.join(', ') })} ${i18n.t('ask.irreversible')}`
+            : i18n.t('ask.irreversible');
+        if (!(await confirmAction({ title: i18n.t('ask.delete_synoptic'), description, destructive: true }))) return;
+        try {
+            await synopticsApi.remove(id);
+        } catch (err) {
+            showApiError(err, t('synopticsPage.delete_failed'));
+        }
+        startLoad(load);
     };
 
     if (isLoading) {
@@ -339,7 +356,7 @@ const SynopticsPage = () => {
                             </div>
                         </div>
                     </div>
-                    <DialogFooter><Button onClick={handleCreate}>{t('synopticsPage.create_open')}</Button></DialogFooter>
+                    <DialogFooter><Button onClick={handleCreate} disabled={creating || !name.trim()}>{t('synopticsPage.create_open')}</Button></DialogFooter>
                 </DialogContent>
             </Dialog>
         </div>

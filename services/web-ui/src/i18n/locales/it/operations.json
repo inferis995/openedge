@@ -134,7 +134,8 @@
         "image_loaded": "Caricata",
         "unit_placeholder": "es. °C, bar, %",
         "send_backward": "Porta dietro",
-        "bring_forward": "Porta avanti"
+        "bring_forward": "Porta avanti",
+        "unsaved_confirm": "Ci sono modifiche non salvate a questo sinottico. Uscire e perderle?"
     },
     "synopticsPage": {
         "loading": "Caricamento sinottici…",
@@ -157,7 +158,10 @@
         "none_site": "Nessuno",
         "none_area": "Nessuna",
         "line_area": "Linea / area",
-        "create_open": "Crea e apri l'editor"
+        "create_open": "Crea e apri l'editor",
+        "create_failed": "Impossibile creare il sinottico",
+        "delete_failed": "Impossibile eliminare il sinottico",
+        "delete_linked": "I pulsanti di questi sinottici portano qui e non funzioneranno più: {{pages}}."
     },
     "synopticWidget": {
         "confirm_default": "Confermi?",
@@ -186,7 +190,9 @@
         "type_mixer": "Agitatore",
         "type_compressor": "Compressore",
         "type_heater": "Resistenza",
-        "type_silo": "Silo"
+        "type_silo": "Silo",
+        "state_unknown": "Stato del tag sconosciuto: comando disattivato finché non arriva un valore valido.",
+        "out_of_range": "Fuori intervallo ({{min}} … {{max}})"
     },
     "dashboardPage": {
         "dur_dh": "{{d}}g {{h}}h",

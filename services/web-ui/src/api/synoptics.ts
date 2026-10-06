@@ -181,7 +181,8 @@ export const synopticsApi = {
     create: (payload: SynopticPayload): Promise<{ id: number }> =>
         apiClient.post('/synoptics', payload).then(r => r.data),
 
-    update: (id: number, payload: SynopticPayload): Promise<void> =>
+    /** Answers the row's new updated_at, to echo as expected_updated_at on the next save. */
+    update: (id: number, payload: SynopticPayload): Promise<{ status: string; updated_at?: string }> =>
         apiClient.put(`/synoptics/${id}`, payload).then(r => r.data),
 
     remove: (id: number): Promise<void> =>
