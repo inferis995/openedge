@@ -931,6 +931,7 @@ func main() {
 		// / operations / activity timeline / KPI / OEE). Refresh ogni 30s.
 		dashboardHandler := handlers.NewDashboardHandler(database)
 		dashboardHandler.OEE = oeeHandler
+		dashboardHandler.Redis = redisClient
 		dashboard := api.Group("/dashboard")
 		dashboard.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{

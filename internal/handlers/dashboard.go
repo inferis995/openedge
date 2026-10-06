@@ -9,13 +9,16 @@ package handlers
 import (
 	"context"
 	"database/sql"
-	"github.com/ralph/industrial-edge-middleware/internal/shifts"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/ralph/industrial-edge-middleware/internal/shifts"
 )
 
 // DashboardHandler aggrega lo stato del sistema in una sola response.
@@ -26,6 +29,9 @@ type DashboardHandler struct {
 	// lo snapshot OEE corrente nel payload. Tenuto fuori dal costruttore
 	// per non creare dipendenze obbligatorie tra handler.
 	OEE *OEEHandler
+	// Redis carries each gateway's health (gateway_health:<id>), written by
+	// the drivers. Without it the gateways are counted as unknown.
+	Redis RedisClient
 }
 
 // NewDashboardHandler costruisce l'handler e cattura l'uptime di processo.
@@ -343,14 +349,36 @@ func (h *DashboardHandler) alarms(sc dashScope) AlarmsBlock {
 
 func (h *DashboardHandler) gateways(sc dashScope) GatewaysBlock {
 	out := GatewaysBlock{OfflineList: []GatewayBrief{}}
-	// connection_status non è in DB — viene da Redis. Per evitare la
-	// dipendenza Redis qui, contiamo i gateway totali e li mostriamo come
-	// "Unknown" finché un altro endpoint live (es. /api/gateways) aggiorna
-	// il widget. Il frontend già fa quella chiamata; usiamo questo blocco
-	// per il conteggio TOTALE che è quello che pilota la status bar.
-	var total int
-	_ = h.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM gateways WHERE enabled = true AND ` + sc.gateways("id")).Scan(&total)
-	out.Unknown = total
+	// The health is in Redis (gateway_health:<id>), as GET /api/gateways
+	// reads it. This block used to count every gateway as unknown, on the
+	// claim that the page would fill in the rest from /api/gateways; it never
+	// did, and the status bar said "0/N gateways online" on every plant.
+	rows, err := h.db.QueryContext(context.Background(),
+		`SELECT id, name, driver_type FROM gateways WHERE enabled = true AND `+sc.gateways("id")+` ORDER BY name`)
+	if err != nil {
+		return out
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var g GatewayBrief
+		if err := rows.Scan(&g.ID, &g.Name, &g.DriverType); err != nil {
+			continue
+		}
+		if h.Redis == nil {
+			out.Unknown++
+			continue
+		}
+		var health GatewayHealthStatus
+		raw, err := h.Redis.Get(fmt.Sprintf("gateway_health:%d", g.ID))
+		if err == nil && json.Unmarshal([]byte(raw), &health) == nil && health.Status == "online" {
+			out.Online++
+			continue
+		}
+		// No health at all reads as offline, as on the gateways page: a
+		// driver that never reported is not running.
+		out.Offline++
+		out.OfflineList = append(out.OfflineList, g)
+	}
 	return out
 }
 

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The dashboard's status bar said "0/N gateways online" on every plant: the
+  overview counted every gateway as unknown, expecting the page to fill in
+  their health from another call it never made. It now reads each gateway's
+  health from Redis, as the gateways page does, and lists the offline ones.
+
 ## [3.4.0] - 2026-10-03
 
 ### Changed (action may be needed)
