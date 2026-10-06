@@ -129,11 +129,10 @@ func TestMidoEveryDataType(t *testing.T) {
 	b = be.AppendUint32(b, 202400444)
 	b = append(b, 3, 241) // version, battery raw → 3.66 V
 	u32(1774876071)
-	b = append(b, 54, byte(0xA8), 0x40) // sqi, rssi -88, status: batteria_bassa
-	b = append(b, 1)                    // one reading
-	u32(1774862100)                     // 09:15 UTC
-	b = append(b, 8)                    // eight inputs
-	b = be.AppendUint16(b, 0x0102)      // modbus status
+	b = append(b, 54, byte(0xA8), 0x40, 1) // sqi, rssi -88, status batteria_bassa; one reading
+	u32(1774862100)                        // 09:15 UTC
+	b = append(b, 8)                       // eight inputs
+	b = be.AppendUint16(b, 0x0102)         // modbus status
 	in := func(id, tipo, alarm byte, v []byte) { b = append(b, tipo<<5|id, alarm); b = append(b, v...) }
 	in(0, 0, 0, []byte{200})
 	in(1, 1, 0, []byte{0xF6}) // -10
@@ -174,11 +173,28 @@ func TestMidoDamagedFrame(t *testing.T) {
 	}
 }
 
-func TestGenericContract(t *testing.T) {
-	cases := map[string]struct {
-		src   string
-		check func(t *testing.T, r Result, err error)
-	}{
+type contractCase struct {
+	src   string
+	check func(t *testing.T, r Result, err error)
+}
+
+func runContract(t *testing.T, cases map[string]contractCase) {
+	t.Helper()
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			d, err := Compile(c.src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			d.Timeout = 200 * time.Millisecond
+			r, err := d.Decode([]byte("abc"), "t/x", now)
+			c.check(t, r, err)
+		})
+	}
+}
+
+func TestGenericContractShapes(t *testing.T) {
+	cases := map[string]contractCase{
 		"plain object at arrival time": {
 			`function decode(m){ return {temp: 21.5, ok: true}; }`,
 			func(t *testing.T, r Result, err error) {
@@ -210,6 +226,12 @@ func TestGenericContract(t *testing.T) {
 					t.Fatalf("err %v", err)
 				}
 			}},
+	}
+	runContract(t, cases)
+}
+
+func TestGenericContractSafety(t *testing.T) {
+	cases := map[string]contractCase{
 		"script error reported": {
 			`function decode(m){ throw new Error("bad frame"); }`,
 			func(t *testing.T, r Result, err error) {
@@ -244,17 +266,7 @@ func TestGenericContract(t *testing.T) {
 				}
 			}},
 	}
-	for name, c := range cases {
-		t.Run(name, func(t *testing.T) {
-			d, err := Compile(c.src)
-			if err != nil {
-				t.Fatal(err)
-			}
-			d.Timeout = 200 * time.Millisecond
-			r, err := d.Decode([]byte("abc"), "t/x", now)
-			c.check(t, r, err)
-		})
-	}
+	runContract(t, cases)
 }
 
 func TestCompileRefusesScriptsWithoutDecode(t *testing.T) {

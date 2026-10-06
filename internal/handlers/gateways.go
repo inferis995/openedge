@@ -680,8 +680,8 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 		return
 	}
 	if req.ConnectionConfig != nil {
-		if err := validateDecoderConfig(*req.ConnectionConfig); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		if vErr := validateDecoderConfig(*req.ConnectionConfig); vErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": vErr.Error()})
 			return
 		}
 	}
