@@ -196,6 +196,9 @@ vps-up-monitoring: setup-env preflight-monitoring
 ## Start the VPS stack + edge (driver-manager on the same VPS — all-in-one cloud)
 vps-up-edge: setup-env preflight
 	$(COMPOSE_VPS_EDGE) build
+	# driver-manager starts each gateway's driver from these images; built
+	# only, never started here (it runs them per gateway).
+	$(COMPOSE_VPS_EDGE) --profile drivers build
 	$(COMPOSE_VPS_EDGE) up -d
 	@echo ""
 	@echo "OpenEdge VPS + Edge stack started (server + drivers on same machine)."
