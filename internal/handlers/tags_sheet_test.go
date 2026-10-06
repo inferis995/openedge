@@ -53,3 +53,50 @@ func TestAMissingColumnLeavesAnExistingValueAlone(t *testing.T) {
 		t.Errorf("a sheet without scaling columns would change %v", res.Rows[0].Changes)
 	}
 }
+
+// A decoded MQTT frame feeds several tags from one topic, told apart by their
+// JSON path. The sheet must carry them all and update each one in place.
+func TestTagsSharingATopicAreToldApartByTheirJSONPath(t *testing.T) {
+	const topic = "sorical/863266053566249/dataup/up"
+	existing := map[string]existingTag{
+		tagsheet.Key(topic, "in7"):      {id: 1, sheetTag: tagsheet.Tag{Alias: "P1_AN1", Address: topic, DataType: "REAL", JSONPath: "in7"}},
+		tagsheet.Key(topic, "batteria"): {id: 2, sheetTag: tagsheet.Tag{Alias: "P1_BATT", Address: topic, DataType: "REAL", JSONPath: "batteria"}},
+	}
+	sheet := tagsheet.Parse([]byte("Name;Address;Type;JSON path\n" +
+		"P1_AN1;" + topic + ";REAL;in7\n" + // unchanged
+		"P1_BATTERIA;" + topic + ";REAL;batteria\n" + // renamed
+		"P1_AN2;" + topic + ";REAL;in8\n")) // new
+	res := planSheet(sheet, existing)
+	want := []string{"unchanged", "update", "create"}
+	for i, r := range res.Rows {
+		if r.Action != want[i] {
+			t.Errorf("line %d (%s): %s, want %s — %v", r.Line, r.Alias, r.Action, want[i], r.Problems)
+		}
+	}
+	if res.Rows[1].tagID != 2 {
+		t.Errorf("the rename would write to tag %d, want 2", res.Rows[1].tagID)
+	}
+
+	// The same topic and path twice is a duplicate; without a path a row
+	// could be any of the tags on the topic.
+	sheet = tagsheet.Parse([]byte("Name;Address;Type;JSON path\n" +
+		"A;" + topic + ";REAL;in7\nB;" + topic + ";REAL;in7\n"))
+	if sheet.RowProblems(3) == nil {
+		t.Error("two rows with the same topic and path were accepted")
+	}
+	sheet = tagsheet.Parse([]byte("Name;Address;Type\nX;" + topic + ";REAL\n"))
+	if r := planSheet(sheet, existing).Rows[0]; r.Action != "invalid" || r.Problems[0].Code != "ambiguous_address" {
+		t.Errorf("a row without a path on a shared topic: %s %v", r.Action, r.Problems)
+	}
+}
+
+// The one tag on an address whose path changes is updated, not doubled.
+func TestChangingTheJSONPathOfTheOnlyTagOnATopicUpdatesIt(t *testing.T) {
+	existing := map[string]existingTag{
+		tagsheet.Key("plant/t1", "temp"): {id: 9, sheetTag: tagsheet.Tag{Alias: "T1", Address: "plant/t1", DataType: "REAL", JSONPath: "temp"}},
+	}
+	res := planSheet(tagsheet.Parse([]byte("Name;Address;Type;JSON path\nT1;plant/t1;REAL;data.temp\n")), existing)
+	if r := res.Rows[0]; r.Action != "update" || r.tagID != 9 {
+		t.Errorf("%s on tag %d, want update of 9", r.Action, r.tagID)
+	}
+}

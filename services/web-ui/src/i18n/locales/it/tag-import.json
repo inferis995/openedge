@@ -69,7 +69,7 @@
             "bad_number": "{{field}}: «{{value}}» non è un numero",
             "bad_bool": "{{field}}: «{{value}}» non è sì o no",
             "too_long": "{{field}}: troppo lungo (al massimo {{value}} caratteri)",
-            "duplicate_address": "Indirizzo già usato alla riga {{value}} di questo file",
+            "duplicate_address": "Indirizzo (e percorso JSON) già usato alla riga {{value}} di questo file",
             "scaling_range": "Scalatura: grezzo min e grezzo max non possono essere uguali",
             "negative": "{{field}}: non può essere negativo",
             "decimals_range": "Decimali: un numero intero da 0 a 10",
@@ -78,7 +78,8 @@
             "no_rows": "Il file non contiene tag",
             "too_many_rows": "Troppe righe: al massimo {{value}} per volta",
             "unreadable_file": "Il file non si legge: salvalo come Excel (.xlsx) o CSV ({{value}})",
-            "udt_managed": "Tag generato da un'istanza UDT: si modifica dal tipo UDT"
+            "udt_managed": "Tag generato da un'istanza UDT: si modifica dal tipo UDT",
+            "ambiguous_address": "Più tag leggono questo indirizzo: indica il percorso JSON per dire quale"
         }
     }
 }

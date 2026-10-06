@@ -158,6 +158,26 @@ type Row struct {
 	JSONPath  *string
 }
 
+// Key identifies a tag within a gateway's sheet: its address, plus its JSON
+// path when it has one. Several tags can read one MQTT topic — the fields of
+// a decoded frame, the keys of a JSON message — so the address alone is not
+// enough. A tag without a path is keyed by its address alone.
+func Key(address, jsonPath string) string {
+	jsonPath = strings.TrimSpace(jsonPath)
+	if jsonPath == "" {
+		return address
+	}
+	return address + "\x00" + jsonPath
+}
+
+// RowKey is Key for a sheet row.
+func RowKey(r *Row) string {
+	if r.JSONPath == nil {
+		return Key(r.Address, "")
+	}
+	return Key(r.Address, *r.JSONPath)
+}
+
 // Sheet is what a file contained.
 type Sheet struct {
 	Rows []Row
@@ -270,12 +290,13 @@ func fromRecords(records [][]string) *Sheet {
 		s.readRow(&row, cell)
 
 		if row.Address != "" {
-			if first, dup := seen[row.Address]; dup {
+			key := RowKey(&row)
+			if first, dup := seen[key]; dup {
 				s.Problems = append(s.Problems, Problem{
 					Line: line, Field: FAddress, Code: CodeDuplicate, Value: strconv.Itoa(first),
 				})
 			} else {
-				seen[row.Address] = line
+				seen[key] = line
 			}
 		}
 		s.Rows = append(s.Rows, row)

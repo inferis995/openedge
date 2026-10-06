@@ -160,8 +160,9 @@ func (h *TagsHandler) loadSheetTags(ctx context.Context, gatewayID int) ([]strin
 			return nil, nil, err
 		}
 		t.JSONPath, e.hasJSONPt = jp.String, jp.Valid
-		order = append(order, t.Address)
-		byAddress[t.Address] = e
+		key := tagsheet.Key(t.Address, t.JSONPath)
+		order = append(order, key)
+		byAddress[key] = e
 	}
 	return order, byAddress, rows.Err()
 }
@@ -191,6 +192,7 @@ type SheetRowResult struct {
 	Action   string             `json:"action"` // create | update | unchanged | invalid
 	Changes  []string           `json:"changes,omitempty"`
 	Problems []tagsheet.Problem `json:"problems,omitempty"`
+	tagID    int                // the existing tag an update writes to
 }
 
 // SheetImportResult is what an import of a sheet found, and did.
@@ -275,7 +277,7 @@ func (h *TagsHandler) ImportTagSheet(c *gin.Context) {
 		case "create":
 			execErr = insertSheetRow(ctx, tx, gatewayID, row)
 		case "update":
-			execErr = updateSheetRow(ctx, tx, existing[row.Address].id, row, sheet.Present)
+			execErr = updateSheetRow(ctx, tx, res.Rows[i].tagID, row, sheet.Present)
 		default:
 			continue
 		}
@@ -315,14 +317,41 @@ func planSheet(sheet *tagsheet.Sheet, existing map[string]existingTag) SheetImpo
 			res.Columns = append(res.Columns, string(f))
 		}
 	}
+	// Tags and rows per address, to match a row whose JSON path is new or
+	// not given.
+	tagsAt := map[string][]existingTag{}
+	for _, e := range existing {
+		tagsAt[e.sheetTag.Address] = append(tagsAt[e.sheetTag.Address], e)
+	}
+	rowsAt := map[string]int{}
+	for i := range sheet.Rows {
+		rowsAt[sheet.Rows[i].Address]++
+	}
 	for i := range sheet.Rows {
 		row := &sheet.Rows[i]
 		r := SheetRowResult{Line: row.Line, Alias: row.Alias, Address: row.Address, DataType: row.DataType,
 			Problems: sheet.RowProblems(row.Line)}
-		e, found := existing[row.Address]
+		e, found := existing[tagsheet.RowKey(row)]
+		ambiguous := false
+		if !found {
+			switch at := tagsAt[row.Address]; {
+			case len(at) == 1 && rowsAt[row.Address] == 1:
+				// The one tag on this address, its path changed or not in the
+				// sheet: an update, not a second tag.
+				e, found = at[0], true
+			case len(at) > 1 && (row.JSONPath == nil || strings.TrimSpace(*row.JSONPath) == ""):
+				// Several tags read this address; without a path the row
+				// could be any of them.
+				ambiguous = true
+			}
+		}
+		r.tagID = e.id
 		switch {
 		case len(r.Problems) > 0:
 			r.Action = "invalid"
+		case ambiguous:
+			r.Action = "invalid"
+			r.Problems = append(r.Problems, tagsheet.Problem{Line: row.Line, Field: tagsheet.FJSONPath, Code: "ambiguous_address"})
 		case found && e.udt:
 			// A tag that belongs to a UDT instance is generated from the type;
 			// editing it here would be undone, or would break the instance.

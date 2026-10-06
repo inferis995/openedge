@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Tag sheet with several tags on one MQTT topic.** Import refused them as
+  duplicate addresses and export kept only one of them. A tag in the sheet is
+  now its address plus its JSON path; a row without a path on a topic several
+  tags read is refused as ambiguous, and changing the path of the only tag on
+  a topic updates it.
+
 - Readings delivered late or in a batch keep their own time end to end. The
   MQTT driver stamped every value with its arrival time; the historian's
   periodic floor was measured on the server clock, so of a batch of
