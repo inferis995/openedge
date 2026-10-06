@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SCADA synoptics, after a full review of the editor, viewer, widgets and API:
+  - The second save in an editor session was always refused as "modified by
+    somebody else"; a rename without a layout erased the drawing; leaving the
+    editor dropped unsaved changes without asking.
+  - A momentary (jog) button could leave a PLC output on: the OFF write was
+    lost when the press ended by cancel or lost focus. A toggle button wrote
+    while the tag's state was unknown.
+  - Symbols drawn from a bad, uncertain or frozen reading (socket down) looked
+    normal: a pump fed bad data spun as RUN. They are now greyed and marked.
+  - A decimals value out of range crashed the whole page; pipe flow never
+    animated and label `{{value}}` was never filled in the viewer; a state tag
+    with onValue other than 1 matched any higher value; navigation buttons
+    without a tag could not be clicked; button and setpoint widgets could not
+    be added from their palette preview or selected on the canvas.
+  - Undo missed typed edits and nudges and lost redo on a plain click;
+    shortcuts fired inside menus; locked widgets could be deleted; widgets
+    could be dragged off the canvas; one page's error or data could show on
+    the next.
+  - The API now checks layouts (a JSON array), names, colours, canvas size
+    (100–10,000 px), body size, and that site and area are the caller's own;
+    a duplicate name is a 409, not a 500.
+
 - The dashboard's status bar said "0/N gateways online" on every plant: the
   overview counted every gateway as unknown, expecting the page to fill in
   their health from another call it never made. It now reads each gateway's

@@ -144,6 +144,9 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     // Held separately from saveStatus: a conflict must stay on screen until the
     // user acts on it, while the ok/error toasts auto-dismiss.
     const [conflictMsg, setConflictMsg] = useState<string | null>(null);
+    // One "saved" notice at a time: the timer of an earlier save hid the
+    // notice of the next one.
+    const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const [loadError, setLoadError] = useState<string | null>(null);
     // On a phone a 1280px canvas fits at about 0.27x, which means a 14px
     // readout renders at four pixels. It is on screen and it is unreadable, so
@@ -700,7 +703,8 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
             if (savedAt) setSynoptic(s => (s ? { ...s, updated_at: savedAt } : s));
             setSavedJson(JSON.stringify(widgets));
             setSaveStatus('ok');
-            setTimeout(() => setSaveStatus('idle'), 2500);
+            clearTimeout(saveTimer.current);
+            saveTimer.current = setTimeout(() => setSaveStatus('idle'), 2500);
         } catch (e) {
             const status = (e as { response?: { status?: number; data?: { error?: string } } })?.response?.status;
             if (status === 409) {
@@ -824,8 +828,11 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                             {WIDGET_CATALOG.map(c => (
                                 <button key={c.type} onClick={() => addWidget(c.type)}
                                     className="flex flex-col items-center justify-center gap-1 p-2 rounded-md border bg-card hover:bg-muted/50 hover:border-primary/40 transition-colors h-16">
-                                    <div className="w-9 sm:w-7 h-9 sm:h-7 flex items-center justify-center">
-                                        <SynopticWidgetView widget={{ id: 'preview', type: c.type, x: 0, y: 0, w: 28, h: 28, config: { min: 0, max: 100 } }} />
+                                    {/* pointer-events-none: the button and setpoint previews are
+                                        (disabled) controls inside this button; a click on them
+                                        was swallowed and the tile added nothing. */}
+                                    <div className="w-9 sm:w-7 h-9 sm:h-7 flex items-center justify-center pointer-events-none">
+                                        <SynopticWidgetView preview widget={{ id: 'preview', type: c.type, x: 0, y: 0, w: 28, h: 28, config: { min: 0, max: 100 } }} />
                                     </div>
                                     <span className="text-[10px]">{tr(c.label)}</span>
                                 </button>
