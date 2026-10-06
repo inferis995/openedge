@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"sync"
 	"time"
 
@@ -69,6 +70,8 @@ type alarmIO struct {
 	status      string // "ACTIVE" or "CLEARED"
 	ref         *eventRef
 	triggeredAt time.Time
+	// clearedAt is when the condition cleared (CLEARED only). Zero means now.
+	clearedAt time.Time
 	// notify is false for insert retries: the operator has already been told
 	// about this alarm, only the durable record was missing.
 	notify bool
@@ -311,8 +314,15 @@ func (m *Manager) tickDelays() {
 			case !track.Triggered:
 				durationSecs := int(now.Sub(track.ActiveSince).Seconds())
 				if durationSecs >= track.Definition.DelaySeconds {
+					// The alarm became true when the delay ran out, not when this
+					// tick noticed: the same instant for a live tag, hours earlier
+					// for a condition first seen in a batch of past readings.
+					firedAt := track.ActiveSince.Add(time.Duration(track.Definition.DelaySeconds) * time.Second)
+					if firedAt.After(now) {
+						firedAt = now
+					}
 					track.Triggered = true
-					track.FiredAt = now
+					track.FiredAt = firedAt
 					track.NextInsertRetry = now.Add(alarmInsertRetryInterval)
 					m.queueIO(alarmIO{
 						tagID:       tagID,
@@ -321,7 +331,7 @@ func (m *Manager) tickDelays() {
 						value:       track.InitialValue,
 						status:      "ACTIVE",
 						ref:         track.Event,
-						triggeredAt: now,
+						triggeredAt: firedAt,
 						notify:      true,
 					})
 				}
@@ -484,6 +494,7 @@ func (m *Manager) EvaluateTagAt(tagID int, alias string, value interface{}, qual
 							status:      "CLEARED",
 							ref:         track.Event,
 							triggeredAt: track.FiredAt,
+							clearedAt:   now,
 							notify:      true,
 						})
 					}
@@ -499,6 +510,130 @@ func (m *Manager) EvaluateTagAt(tagID int, alias string, value interface{}, qual
 	// Everything that can block — the DB writes and the MQTT publish done by
 	// OnAlarmEvent — happens here, with the lock released.
 	m.drainIO()
+}
+
+// Point is one reading of a tag, taken at At.
+type Point struct {
+	Value interface{}
+	At    time.Time
+}
+
+// EvaluateTagSeries runs a batch of past readings, oldest first, through the
+// alarm rules as if they had arrived live: delays are measured between the
+// readings' own times, and every alarm is recorded with the time it became
+// true and the time it cleared.
+//
+// A device that reports every few hours used to be judged on its newest
+// reading only, so a threshold crossed for half an hour between two reports
+// left a trace in the history and none in the alarm log. Now it is in the
+// log, with its real start and end.
+//
+// Notifications are about the present: an alarm still active at the newest
+// reading is notified, and so is the end of one the operator had already been
+// told about. An excursion that started and ended inside the batch is only
+// recorded — waking somebody for something that ended hours ago helps nobody.
+func (m *Manager) EvaluateTagSeries(tagID int, alias string, points []Point, quality int) {
+	if len(points) == 0 {
+		return
+	}
+	sorted := append([]Point(nil), points...)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].At.Before(sorted[j].At) })
+
+	m.mu.Lock()
+	defs, exists := m.definitions[tagID]
+	if !exists || len(defs) == 0 {
+		m.mu.Unlock()
+		return
+	}
+	if quality == qualityGood {
+		if v, ok := toFloat(sorted[len(sorted)-1].Value); ok {
+			m.recordGoodSample(tagID, defs, v, time.Now())
+		}
+	}
+	if quality != qualityGood {
+		m.mu.Unlock()
+		return
+	}
+	if m.activeTracks[tagID] == nil {
+		m.activeTracks[tagID] = make(map[int]*activeAlarmTrack)
+	}
+	tracks := m.activeTracks[tagID]
+	// Alarms the operator already knows about (fired before this batch).
+	known := make(map[int]bool)
+	for id, t := range tracks {
+		if t.Triggered {
+			known[id] = true
+		}
+	}
+	firstIO := len(m.pendingIO)
+
+	for _, p := range sorted {
+		v, ok := toFloat(p.Value)
+		if !ok {
+			continue
+		}
+		for i := range defs {
+			if !isHealthAlarm(defs[i].AlarmType) {
+				m.seriesStep(tagID, alias, tracks, &defs[i], p.At, v, known[defs[i].ID])
+			}
+		}
+	}
+
+	// An alarm raised in this batch and still active at the newest reading is
+	// news: notify it.
+	for i := firstIO; i < len(m.pendingIO); i++ {
+		io := &m.pendingIO[i]
+		if io.tagID != tagID || io.status != "ACTIVE" {
+			continue
+		}
+		if t, ok := tracks[io.def.ID]; ok && t.Event == io.ref {
+			io.notify = true
+		}
+	}
+
+	m.mu.Unlock()
+	m.drainIO()
+}
+
+// seriesStep advances one alarm rule by one reading of a batch, taken at `at`.
+// known: the operator was told about this alarm before the batch, so its end
+// is news. MUST be called with m.mu held.
+func (m *Manager) seriesStep(tagID int, alias string, tracks map[int]*activeAlarmTrack, def *models.AlarmDefinition, at time.Time, v float64, known bool) {
+	track, tracking := tracks[def.ID]
+	if isConditionViolated(*def, v) {
+		if !tracking {
+			track = &activeAlarmTrack{Definition: *def, ActiveSince: at, InitialValue: v, Event: &eventRef{}}
+			tracks[def.ID] = track
+		}
+		delay := time.Duration(def.DelaySeconds) * time.Second
+		if !track.Triggered && at.Sub(track.ActiveSince) >= delay {
+			firedAt := track.ActiveSince.Add(delay)
+			track.Triggered = true
+			track.FiredAt = firedAt
+			track.NextInsertRetry = time.Now().Add(alarmInsertRetryInterval)
+			m.queueIO(alarmIO{
+				tagID: tagID, alias: alias, def: *def, value: track.InitialValue,
+				status: "ACTIVE", ref: track.Event, triggeredAt: firedAt,
+				notify: false, // decided once the batch is through
+			})
+		}
+		return
+	}
+	if !tracking {
+		return
+	}
+	if !track.Triggered {
+		delete(tracks, def.ID) // back in spec before the delay ran out
+		return
+	}
+	if isCleared(*def, v) {
+		m.queueIO(alarmIO{
+			tagID: tagID, alias: alias, def: *def, value: v,
+			status: "CLEARED", ref: track.Event, triggeredAt: track.FiredAt, clearedAt: at,
+			notify: known,
+		})
+		delete(tracks, def.ID)
+	}
 }
 
 // queueIO appends a durable side-effect to the pending queue.
@@ -615,8 +750,12 @@ func (m *Manager) persistCleared(act alarmIO) {
 	eventID := act.ref.id
 	m.mu.Unlock()
 
+	clearedAt := act.clearedAt
+	if clearedAt.IsZero() {
+		clearedAt = time.Now()
+	}
 	if eventID > 0 {
-		if err := m.store.MarkCleared(eventID); err != nil {
+		if err := m.store.MarkCleared(eventID, clearedAt); err != nil {
 			log.Printf("[ALARM-MANAGER] Failed to update alarm event %d as CLEARED: %v", eventID, err)
 		}
 		return
@@ -625,7 +764,7 @@ func (m *Manager) persistCleared(act alarmIO) {
 	// The ACTIVE insert never succeeded and the condition cleared before a retry
 	// could land. Record the whole occurrence as a single already-closed row so
 	// the operator still has a history entry, instead of no trace at all.
-	id, err := m.store.InsertCleared(act.tagID, act.def, act.value, act.triggeredAt, time.Now())
+	id, err := m.store.InsertCleared(act.tagID, act.def, act.value, act.triggeredAt, clearedAt)
 	if err != nil {
 		log.Printf("[ALARM-MANAGER] Failed to record unpersisted alarm as CLEARED (tag=%d def=%d): %v",
 			act.tagID, act.def.ID, err)
@@ -646,8 +785,8 @@ type alarmStore interface {
 	InsertActive(tagID int, def models.AlarmDefinition, val float64, triggerTime time.Time) (int, error)
 	// InsertCleared records an already-closed occurrence in a single row.
 	InsertCleared(tagID int, def models.AlarmDefinition, val float64, triggerTime, clearTime time.Time) (int, error)
-	// MarkCleared closes an existing ACTIVE row.
-	MarkCleared(eventID int) error
+	// MarkCleared closes an existing ACTIVE row at clearTime.
+	MarkCleared(eventID int, clearTime time.Time) error
 	// TagAlias resolves the human-readable name of a tag.
 	TagAlias(tagID int) (string, error)
 }
@@ -726,7 +865,7 @@ func (s *sqlStore) InsertCleared(tagID int, def models.AlarmDefinition, val floa
 }
 
 // MarkCleared updates an existing alarm event with CLEARED status
-func (s *sqlStore) MarkCleared(eventID int) error {
+func (s *sqlStore) MarkCleared(eventID int, clearTime time.Time) error {
 	ctx, cancel := context.WithTimeout(context.Background(), alarmDBTimeout)
 	defer cancel()
 
@@ -734,7 +873,7 @@ func (s *sqlStore) MarkCleared(eventID int) error {
 		UPDATE alarm_events
 		SET status = 'CLEARED', clear_time = $1
 		WHERE id = $2
-	`, time.Now(), eventID)
+	`, clearTime, eventID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update alarm event: %w", err)

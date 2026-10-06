@@ -127,5 +127,10 @@ func validateDecoderConfig(cfg map[string]interface{}) error {
 			return fmt.Errorf("stale_after_minutes must be a number of minutes (0 = off)")
 		}
 	}
+	if v, ok := cfg["alarms_on_history"]; ok && v != nil {
+		if _, isBool := v.(bool); !isBool {
+			return fmt.Errorf("alarms_on_history must be true or false")
+		}
+	}
 	return nil
 }

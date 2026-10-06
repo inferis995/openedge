@@ -74,6 +74,7 @@ interface ExtendedCreateGatewayDto extends Omit<CreateGatewayDto, 'connection_co
     decoder_preset?: string;
     decoder_script?: string;
     stale_after_minutes?: number;
+    alarms_on_history?: boolean;
     // LoRaWAN fields
     lora_server_type?: string;
     lora_server_host?: string;
@@ -164,6 +165,7 @@ const GatewaysPage = () => {
         decoder_preset: '',
         decoder_script: '',
         stale_after_minutes: 0,
+        alarms_on_history: false,
         // LoRaWAN
         lora_server_type: 'ttn_v3',
         lora_server_host: '',
@@ -229,6 +231,9 @@ const GatewaysPage = () => {
             else if (formData.decoder_preset) connection_config.decoder_preset = formData.decoder_preset;
             if (formData.stale_after_minutes && formData.stale_after_minutes > 0) {
                 connection_config.stale_after_minutes = formData.stale_after_minutes;
+            }
+            if (formData.alarms_on_history && (connection_config.decoder_script || connection_config.decoder_preset)) {
+                connection_config.alarms_on_history = true;
             }
         } else if (formData.driver_type === 'LORAWAN') {
             connection_config = {
@@ -313,6 +318,7 @@ const GatewaysPage = () => {
             decoder_preset: '',
             decoder_script: '',
             stale_after_minutes: 0,
+            alarms_on_history: false,
             key_file: '',
             // LoRaWAN
             lora_server_type: 'ttn_v3',
@@ -337,7 +343,7 @@ const GatewaysPage = () => {
         let endpoint = '';
         let broker_host = '', broker_port = 1883, broker_tls = false;
         let broker_username = '', broker_password = '', broker_client_id = '';
-        let decoder_preset = '', decoder_script = '', stale_after_minutes = 0;
+        let decoder_preset = '', decoder_script = '', stale_after_minutes = 0, alarms_on_history = false;
         let lora_server_type = 'ttn_v3', lora_server_host = '', lora_server_port = 1883;
         let lora_tls_enabled = false, lora_username = '', lora_password = '', lora_application_id = '';
 
@@ -373,6 +379,7 @@ const GatewaysPage = () => {
                 decoder_preset = config.decoder_preset || '';
                 decoder_script = config.decoder_script || '';
                 stale_after_minutes = Number(config.stale_after_minutes) || 0;
+                alarms_on_history = config.alarms_on_history === true;
             } else if (gateway.driver_type === 'LORAWAN') {
                 lora_server_type = config.server_type || 'ttn_v3';
                 lora_server_host = config.server_host || '';
@@ -419,6 +426,7 @@ const GatewaysPage = () => {
             decoder_preset,
             decoder_script,
             stale_after_minutes,
+            alarms_on_history,
             lora_server_type,
             lora_server_host,
             lora_server_port,
@@ -834,6 +842,7 @@ const GatewaysPage = () => {
                                                 decoder_preset: formData.decoder_preset || '',
                                                 decoder_script: formData.decoder_script || '',
                                                 stale_after_minutes: formData.stale_after_minutes || 0,
+                                                alarms_on_history: !!formData.alarms_on_history,
                                             }}
                                             onChange={(d) => setFormData(prev => ({ ...prev, ...d }))} />
                                     </div>

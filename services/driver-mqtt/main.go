@@ -105,6 +105,11 @@ type Driver struct {
 	staleAfter time.Duration
 	// decoderEnabled: a decoder is configured (even if it failed to compile).
 	decoderEnabled bool
+	// alarmsOnHistory (connection_config alarms_on_history): the alarm rules
+	// run over every reading of a decoded batch, recording excursions that
+	// began and ended between two messages at their real times. Off, only the
+	// newest reading is evaluated. Guarded by mappingMu.
+	alarmsOnHistory bool
 	// publish replaces publishDual in tests; nil in production.
 	publish func(tagID int, alias string, value interface{}, dataType string, quality int, timestamp int64)
 
@@ -409,6 +414,7 @@ func (d *Driver) loadConfig() error {
 	d.decoder = dec
 	d.decoderEnabled = (hasScript || hasPreset) && (dec != nil || decErr != nil)
 	d.staleAfter = staleAfter
+	d.alarmsOnHistory, _ = gateway.ConnectionConfig["alarms_on_history"].(bool)
 	d.mappingMu.Unlock()
 
 	d.config = &GatewayConfig{
@@ -920,6 +926,9 @@ func (d *Driver) handleDecodedMessage(dec *decoder.Decoder, mappings []TagMappin
 		log.Printf("[DRIVER-MQTT] ERROR decoding message on %s: %v", topic, err)
 		return
 	}
+	d.mappingMu.RLock()
+	onHistory := d.alarmsOnHistory
+	d.mappingMu.RUnlock()
 	for _, mapping := range mappings {
 		key := mapping.Tag.Alias
 		if mapping.Tag.JsonPath != nil && strings.TrimSpace(*mapping.Tag.JsonPath) != "" {
@@ -942,9 +951,18 @@ func (d *Driver) handleDecodedMessage(dec *decoder.Decoder, mappings []TagMappin
 			}
 			points = append(points, point{v, s.Time})
 		}
-		for i, p := range points {
-			d.publishSample(mapping, topic, p.v, p.at, i == len(points)-1)
+		if !onHistory || d.alarmManager == nil {
+			for i, p := range points {
+				d.publishSample(mapping, topic, p.v, p.at, i == len(points)-1)
+			}
+			continue
 		}
+		series := make([]alarms.Point, 0, len(points))
+		for _, p := range points {
+			d.publishSample(mapping, topic, p.v, p.at, false)
+			series = append(series, alarms.Point{Value: scaling.Apply(p.v, scaling.FromTag(&mapping.Tag)), At: p.at})
+		}
+		d.alarmManager.EvaluateTagSeries(mapping.Tag.ID, mapping.Tag.Alias, series, 192)
 	}
 }
 

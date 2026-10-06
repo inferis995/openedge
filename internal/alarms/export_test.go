@@ -99,10 +99,37 @@ type FakeStore struct {
 	nextID     int
 	aliases    map[int]string
 
+	// Events is every row written, in order, with its times.
+	Events []FakeEvent
+
 	ActiveInserts  int   // successful + failed attempts at an ACTIVE insert
 	ClearedInserts int   // standalone already-closed rows written
 	MarkedCleared  []int // event ids closed via UPDATE
 	OpenRows       map[int]bool
+}
+
+// FakeEvent is one alarm_events row as the fake store holds it.
+type FakeEvent struct {
+	ID             int
+	DefID          int
+	Trigger, Clear time.Time
+}
+
+// event returns the stored event with id, or nil.
+func (s *FakeStore) event(id int) *FakeEvent {
+	for i := range s.Events {
+		if s.Events[i].ID == id {
+			return &s.Events[i]
+		}
+	}
+	return nil
+}
+
+// EventLog returns a copy of the rows written.
+func (s *FakeStore) EventLog() []FakeEvent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]FakeEvent(nil), s.Events...)
 }
 
 // FailActive toggles whether ACTIVE inserts fail.
@@ -131,6 +158,7 @@ func (s *FakeStore) InsertActive(tagID int, def models.AlarmDefinition, val floa
 		s.OpenRows = map[int]bool{}
 	}
 	s.OpenRows[s.nextID] = true
+	s.Events = append(s.Events, FakeEvent{ID: s.nextID, DefID: def.ID, Trigger: triggerTime})
 	return s.nextID, nil
 }
 
@@ -139,12 +167,16 @@ func (s *FakeStore) InsertCleared(tagID int, def models.AlarmDefinition, val flo
 	defer s.mu.Unlock()
 	s.ClearedInserts++
 	s.nextID++
+	s.Events = append(s.Events, FakeEvent{ID: s.nextID, DefID: def.ID, Trigger: triggerTime, Clear: clearTime})
 	return s.nextID, nil
 }
 
-func (s *FakeStore) MarkCleared(eventID int) error {
+func (s *FakeStore) MarkCleared(eventID int, clearTime time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if e := s.event(eventID); e != nil {
+		e.Clear = clearTime
+	}
 	s.MarkedCleared = append(s.MarkedCleared, eventID)
 	delete(s.OpenRows, eventID)
 	return nil

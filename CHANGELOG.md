@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gateway's tags are marked bad. A gateway with a decoder and no value is not
   checked (the scan-rate rule marked a device reporting every few hours bad a
   minute after each message).
+- **Alarms on history** (`alarms_on_history` on MQTT gateways with a
+  decoder): the alarm rules run over every reading of a message, in order,
+  with delays measured between readings. An excursion that began and ended
+  between two reports is recorded with its real start and end and is not
+  notified; what is still active at the newest reading is, and so is the end
+  of an alarm notified earlier. Off by default: only the newest reading is
+  evaluated.
 
 ### Fixed
 

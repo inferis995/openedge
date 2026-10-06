@@ -500,6 +500,8 @@
         "script_hint": "Definisci function decode(msg): msg.text è il messaggio come testo, msg.bytes come byte, msg.topic il topic. Restituisci [{ ts, values }]: ts in millisecondi o secondi, values con i valori. Disponibili atob, btoa, hexToBytes e console.log. Tempo massimo 0,5 s, nessun accesso a file o rete.",
         "stale_after": "Dato non aggiornato dopo (minuti)",
         "stale_after_hint": "Se non arriva nessun messaggio entro questo tempo, i tag del gateway vengono segnati come dato non valido. Mettilo poco sopra l'intervallo di invio del dispositivo (es. 480 per un invio ogni 4–6 ore). 0 = controllo spento.",
+        "alarms_on_history": "Allarmi anche sullo storico",
+        "alarms_on_history_hint": "Valuta le regole di allarme su ogni lettura del messaggio, non solo sull'ultima: un superamento iniziato e rientrato tra due invii resta nel registro allarmi con gli orari reali. Si notifica solo ciò che è ancora attivo all'ultima lettura (o la fine di un allarme già notificato).",
         "test_title": "Prova con un messaggio reale",
         "test_topic": "Topic (es. mido/202400444/up)",
         "test_payload": "Incolla qui il messaggio così come arriva",

@@ -6,6 +6,7 @@ import { decodersApi, type DecoderTestResult, type PayloadEncoding } from '@/api
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -15,6 +16,8 @@ export interface DecoderSettings {
     decoder_script: string;
     /** Minutes without data before the gateway's tags are marked bad; 0 = off. */
     stale_after_minutes: number;
+    /** Run the alarm rules over every reading of a message, not only the newest. */
+    alarms_on_history: boolean;
 }
 
 type Mode = 'none' | 'preset' | 'custom';
@@ -138,6 +141,17 @@ export default function MqttDecoderSection({ value, onChange }: {
                             onChange({ ...value, stale_after_minutes: Number.isFinite(n) && n >= 0 ? n : 0 });
                         }} />
                     <p className="text-[11px] text-muted-foreground">{t('decoder.stale_after_hint')}</p>
+                </div>
+            )}
+
+            {mode !== 'none' && (
+                <div className="flex items-start gap-2">
+                    <Checkbox id="alarms-on-history" className="mt-0.5" checked={value.alarms_on_history}
+                        onCheckedChange={(c) => onChange({ ...value, alarms_on_history: c === true })} />
+                    <div className="grid gap-0.5">
+                        <Label htmlFor="alarms-on-history" className="text-xs">{t('decoder.alarms_on_history')}</Label>
+                        <p className="text-[11px] text-muted-foreground">{t('decoder.alarms_on_history_hint')}</p>
+                    </div>
                 </div>
             )}
 

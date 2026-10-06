@@ -500,6 +500,8 @@
         "script_hint": "Define function decode(msg): msg.text is the message as text, msg.bytes as bytes, msg.topic the topic. Return [{ ts, values }]: ts in milliseconds or seconds, values with the values. atob, btoa, hexToBytes and console.log are available. 0.5 s time limit, no file or network access.",
         "stale_after": "Data stale after (minutes)",
         "stale_after_hint": "If no message arrives within this time, the gateway's tags are marked as bad data. Set it a little above the device's reporting interval (e.g. 480 for every 4–6 hours). 0 = off.",
+        "alarms_on_history": "Alarms on history too",
+        "alarms_on_history_hint": "Run the alarm rules over every reading in the message, not only the newest: an excursion that began and ended between two reports is kept in the alarm log with its real times. Only what is still active at the newest reading (or the end of an alarm already notified) is notified.",
         "test_title": "Test with a real message",
         "test_topic": "Topic (e.g. mido/202400444/up)",
         "test_payload": "Paste the message here as it arrives",
