@@ -320,8 +320,9 @@ func planSheet(sheet *tagsheet.Sheet, existing map[string]existingTag) SheetImpo
 	// Tags and rows per address, to match a row whose JSON path is new or
 	// not given.
 	tagsAt := map[string][]existingTag{}
-	for _, e := range existing {
-		tagsAt[e.sheetTag.Address] = append(tagsAt[e.sheetTag.Address], e)
+	for k := range existing {
+		a := existing[k].sheetTag.Address
+		tagsAt[a] = append(tagsAt[a], existing[k])
 	}
 	rowsAt := map[string]int{}
 	for i := range sheet.Rows {
