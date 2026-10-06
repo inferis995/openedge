@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -347,6 +348,47 @@ func (c *Client) RawDelete(path string) ([]byte, error) {
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, &StatusError{Code: resp.StatusCode, Body: string(data)}
+	}
+	return data, nil
+}
+
+// Do sends body as is, with the given content type, and returns the response
+// bytes. It is what a request the typed helpers cannot express goes through:
+// a multipart upload, or a call typed by hand on the command line.
+func (c *Client) Do(method, path string, body []byte, contentType string) ([]byte, error) {
+	var reqBody io.Reader
+	if body != nil {
+		reqBody = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(context.Background(), method, c.baseURL+path, reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if c.orgID > 0 {
+		req.Header.Set("X-Organization-ID", strconv.Itoa(c.orgID))
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg := string(data)
+		var errBody map[string]interface{}
+		if json.Unmarshal(data, &errBody) == nil {
+			if m, ok := errBody["error"].(string); ok {
+				msg = m
+			}
+		}
+		return data, &StatusError{Code: resp.StatusCode, Body: msg}
 	}
 	return data, nil
 }

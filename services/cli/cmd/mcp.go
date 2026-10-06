@@ -534,13 +534,16 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 		{
 			Name: "create_gateway",
 			Description: "Create a gateway (a field device connection). driver_type selects the protocol: " +
-				"MODBUS_TCP, S7, OPCUA, MQTT, REDIS or LORAWAN. connection_config carries the " +
+				"MODBUS_TCP, S7, OPC_UA, MQTT or LORAWAN. connection_config carries the " +
 				"protocol's settings, e.g. {\"ip\":\"192.168.1.10\",\"port\":502} for Modbus TCP, " +
-				"{\"ip\":\"192.168.1.20\",\"rack\":0,\"slot\":1} for S7.",
+				"{\"ip\":\"192.168.1.20\",\"rack\":0,\"slot\":1} for S7, " +
+				"{\"broker_host\":\"…\",\"broker_port\":1883,\"broker_username\":\"…\",\"broker_password\":\"…\"," +
+				"\"decoder_preset\":\"mido\",\"stale_after_minutes\":420} for MQTT from an external broker " +
+				"with a payload decoder.",
 			InputSchema: jsonSchemaRequired(map[string]interface{}{
 				"name":              propStr("Gateway name"),
 				"area_id":           propInt("Parent area ID"),
-				"driver_type":       propStr("MODBUS_TCP, S7, OPCUA, MQTT, REDIS or LORAWAN"),
+				"driver_type":       propStr("MODBUS_TCP, S7, OPC_UA, MQTT or LORAWAN"),
 				"connection_config": propAny("Protocol settings as an object"),
 				"scan_rate_ms":      propInt("Poll interval in milliseconds (default 1000)"),
 			}, []string{"name", "area_id", "driver_type", "connection_config"}),

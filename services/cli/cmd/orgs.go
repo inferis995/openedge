@@ -41,7 +41,7 @@ var (
 
 func init() {
 	orgsInviteCmd.Flags().StringVar(&inviteEmail, "email", "", "Email address to invite (required)")
-	orgsInviteCmd.Flags().StringVar(&inviteRole, "role", "viewer", "Role: admin, operator, viewer")
+	orgsInviteCmd.Flags().StringVar(&inviteRole, "role", "user", "Role: user (read-only) or admin (of the organization)")
 	_ = orgsInviteCmd.MarkFlagRequired("email")
 
 	orgsCmd.AddCommand(orgsListCmd)
