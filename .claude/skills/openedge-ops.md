@@ -329,11 +329,18 @@ Passo 2 — Punta DNS
   app.tuazienda.com → A → IP_DEL_VPS
 
 Passo 3 — Deploy in Coolify
-  New Project → Add Resource → Docker Compose
-  Incolla il contenuto di docker-compose.coolify.yml
-  In "Domains": https://app.tuazienda.com
-  Aggiungi le variabili d'ambiente (vedi sezione "Variabili")
-  Deploy
+  New Project → New Resource → Public Repository
+    https://github.com/inferis995/openedge, branch master,
+    Build Pack "Docker Compose", file /docker-compose.coolify.yml
+  NON incollare il compose: le immagini si costruiscono dai sorgenti e
+  servono mosquitto/ e migrations/ del repository.
+  Variabili: PUBLIC_HOST (senza https://), POSTGRES_PASSWORD,
+    MQTT_ADMIN_PASSWORD, JWT_SECRET, ENCRYPTION_KEY (esattamente 32
+    caratteri: openssl rand -hex 16), OPENEDGE_INITIAL_ADMIN_PASSWORD, TZ
+  web-ui instrada https://PUBLIC_HOST con le sue label Traefik.
+  Deploy. Devono girare anche engine-historian (storico) e, con il profilo
+  edge, driver-manager; i servizi driver-* restano fermi (replicas: 0):
+  sono solo le immagini da cui driver-manager avvia i driver.
 
 Passo 4 — MQTT/TLS porta 8883
   Coolify → Settings → Traefik → Dynamic Configuration
@@ -346,6 +353,11 @@ Passo 4 — MQTT/TLS porta 8883
 Per avere driver-manager sullo stesso server Coolify, attiva il profilo `edge`:
 - In Coolify → Resource → Environment: aggiungi variable `COMPOSE_PROFILES=edge`
 - Oppure testa in locale: `make coolify-up-edge`
+
+Il profilo `edge` costruisce anche le immagini `industrial-driver-*`. I driver
+si attaccano alla rete del `driver-manager` (quella del progetto Coolify, dove
+sta mosquitto): una rete diversa è isolata da Docker e il driver non potrebbe
+pubblicare nulla. `DRIVER_NETWORK=<nome>` la forza se serve.
 
 ---
 
