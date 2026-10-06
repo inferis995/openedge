@@ -181,6 +181,39 @@ services:
   # ── Driver Manager — optional, profile: edge ────────────────────────────────
   # Uncomment profiles line to enable (or activate "edge" profile in Coolify UI).
   # Use when Coolify server also acts as the edge (no separate factory machines).
+  # Writes tag_history: trends, reports and every reading a data logger sends
+  # in a batch. It was missing from this file, so a Coolify install showed
+  # current values and kept no history at all.
+  engine-historian:
+    build:
+      context: .
+      dockerfile: services/engine-historian/Dockerfile
+    image: openedge-engine-historian:latest
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${POSTGRES_USER:-industrial_user}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: ${POSTGRES_DB:-industrial_edge}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      MQTT_CLIENT_ID: engine-historian
+      MQTT_USERNAME: ${MQTT_ADMIN_USER:-core-api}
+      MQTT_PASSWORD: ${MQTT_ADMIN_PASSWORD}
+      SPARKPLUG_ENABLED: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    restart: unless-stopped
+
   driver-manager:
     profiles: ["edge"]
     build:
@@ -218,6 +251,65 @@ services:
       retries: 3
       start_period: 20s
     restart: unless-stopped
+
+
+  # ── Driver images (profile: edge) ─────────────────────────────────────────
+  # driver-manager starts one driver container per gateway from these images.
+  # They are built here and never run by compose (replicas: 0): without them
+  # the first gateway's driver failed with an image that did not exist.
+  driver-mqtt:
+    profiles: ["edge"]
+    build:
+      context: .
+      dockerfile: services/driver-mqtt/Dockerfile
+    image: industrial-driver-mqtt:latest
+    deploy:
+      replicas: 0
+
+  driver-modbus:
+    profiles: ["edge"]
+    build:
+      context: .
+      dockerfile: services/driver-modbus/Dockerfile
+    image: industrial-driver-modbus:latest
+    deploy:
+      replicas: 0
+
+  driver-s7:
+    profiles: ["edge"]
+    build:
+      context: .
+      dockerfile: services/driver-s7/Dockerfile
+    image: industrial-driver-s7:latest
+    deploy:
+      replicas: 0
+
+  driver-opcua:
+    profiles: ["edge"]
+    build:
+      context: .
+      dockerfile: services/driver-opcua/Dockerfile
+    image: industrial-driver-opcua:latest
+    deploy:
+      replicas: 0
+
+  driver-lorawan:
+    profiles: ["edge"]
+    build:
+      context: .
+      dockerfile: services/driver-lorawan/Dockerfile
+    image: industrial-driver-lorawan:latest
+    deploy:
+      replicas: 0
+
+  driver-redis:
+    profiles: ["edge"]
+    build:
+      context: .
+      dockerfile: services/driver-redis/Dockerfile
+    image: industrial-driver-redis:latest
+    deploy:
+      replicas: 0
 
 volumes:
   postgres-data:

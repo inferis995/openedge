@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -315,9 +316,39 @@ func (m *mqttStatusClient) PublishWithQoS(topic string, payload interface{}, qos
 	return m.client.PublishWithQoS(topic, payloadBytes, qos, retained)
 }
 
-// ensureNetwork gets or creates the Docker network for container communication
+// ensureNetwork chooses the Docker network the drivers are started on.
+//
+// It has to be the broker's. Docker isolates bridge networks from each other,
+// so a driver on any other network reaches the external device or broker it
+// reads, and then cannot hand a single value to the internal broker. The
+// manager used to look for a network named "industrial-network", which no
+// compose file defines: it created one, and every driver it started was cut
+// off from mosquitto (openedge-net on-prem and on a VPS, the project's default
+// network on an edge box or under Coolify).
+//
+// In order: DRIVER_NETWORK when set; else the network the manager itself is on,
+// which in every compose file is the broker's; else the old lookup by name.
 // Note: Docker API calls are thread-safe, no lock needed here
 func (m *Manager) ensureNetwork() error {
+	if name := os.Getenv("DRIVER_NETWORK"); name != "" {
+		nw, err := m.dockerClient.NetworkInspect(m.ctx, name, network.InspectOptions{})
+		if err != nil {
+			return fmt.Errorf("DRIVER_NETWORK %q: %w", name, err)
+		}
+		m.networkID = nw.ID
+		log.Printf("[DRIVER-MANAGER] Drivers join network %s (DRIVER_NETWORK)", nw.Name)
+		return nil
+	}
+	if host, err := os.Hostname(); err == nil {
+		if self, err := m.dockerClient.ContainerInspect(m.ctx, host); err == nil && self.NetworkSettings != nil {
+			if id, name, ok := pickDriverNetwork(self.NetworkSettings.Networks); ok {
+				m.networkID = id
+				log.Printf("[DRIVER-MANAGER] Drivers join network %s (the manager's own)", name)
+				return nil
+			}
+		}
+	}
+
 	// Try to find existing network
 	networks, err := m.dockerClient.NetworkList(m.ctx, network.ListOptions{})
 	if err != nil {
@@ -349,6 +380,28 @@ func (m *Manager) ensureNetwork() error {
 	m.networkID = networkResp.ID
 	log.Printf("[DRIVER-MANAGER] Created Docker network: %s (ID: %s)", dockerNetworkName, m.networkID)
 	return nil
+}
+
+// pickDriverNetwork chooses, among the networks the manager is attached to, the
+// one to start drivers on: openedge-net when it is there (on-prem and VPS also
+// attach other networks), else the first by name. host and none carry no
+// container-to-container traffic and are never chosen.
+func pickDriverNetwork(nets map[string]*network.EndpointSettings) (id, name string, ok bool) {
+	names := make([]string, 0, len(nets))
+	for n, ep := range nets {
+		if n == "host" || n == "none" || ep == nil || ep.NetworkID == "" {
+			continue
+		}
+		if n == "openedge-net" || strings.HasSuffix(n, "_openedge-net") {
+			return ep.NetworkID, n, true
+		}
+		names = append(names, n)
+	}
+	if len(names) == 0 {
+		return "", "", false
+	}
+	sort.Strings(names)
+	return nets[names[0]].NetworkID, names[0], true
 }
 
 // resolveHostname resolves a hostname to IP, with fallback to original hostname

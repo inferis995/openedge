@@ -36,6 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Drivers started by driver-manager could not reach the internal broker.**
+  driver-manager put them on a network of its own ("industrial-network",
+  which no compose file defines) while mosquitto is on openedge-net (or the
+  project's default network on an edge box or Coolify). Docker isolates
+  bridge networks, so a driver read its device and could not publish a
+  value. Drivers now join the manager's own network (or `DRIVER_NETWORK`).
+- **Coolify:** `docker-compose.coolify.yml` had no `engine-historian` (no
+  history or trends) and, with the `edge` profile, built none of the driver
+  images driver-manager starts. Both are there now, checked by a test.
+
 - **Only a global admin can create organizations.** `POST /api/organizations`
   checked the admin role alone, so a customer's org admin could open new
   tenants on the platform. Renaming, deleting and MFA settings were already

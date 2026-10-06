@@ -41,6 +41,7 @@ type composePort struct {
 type composeConfig struct {
 	Services map[string]struct {
 		Ports []composePort `json:"ports"`
+		Image string        `json:"image"`
 	} `json:"services"`
 }
 
@@ -163,6 +164,31 @@ func TestOnPremStillPublishesWhatTheLANNeeds(t *testing.T) {
 		if !found {
 			t.Errorf("the on-prem stack no longer publishes %s on %s — nothing on the "+
 				"machine can reach it", want.service, want.port)
+		}
+	}
+}
+
+// Coolify deploys docker-compose.coolify.yml alone, so it has to carry what the
+// base file does. It had no historian (no trend, no history, the readings a data
+// logger batches were lost) and, with driver-manager on (profile edge), none of
+// the images driver-manager starts a gateway's driver from.
+func TestCoolifyKeepsHistoryAndCanStartDrivers(t *testing.T) {
+	t.Setenv("COMPOSE_PROFILES", "edge")
+	root := repoRoot(t)
+	cfg := mergedCompose(t, root, "docker-compose.coolify.yml")
+
+	for _, svc := range []string{"engine-historian", "driver-manager"} {
+		if _, ok := cfg.Services[svc]; !ok {
+			t.Errorf("docker-compose.coolify.yml has no %s", svc)
+		}
+	}
+	images := map[string]bool{}
+	for _, s := range cfg.Services {
+		images[s.Image] = true
+	}
+	for _, d := range []string{"mqtt", "modbus", "s7", "opcua", "lorawan", "redis"} {
+		if img := "industrial-driver-" + d + ":latest"; !images[img] {
+			t.Errorf("no service builds %s: driver-manager could not start a %s gateway", img, d)
 		}
 	}
 }
