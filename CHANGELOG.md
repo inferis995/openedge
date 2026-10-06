@@ -7,13 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-10-06
+
 ### Security
 
+- Signed-in sessions can now be retired before they expire. Every request
+  checks the token's `token_version` against the user's: a password change or
+  reset ends the user's other sessions (the session that made the change gets
+  a new token), a change of role, organization or i3X write permission ends
+  all of them, and a deleted user's token stops working at once. The version
+  was written on every token and bumped on reset, but never checked: a
+  demoted admin, or whoever held a password since changed, kept access for up
+  to 24 hours. Applications authorized through OAuth lose their refresh
+  tokens on a password change or reset.
 - Web UI build tooling: source-map-js 1.2.2 (GHSA-68fv-2mgg-jv7q, development
   dependency only, not shipped to the browser).
 
 ### Fixed
 
+- An OEE profile with no pieces or good-pieces tag showed 100% performance
+  and 100% quality as if measured: the "automatic" estimate read a column
+  `tag_history` does not have, the error was dropped, and the default was
+  100. They are now reported as not measured (`"none"`, shown as "—"); the
+  value stays 100 as a neutral factor, so the OEE is what is measured. The
+  automatic availability counted every critical alarm on the platform; it
+  now counts the profile's gateway, else its area, else its organization.
 - SCADA synoptics, after a full review of the editor, viewer, widgets and API:
   - The second save in an editor session was always refused as "modified by
     somebody else"; a rename without a layout erased the drawing; leaving the
@@ -86,28 +104,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- Signed-in sessions can now be retired before they expire. Every request
-  checks the token's `token_version` against the user's: a password change or
-  reset ends the user's other sessions (the session that made the change gets
-  a new token), a change of role, organization or i3X write permission ends
-  all of them, and a deleted user's token stops working at once. The version
-  was written on every token and bumped on reset, but never checked: a
-  demoted admin, or whoever held a password since changed, kept access for up
-  to 24 hours. Applications authorized through OAuth lose their refresh
-  tokens on a password change or reset.
 - An organization without OEE profiles was shown the "legacy" OEE, computed
   from the platform's `oee_*` settings — tag ids that may be another
   company's line. Those settings now belong to the platform administrator,
   and to the organization only when it is the platform's only one (the rule
   the hourly OEE history already followed); everybody else has no OEE until
   they create a profile.
-- An OEE profile with no pieces or good-pieces tag showed 100% performance
-  and 100% quality as if measured: the "automatic" estimate read a column
-  `tag_history` does not have, the error was dropped, and the default was
-  100. They are now reported as not measured (`"none"`, shown as "—"); the
-  value stays 100 as a neutral factor, so the OEE is what is measured. The
-  automatic availability counted every critical alarm on the platform; it
-  now counts the profile's gateway, else its area, else its organization.
 - Editing a user accepted any password length; it now requires 12
   characters, as creating one did.
 - Web UI: ip-address 10.7.3 (via mqtt → socks), for GHSA-rpw4-54j3-4h4q,
