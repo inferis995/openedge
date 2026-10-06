@@ -21,7 +21,7 @@ func orgAuthRouter() *gin.Engine {
 	g := r.Group("/api/organizations")
 	g.Use(middleware.RequireAuth, middleware.OrganizationContext())
 	g.GET("", func(c *gin.Context) { c.Status(http.StatusOK) })
-	g.POST("", middleware.RequireRole(models.RoleAdmin), func(c *gin.Context) { c.Status(http.StatusCreated) })
+	g.POST("", middleware.RequireGlobalAdmin(), func(c *gin.Context) { c.Status(http.StatusCreated) })
 	g.GET("/:id", func(c *gin.Context) { c.Status(http.StatusOK) })
 	g.PUT("/:id", middleware.RequireRole(models.RoleAdmin), func(c *gin.Context) { c.Status(http.StatusOK) })
 	g.PUT("/:id/mfa-required", middleware.RequireRole(models.RoleAdmin), func(c *gin.Context) { c.Status(http.StatusOK) })
@@ -138,18 +138,15 @@ func TestOrgCreate_GlobalAdminAllowed(t *testing.T) {
 	}
 }
 
-// TestOrgCreate_OrgScopedAdminAllowed verifies that even an org-scoped admin
-// passes RequireRole(admin) and reaches the handler.
-// NOTE: In production the handler itself would enforce global-admin semantics;
-// here we are testing the route middleware layer only.
-func TestOrgCreate_OrgScopedAdminAllowed(t *testing.T) {
+// TestOrgCreate_OrgScopedAdminRefused: a customer's admin manages their own
+// organization, and cannot open new ones on the platform.
+func TestOrgCreate_OrgScopedAdminRefused(t *testing.T) {
 	r := orgAuthRouter()
 	token := orgScopedAdminToken(t, 1)
 	body := `{"name":"New Org"}`
 	code := orgDo(t, r, http.MethodPost, "/api/organizations", token, body)
-	// RequireRole(admin) allows org-scoped admins through; the stub returns 201.
-	if code != http.StatusCreated {
-		t.Errorf("POST /api/organizations with org-scoped admin: got %d, want 201", code)
+	if code != http.StatusForbidden {
+		t.Errorf("POST /api/organizations with org-scoped admin: got %d, want 403", code)
 	}
 }
 

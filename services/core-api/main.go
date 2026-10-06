@@ -507,7 +507,10 @@ func main() {
 		orgs := api.Group("/organizations")
 		orgs.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
-			orgs.POST("", middleware.RequireRole(models.RoleAdmin), orgsHandler.Create)
+			// Creating a tenant is a platform action. An org-scoped admin passes
+			// RequireRole(admin), and nothing else stopped them from opening new
+			// organizations on the platform.
+			orgs.POST("", middleware.RequireGlobalAdmin(), orgsHandler.Create)
 			orgs.GET("", orgsHandler.List)
 			orgs.GET("/:id", orgsHandler.Get)
 			orgs.PUT("/:id", middleware.RequireRole(models.RoleAdmin), orgsHandler.Update)

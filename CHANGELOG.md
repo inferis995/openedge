@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Only a global admin can create organizations.** `POST /api/organizations`
+  checked the admin role alone, so a customer's org admin could open new
+  tenants on the platform. Renaming, deleting and MFA settings were already
+  limited to their own organization.
+- `make vps-up-edge` builds the driver images: with driver-manager on the
+  server, the first gateway created could not start its driver.
+
 - **Tag sheet with several tags on one MQTT topic.** Import refused them as
   duplicate addresses and export kept only one of them. A tag in the sheet is
   now its address plus its JSON path; a row without a path on a topic several
