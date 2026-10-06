@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Web UI build tooling: source-map-js 1.2.2 (GHSA-68fv-2mgg-jv7q, development
+  dependency only, not shipped to the browser).
+
 ### Fixed
 
 - SCADA synoptics, after a full review of the editor, viewer, widgets and API:
