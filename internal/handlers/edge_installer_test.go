@@ -101,6 +101,9 @@ func TestTheInstallerSetsEveryVariableTheAgentReads(t *testing.T) {
 		// generated compose already points. Overriding it is for somebody
 		// running their own mirror.
 		"OTA_IMAGE_PREFIX": true,
+		// Unset, drivers join the manager's own network, which on a box is
+		// the generated compose's default network, where mosquitto is.
+		"DRIVER_NETWORK": true,
 	}
 
 	for name := range wanted {
