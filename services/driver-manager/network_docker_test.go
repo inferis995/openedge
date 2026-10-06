@@ -21,7 +21,7 @@ func TestEnsureNetworkInsideDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &Manager{dockerClient: cli, ctx: context.Background()}
-	if err := m.ensureNetwork(); err != nil {
+	if err = m.ensureNetwork(); err != nil {
 		t.Fatal(err)
 	}
 	nw, err := cli.NetworkInspect(m.ctx, m.networkID, network.InspectOptions{})
