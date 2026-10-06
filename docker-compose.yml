@@ -105,9 +105,12 @@ services:
     environment:
       MQTT_ADMIN_USER: ${MQTT_ADMIN_USER:-core-api}
       MQTT_ADMIN_PASSWORD: ${MQTT_ADMIN_PASSWORD:?MQTT_ADMIN_PASSWORD is required — run 'make start'}
+    # MQTT_BIND=127.0.0.1 keeps the broker off the network: only edge boxes
+    # on other machines need these, and the browser reaches 9001 through
+    # web-ui's /mqtt proxy. Unset, they are published on every interface.
     ports:
-      - "18830:1883"
-      - "9001:9001"
+      - "${MQTT_BIND:+${MQTT_BIND}:}18830:1883"
+      - "${MQTT_BIND:+${MQTT_BIND}:}9001:9001"
     volumes:
       - ./mosquitto/docker-entrypoint.sh:/openedge-mosquitto-entrypoint.sh:ro
       - ./mosquitto/config:/mosquitto/config
