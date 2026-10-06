@@ -1,8 +1,8 @@
 ---
 name: openedge-ops
-description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), VPS con Traefik, Coolify, edge profile. Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), modellazione impianto con UDT (tipi riusabili con propagazione alle istanze), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security, MFA TOTP con recovery codes e mfa_required per org.
-version: 8.0.0
-tags: [industrial, iot, udt, commissioning, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan, mfa, totp, 2fa, recovery-codes]
+description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), on-prem multi-tenant dietro VPN Tailscale, VPS con Traefik, Coolify, edge profile. Commissioning da CLI (org, siti, aree, gateway, import tag da foglio, decoder MQTT, utenti). Data logger MQTT con payload binari (preset MiDo, storico nel pacchetto). Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), modellazione impianto con UDT (tipi riusabili con propagazione alle istanze), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security, MFA TOTP con recovery codes e mfa_required per org.
+version: 9.0.0
+tags: [industrial, iot, udt, commissioning, tailscale, vpn, mqtt-decoder, mido, data-logger, tag-import, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan, mfa, totp, 2fa, recovery-codes]
 requires: [docker, curl, git]
 ---
 
@@ -26,6 +26,9 @@ Dove vuoi installare OpenEdge?
 
 1. Self-hosted / On-prem  — tutto gira sulla tua macchina (fabbrica, ufficio, PC industriale)
                             Nessuna dipendenza cloud. Funziona anche air-gap.
+1b. On-prem + VPN Tailscale — una VM tua, clienti che entrano via Tailscale con il loro
+                            utente (multi-tenant). HTTPS valido senza dominio, nessuna
+                            porta aperta su internet. → Deploy E
 2. VPS / Cloud            — server dedicato con IP pubblico (Hetzner, OVH, DigitalOcean, ecc.)
                             HTTPS automatico con Let's Encrypt + Traefik.
 3. Coolify                — piattaforma PaaS self-hosted. Gestisce HTTPS e deploy automaticamente.
@@ -117,8 +120,11 @@ Output atteso:
 OpenEdge is starting up.
   Web UI:   http://localhost:3000
   Core API: http://localhost:8081
-  Login:    admin / admin123
+  Login:    admin / <password generata>
 ```
+
+La password dell'admin è generata da `make setup-env` e sta in `.env`
+(`OPENEDGE_INITIAL_ADMIN_PASSWORD`). È un **global admin**: vede ogni organizzazione.
 
 **Con HTTPS (raccomandato anche in LAN)**:
 ```bash
@@ -182,6 +188,66 @@ Get-Service OpenEdge   # Status: Running
 
 ---
 
+## Deploy E — On-prem multi-tenant dietro VPN Tailscale
+
+Quando: una VM tua (cloud o ufficio) e dei clienti che devono vedere **solo la
+loro organizzazione**, senza esporre niente su internet e senza dominio.
+
+L'app è la stessa (multi-tenant sempre attivo). Cambia solo chi fa l'HTTPS:
+`tailscale serve` al posto di Traefik/Let's Encrypt.
+
+```bash
+# 1. Prerequisiti: Docker, git, make, openssl, jq, mosquitto-clients; Tailscale già nella tailnet
+curl -fsSL https://get.docker.com | sh
+apt-get install -y git make openssl jq mosquitto-clients
+
+# 2. Nella console Tailscale: DNS → MagicDNS ON e "HTTPS Certificates" ON.
+sudo tailscale set --hostname=openedge
+TS_HOST=$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')   # openedge.<tailnet>.ts.net
+
+# 3. OpenEdge, con UI e broker solo su localhost
+git clone https://github.com/inferis995/openedge.git /opt/openedge && cd /opt/openedge
+make setup-env
+cat >> .env <<EOF
+WEB_UI_PORT=127.0.0.1:3000
+MQTT_BIND=127.0.0.1
+PUBLIC_HOST=$TS_HOST
+OPENEDGE_PUBLIC_URL=https://$TS_HOST
+EOF
+sed -i "s|^ALLOWED_ORIGINS=.*|ALLOWED_ORIGINS=https://$TS_HOST|" .env
+make start
+sudo make install-service INSTALL_DIR=/opt/openedge
+
+# 4. HTTPS via Tailscale verso l'interfaccia
+sudo tailscale serve --bg 3000
+tailscale serve status        # → https://openedge.<tailnet>.ts.net → http://127.0.0.1:3000
+```
+
+Verifica che solo Tailscale esponga OpenEdge:
+
+```bash
+ss -tlnp | grep -v '127.0.0.1\|\[::1\]'   # restano solo sshd e tailscaled
+```
+
+Accesso dei clienti:
+1. Console Tailscale → Machines → `openedge` → **Share** → invito via email/link.
+   Il cliente accetta con il suo account Tailscale (gratuito) e vede **solo
+   quella macchina**, non la tua rete.
+2. In OpenEdge: crea l'organizzazione del cliente e i suoi utenti
+   (`openedge users create --org <id> --role user`). Entrano su
+   `https://openedge.<tailnet>.ts.net` con le **loro** credenziali.
+
+Note:
+- `ALLOWED_ORIGINS` deve essere esattamente `https://<TS_HOST>`. Se manca, il
+  browser carica la pagina ma ogni chiamata all'API viene bloccata (CORS).
+- `MQTT_BIND=127.0.0.1` tiene il broker interno (18830, 9001) fuori dalla rete:
+  con i driver sulla stessa VM nessun edge esterno ne ha bisogno, e il browser
+  arriva a 9001 tramite il proxy `/mqtt` dell'interfaccia.
+- Il servizio systemd (`make install-service`) avvia lo stack base, che
+  include già `driver-manager`: i driver dei gateway ripartono al riavvio.
+
+---
+
 ## Deploy C — VPS con Traefik + Let's Encrypt
 
 **Prerequisiti**: VPS con IP pubblico, dominio puntato all'IP, porte 80/443/8883 aperte
@@ -228,12 +294,17 @@ Traefik gestisce TLS automaticamente.
 
 ### All-in-one (server + edge sulla stessa macchina)
 
-Se vuoi che i driver girano direttamente sul VPS (senza edge fisici separati):
+Se vuoi che i driver girino direttamente sul VPS (senza edge fisici separati):
 
 ```bash
 make vps-up-edge
-# Avvia: Traefik + monitoring + core + driver-manager
+# Avvia: Traefik + core + driver-manager, e costruisce anche le immagini dei driver
 ```
+
+Per l'avvio al boot il servizio systemd deve usare lo stesso profilo:
+`docker compose -f docker-compose.yml -f docker-compose.vps.yml --profile edge up -d`.
+Quello scritto da `deploy/cloud-init.sh` **non** ha `--profile edge`: dopo un
+riavvio `driver-manager` non partirebbe e i gateway smetterebbero di leggere.
 
 ### Server only (raccomandato per SaaS multi-tenant)
 
@@ -429,16 +500,15 @@ Se l'health check fallisce dopo l'upgrade, lo script propone il rollback.
 
 ## Gestione organizzazioni (multi-tenant)
 
-### Crea nuova org
+### Crea nuova org (solo global admin)
 
 ```bash
-TOKEN=<admin token>
-
-curl -s -X POST https://app.tuazienda.com/api/organizations \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "Acme Corp", "description": "Cliente Acme"}'
+openedge orgs create "Acme Corp" --json
+# oppure: openedge api POST /api/organizations '{"name":"Acme Corp"}'
 ```
+
+Un org admin riceve 403: crea e gestisce utenti, gateway e tag della **sua**
+organizzazione, non nuove organizzazioni.
 
 Al momento della creazione il sistema crea automaticamente:
 - Utente MQTT dedicato (`org-{id}`) in Mosquitto DynSec
@@ -454,7 +524,27 @@ curl -X POST https://app.tuazienda.com/api/organizations/3/invites \
   -H "Content-Type: application/json" \
   -d '{"email": "mario@acme.com", "role": "admin"}'
 # L'utente riceve email con link di registrazione (valido 7 giorni)
+# Ruoli: "admin" (dell'organizzazione) o "user" (sola lettura). Altri valori → 400.
+# Da CLI: openedge orgs invite 3 --email mario@acme.com --role admin
 ```
+
+### Crea un utente senza email (niente SMTP)
+
+```bash
+openedge users create --org 3 --username mario.rossi --password '<almeno 12 caratteri>' --role user
+```
+
+| Ruolo | Vede | Può |
+|---|---|---|
+| global admin (`org_id` NULL) | tutte le org, Sistema, backup | tutto |
+| `admin` con org | solo la sua org | gateway, tag, allarmi, utenti della sua org |
+| `user` con org | solo la sua org | sola lettura; riconosce gli allarmi |
+
+Le pagine di sistema sono rifiutate dal server (`RequireGlobalAdmin`), non solo
+nascoste dal menu. L'accesso per **area/sito** di un utente (`site_ids`,
+`area_ids`) oggi filtra gli elenchi di siti e aree, **non** tag, trend e
+dashboard: non presentarlo come separazione dei dati. La separazione garantita
+è tra organizzazioni.
 
 ### Lista / aggiorna / elimina
 
@@ -659,7 +749,73 @@ configurazione da una perdita di dati irreversibile.
 
 ---
 
+## Data logger MQTT con payload binari (decoder, MiDo)
+
+Per dispositivi che non mandano JSON — frame binari/base64/hex, più letture in
+un messaggio, invio ogni poche ore con lo storico — il gateway MQTT ha un
+**decoder**: un preset (`mido`) o una funzione JavaScript `decode(msg)`.
+
+```bash
+openedge decoders presets
+# Prova su un messaggio vero, nulla viene salvato:
+mosquitto_sub -h <broker> -u <user> -P <pass> -t '<topic>' -C 1 > msg.txt
+openedge decoders test --preset mido --payload-file msg.txt --topic '<topic>'
+```
+
+Gateway (broker esterno + preset + storico):
+
+```bash
+openedge gateways create --area <id> --name "MiDo Cariati" --driver MQTT --config '{
+  "broker_host":"broker.example.com","broker_port":1883,
+  "broker_username":"<user>","broker_password":"<pass>",
+  "broker_client_id":"openedge-<org>-<area>",
+  "decoder_preset":"mido","stale_after_minutes":420,"alarms_on_history":true}'
+```
+
+| Chiave | Effetto |
+|---|---|
+| `decoder_preset` / `decoder_script` | Come leggere il payload. Validati al salvataggio. |
+| `stale_after_minutes` | Minuti senza dati prima che i tag diventino "non aggiornati". Mettilo poco sopra l'intervallo di invio (4–6 h → 420). 0/assente con decoder = nessun controllo. |
+| `alarms_on_history` | Allarmi valutati su tutte le letture del pacchetto con i loro orari; notificato solo ciò che è ancora attivo all'ultima lettura (o la fine di uno già notificato). |
+| `broker_client_id` | Unico per gateway: due client con lo stesso id si scollegano a vicenda. |
+
+Tag: più tag sullo **stesso topic**, distinti dal **percorso JSON** (il campo
+della lettura decodificata). Importali da foglio:
+
+```
+Nome;Indirizzo;Tipo;Storicizza;Unità;Decimali;Percorso JSON
+P1_AN1;site/863266053566249/dataup/up;REAL;true;;2;in7
+P1_AN2;site/863266053566249/dataup/up;REAL;true;;2;in8
+P1_BATTERIA;site/863266053566249/dataup/up;REAL;true;V;2;batteria
+```
+
+```bash
+openedge tags import <gateway-id> foglio.csv            # anteprima riga per riga
+openedge tags import <gateway-id> foglio.csv --apply    # tutto o niente
+```
+
+Preset MiDo: `in<N>` per ogni ingresso (AN1/AN2 sono gli ingressi annunciati
+con quell'etichetta nel messaggio AN — verifica con `decoders test` su un AN
+prima di importare), `batteria`, `rssi`, `sqi`, bit di stato e di allarme.
+Ogni lettura è storicizzata al suo orario; il valore corrente resta il più
+recente anche se un pacchetto vecchio arriva dopo.
+
+---
+
 ## Troubleshooting
+
+### Driver MQTT: niente dati
+
+```bash
+docker ps --format '{{.Names}}' | grep driver-mqtt
+docker logs --since 1h <container> 2>&1 | grep -iE 'connect|subscrib|BRIDGED|ERROR'
+```
+
+- `not authorized` → credenziali del broker nel gateway.
+- timeout/refused → uscita verso `broker:porta` bloccata (`nc -zv broker 1883`).
+- `ERROR decoding message` → prova quel payload con `openedge decoders test`.
+- nessun `BRIDGED` ma connesso → i topic dei tag non sono quelli su cui il
+  dispositivo pubblica (`mosquitto_sub -t '<prefisso>/#' -v`).
 
 ### Container non parte
 
@@ -723,7 +879,8 @@ make backup-now      # backup immediato
 make update          # upgrade sicuro
 make monitoring-up   # Prometheus + Grafana + Loki
 make vps-up          # VPS — server only (edge su macchine separate)
-make vps-up-edge     # VPS — all-in-one (server + driver-manager stesso VPS)
+make vps-up-edge     # VPS — all-in-one (server + driver-manager + immagini driver)
+make build-cli       # CLI → bin/openedge  (make install-cli → /usr/local/bin)
 make coolify-up      # Coolify — server only
 make coolify-up-edge # Coolify — all-in-one
 make help            # lista completa comandi
@@ -844,9 +1001,24 @@ openedge logout                         # cancella credenziali (equivale a confi
 ### Comandi operativi più usati
 
 ```bash
-# Struttura
+# Struttura — lettura
 openedge orgs list
+openedge sites list --org 1
+openedge areas list --site 2
 openedge gateways list [--org 1]
+
+# Struttura — creazione (ogni create con --json stampa l'oggetto, id incluso)
+openedge orgs create "Cliente Srl"                        # solo global admin
+openedge sites create "Stabilimento" --org 1
+openedge areas create <site-id> "Reparto A"
+openedge gateways create --area 3 --name PLC1 --driver MODBUS_TCP --config '{"ip":"192.168.1.10","port":502}'
+openedge tags import <gateway-id> foglio.csv [--apply]
+openedge users create --org 1 --username mario --password '<12+>' --role user
+openedge decoders test --preset mido --payload-file msg.txt --topic '<topic>'
+
+# Qualsiasi endpoint, con le credenziali della CLI
+openedge api GET /api/sites
+openedge api PUT /api/organizations/3/mfa-required '{"mfa_required":true}'
 
 # Lettura tag
 openedge tags list --gateway 2
@@ -968,9 +1140,9 @@ modo di richiamarlo prima. Se serve una revoca immediata l'unica leva è
 cambiare `JWT_SECRET` e riavviare — che invalida **tutte** le sessioni di
 tutti, non solo quel client.
 
-> `users.token_version` esiste ed è nei claim, ma `middleware.RequireAuth` non
-> lo confronta con la colonna: oggi non revoca nulla. Vedi il TODO in
-> `internal/auth/auth.go`.
+> `users.token_version` è nei claim e `middleware.RequireAuth` lo confronta con
+> la colonna. Cambiare la password (propria o da admin), o il ruolo/l'org di un
+> utente, lo incrementa e ritira **tutte** le sessioni di quell'utente.
 
 ---
 
@@ -990,6 +1162,9 @@ tutti, non solo quel client.
 "Abilita il monitoring con Grafana"
 "Aggiorna OpenEdge all'ultima versione"
 "Installa la CLI sulla mia macchina"
+"Installa OpenEdge on-prem e dai accesso al cliente via Tailscale"
+"Collega 68 data logger MiDo dal broker MQTT del cliente"
+"Importa i tag da questo foglio sul gateway 12"
 "Come configuro la CLI per on-prem con certificato self-signed?"
 "Aggiungi openedge come MCP server in Claude Code"
 
