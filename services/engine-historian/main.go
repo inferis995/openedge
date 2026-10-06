@@ -539,11 +539,11 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 		return
 	}
 
-	// Store current value in Redis for real-time queries (always store, even if not historized)
-	s.storeRealtimeValue(tagInfo.ID, mqttPayload)
-
-	// Broadast real-time update via Redis Pub/Sub
-	s.broadcastRealtimeUpdate(tagInfo.OrganizationID, tagInfo.ID, mqttPayload)
+	// Store current value in Redis for real-time queries (always store, even
+	// if not historized) — unless it is older than the current one.
+	if s.storeRealtimeValue(tagInfo.ID, mqttPayload) {
+		s.broadcastRealtimeUpdate(tagInfo.OrganizationID, tagInfo.ID, mqttPayload)
+	}
 
 	// Cloud Sync for Legacy Mode
 	// We forward the exact JSON payload if the cloud client is connected,
@@ -568,7 +568,7 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	}
 
 	// Check deadband filter
-	if !s.shouldStoreValue(tagInfo, mqttPayload.V, mqttPayload.Q) {
+	if !s.shouldStoreValueAt(tagInfo, mqttPayload.V, mqttPayload.Q, sampleTimestamp(time.Now, mqttPayload.Ts)) {
 		// Value within deadband, skip storing
 		return
 	}
@@ -588,7 +588,7 @@ func (s *HistorianService) handleDataMessage(topic string, payload []byte) {
 	if err := s.saveToPostgreSQL(tagInfo.ID, floatValue, ts, mqttPayload.Q, "mqtt"); err != nil {
 		return
 	}
-	s.storePreviousValue(tagInfo.ID, mqttPayload.V, mqttPayload.Q)
+	s.storePreviousValueAt(tagInfo.ID, mqttPayload.V, mqttPayload.Q, ts)
 }
 
 // handleSystemSettingsReload triggered when the web-ui publishes to sys/command/settings-reload
@@ -856,8 +856,9 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 			Ts: timestamp,
 			Q:  legacyQuality,
 		}
-		s.storeRealtimeValue(tagInfo.ID, mqttPayload)
-		s.broadcastRealtimeUpdate(tagInfo.OrganizationID, tagInfo.ID, mqttPayload)
+		if s.storeRealtimeValue(tagInfo.ID, mqttPayload) {
+			s.broadcastRealtimeUpdate(tagInfo.OrganizationID, tagInfo.ID, mqttPayload)
+		}
 
 		// Skip only if historization is disabled. Bad/uncertain quality is NOT
 		// skipped here: it must flow through to saveToPostgreSQL so a NULL
@@ -869,7 +870,7 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 		}
 
 		// Calculate deadband AFTER Cloud Sync so the Cloud receives highly granular data and can decide locally.
-		if !s.shouldStoreValue(tagInfo, metric.Value, legacyQuality) {
+		if !s.shouldStoreValueAt(tagInfo, metric.Value, legacyQuality, timestamp) {
 			continue
 		}
 
@@ -885,7 +886,7 @@ func (s *HistorianService) handleSparkplugMessage(topic string, payload []byte) 
 		if err := s.saveToPostgreSQL(tagInfo.ID, floatValue, timestamp, legacyQuality, "sparkplug_b"); err != nil {
 			continue
 		}
-		s.storePreviousValue(tagInfo.ID, metric.Value, legacyQuality)
+		s.storePreviousValueAt(tagInfo.ID, metric.Value, legacyQuality, timestamp)
 	}
 
 	// Cloud Sync: Forward the entire RAW Sparkplug B payload ONCE per message (not per metric)
@@ -1121,9 +1122,31 @@ func (s *HistorianService) cacheOrRedis() valueCache {
 }
 
 func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface{}, newQuality int) bool {
+	return s.shouldStoreValueAt(tagInfo, newValue, newQuality, time.Now().UnixMilli())
+}
+
+// shouldStoreValueAt decides on a sample taken at sampleMs (epoch ms).
+//
+// The periodic floor below was measured on the server clock: "has it been 30
+// seconds since the last write". A device that sends its readings in a batch —
+// a meter delivering four hours of quarter-hourly values in one message — had
+// every reading after the first arrive within the same second, and every one
+// that had not moved past the deadband was thrown away, though they are
+// fifteen minutes apart. The floor is now measured between the samples' own
+// times; for a live tag the two clocks are the same.
+func (s *HistorianService) shouldStoreValueAt(tagInfo *TagInfo, newValue interface{}, newQuality int, sampleMs int64) bool {
 	// Always store BAD/UNCERTAIN quality to create visible gaps in charts
 	if newQuality > 0 {
 		return true
+	}
+	// A sample older than the last one written fills a gap behind it (a
+	// late batch, a replayed spool): it is history nobody has, so it is kept
+	// whatever the deadband says about the newer value it is compared with —
+	// unless that very sample is already there. A device that resends its
+	// batch, or a QoS 1 redelivery, would otherwise write every past reading
+	// twice.
+	if last, ok := s.lastStoreMs(tagInfo.ID); ok && sampleMs < last {
+		return !s.hasSampleAt(tagInfo.ID, sampleMs)
 	}
 
 	// Retrieve previous value from Redis for comparison
@@ -1159,7 +1182,7 @@ func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface
 			return true
 		}
 		lastStoreMs, _ := strconv.ParseInt(lastStoreStr, 10, 64)
-		if time.Now().UnixMilli()-lastStoreMs > 30000 { // 30 seconds
+		if sampleMs-lastStoreMs > 30000 { // 30 seconds between samples
 			return true
 		}
 		return false
@@ -1177,10 +1200,33 @@ func (s *HistorianService) shouldStoreValue(tagInfo *TagInfo, newValue interface
 		return true
 	}
 	lastStoreMs, _ := strconv.ParseInt(lastStoreStr, 10, 64)
-	if time.Now().UnixMilli()-lastStoreMs > 30000 { // 30 seconds
+	if sampleMs-lastStoreMs > 30000 { // 30 seconds between samples
 		return true
 	}
 	return false
+}
+
+// hasSampleAt reports whether tag_history already holds a row for the tag at
+// exactly sampleMs. Asked only for samples older than the last one written,
+// so live traffic never pays for it.
+func (s *HistorianService) hasSampleAt(tagID int, sampleMs int64) bool {
+	if s.db == nil {
+		return false
+	}
+	var exists bool
+	err := s.db.QueryRow(`SELECT EXISTS (SELECT 1 FROM tag_history WHERE tag_id = $1 AND time = $2)`,
+		tagID, time.UnixMilli(sampleMs)).Scan(&exists)
+	return err == nil && exists
+}
+
+// lastStoreMs is the sample time of the tag's last written value.
+func (s *HistorianService) lastStoreMs(tagID int) (int64, bool) {
+	v, err := s.cacheOrRedis().Get(fmt.Sprintf("last_store:%d", tagID))
+	if err != nil || v == "" {
+		return 0, false
+	}
+	ms, err := strconv.ParseInt(v, 10, 64)
+	return ms, err == nil
 }
 
 // hasValueChanged returns true if the new value differs from the previous value.
@@ -1270,6 +1316,16 @@ func (s *HistorianService) exceedsDeadband(prev, new interface{}, deadband float
 
 // storePreviousValue stores the previous value in Redis for deadband comparison
 func (s *HistorianService) storePreviousValue(tagID int, value interface{}, quality int) {
+	s.storePreviousValueAt(tagID, value, quality, time.Now().UnixMilli())
+}
+
+// storePreviousValueAt records the baseline for the next decision, stamped
+// with the sample's own time. A backfilled sample older than the baseline
+// does not move it back: the newest value stays the one compared against.
+func (s *HistorianService) storePreviousValueAt(tagID int, value interface{}, quality int, sampleMs int64) {
+	if last, ok := s.lastStoreMs(tagID); ok && sampleMs < last {
+		return
+	}
 	prevValueKey := fmt.Sprintf("prev_value:%d", tagID)
 	prevValue := PreviousValue{Value: value, Quality: quality}
 	prevValueJSON, _ := json.Marshal(prevValue)
@@ -1277,12 +1333,24 @@ func (s *HistorianService) storePreviousValue(tagID int, value interface{}, qual
 	s.redisClient.Set(prevValueKey, string(prevValueJSON), 0)
 	// Store last save timestamp for periodic storage (PRODUCTION FIX)
 	lastStoreKey := fmt.Sprintf("last_store:%d", tagID)
-	s.redisClient.Set(lastStoreKey, strconv.FormatInt(time.Now().UnixMilli(), 10), 0)
+	s.redisClient.Set(lastStoreKey, strconv.FormatInt(sampleMs, 10), 0)
 }
 
-// storeRealtimeValue stores the current value in Redis for real-time queries
-func (s *HistorianService) storeRealtimeValue(tagID int, payload MQTTPayload) {
+// storeRealtimeValue stores the current value in Redis for real-time queries.
+//
+// It reports false, and leaves the stored value alone, when the sample is
+// older than the one already there: a batch of past readings, or a late one,
+// must not replace the current value with a reading from hours ago.
+func (s *HistorianService) storeRealtimeValue(tagID int, payload MQTTPayload) bool {
 	realtimeKey := fmt.Sprintf("realtime:%d", tagID)
+	if payload.Ts > 0 {
+		if cur, err := s.cacheOrRedis().Get(realtimeKey); err == nil && cur != "" {
+			var prev RealtimeValue
+			if json.Unmarshal([]byte(cur), &prev) == nil && prev.Ts > payload.Ts {
+				return false
+			}
+		}
+	}
 	realtimeValue := RealtimeValue{
 		V:  payload.V,
 		Ts: payload.Ts,
@@ -1291,6 +1359,7 @@ func (s *HistorianService) storeRealtimeValue(tagID int, payload MQTTPayload) {
 	realtimeJSON, _ := json.Marshal(realtimeValue)
 	// Store with 60 day TTL
 	s.redisClient.Set(realtimeKey, string(realtimeJSON), time.Duration(realtimeCacheTTL)*time.Second)
+	return true
 }
 
 // broadcastRealtimeUpdate publishes the update to Redis Pub/Sub

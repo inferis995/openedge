@@ -200,3 +200,25 @@ func TestAnUnreadableCacheEntryDoesNotCostASample(t *testing.T) {
 		t.Fatal("a corrupt cache entry caused the reading to be thrown away")
 	}
 }
+
+// A meter delivers four hours of quarter-hourly readings in one message. They
+// arrive within the same second; they were taken fifteen minutes apart. The
+// thirty-second floor is measured between the samples, so an unchanged
+// reading every quarter of an hour is still written.
+func TestABatchOfPastReadingsIsWrittenAtTheirOwnTimes(t *testing.T) {
+	base := time.Now().Add(-4 * time.Hour).UnixMilli()
+	k, v := previously(42, 20.0, 0)
+	last := fmt.Sprintf("last_store:%d", 42)
+	s := historian(t, map[string]string{k: v, last: fmt.Sprintf("%d", base)})
+
+	if !s.shouldStoreValueAt(tag(5), 20.0, 0, base+15*60*1000) {
+		t.Fatal("an unchanged reading taken 15 minutes after the last one was dropped")
+	}
+	if s.shouldStoreValueAt(tag(5), 20.0, 0, base+10*1000) {
+		t.Error("an unchanged reading 10 seconds after the last one was written")
+	}
+	// Older than the last one written: history nobody has, kept.
+	if !s.shouldStoreValueAt(tag(5), 20.0, 0, base-60*60*1000) {
+		t.Error("a reading older than the last one written was dropped")
+	}
+}

@@ -190,6 +190,10 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 	if req.ConnectionConfig == nil {
 		req.ConnectionConfig = models.ConnectionConfig{}
 	}
+	if err := validateDecoderConfig(req.ConnectionConfig); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 
 	// Verify the area_id belongs to the authorized organization (multi-tenant isolation)
 	var areaOrgID int
@@ -674,6 +678,12 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	if req.ConnectionConfig != nil {
+		if err := validateDecoderConfig(*req.ConnectionConfig); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	// Validate driver_type if provided

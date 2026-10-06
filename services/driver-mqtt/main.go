@@ -17,6 +17,7 @@ import (
 
 	"github.com/ralph/industrial-edge-middleware/internal/alarms"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
+	"github.com/ralph/industrial-edge-middleware/internal/decoder"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
@@ -88,9 +89,24 @@ type Driver struct {
 	// Decoupled inbound processing: subscription callbacks only enqueue into
 	// msgChan (never block paho dispatch); a worker goroutine consumes it and
 	// resolves the CURRENT mapping from topicMappings at message time.
-	msgChan       chan sourceMessage
-	topicMappings map[string]TagMapping // source topic → current mapping
+	msgChan chan sourceMessage
+	// source topic → every tag read from it. One tag per topic used to be
+	// kept: a second tag reading another field of the same JSON (temp and
+	// hum from one sensor message) was silently never updated.
+	topicMappings map[string][]TagMapping
 	mappingMu     sync.RWMutex
+
+	// The gateway's payload decoder (connection_config decoder_preset or
+	// decoder_script), nil for plain values and JSON. Guarded by mappingMu.
+	decoder *decoder.Decoder
+	// staleAfter overrides the "no data" timeout (connection_config
+	// stale_after_minutes); 0 keeps the scan-rate rule. A device that reports
+	// every few hours would otherwise be marked bad a minute after each message.
+	staleAfter time.Duration
+	// decoderEnabled: a decoder is configured (even if it failed to compile).
+	decoderEnabled bool
+	// publish replaces publishDual in tests; nil in production.
+	publish func(tagID int, alias string, value interface{}, dataType string, quality int, timestamp int64)
 
 	// Source connectivity tracking
 	lastMessageTime map[int]time.Time
@@ -197,7 +213,7 @@ func main() {
 		reloadChan:      make(chan struct{}, 1),
 		subscribedTags:  make(map[string]bool),
 		msgChan:         make(chan sourceMessage, 1024),
-		topicMappings:   make(map[string]TagMapping),
+		topicMappings:   make(map[string][]TagMapping),
 		lastMessageTime: make(map[int]time.Time),
 		connectionLost:  make(map[int]bool),
 	}
@@ -369,14 +385,30 @@ func (d *Driver) loadConfig() error {
 	// Atomically replace the per-topic mapping table so the message worker
 	// resolves the CURRENT mapping (json_path, alias, publish topic) even for
 	// subscriptions created before this reload.
-	newTopicMappings := make(map[string]TagMapping, len(mappings))
+	newTopicMappings := make(map[string][]TagMapping, len(mappings))
 	for _, m := range mappings {
-		if _, exists := newTopicMappings[m.SourceTopic]; !exists {
-			newTopicMappings[m.SourceTopic] = m
-		}
+		newTopicMappings[m.SourceTopic] = append(newTopicMappings[m.SourceTopic], m)
 	}
+
+	// The payload decoder. A script that does not compile leaves the gateway
+	// without one, and every message on it is refused with the reason in the
+	// log, rather than being parsed as if it were a plain value.
+	dec, decErr := decoder.FromConfig(gateway.ConnectionConfig)
+	if decErr != nil {
+		log.Printf("[DRIVER-MQTT] ERROR: payload decoder: %v — messages on this gateway are not decoded until it is fixed", decErr)
+	}
+	_, hasScript := gateway.ConnectionConfig["decoder_script"]
+	_, hasPreset := gateway.ConnectionConfig["decoder_preset"]
+	var staleAfter time.Duration
+	if m, ok := gateway.ConnectionConfig["stale_after_minutes"].(float64); ok && m > 0 {
+		staleAfter = time.Duration(m * float64(time.Minute))
+	}
+
 	d.mappingMu.Lock()
 	d.topicMappings = newTopicMappings
+	d.decoder = dec
+	d.decoderEnabled = (hasScript || hasPreset) && (dec != nil || decErr != nil)
+	d.staleAfter = staleAfter
 	d.mappingMu.Unlock()
 
 	d.config = &GatewayConfig{
@@ -831,13 +863,20 @@ func (d *Driver) processSourceMessages() {
 			return
 		case msg := <-d.msgChan:
 			d.mappingMu.RLock()
-			mapping, ok := d.topicMappings[msg.subTopic]
+			mappings := d.topicMappings[msg.subTopic]
+			dec, decoding := d.decoder, d.decoderEnabled
 			d.mappingMu.RUnlock()
-			if !ok {
+			if len(mappings) == 0 {
 				// Topic was removed from config after the message was queued
 				continue
 			}
-			d.handleSourceMessage(mapping, msg.topic, msg.payload)
+			if decoding {
+				d.handleDecodedMessage(dec, mappings, msg.topic, msg.payload)
+				continue
+			}
+			for _, mapping := range mappings {
+				d.handleSourceMessage(mapping, msg.topic, msg.payload)
+			}
 		}
 	}
 }
@@ -857,6 +896,77 @@ func (d *Driver) handleSourceMessage(mapping TagMapping, topic string, payload [
 		return
 	}
 
+	d.publishSample(mapping, topic, value, time.Now(), true)
+}
+
+// handleDecodedMessage runs the gateway's decoder once on a message and
+// gives every tag on the topic its values, each at the time the device took
+// it. A tag reads its value with its JSON path (or, without one, its alias)
+// from each sample; samples without it are skipped for that tag.
+//
+// Alarms are evaluated on the newest sample only, stamped with its time: the
+// readings before it are history, and replaying them through the alarm state
+// machine at once would raise and clear alarms that are long over.
+func (d *Driver) handleDecodedMessage(dec *decoder.Decoder, mappings []TagMapping, topic string, payload []byte) {
+	if dec == nil {
+		log.Printf("[DRIVER-MQTT] message on %s not decoded: the gateway's decoder does not compile (see the earlier error)", topic)
+		return
+	}
+	res, err := dec.Decode(payload, topic, time.Now())
+	for _, line := range res.Logs {
+		log.Printf("[DRIVER-MQTT] decoder log (%s): %s", topic, line)
+	}
+	if err != nil {
+		log.Printf("[DRIVER-MQTT] ERROR decoding message on %s: %v", topic, err)
+		return
+	}
+	for _, mapping := range mappings {
+		key := mapping.Tag.Alias
+		if mapping.Tag.JsonPath != nil && strings.TrimSpace(*mapping.Tag.JsonPath) != "" {
+			key = strings.TrimSpace(*mapping.Tag.JsonPath)
+		}
+		type point struct {
+			v  interface{}
+			at time.Time
+		}
+		var points []point
+		for _, s := range res.Samples {
+			raw, ok := decoder.Lookup(s.Values, key)
+			if !ok || raw == nil {
+				continue
+			}
+			v, err := convertValue(decodedScalar(raw), mapping.Tag.DataType)
+			if err != nil {
+				log.Printf("[DRIVER-MQTT] decoded %s for tag %s: %v", key, mapping.Tag.Alias, err)
+				continue
+			}
+			points = append(points, point{v, s.Time})
+		}
+		for i, p := range points {
+			d.publishSample(mapping, topic, p.v, p.at, i == len(points)-1)
+		}
+	}
+}
+
+// decodedScalar maps what the JavaScript side exports onto what convertValue
+// reads: integers come out of goja as int64.
+func decodedScalar(v interface{}) interface{} {
+	switch n := v.(type) {
+	case int64:
+		return float64(n)
+	case int:
+		return float64(n)
+	case int32:
+		return float64(n)
+	case float32:
+		return float64(n)
+	}
+	return v
+}
+
+// publishSample hands one value, taken at `at`, to the rest of the system.
+// evaluateAlarms is false for the older samples of a decoded batch.
+func (d *Driver) publishSample(mapping TagMapping, topic string, value interface{}, at time.Time, evaluateAlarms bool) {
 	d.msgTimeMu.Lock()
 	d.lastMessageTime[mapping.Tag.ID] = time.Now()
 	if d.connectionLost[mapping.Tag.ID] {
@@ -865,21 +975,25 @@ func (d *Driver) handleSourceMessage(mapping TagMapping, topic string, payload [
 	}
 	d.msgTimeMu.Unlock()
 
-	timestamp := time.Now().UnixMilli()
+	timestamp := at.UnixMilli()
 
 	// Evaluate alarms via AlarmManager (192 = GOOD quality)
-	if d.alarmManager != nil {
+	if d.alarmManager != nil && evaluateAlarms {
 		// The threshold on an alarm definition is typed into a form that
 		// shows engineering units, so the value it is compared against has
 		// to be in those units too. Comparing a bar threshold against raw
 		// counts does not fail: on a 0..27648 transmitter every threshold
 		// below full scale is exceeded on the first reading.
-		d.alarmManager.EvaluateTag(mapping.Tag.ID, mapping.Tag.Alias,
-			scaling.Apply(value, scaling.FromTag(&mapping.Tag)), 192)
+		d.alarmManager.EvaluateTagAt(mapping.Tag.ID, mapping.Tag.Alias,
+			scaling.Apply(value, scaling.FromTag(&mapping.Tag)), 192, at)
 	}
 
 	// Use dual publishing (legacy + Sparkplug B)
-	d.publishDual(mapping.Tag.ID, mapping.Tag.Alias, value, mapping.Tag.DataType, 0, timestamp)
+	if d.publish != nil {
+		d.publish(mapping.Tag.ID, mapping.Tag.Alias, value, mapping.Tag.DataType, 0, timestamp)
+	} else {
+		d.publishDual(mapping.Tag.ID, mapping.Tag.Alias, value, mapping.Tag.DataType, 0, timestamp)
+	}
 
 	log.Printf("[DRIVER-MQTT] BRIDGED: %s → %s = %v", topic, mapping.Tag.Alias, value)
 }
@@ -1438,12 +1552,24 @@ func (d *Driver) checkSourceTimeouts() {
 		return
 	}
 
-	// Use 3x scan rate or 60s minimum as timeout
+	// Use 3x scan rate or 60s minimum as timeout — or the gateway's own
+	// stale_after_minutes. A gateway with a payload decoder and no explicit
+	// timeout is not checked: such devices report every few hours, and the
+	// scan-rate rule marked every one of their tags bad a minute after each
+	// message.
+	d.mappingMu.RLock()
+	staleAfter, decoding := d.staleAfter, d.decoderEnabled
+	d.mappingMu.RUnlock()
 	timeoutMs := cfg.Gateway.ScanRateMs * 3
 	if timeoutMs < 60000 {
 		timeoutMs = 60000
 	}
 	timeout := time.Duration(timeoutMs) * time.Millisecond
+	if staleAfter > 0 {
+		timeout = staleAfter
+	} else if decoding {
+		return
+	}
 	now := time.Now()
 	timestamp := now.UnixMilli()
 

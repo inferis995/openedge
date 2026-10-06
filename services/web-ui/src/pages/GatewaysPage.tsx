@@ -1,3 +1,4 @@
+import MqttDecoderSection from '@/components/gateways/MqttDecoderSection';
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useGateways } from '@/hooks/useGateways';
 import { useAreas } from '@/hooks/useAreas';
@@ -69,6 +70,10 @@ interface ExtendedCreateGatewayDto extends Omit<CreateGatewayDto, 'connection_co
     broker_username?: string;
     broker_password?: string;
     broker_client_id?: string;
+    // Payload decoder (MQTT): a shipped preset, or a script; see MqttDecoderSection.
+    decoder_preset?: string;
+    decoder_script?: string;
+    stale_after_minutes?: number;
     // LoRaWAN fields
     lora_server_type?: string;
     lora_server_host?: string;
@@ -156,6 +161,9 @@ const GatewaysPage = () => {
         broker_username: '',
         broker_password: '',
         broker_client_id: '',
+        decoder_preset: '',
+        decoder_script: '',
+        stale_after_minutes: 0,
         // LoRaWAN
         lora_server_type: 'ttn_v3',
         lora_server_host: '',
@@ -216,6 +224,12 @@ const GatewaysPage = () => {
                 broker_password: formData.broker_password || '',
                 broker_client_id: formData.broker_client_id || '',
             };
+            // Only what is set: an empty key would still read as "has a decoder".
+            if (formData.decoder_script?.trim()) connection_config.decoder_script = formData.decoder_script;
+            else if (formData.decoder_preset) connection_config.decoder_preset = formData.decoder_preset;
+            if (formData.stale_after_minutes && formData.stale_after_minutes > 0) {
+                connection_config.stale_after_minutes = formData.stale_after_minutes;
+            }
         } else if (formData.driver_type === 'LORAWAN') {
             connection_config = {
                 server_type: formData.lora_server_type || 'ttn_v3',
@@ -296,6 +310,9 @@ const GatewaysPage = () => {
             broker_username: '',
             broker_password: '',
             broker_client_id: '',
+            decoder_preset: '',
+            decoder_script: '',
+            stale_after_minutes: 0,
             key_file: '',
             // LoRaWAN
             lora_server_type: 'ttn_v3',
@@ -320,6 +337,7 @@ const GatewaysPage = () => {
         let endpoint = '';
         let broker_host = '', broker_port = 1883, broker_tls = false;
         let broker_username = '', broker_password = '', broker_client_id = '';
+        let decoder_preset = '', decoder_script = '', stale_after_minutes = 0;
         let lora_server_type = 'ttn_v3', lora_server_host = '', lora_server_port = 1883;
         let lora_tls_enabled = false, lora_username = '', lora_password = '', lora_application_id = '';
 
@@ -352,6 +370,9 @@ const GatewaysPage = () => {
                 broker_username = config.broker_username || '';
                 broker_password = config.broker_password || '';
                 broker_client_id = config.broker_client_id || '';
+                decoder_preset = config.decoder_preset || '';
+                decoder_script = config.decoder_script || '';
+                stale_after_minutes = Number(config.stale_after_minutes) || 0;
             } else if (gateway.driver_type === 'LORAWAN') {
                 lora_server_type = config.server_type || 'ttn_v3';
                 lora_server_host = config.server_host || '';
@@ -395,6 +416,9 @@ const GatewaysPage = () => {
             broker_username,
             broker_password,
             broker_client_id,
+            decoder_preset,
+            decoder_script,
+            stale_after_minutes,
             lora_server_type,
             lora_server_host,
             lora_server_port,
@@ -804,6 +828,14 @@ const GatewaysPage = () => {
                                                 </label>
                                             </div>
                                         </div>
+
+                                        <MqttDecoderSection
+                                            value={{
+                                                decoder_preset: formData.decoder_preset || '',
+                                                decoder_script: formData.decoder_script || '',
+                                                stale_after_minutes: formData.stale_after_minutes || 0,
+                                            }}
+                                            onChange={(d) => setFormData(prev => ({ ...prev, ...d }))} />
                                     </div>
                                 )}
 

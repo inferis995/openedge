@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Payload decoders for MQTT gateways.** A device that does not send JSON —
+  binary, base64 or hex frames, several readings in one message — is read
+  through a decoder: a JavaScript `decode(msg)` function, or a preset that
+  ships with OpenEdge. It returns readings with the time the device took them;
+  each tag picks its value with its JSON path. Scripts run sandboxed (fresh
+  runtime per message, 0.5 s limit, no file, network or module access), are
+  checked when the gateway is saved, and can be tried on a pasted message in
+  the gateway form before they are relied on (`POST /api/decoders/test`).
+- **MiDo data logger preset** (UP/IS data frames and AN announce frames,
+  protocol v3): every input as `in<N>` at its reading time, battery, RSSI,
+  SQI, and status and per-input alarm bits as separate true/false values.
+  Checked against the manufacturer's decoder on field frames and 500 random
+  frames of every data type.
+- `stale_after_minutes` on MQTT gateways: how long without data before the
+  gateway's tags are marked bad. A gateway with a decoder and no value is not
+  checked (the scan-rate rule marked a device reporting every few hours bad a
+  minute after each message).
+
+### Fixed
+
+- Readings delivered late or in a batch keep their own time end to end. The
+  MQTT driver stamped every value with its arrival time; the historian's
+  periodic floor was measured on the server clock, so of a batch of
+  quarter-hourly readings arriving together all but the first unchanged one
+  were dropped; an older reading replaced a newer current value (historian and
+  core-api); a resent batch was written twice; alarms raised from a reading
+  were stamped with its arrival.
+- Two tags reading different fields of the same JSON message on one MQTT
+  topic: only the first was ever updated.
+
 ## [3.5.0] - 2026-10-06
 
 ### Security

@@ -486,5 +486,29 @@
         "submit": "Change password and continue",
         "logout": "Sign out",
         "relogin": "Password changed. Sign in again with the new password."
+    },
+    "decoder": {
+        "title": "Message decoding",
+        "hint": "For devices that do not send JSON: binary, base64 or hex messages, or several readings in one message. The decoder turns the message into values, each with the time the device took it.",
+        "mode": "Decoder",
+        "mode_none": "None (plain value or JSON)",
+        "mode_preset": "Known device",
+        "mode_custom": "Custom script",
+        "preset": "Device",
+        "customize": "Customise this decoder",
+        "script": "Script (JavaScript)",
+        "script_hint": "Define function decode(msg): msg.text is the message as text, msg.bytes as bytes, msg.topic the topic. Return [{ ts, values }]: ts in milliseconds or seconds, values with the values. atob, btoa, hexToBytes and console.log are available. 0.5 s time limit, no file or network access.",
+        "stale_after": "Data stale after (minutes)",
+        "stale_after_hint": "If no message arrives within this time, the gateway's tags are marked as bad data. Set it a little above the device's reporting interval (e.g. 480 for every 4–6 hours). 0 = off.",
+        "test_title": "Test with a real message",
+        "test_topic": "Topic (e.g. mido/202400444/up)",
+        "test_payload": "Paste the message here as it arrives",
+        "enc_text": "Text (also base64 sent as text)",
+        "enc_hex": "Hex (raw bytes)",
+        "enc_base64": "Base64 (raw bytes)",
+        "test_run": "Decode",
+        "test_empty": "The decoder returned no values for this message.",
+        "reading_at": "Reading of {{time}}",
+        "tag_hint": "Each tag of the gateway reads its value with its \"JSON path\" field (e.g. in7, batteria, stato_bit.batteria_bassa) and code = the device's topic. Readings reach the history at their own time."
     }
 }

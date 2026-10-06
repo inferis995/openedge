@@ -363,6 +363,15 @@ func (m *Manager) tickDelays() {
 
 // EvaluateTag checks a new tag value against all its alarm rules
 func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, quality int) {
+	m.EvaluateTagAt(tagID, alias, value, quality, time.Now())
+}
+
+// EvaluateTagAt evaluates a sample taken at `at`. An alarm it raises is
+// stamped with that time: a device that reports a reading hours after taking
+// it raised alarms stamped with the arrival, so the alarm history put an
+// overtemperature hours after it happened. The health rules still count the
+// arrival as the sign of life, since that is what they watch for.
+func (m *Manager) EvaluateTagAt(tagID int, alias string, value interface{}, quality int, at time.Time) {
 	floatVal, isNumeric := toFloat(value)
 
 	m.mu.Lock()
@@ -373,14 +382,17 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 		return
 	}
 
-	now := time.Now()
+	now := at
+	if now.IsZero() {
+		now = time.Now()
+	}
 
 	// A trustworthy reading is the sign of life the health rules wait for, so
 	// it is recorded before the quality gate below. That gate is exactly what
 	// used to make a dead PLC silent: no usable sample, no evaluation, and
 	// therefore no alarm about the very thing that had gone wrong.
 	if quality == qualityGood && isNumeric {
-		m.recordGoodSample(tagID, defs, floatVal, now)
+		m.recordGoodSample(tagID, defs, floatVal, time.Now())
 	}
 
 	if quality != qualityGood || !isNumeric {

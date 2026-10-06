@@ -539,6 +539,15 @@ func main() {
 		}
 
 		// Gateways endpoints
+		// Payload decoders for MQTT gateways: shipped presets, and a dry run
+		// on a pasted message. Admin only — the test runs a script.
+		decodersHandler := handlers.NewDecodersHandler()
+		decoders := api.Group("/decoders", middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin))
+		{
+			decoders.GET("/presets", decodersHandler.Presets)
+			decoders.POST("/test", decodersHandler.Test)
+		}
+
 		gateways := api.Group("/gateways")
 		gateways.Use(middleware.RequireAuth, middleware.OrganizationContext())
 		{
@@ -1366,8 +1375,20 @@ func handleDataUpdate(topic string, payload []byte, redisClient *redis.Client) {
 		}
 	}
 
-	// 1. Store in Redis for "Current Value" endpoints
+	// 3. InfluxDB v2 push (if enabled in global_settings). Every sample is
+	// history, whatever its age, so this comes before the ordering check.
+	if influxWriter != nil {
+		influxWriter.Write(update.TagID, update.OrgID, "", update.Value, update.Quality, update.Timestamp)
+	}
+
+	// A sample older than the current value (a batch of past readings, a late
+	// message) is history only: it must not replace what the screens show.
 	key := fmt.Sprintf("realtime:%d", update.TagID)
+	if olderThanStored(redisClient, key, update.Timestamp) {
+		return
+	}
+
+	// 1. Store in Redis for "Current Value" endpoints
 	// Cache for 24h or indefinite? 0 = no expire
 	if err := redisClient.Set(key, string(payload), 0); err != nil {
 		log.Printf("Error storing realtime value for tag %d: %v", update.TagID, err)
@@ -1384,11 +1405,6 @@ func handleDataUpdate(topic string, payload []byte, redisClient *redis.Client) {
 		}
 	}
 
-	// 3. InfluxDB v2 push (if enabled in global_settings).
-	if influxWriter != nil {
-		influxWriter.Write(update.TagID, update.OrgID, "", update.Value, update.Quality, update.Timestamp)
-	}
-
 	// 4. Digital Twin shadow — persistent last-known-value with no TTL.
 	// Written on every live MQTT update; survives edge going offline.
 	// GET /api/tags/:id/shadow reads this key, falling back to tag_history.
@@ -1403,6 +1419,28 @@ func handleDataUpdate(topic string, payload []byte, redisClient *redis.Client) {
 	if err := redisClient.Set(shadowKey, string(shadowPayload), 0); err != nil {
 		log.Printf("Error storing tag shadow for tag %d: %v", update.TagID, err)
 	}
+}
+
+// olderThanStored reports whether the current value under key was taken
+// after ts. A device that sends hours of readings in one message, or a
+// message that arrives late, carries samples older than what is already on
+// screen: written over it, they made the current value jump back in time.
+// Without a time on either side it answers false (the old behaviour).
+func olderThanStored(redisClient *redis.Client, key string, ts int64) bool {
+	if ts <= 0 {
+		return false
+	}
+	cur, err := redisClient.Get(key)
+	if err != nil || cur == "" {
+		return false
+	}
+	var stored struct {
+		Ts int64 `json:"ts"`
+	}
+	if json.Unmarshal([]byte(cur), &stored) != nil {
+		return false
+	}
+	return stored.Ts > ts
 }
 
 // handleAlarmEvent processes alarm state changes from MQTT drivers.
@@ -1621,8 +1659,12 @@ func handleSparkplugUpdate(topic string, payload []byte, redisClient *redis.Clie
 		}
 		payloadBytes, _ := json.Marshal(legacyPayload)
 
-		// Store current value in Redis for real-time queries
+		// Store current value in Redis for real-time queries — unless a newer
+		// one is already there (see olderThanStored).
 		realtimeKey := fmt.Sprintf("realtime:%d", tagID)
+		if olderThanStored(redisClient, realtimeKey, timestamp) {
+			continue
+		}
 		redisClient.Set(realtimeKey, string(payloadBytes), 0)
 
 		// Broadcast real-time update via Redis Pub/Sub
