@@ -1502,7 +1502,7 @@ func (h *TagsHandler) GetShadowBatch(c *gin.Context) {
 	staleByGw := map[int]float64{}
 	if srows, serr := h.db.QueryContext(c.Request.Context(),
 		`SELECT id, (connection_config->>'stale_after_minutes')::float FROM gateways`); serr == nil {
-		defer srows.Close()
+		defer func() { _ = srows.Close() }()
 		for srows.Next() {
 			var gid int
 			var sm sql.NullFloat64
