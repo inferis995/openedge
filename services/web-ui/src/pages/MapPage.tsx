@@ -228,6 +228,16 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
 
     const mapRef = useRef<MapRef>(null);
     const [zoom, setZoom] = useState(DETAIL_ZOOM - 1);
+    // Filtro impianto: area selezionata (null = tutte). I gateway di fuori
+    // spariscono dalla mappa e dai conteggi — la vista resta quella dell'org.
+    const [areaFilter, setAreaFilter] = useState<number | null>(null);
+    // La mappa parte già dove ci sono i gateway dell'utente, non su un centro
+    // geografico fisso: il centro del bounding box (lo zoom lo fa fitBounds
+    // al load, con i dati definitivi).
+    const initialView = useMemo(
+        () => ({ longitude: CALABRIA_CENTER[0], latitude: CALABRIA_CENTER[1], zoom: 9 }),
+        [],
+    );
     const [selectedGwId, setSelectedGwId] = useState<number | null>(null);
     const selectedGw = gateways.find((g) => g.id === selectedGwId) ?? null;
     // Popup di dettaglio di un tag (dal click su una pill).
@@ -239,6 +249,11 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     const placedGateways = useMemo(
         () => gateways.filter((g) => typeof g.latitude === 'number' && typeof g.longitude === 'number'),
         [gateways],
+    );
+    // Gateway dopo il filtro area: la mappa mostra solo questi.
+    const visibleGateways = useMemo(
+        () => (areaFilter === null ? placedGateways : placedGateways.filter((g) => g.area_id === areaFilter)),
+        [placedGateways, areaFilter],
     );
 
     const geojsonAreas = useMemo(
@@ -300,6 +315,22 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
         }, 600);
         return () => { controller.abort(); clearTimeout(timer); };
     }, [placeQuery]);
+
+    // Appena arrivano i gateway con coordinate, inquadra i loro pin: la mappa
+    // si apre già "sulle cose dell'utente" senza dover cercare la Calabria.
+    const fittedRef = useRef(false);
+    useEffect(() => {
+        if (fittedRef.current || placedGateways.length === 0) return;
+        const map = mapRef.current;
+        if (!map) return;
+        fittedRef.current = true;
+        const lons = placedGateways.map((g) => g.longitude as number);
+        const lats = placedGateways.map((g) => g.latitude as number);
+        map.fitBounds(
+            [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+            { padding: 60, maxZoom: 12, duration: 0 },
+        );
+    }, [placedGateways]);
 
     const flyTo = (lon: number, lat: number, zoom?: number) => {
         const map = mapRef.current;
@@ -398,6 +429,29 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                     <p className="text-muted-foreground">{t('map.subtitle')}</p>
                 </div>
 
+                {/* Filtro area/impianto: restringe pin, poligoni e conteggio */}
+                <select
+                    className="h-10 sm:h-8 px-2 rounded-md border bg-background text-sm"
+                    value={areaFilter ?? ''}
+                    onChange={(e) => {
+                        const v = e.target.value ? parseInt(e.target.value) : null;
+                        setAreaFilter(v);
+                        // Selezionando un'area, la mappa ci vola sopra.
+                        const pts = v === null ? placedGateways : placedGateways.filter((g) => g.area_id === v);
+                        if (pts.length > 0 && mapRef.current) {
+                            const lons = pts.map((g) => g.longitude as number);
+                            const lats = pts.map((g) => g.latitude as number);
+                            mapRef.current.fitBounds(
+                                [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+                                { padding: 80, maxZoom: 13, duration: 900 },
+                            );
+                        }
+                    }}
+                >
+                    <option value="">{t('map.all_areas')}</option>
+                    {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+
                 {/* Ricerca luogo (Nominatim) */}
                 <div className="relative w-full sm:w-80">
                     <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
@@ -436,13 +490,24 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
             <div className="clip-chamfer border bg-card overflow-hidden relative">
                 <MapGL
                     ref={mapRef}
-                    initialViewState={{ longitude: CALABRIA_CENTER[0], latitude: CALABRIA_CENTER[1], zoom: 9 }}
+                    initialViewState={initialView}
                     mapStyle={MAP_STYLE_URL}
                     style={{ width: '100%', height: 'calc(100vh - 260px)', minHeight: 420 }}
                     attributionControl={{ compact: true }}
                     onClick={handleMapClick}
                     onZoom={(e) => setZoom(e.viewState.zoom)}
                     cursor={placingForId !== null ? 'crosshair' : undefined}
+                    onLoad={(e) => {
+                        // Al primo load inquadra esattamente i pin dell'utente.
+                        if (placedGateways.length > 0) {
+                            const lons = placedGateways.map((g) => g.longitude as number);
+                            const lats = placedGateways.map((g) => g.latitude as number);
+                            e.target.fitBounds(
+                                [[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]],
+                                { padding: 60, maxZoom: 12, duration: 0 },
+                            );
+                        }
+                    }}
                 >
                     <NavigationControl position="top-right" visualizePitch />
 
@@ -472,7 +537,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                         </Marker>
                     ))}
 
-                    {placedGateways.map((gw) => {
+                    {visibleGateways.map((gw) => {
                         const gwDetail = detailMode || selectedGwId === gw.id;
                         const gwTags = gwDetail ? liveTagsFor(gw.id) : [];
                         const visibleTags = gwTags.slice(0, MAX_PILLS);
@@ -630,7 +695,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                     {t('map.legend_never')}
                 </span>
                 <span className="ml-auto">
-                    {placedGateways.length}/{gateways.length} {t('map.placed_count')}
+                    {visibleGateways.length}/{placedGateways.length} {t('map.placed_count')}
                 </span>
             </div>
 
