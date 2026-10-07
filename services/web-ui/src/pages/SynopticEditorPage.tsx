@@ -273,7 +273,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     // updates override afterwards.
     const [shadowValues, setShadowValues] = useState<Map<number, LiveValue>>(new Map());
     useEffect(() => {
-        if (isEdit || canvasTagIds.size === 0) { setShadowValues(new Map()); return; }
+        if (isEdit || canvasTagIds.size === 0) return;
         let ignore = false;
         tagsApi.getShadowBatch().then(shadows => {
             if (ignore) return;
