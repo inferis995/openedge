@@ -531,9 +531,11 @@ export function UPlotChart({
                 ticks: { stroke: TICK_COLOR, width: 1, size: 4 },
                 grid: { stroke: GRID_COLOR, width: 1, show: i === 0 },
                 font: FONT,
-                label: first.unit || undefined,
+                // The unit; with none, the pen's name, so an axis always says
+                // whose values it carries.
+                label: first.unit || (first.label.length > 22 ? first.label.slice(0, 21) + '…' : first.label),
                 labelFont: FONT,
-                labelSize: first.unit ? 16 : 0,
+                labelSize: 16,
                 size: 52,
                 values: (_u, splits) => splits.map((v) => {
                     const a = Math.abs(v);

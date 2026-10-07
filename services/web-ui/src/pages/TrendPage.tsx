@@ -592,12 +592,15 @@ export default function TrendPage() {
         if (pens.some(p => p.tagId === tagId)) return;
         const tag = tagMap.get(tagId);
         if (!tag) return;
-        const colorIdx = pens.length % PEN_COLORS.length;
+        // The first colour no pen has: by count, removing a pen and adding
+        // another gave two pens the same colour.
+        const used = new Set(pens.map(p => p.color));
+        const color = PEN_COLORS.find(c => !used.has(c)) ?? PEN_COLORS[pens.length % PEN_COLORS.length];
         setPens(prev => [...prev, {
             tagId,
             label: tag.alias || tag.code,
             unit: tag.eu_unit?.trim() || undefined,
-            color: PEN_COLORS[colorIdx],
+            color,
             visible: true,
         }]);
         // On a phone the tag list covers the chart: close it once a tag is picked.
@@ -878,7 +881,30 @@ export default function TrendPage() {
                                 <p className="text-sm mt-1">{tr('trendPage.empty_desc')}</p>
                             </div>
                         </div>
-                    ) : (
+                    ) : (<>
+                        {/* Legend: which line is which, on the chart itself (the pen
+                            panel is closed on a phone). A click hides or shows a pen. */}
+                        <div className="shrink-0 flex flex-wrap gap-x-3 gap-y-1 px-3 pt-2 text-xs">
+                            {pensWithStats.map(p => (
+                                <button key={p.tagId} type="button" onClick={() => togglePenVisibility(p.tagId)}
+                                    className={`inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-muted ${p.visible ? '' : 'opacity-40'}`}
+                                    title={p.visible ? tr('historian.hide_pen') : tr('historian.show_pen')}>
+                                    <span className="inline-block w-3 h-[3px] rounded" style={{ background: p.color }} />
+                                    <span className="font-medium max-w-[220px] truncate" style={{ color: p.color }}>{p.label}</span>
+                                    {p.stats?.last != null && (
+                                        <span className="font-mono text-muted-foreground">
+                                            {Number(p.stats.last.toFixed(3))}{p.unit ? ` ${p.unit}` : ''}
+                                        </span>
+                                    )}
+                                </button>
+                            ))}
+                            {compare !== 'off' && compareData && (
+                                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                                    <span className="inline-block w-3 border-t border-dashed border-current" />
+                                    {tr(`trendPage.compare_${compare}`)}
+                                </span>
+                            )}
+                        </div>
                         <div ref={chartBoxRef} className="flex-1 min-h-0 p-2 overflow-hidden">
                             <UPlotChart
                                 timestamps={timestamps}
@@ -895,7 +921,7 @@ export default function TrendPage() {
                                 onMeasureClick={onMeasureClick}
                             />
                         </div>
-                    )}
+                    </>)}
                     {measure && pens.length > 0 && (
                         <div className="shrink-0 border-t bg-card/60 px-3 py-2 text-xs">
                             {marks.a === null ? (
