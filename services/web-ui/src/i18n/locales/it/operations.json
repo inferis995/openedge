@@ -92,6 +92,7 @@
         "clock_24h": "24 ore",
         "clock_12h": "12 ore (AM/PM)",
         "no_tag": "Nessun tag",
+        "other_tags": "Altri tag",
         "search_tag": "Cerca tag…",
         "load_error": "Impossibile caricare il sinottico. Riprova.",
         "conflict": "Qualcun altro ha modificato questo sinottico. Ricarica la pagina prima di salvare.",
