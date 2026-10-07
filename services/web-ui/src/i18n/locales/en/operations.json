@@ -92,6 +92,7 @@
         "clock_24h": "24-hour",
         "clock_12h": "12-hour (AM/PM)",
         "no_tag": "No tag",
+        "other_tags": "Other tags",
         "search_tag": "Search tag…",
         "load_error": "Could not load the synoptic. Try again.",
         "conflict": "Someone else changed this synoptic. Reload the page before saving.",

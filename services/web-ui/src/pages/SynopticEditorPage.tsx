@@ -37,18 +37,35 @@ function TagCombobox({
     tags,
     value,
     onChange,
+    areaId,
 }: {
     tags: TagWithHierarchy[];
     value: string;
     onChange: (val: string) => void;
+    areaId?: number | null;
 }) {
     const { t: tr } = useTranslation();
     const [filter, setFilter] = useState('');
-    const filtered = useMemo(() => {
+    const labelOf = (t: TagWithHierarchy) =>
+        (t.alias || t.code) + (t.scaling_enabled && t.eu_unit ? ` [${t.eu_unit}]` : '');
+    const hit = (t: TagWithHierarchy, f: string) =>
+        `${t.alias || ''} ${t.code || ''} ${t.gateway_name || ''} ${t.area_name || ''} #${t.id}`.toLowerCase().includes(f);
+
+    // Tags of this synoptic's area first, then the rest — with 198 tags a
+    // flat list is unusable. While filtering, one flat result list instead.
+    const groups = useMemo(() => {
         const f = filter.trim().toLowerCase();
-        if (!f) return tags;
-        return tags.filter(t => `${t.alias || ''} ${t.code || ''} #${t.id}`.toLowerCase().includes(f));
-    }, [tags, filter]);
+        const pool = f ? tags.filter(t => hit(t, f)) : tags;
+        if (f || areaId == null) return [{ label: null as string | null, items: pool }];
+        const mine = pool.filter(t => t.area_id === areaId);
+        const rest = pool.filter(t => t.area_id !== areaId);
+        const areaName = mine[0]?.area_name || '';
+        return [
+            { label: areaName ? `⬤ ${areaName}` : null, items: mine },
+            { label: tr('synopticEditor.other_tags'), items: rest },
+        ].filter(g => g.items.length > 0);
+    }, [tags, filter, areaId]);
+    const total = groups.reduce((n, g) => n + g.items.length, 0);
 
     return (
         <div className="grid gap-1">
@@ -62,17 +79,23 @@ function TagCombobox({
                 className="h-10 sm:h-8 text-xs w-full rounded-md border border-input bg-background px-2 font-normal"
                 value={value}
                 onChange={e => onChange(e.target.value)}
-                size={Math.min(8, Math.max(3, filtered.length + 1))}
+                size={Math.min(10, Math.max(4, total + groups.length))}
                 style={{ overflowY: 'auto' }}
             >
                 <option value="none">{tr('synopticEditor.no_tag')}</option>
-                {filtered.map(t => (
-                    <option key={t.id} value={String(t.id)}>
-                        {(t.alias || t.code) + (t.scaling_enabled && t.eu_unit ? ` [${t.eu_unit}]` : '')}
-                    </option>
+                {groups.map((g, gi) => g.label ? (
+                    <optgroup key={gi} label={g.label}>
+                        {g.items.map(t => (
+                            <option key={t.id} value={String(t.id)}>{labelOf(t)}</option>
+                        ))}
+                    </optgroup>
+                ) : (
+                    g.items.map(t => (
+                        <option key={t.id} value={String(t.id)}>{labelOf(t)}</option>
+                    ))
                 ))}
             </select>
-            {filter.trim() !== '' && filtered.length === 0 && (
+            {filter.trim() !== '' && total === 0 && (
                 <span className="text-xs text-muted-foreground">{tr('synopticEditor.no_tag_found')}</span>
             )}
         </div>
@@ -1126,6 +1149,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             tags={tags}
                                             value={selected.tagId != null ? String(selected.tagId) : 'none'}
                                             onChange={v => handleTagBind(selected.id, v)}
+                                            areaId={synoptic?.area_id ?? null}
                                         />
                                     </div>
                                 )}
