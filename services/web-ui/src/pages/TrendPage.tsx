@@ -939,7 +939,7 @@ export default function TrendPage() {
                         <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7"
                             onClick={() => { setPenPanelOpen(o => !o); if (!isWide) setSidebarOpen(false); }}
                             title={tr('trendPage.toggle_pens')} aria-label={tr('trendPage.toggle_pens')}>
-                            <PanelRight className={`w-4 h-4 ${penPanelOpen ? 'text-primary' : 'text-muted-foreground'}`} />
+                            <PanelRight className={`w-4 h-4 ${penPanelOpen ? '' : 'opacity-50'}`} />
                         </Button>
                     </div>
                 </div>
