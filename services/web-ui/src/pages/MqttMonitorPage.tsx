@@ -463,7 +463,7 @@ const MqttMonitorPage = () => {
             {/* Controls */}
             <Card>
                 <CardContent className="py-3">
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                         {/* Pause/Resume */}
                         {isPaused ? (
                             <Button onClick={handleResume} variant="default" className="gap-2">
@@ -509,13 +509,13 @@ const MqttMonitorPage = () => {
                         </div>
 
                         {/* Filter */}
-                        <div className="flex-1 flex items-center gap-2 ml-4">
-                            <Filter className="h-4 w-4 text-muted-foreground" />
+                        <div className="w-full sm:w-auto sm:flex-1 flex items-center gap-2 sm:ml-4">
+                            <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
                             <Input
                                 placeholder={t('mqttMonitor.filter_ph')}
                                 value={filter}
                                 onChange={(e) => setFilter(e.target.value)}
-                                className="max-w-sm"
+                                className="w-full sm:max-w-sm"
                             />
                         </div>
 
@@ -590,7 +590,7 @@ const MqttMonitorPage = () => {
                                                     )}
                                                 </TableCell>
                                                 <TableCell className="text-xs">
-                                                    <div className="truncate max-w-[350px]" title={msg.topic}>
+                                                    <div className="truncate max-w-[140px] sm:max-w-[350px]" title={msg.topic}>
                                                         {isLifecycle ? (
                                                             <span>
                                                                 <span className={`font-semibold ${isDeath ? 'text-red-600' : 'text-green-600'}`}>
