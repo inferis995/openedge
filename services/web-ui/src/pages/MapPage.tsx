@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Map as MapGL, Marker, Popup, NavigationControl, Source, Layer, type MapRef } from 'react-map-gl/maplibre';
 import type { MapGeoJSONFeature } from 'maplibre-gl';
-import type { LineLayerSpecification, FillLayerSpecification } from 'maplibre-gl';
+import type { LineLayerSpecification, FillLayerSpecification, StyleSpecification } from 'maplibre-gl';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useGateways } from '@/hooks/useGateways';
@@ -17,7 +17,25 @@ import { parseCoords, formatCoord, searchPlace, type PlaceResult } from '@/lib/c
 import { Battery, Loader2, MapPin, Search } from 'lucide-react';
 
 // Stile Carto Dark Matter GL: vettoriale, gratuito, senza API key.
-const MAP_STYLE_URL = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+// Carto Dark Matter in versione raster: le tile PNG si vedono ovunque
+// (mobile incluso), dove il vettoriale GL resta nero senza WebGL.
+const MAP_STYLE_URL: StyleSpecification = {
+    version: 8,
+    sources: {
+        cartodark: {
+            type: 'raster',
+            tiles: [
+                'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+                'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+                'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png',
+            ],
+            tileSize: 256,
+            maxzoom: 20,
+            attribution: '© CARTO, © OpenStreetMap contributors',
+        },
+    },
+    layers: [{ id: 'basemap', type: 'raster', source: 'cartodark' }],
+};
 // Centro iniziale: Calabria.
 const CALABRIA_CENTER: [number, number] = [16.6, 39.3];
 // Oltre questo zoom il gateway apre la vista dettaglio con le pill dei tag.
@@ -294,6 +312,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     };
 
     const handleSelectGateway = (id: number, lon: number, lat: number) => {
+        setOpenTagId(null); // un popup alla volta: il pin apre il gateway, la pill il tag
         setSelectedGwId(id);
         if (placingForId !== null) {
             setPlacingForId(id);
@@ -482,6 +501,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                                                 title={`${tag.alias || tag.code} = ${live.value === null ? '—' : String(live.value)}`}
                                                 onClick={(ev) => {
                                                     ev.stopPropagation();
+                                                    setSelectedGwId(null);
                                                     setOpenTagId(tag.id);
                                                 }}
                                             >
