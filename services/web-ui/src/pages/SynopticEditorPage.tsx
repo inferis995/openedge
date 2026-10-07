@@ -22,7 +22,8 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { SynopticWidgetView, WIDGET_CATALOG, LiveValue } from '@/components/synoptics/SynopticWidget';
+import { SynopticWidgetView, LiveValue } from '@/components/synoptics/SynopticWidget';
+import { WIDGET_CATALOG } from '@/components/synoptics/widgetCatalog';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
 
@@ -64,7 +65,7 @@ function TagCombobox({
             { label: areaName ? `⬤ ${areaName}` : null, items: mine },
             { label: tr('synopticEditor.other_tags'), items: rest },
         ].filter(g => g.items.length > 0);
-    }, [tags, filter, areaId]);
+    }, [tags, filter, areaId, tr]);
     const total = groups.reduce((n, g) => n + g.items.length, 0);
 
     return (
@@ -272,7 +273,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     // updates override afterwards.
     const [shadowValues, setShadowValues] = useState<Map<number, LiveValue>>(new Map());
     useEffect(() => {
-        if (isEdit || canvasTagIds.size === 0) { setShadowValues(new Map()); return; }
+        if (isEdit || canvasTagIds.size === 0) return;
         let ignore = false;
         tagsApi.getShadowBatch().then(shadows => {
             if (ignore) return;
@@ -281,7 +282,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
             setShadowValues(m);
         }).catch(() => { /* old server without org-wide batch: live only */ });
         return () => { ignore = true; };
-    }, [isEdit, id]);
+    }, [isEdit, id, canvasTagIds.size]);
 
     // Fetch active alarms for tags on this canvas (view mode only)
     const [activeAlarmTagIds, setAlarmTagIds] = useState<Set<number>>(new Set());
@@ -475,7 +476,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
 
     // ── Editing actions ────────────────────────────────────────────────────
     const addWidget = (type: SynopticWidget['type']) => {
-        const meta = WIDGET_CATALOG.find(w => w.type === type)!;
+        const meta = WIDGET_CATALOG.find(w => w.type === type) ?? WIDGET_CATALOG[0];
         const w: SynopticWidget = {
             id: uid(), type, x: 40, y: 40, w: meta.defaultW, h: meta.defaultH,
             label: type === 'label' ? tr('synopticWidget.label_default') : '',
@@ -958,9 +959,9 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             (w.config?.tagBinding as number | null | undefined)
                                         )}
                                         inAlarm={alarmTagIds.has(w.tagId ?? -1)}
-                                        onWrite={w.tagId != null && !w.config?.navigateSynopticId ? (v) => onWrite(w.tagId!, v) : undefined}
+                                        onWrite={w.tagId != null && w.config?.navigateSynopticId == null ? (v) => onWrite(w.tagId as number, v) : undefined}
                                         onNavigate={!isEdit && w.config?.navigateSynopticId != null
-                                            ? () => navigate(`/synoptics/${w.config!.navigateSynopticId}`)
+                                            ? () => navigate(`/synoptics/${w.config?.navigateSynopticId}`)
                                             : undefined} />
                                     </div>
                                     {!isEdit && alarmTagIds.has(w.tagId ?? -1) && (

@@ -109,7 +109,7 @@ const TEXT_COLOR = '#94a3b8';
 const FONT = '11px Inter, system-ui, sans-serif';
 
 /** One y scale per unit, so bar, l/s and V are not squeezed onto one axis. */
-export function scaleKey(pen: Pick<PenSeries, 'unit' | 'tagId'>): string {
+function scaleKey(pen: Pick<PenSeries, 'unit' | 'tagId'>): string {
     // abs: a comparison pen (negative id) shares its original's axis.
     return 'y:' + (pen.unit?.trim() || `#${Math.abs(pen.tagId)}`);
 }

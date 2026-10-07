@@ -85,6 +85,7 @@ export function InventoryPage() {
 
     useEffect(() => {
         startLoad(fetchInventory);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once load; fetchInventory is recreated per render by design
     }, []);
 
     const handleExport = async () => {

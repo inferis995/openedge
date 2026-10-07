@@ -627,7 +627,6 @@ export default function TrendPage() {
         setZoomStack(stack => [...stack, timeRange]);
         setTimeRange({ from: new Date(fromMs), to: new Date(toMs), preset: 'custom' });
         setLiveMode(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [timeRange]);
 
     const handleZoomOut = useCallback(() => {

@@ -133,7 +133,7 @@ function buildTree(items: I3XEquipment[]): TreeNode[] {
     const roots: TreeNode[] = [];
     for (const node of map.values()) {
         if (node.parentId && map.has(node.parentId)) {
-            map.get(node.parentId)!.children.push(node);
+            map.get(node.parentId)?.children.push(node);
         } else {
             roots.push(node);
         }

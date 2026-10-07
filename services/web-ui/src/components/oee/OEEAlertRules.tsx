@@ -114,7 +114,7 @@ export const OEEAlertRules = ({ profiles }: Props) => {
                         </div>
                     ) : (
                         <div className="space-y-2">
-                            {rules!.map((r) => (
+                            {(rules ?? []).map((r) => (
                                 <RuleRow
                                     key={r.id}
                                     r={r}

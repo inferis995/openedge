@@ -86,6 +86,7 @@ export default function AlarmsPage() {
         startLoad(fetchData);
         const interval = setInterval(loadData, 30000);
         return () => clearInterval(interval);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once load + poller; fetchers are recreated per render by design
     }, []);
 
     const filteredHistory = useMemo(() => {

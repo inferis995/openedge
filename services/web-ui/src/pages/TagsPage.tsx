@@ -62,7 +62,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { Tag } from '@/types';
 
 interface CurrentValue {
-    value: any;
+    value: unknown;
     timestamp: number;
     quality: number;
 }
@@ -108,7 +108,7 @@ const TagsPage = () => {
     );
 
     const [isOpen, setIsOpen] = useState(false);
-    const [writeDialogTag, setWriteDialogTag] = useState<{ id: number; alias: string; dataType: string; currentValue: any } | null>(null);
+    const [writeDialogTag, setWriteDialogTag] = useState<{ id: number; alias: string; dataType: string; currentValue: unknown } | null>(null);
     const [writeValue, setWriteValue] = useState<string>('');
     const [writeLoading, setWriteLoading] = useState(false);
 
@@ -116,7 +116,7 @@ const TagsPage = () => {
         if (!writeDialogTag) return;
         setWriteLoading(true);
         try {
-            let value: any = writeValue;
+            let value: number | string | boolean = writeValue;
             if (writeDialogTag.dataType === 'BOOL') {
                 value = writeValue === 'true';
             } else if (writeDialogTag.dataType === 'INT' || writeDialogTag.dataType === 'UINT' || writeDialogTag.dataType === 'DINT') {
@@ -210,7 +210,7 @@ const TagsPage = () => {
                 // Fetch all active alarms first
                 const activeList = await alarmsApi.getActiveAlarms();
                 const activeMap: Record<number, boolean> = {};
-                (activeList || []).forEach((a: any) => { activeMap[a.tag_id] = true; });
+                (activeList || []).forEach((a) => { activeMap[a.tag_id] = true; });
                 setActiveAlarms(activeMap);
             } catch (err) {
                 console.error("Failed to fetch active alarms:", err);
@@ -250,7 +250,7 @@ const TagsPage = () => {
         return gw?.driver_type;
     }, [selectedGatewayId, gateways]);
 
-    const handleInputChange = (field: keyof CreateTagDto, value: any) => {
+    const handleInputChange = (field: keyof CreateTagDto, value: CreateTagDto[keyof CreateTagDto]) => {
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
@@ -293,8 +293,8 @@ const TagsPage = () => {
             const result = await gatewaysApi.browseNodes(parseInt(selectedGatewayId), nodeId);
             setBrowseNodes(result.nodes || []);
             if (result.error) setBrowseError(result.error);
-        } catch (err: any) {
-            setBrowseError(err.message || tr('tagsPage.browse_failed'));
+        } catch (err: unknown) {
+            setBrowseError(err instanceof Error ? err.message : tr('tagsPage.browse_failed'));
             setBrowseNodes([]);
         }
         setIsBrowsing(false);
@@ -333,7 +333,7 @@ const TagsPage = () => {
             historize: false,
             deadband_value: 0.1,
         json_path: '',
-            gateway_id: parseInt(selectedGatewayId!),
+            gateway_id: parseInt(selectedGatewayId ?? ''),
         });
         setIsBrowseOpen(false);
         setUpdatingTagId(null);
@@ -412,7 +412,7 @@ const TagsPage = () => {
         }
     };
 
-    const handleEdit = (tag: any) => {
+    const handleEdit = (tag: Tag) => {
         setUpdatingTagId(tag.id);
         setFormData({
             code: tag.code,
@@ -1449,8 +1449,8 @@ const TagsPage = () => {
                                                                 ) : '-'}
                                                             </div>
                                                             {/* EU unit badge */}
-                                                            {(tag as any).scaling_enabled && (tag as any).eu_unit && (
-                                                                <span className="text-xs text-muted-foreground font-mono">{(tag as any).eu_unit}</span>
+                                                            {tag.scaling_enabled && tag.eu_unit && (
+                                                                <span className="text-xs text-muted-foreground font-mono">{tag.eu_unit}</span>
                                                             )}
 
                                                             {/* Quality indicator */}

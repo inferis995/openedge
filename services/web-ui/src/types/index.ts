@@ -23,7 +23,7 @@ export interface Gateway {
     area_id: number;
     name: string;
     driver_type: 'S7' | 'MODBUS_TCP' | 'MQTT' | 'OPC_UA' | 'LORAWAN';
-    connection_config: any; // Nested config
+    connection_config: Record<string, unknown>; // Nested config
     scan_rate_ms: number;
     enabled: boolean;
     status?: string; // deprecated, use connection_status
@@ -47,6 +47,7 @@ export interface Tag {
     // (e.g. "temp" or "data.temperature"). Empty/undefined = whole payload.
     json_path?: string | null;
     historize_interval_ms?: number;
+    historize_deadband?: number;
     deadband_mode?: 'absolute' | 'percent';
     deadband_value?: number;
     // EU Scaling — raw-to-engineering-unit conversion applied at ingestion.
@@ -145,7 +146,7 @@ export interface HistoryQueryParams {
 
 export interface WriteTagCommand {
     tag_id: number;
-    value: any;
+    value: number | string | boolean | null;
 }
 
 export interface WriteTagResult {

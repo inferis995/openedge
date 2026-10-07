@@ -641,7 +641,7 @@ const OEEProfilesPage = () => {
                                 </div>
                             ) : (
                                 <div className="space-y-2">
-                                    {profiles!.map((p) => (
+                                    {(profiles ?? []).map((p) => (
                                         <ProfileRow
                                             key={p.id}
                                             p={p}

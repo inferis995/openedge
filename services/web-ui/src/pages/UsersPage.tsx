@@ -278,6 +278,7 @@ const UsersPage = () => {
 
     useEffect(() => {
         startLoad(fetchUsers);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once load; fetchUsers is recreated per render by design
     }, []);
 
     const handleCreate = async () => {
@@ -465,7 +466,7 @@ const UsersPage = () => {
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="global">{t('usersPage.global_admin_option')}</SelectItem>
-                                        {!orgsLoading && organizations.map((org: any) => (
+                                        {!orgsLoading && organizations.map((org) => (
                                             <SelectItem key={org.id} value={org.id.toString()}>
                                                 {org.name}
                                             </SelectItem>
@@ -723,7 +724,7 @@ const UsersPage = () => {
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="global">{t('usersPage.global_admin_option')}</SelectItem>
-                                    {!orgsLoading && organizations.map((org: any) => (
+                                    {!orgsLoading && organizations.map((org) => (
                                         <SelectItem key={org.id} value={org.id.toString()}>
                                             {org.name}
                                         </SelectItem>

@@ -336,8 +336,8 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleDraft, setTitleDraft] = useState(chart.title || t('trend.chart_default'));
 
-    const safeStart = timeRange.start instanceof Date ? timeRange.start : new Date(timeRange.start);
-    const safeEnd = timeRange.end instanceof Date ? timeRange.end : new Date(timeRange.end);
+    const safeStart = useMemo(() => (timeRange.start instanceof Date ? timeRange.start : new Date(timeRange.start)), [timeRange]);
+    const safeEnd = useMemo(() => (timeRange.end instanceof Date ? timeRange.end : new Date(timeRange.end)), [timeRange]);
 
     // Only visible series participate in chart rendering
     const visibleSeries = useMemo(() => seriesData.filter((s) => s.visible !== false), [seriesData]);
@@ -428,7 +428,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                 };
             }
 
-            const lineStyle = { width: lineWidth, color: s.color, type: lineType as any };
+            const lineStyle = { width: lineWidth, color: s.color, type: lineType as 'solid' | 'dashed' | 'dotted' };
 
             if (chartType === 'area') {
                 return {
@@ -458,10 +458,10 @@ export const TrendChart: React.FC<TrendChartProps> = ({
 
         // ── Tooltip ─────────────────────────────────────────────────────────
         const tooltipFormatter = (params: unknown) => {
-            const p = params as any[];
+            const p = params as { data?: unknown; seriesName?: string; color?: string }[];
             if (!p?.length) return '';
-            const firstValid = p.find((x: any) => Array.isArray(x.data));
-            if (!firstValid) return '';
+            const firstValid = p.find((x) => Array.isArray(x.data));
+            if (!firstValid || !Array.isArray(firstValid.data)) return '';
             const ts: number = firstValid.data[0];
 
             // ECharts puts this string into innerHTML. The alias (a tag name
@@ -470,7 +470,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
             // and builds its tooltip with the DOM instead.
             let html = `<div style="font-size:10px;color:#94a3b8;font-weight:600;margin-bottom:5px;border-bottom:1px solid rgba(148,163,184,0.2);padding-bottom:4px;">${escapeHtml(fmt.datetime(ts))}</div>`;
 
-            p.forEach((param: any) => {
+            p.forEach((param: { data?: unknown; seriesName?: string; color?: string }) => {
                 if (!Array.isArray(param.data)) return;
                 const si = visibleSeries.find((s) => s.tagName === param.seriesName);
                 const v: number | null = param.data[1];
@@ -522,7 +522,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                 lineStyle: { color: '#60a5fa', width: 1, type: 'solid' },
                 label: {
                     backgroundColor: '#1e40af',
-                    formatter: (params: any) => {
+                    formatter: (params: { value?: unknown }) => {
                         if (typeof params.value === 'number') {
                             return rangeHours <= 1 ? fmt.time(params.value) :
                                 rangeHours <= 24
@@ -542,7 +542,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                 itemGap: 6,
                 feature: {
                     dataZoom: {
-                        yAxisIndex: 'none' as any,
+                        yAxisIndex: 'none' as const,
                         title: { zoom: t('trend.zoom_area'), back: t('trend.zoom_undo') },
                         icon: {
                             zoom: 'path://M11 17.25a6.25 6.25 0 110-12.5 6.25 6.25 0 010 12.5zm4.773.042L21.021 21.5',
@@ -614,7 +614,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                 },
             ],
         };
-    }, [visibleSeries, timeRange, t, i18nInst.language]);
+    }, [visibleSeries, safeStart, safeEnd, t, i18nInst.language]);
 
     const handleChartClick = useCallback(
         (params: unknown) => {

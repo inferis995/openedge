@@ -29,7 +29,12 @@ export const useChartSync = (chartId: string, syncGroup: string = 'default') => 
             if (!syncGroups.has(syncGroup)) {
                 syncGroups.set(syncGroup, new Set());
             }
-            syncGroups.get(syncGroup)!.add(chartId);
+            let grp = syncGroups.get(syncGroup);
+            if (!grp) {
+                grp = new Set();
+                syncGroups.set(syncGroup, grp);
+            }
+            grp.add(chartId);
 
             // Connect all charts in the same group
             connectChartsInGroup(syncGroup);
@@ -107,7 +112,7 @@ export const getChartsInGroup = (groupName: string): ECharts[] => {
 /**
  * Dispatch action to all charts in a group
  */
-export const dispatchToGroup = (groupName: string, action: any) => {
+export const dispatchToGroup = (groupName: string, action: { type: string; payload?: unknown }) => {
     const instances = getChartsInGroup(groupName);
     instances.forEach(instance => {
         instance.dispatchAction(action);

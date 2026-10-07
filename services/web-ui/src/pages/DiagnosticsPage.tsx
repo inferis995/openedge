@@ -215,7 +215,7 @@ const DiagnosticsPage = () => {
                         ? <p className="text-sm text-muted-foreground">{t('diagnosticsPage.no_mounts')}</p>
                         : (
                             <div className="space-y-3 text-sm">
-                                {data.disk!.map((d: DiskInfo) => (
+                                {(data.disk ?? []).map((d: DiskInfo) => (
                                     <div key={d.path} className="space-y-1">
                                         <div className="flex justify-between text-xs">
                                             <span className="font-mono">{d.path}</span>
@@ -243,7 +243,7 @@ const DiagnosticsPage = () => {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {data.network!.map((n: NetworkIfInfo) => (
+                                    {(data.network ?? []).map((n: NetworkIfInfo) => (
                                         <TableRow key={n.name}>
                                             <TableCell className="font-mono text-xs">{n.name}</TableCell>
                                             <TableCell>

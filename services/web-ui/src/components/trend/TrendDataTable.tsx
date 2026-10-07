@@ -19,7 +19,7 @@ interface TableRow {
     timestamp: number;
     date: string;
     time: string;
-    [key: string]: number | string | null;
+    [key: string]: number | string | boolean | null;
 }
 
 export const TrendDataTable: React.FC<TrendDataTableProps> = ({
@@ -43,7 +43,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
         interface DataPoint {
             timestamp: number;
             tagKey: string;
-            value: any;
+            value: unknown;
             quality: number;
         }
 
@@ -73,7 +73,7 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
         const uniqueTimestamps = [...new Set(allPoints.map(p => p.timestamp))].sort((a, b) => a - b);
 
         // Build rows with forward-fill
-        const lastKnownValues: Record<string, { value: any; quality: number }> = {};
+        const lastKnownValues: Record<string, { value: number | string | boolean | null; quality: number }> = {};
         const rows: TableRow[] = [];
 
         uniqueTimestamps.forEach(ts => {
@@ -91,11 +91,14 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
             // Get all points at this timestamp
             const pointsAtTs = allPoints.filter(p => p.timestamp === ts);
             pointsAtTs.forEach(p => {
-                row[p.tagKey] = p.value;
+                const cell: number | string | boolean | null =
+                    typeof p.value === 'number' || typeof p.value === 'string' || typeof p.value === 'boolean'
+                        ? p.value : null;
+                row[p.tagKey] = cell;
                 row[`${p.tagKey}_quality`] = p.quality;
                 // Unconditionally update last known value, even if it's null (offline),
                 // so forward-fill propagates the N/A state instead of holding onto stale TRUE/FALSE
-                lastKnownValues[p.tagKey] = { value: p.value, quality: p.quality };
+                lastKnownValues[p.tagKey] = { value: cell, quality: p.quality };
             });
 
             // Forward-fill missing tags

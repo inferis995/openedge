@@ -20,7 +20,7 @@ export function useSparkplugListener() {
     useEffect(() => {
         isMountedRef.current = true;
 
-        console.log('[SparkplugListener] Connecting to MQTT broker...');
+        console.warn('[SparkplugListener] Connecting to MQTT broker...');
 
         // The broker requires credentials now, and fetching them is a round trip
         // to the API — so the client arrives asynchronously and its handlers are
@@ -71,7 +71,7 @@ export function useSparkplugListener() {
         const wire = (client: MqttClient) => {
             client.on('connect', () => {
                 if (!isMountedRef.current) return;
-                console.log('[SparkplugListener] Connected to MQTT broker - starting grace period (5s)');
+                console.warn('[SparkplugListener] Connected to MQTT broker - starting grace period (5s)');
 
                 // Notify store that listener is connected (starts grace period)
                 useSparkplugDeviceStore.getState().setListenerConnected();
@@ -81,7 +81,7 @@ export function useSparkplugListener() {
                     if (err) {
                         console.error('[SparkplugListener] Subscribe error:', err);
                     } else {
-                        console.log('[SparkplugListener] Subscribed to spBv1.0/#');
+                        console.warn('[SparkplugListener] Subscribed to spBv1.0/#');
                     }
                 });
             });
@@ -156,7 +156,7 @@ export function useSparkplugListener() {
 
             client.on('close', () => {
                 if (!isMountedRef.current) return;
-                console.log('[SparkplugListener] Disconnected from MQTT broker');
+                console.warn('[SparkplugListener] Disconnected from MQTT broker');
             });
 
         };
@@ -175,7 +175,7 @@ export function useSparkplugListener() {
             });
 
         return () => {
-            console.log('[SparkplugListener] Cleanup');
+            console.warn('[SparkplugListener] Cleanup');
             isMountedRef.current = false;
             disposed = true;
 

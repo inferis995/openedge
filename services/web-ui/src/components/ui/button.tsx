@@ -1,4 +1,5 @@
 import * as React from "react"
+/* eslint-disable react-refresh/only-export-components -- shadcn: variants live with the component */
 import { Slot } from "@radix-ui/react-slot"
 import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"

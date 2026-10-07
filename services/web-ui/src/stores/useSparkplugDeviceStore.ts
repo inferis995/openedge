@@ -62,7 +62,7 @@ export const useSparkplugDeviceStore = create<SparkplugDeviceState>()(
                 // Set ready after grace period
                 setTimeout(() => {
                     set({ isListenerReady: true });
-                    console.log('[Sparkplug] Listener ready - now tracking device status');
+                    console.warn('[Sparkplug] Listener ready - now tracking device status');
                 }, GRACE_PERIOD_MS);
             },
 

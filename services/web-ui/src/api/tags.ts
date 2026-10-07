@@ -1,6 +1,11 @@
 import api from './client';
 import { Tag, CreateTagDto, WriteTagCommand, WriteTagResult } from '@/types';
 import { TagWithHierarchy, TagHierarchyResponse } from '@/types/trend';
+import type { TagAlarmRule } from './alarms';
+
+// Tag values travel as number | string | boolean | null; unknown keeps the
+// explicit-any rule quiet without pretending we know more than we do.
+export type TagValue = unknown;
 
 export interface TagSheetProblem {
     line: number;
@@ -67,12 +72,12 @@ export const tagsApi = {
         return response.data;
     },
 
-    getTagAlarms: async (tagId: number): Promise<any[]> => {
+    getTagAlarms: async (tagId: number): Promise<TagAlarmRule[]> => {
         const response = await api.get(`/tags/${tagId}/alarms`);
         return response.data;
     },
 
-    saveTagAlarms: async (tagId: number, alarms: any[]): Promise<void> => {
+    saveTagAlarms: async (tagId: number, alarms: TagAlarmRule[]): Promise<void> => {
         const response = await api.put(`/tags/${tagId}/alarms`, alarms);
         return response.data;
     },
@@ -86,7 +91,7 @@ export const tagsApi = {
         await api.delete(`/tags/${id}`);
     },
 
-    getCurrentValue: async (id: number): Promise<{ value: any; timestamp: number; quality: number }> => {
+    getCurrentValue: async (id: number): Promise<{ value: TagValue; timestamp: number; quality: number }> => {
         const response = await api.get(`/tags/${id}/current`);
         // Map backend keys to frontend interface
         return {
@@ -140,13 +145,13 @@ export const tagsApi = {
 
     // Tag shadow — last-known value even when edge is offline.
     // source: "live" (edge online) | "historic" (edge offline, value from DB)
-    getShadow: async (tagId: number): Promise<{ tag_id: number; value: any; quality: number; ts: number; source: 'live' | 'historic' | 'unknown' }> => {
+    getShadow: async (tagId: number): Promise<{ tag_id: number; value: TagValue; quality: number; ts: number; source: 'live' | 'historic' | 'unknown' }> => {
         const response = await api.get(`/tags/${tagId}/shadow`);
         return response.data;
     },
 
     // Batch shadows for all tags of a gateway, or of the whole organization.
-    getShadowBatch: async (gatewayId?: number): Promise<{ tag_id: number; value: any; quality: number; ts: number; source: string }[]> => {
+    getShadowBatch: async (gatewayId?: number): Promise<{ tag_id: number; value: TagValue; quality: number; ts: number; source: string }[]> => {
         const response = await api.get('/tags/shadows', gatewayId ? { params: { gateway_id: gatewayId } } : undefined);
         return response.data;
     },

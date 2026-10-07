@@ -116,13 +116,15 @@ const SynopticsPage = () => {
         }
     };
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on org change; load reads current filters by design
     useEffect(() => { startLoad(load); }, [selectedOrgId]);
 
     const areasBySite = useMemo(() => {
         const m = new Map<number, Area[]>();
         areas.forEach(a => {
-            if (!m.has(a.site_id)) m.set(a.site_id, []);
-            m.get(a.site_id)!.push(a);
+            const arr = m.get(a.site_id);
+            if (arr) arr.push(a);
+            else m.set(a.site_id, [a]);
         });
         return m;
     }, [areas]);

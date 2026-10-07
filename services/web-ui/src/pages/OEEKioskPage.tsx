@@ -67,7 +67,7 @@ const OEEKioskPage = () => {
             setProfileIdx((i) => (i + 1) % profiles.length);
         }, ROTATE_MS);
         return () => clearInterval(id);
-    }, [data?.oee?.profiles?.length]);
+    }, [data?.oee?.profiles]);
 
     // Night/day mode: ricalcola ogni minuto.
     useEffect(() => {
