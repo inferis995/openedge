@@ -9,6 +9,7 @@ import { useNavigationStore } from '@/stores/useNavigationStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useGateways } from '@/hooks/useGateways';
 import { useAreas } from '@/hooks/useAreas';
+import { useSites } from '@/hooks/useSites';
 import { useRealtime } from '@/hooks/useRealtime';
 import { tagsApi } from '@/api/tags';
 import type { TagValue } from '@/api/tags';
@@ -161,7 +162,9 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     const gateways = gatewaysOverride ?? gatewaysHook.gateways;
     const isLoadingGateways = gatewaysOverride ? false : gatewaysHook.isLoading;
 
-    const areasHook = useAreas(null);
+    const sitesHook = useSites(null);
+    const firstSiteId = sitesHook.sites?.[0]?.id ?? null;
+    const areasHook = useAreas(firstSiteId);
     const areas = areasOverride ?? areasHook.areas;
     const isLoadingAreas = areasOverride ? false : areasHook.isLoading;
 
