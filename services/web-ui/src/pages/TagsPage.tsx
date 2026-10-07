@@ -88,7 +88,10 @@ const TagsPage = () => {
     const [sortField, setSortField] = useState<'alias' | 'code' | 'data_type' | 'sort_order' | null>(null);
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const { selectedOrgId } = useNavigationStore();
-    const { isAdmin } = useAuthStore();
+    const { isAdmin, user } = useAuthStore();
+    // Tag export: admins always, regular users with the export flag
+    // (the backend enforces it too — this only shows the button).
+    const canExport = isAdmin() || user?.permissions?.can_export_data === true;
 
     // Follow ?gateway_id= when it changes (a link from another page).
     // Adjusted during render rather than in an effect.
@@ -857,7 +860,7 @@ const TagsPage = () => {
                         </Select>
                     </div>
 
-                    {isAdmin() && (
+                    {canExport && (
                         <>
                             {/* Export: a small menu of formats */}
                             <Popover>

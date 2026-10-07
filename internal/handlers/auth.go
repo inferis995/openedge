@@ -51,6 +51,7 @@ func (h *AuthHandler) Me(c *gin.Context) {
 		Email    *string `json:"email"`
 		Role     string  `json:"role"`
 		OrgID    *int    `json:"org_id"`
+		Perms    map[string]bool `json:"permissions"`
 	}
 	err := h.db.QueryRowContext(c.Request.Context(),
 		`SELECT id, username, full_name, email, role, org_id FROM users WHERE id = $1`, userID,
@@ -62,6 +63,21 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch profile"})
 		return
+	}
+	// Granular flags drive UI affordances (export button, write controls).
+	// Admins hold them all; regular users read their row, missing row denies.
+	profile.Perms = map[string]bool{}
+	if profile.Role == "admin" {
+		for _, p := range []string{"can_write_tags", "can_ack_alarms", "can_export_data", "can_manage_recipes", "can_manage_shifts", "can_view_audit", "can_download_installer"} {
+			profile.Perms[p] = true
+		}
+	} else {
+		var w, a, e, r, s, v, d bool
+		if err := h.db.QueryRowContext(c.Request.Context(),
+			`SELECT COALESCE(can_write_tags,false), COALESCE(can_ack_alarms,false), COALESCE(can_export_data,false), COALESCE(can_manage_recipes,false), COALESCE(can_manage_shifts,false), COALESCE(can_view_audit,false), COALESCE(can_download_installer,false) FROM role_permissions WHERE user_id = $1`, userID,
+		).Scan(&w, &a, &e, &r, &s, &v, &d); err == nil {
+			profile.Perms = map[string]bool{"can_write_tags": w, "can_ack_alarms": a, "can_export_data": e, "can_manage_recipes": r, "can_manage_shifts": s, "can_view_audit": v, "can_download_installer": d}
+		}
 	}
 	c.JSON(http.StatusOK, profile)
 }

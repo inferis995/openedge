@@ -259,6 +259,7 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 	s.clearLockoutState(ctx, user.ID)
 	_, _ = s.db.ExecContext(ctx,
 		`UPDATE users SET last_login_at=NOW(), last_login_ip=$1 WHERE id=$2`, ipAddress, user.ID)
+	s.fillPermissions(ctx, &user)
 
 	token, err := s.generateToken(ctx, &user)
 	if err != nil {
@@ -270,6 +271,28 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 	}, true)
 
 	return &models.LoginResponse{Token: token, User: user}, nil
+}
+
+// fillPermissions attaches the granular UI flags to a user loaded at login.
+// Admins hold them all; a missing role_permissions row denies everything.
+func (s *Service) fillPermissions(ctx context.Context, user *models.User) {
+	user.Permissions = map[string]bool{}
+	keys := []string{"can_write_tags", "can_ack_alarms", "can_export_data", "can_manage_recipes", "can_manage_shifts", "can_view_audit", "can_download_installer"}
+	if user.Role == models.RoleAdmin {
+		for _, k := range keys {
+			user.Permissions[k] = true
+		}
+		return
+	}
+	var w, a, e, r, sh, v, d bool
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(can_write_tags,false), COALESCE(can_ack_alarms,false), COALESCE(can_export_data,false), COALESCE(can_manage_recipes,false), COALESCE(can_manage_shifts,false), COALESCE(can_view_audit,false), COALESCE(can_download_installer,false) FROM role_permissions WHERE user_id = $1`, user.ID,
+	).Scan(&w, &a, &e, &r, &sh, &v, &d); err == nil {
+		vals := []bool{w, a, e, r, sh, v, d}
+		for i, k := range keys {
+			user.Permissions[k] = vals[i]
+		}
+	}
 }
 
 // generateMFAToken creates a 5-minute JWT used only as a step-up challenge token.
@@ -381,6 +404,7 @@ func (s *Service) CompleteMFALogin(ctx context.Context, mfaToken, code, ipAddres
 	}
 	_, _ = s.db.ExecContext(ctx,
 		`UPDATE users SET last_login_at=NOW(), last_login_ip=$1 WHERE id=$2`, ipAddress, user.ID)
+	s.fillPermissions(ctx, &user)
 
 	fullToken, err := s.generateToken(ctx, &user)
 	if err != nil {

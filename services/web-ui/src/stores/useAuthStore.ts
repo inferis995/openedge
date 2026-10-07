@@ -10,6 +10,8 @@ export interface User {
     full_name: string;
     org_id?: number | null; // null = global admin, set = org-scoped
     i3x_write?: boolean;
+    /** Granular flags from the server (login/me); admins hold them all. */
+    permissions?: Record<string, boolean>;
     /** Still on the default password: the server allows nothing but changing it. */
     must_change_password?: boolean;
 }
