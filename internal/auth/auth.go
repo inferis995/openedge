@@ -277,18 +277,18 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 // Admins hold them all; a missing role_permissions row denies everything.
 func (s *Service) fillPermissions(ctx context.Context, user *models.User) {
 	user.Permissions = map[string]bool{}
-	keys := []string{"can_write_tags", "can_ack_alarms", "can_export_data", "can_manage_recipes", "can_manage_shifts", "can_view_audit", "can_download_installer"}
+	keys := []string{"can_write_tags", "can_ack_alarms", "can_export_data", "can_export_config", "can_manage_recipes", "can_manage_shifts", "can_view_audit", "can_download_installer"}
 	if user.Role == models.RoleAdmin {
 		for _, k := range keys {
 			user.Permissions[k] = true
 		}
 		return
 	}
-	var w, a, e, r, sh, v, d bool
+	var w, a, e, ec, r, sh, v, d bool
 	if err := s.db.QueryRowContext(ctx,
-		`SELECT COALESCE(can_write_tags,false), COALESCE(can_ack_alarms,false), COALESCE(can_export_data,false), COALESCE(can_manage_recipes,false), COALESCE(can_manage_shifts,false), COALESCE(can_view_audit,false), COALESCE(can_download_installer,false) FROM role_permissions WHERE user_id = $1`, user.ID,
-	).Scan(&w, &a, &e, &r, &sh, &v, &d); err == nil {
-		vals := []bool{w, a, e, r, sh, v, d}
+		`SELECT COALESCE(can_write_tags,false), COALESCE(can_ack_alarms,false), COALESCE(can_export_data,false), COALESCE(can_export_config,false), COALESCE(can_manage_recipes,false), COALESCE(can_manage_shifts,false), COALESCE(can_view_audit,false), COALESCE(can_download_installer,false) FROM role_permissions WHERE user_id = $1`, user.ID,
+	).Scan(&w, &a, &e, &ec, &r, &sh, &v, &d); err == nil {
+		vals := []bool{w, a, e, ec, r, sh, v, d}
 		for i, k := range keys {
 			user.Permissions[k] = vals[i]
 		}

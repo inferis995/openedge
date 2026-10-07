@@ -204,6 +204,34 @@ export default function TrendPage() {
     // On a phone both panels start closed: open, they took the whole width and
     // left the chart none.
     const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === 'undefined' || window.matchMedia(WIDE).matches);
+    // Sidebar width: draggable on desktop, remembered on this browser.
+    const [browserW, setBrowserW] = useState(() => {
+        const n = Number(typeof window === 'undefined' ? NaN : window.localStorage.getItem('openedge.trend.browserW'));
+        return Number.isFinite(n) && n >= 200 && n <= 560 ? n : 256;
+    });
+    const dragX = useRef<number | null>(null);
+    const startDrag = useCallback((e: React.MouseEvent) => {
+        dragX.current = e.clientX;
+        const move = (ev: MouseEvent) => {
+            if (dragX.current == null) return;
+            setBrowserW(w => {
+                const next = Math.min(560, Math.max(200, w + ev.clientX - (dragX.current ?? ev.clientX)));
+                dragX.current = ev.clientX;
+                return next;
+            });
+        };
+        const up = () => {
+            dragX.current = null;
+            window.removeEventListener('mousemove', move);
+            window.removeEventListener('mouseup', up);
+            setBrowserW(w => {
+                window.localStorage.setItem('openedge.trend.browserW', String(w));
+                return w;
+            });
+        };
+        window.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', up);
+    }, []);
     // Closed unless the user opened it (remembered): the legend on the chart
     // says which line is which, the panel adds the statistics.
     const [penPanelOpen, setPenPanelOpenRaw] = useState(() => {
@@ -928,14 +956,19 @@ export default function TrendPage() {
                 {/* Left: tag browser. On a narrow screen it floats over the chart. */}
                 {sidebarOpen && (
                     <div className={isWide
-                        ? 'w-64 shrink-0 border-r overflow-y-auto bg-card/50'
-                        : 'absolute inset-y-0 left-0 z-20 w-[85%] max-w-xs border-r overflow-y-auto bg-card shadow-xl'}>
+                        ? 'relative shrink-0 border-r overflow-y-auto bg-card/50'
+                        : 'absolute inset-y-0 left-0 z-20 w-[85%] max-w-xs border-r overflow-y-auto bg-card shadow-xl'}
+                        style={isWide ? { width: browserW } : undefined}>
                         <TagBrowser
                             onAddTagToChart={addPen}
                             selectedTagIds={penIds}
                             penColors={penColors}
                             realtimeValues={currentValues}
                         />
+                        {isWide && (
+                            <div onMouseDown={startDrag} title={tr('trendPage.resize_browser')}
+                                className="absolute inset-y-0 right-0 w-2 cursor-ew-resize hover:bg-primary/30" />
+                        )}
                     </div>
                 )}
 

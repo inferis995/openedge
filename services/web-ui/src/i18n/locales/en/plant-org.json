@@ -484,7 +484,8 @@
       "can_manage_recipes": "Create and edit recipes",
       "can_manage_shifts": "Manage shifts and assignments",
       "can_view_audit": "View the audit log",
-      "can_download_installer": "Download the edge installer (contains gateway credentials)"
+      "can_download_installer": "Download the edge installer (contains gateway credentials)",
+      "can_export_config": "Export tag configuration (tag sheet import/export)"
     },
     "saving": "Saving…",
     "save_permissions": "Save permissions",

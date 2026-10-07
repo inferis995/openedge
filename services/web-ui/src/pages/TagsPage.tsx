@@ -91,7 +91,7 @@ const TagsPage = () => {
     const { isAdmin, user } = useAuthStore();
     // Tag export: admins always, regular users with the export flag
     // (the backend enforces it too — this only shows the button).
-    const canExport = isAdmin() || user?.permissions?.can_export_data === true;
+    const canExport = isAdmin() || user?.permissions?.can_export_config === true;
 
     // Follow ?gateway_id= when it changes (a link from another page).
     // Adjusted during render rather than in an effect.

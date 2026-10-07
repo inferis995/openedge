@@ -17,6 +17,7 @@ const (
 	PermManageShifts      = "can_manage_shifts"
 	PermViewAudit         = "can_view_audit"
 	PermDownloadInstaller = "can_download_installer"
+	PermExportConfig      = "can_export_config"
 )
 
 // RequirePermission returns a middleware that checks a granular permission.

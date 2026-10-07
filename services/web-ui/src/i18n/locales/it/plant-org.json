@@ -484,7 +484,8 @@
       "can_manage_recipes": "Creare e modificare ricette",
       "can_manage_shifts": "Gestire turni e assegnazioni",
       "can_view_audit": "Vedere il log di audit",
-      "can_download_installer": "Scaricare l'installer edge (contiene le credenziali dei gateway)"
+      "can_download_installer": "Scaricare l'installer edge (contiene le credenziali dei gateway)",
+      "can_export_config": "Esportare configurazione tag (import/export fogli tag)"
     },
     "saving": "Salvataggio…",
     "save_permissions": "Salva i permessi",

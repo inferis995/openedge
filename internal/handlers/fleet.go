@@ -295,15 +295,16 @@ func (h *FleetHandler) GetUserPermissions(c *gin.Context) {
 		CanManageShifts      bool `json:"can_manage_shifts"`
 		CanViewAudit         bool `json:"can_view_audit"`
 		CanDownloadInstaller bool `json:"can_download_installer"`
+		CanExportConfig      bool `json:"can_export_config"`
 	}
 	p.UserID = userID
 
 	// No row → return defaults (all false). Log real DB errors for diagnosis.
 	if err := h.db.QueryRowContext(c.Request.Context(), `
-		SELECT can_write_tags, can_ack_alarms, can_export_data, can_manage_recipes,
+		SELECT can_write_tags, can_ack_alarms, can_export_data, can_export_config, can_manage_recipes,
 		       can_manage_shifts, can_view_audit, can_download_installer
 		FROM role_permissions WHERE user_id = $1
-	`, userID).Scan(&p.CanWriteTags, &p.CanAckAlarms, &p.CanExportData, &p.CanManageRecipes,
+	`, userID).Scan(&p.CanWriteTags, &p.CanAckAlarms, &p.CanExportData, &p.CanExportConfig, &p.CanManageRecipes,
 		&p.CanManageShifts, &p.CanViewAudit, &p.CanDownloadInstaller); err != nil && err != sql.ErrNoRows {
 		log.Printf("[fleet] GetUserPermissions DB error for user %d: %v", userID, err)
 	}
@@ -327,6 +328,7 @@ func (h *FleetHandler) UpdateUserPermissions(c *gin.Context) {
 		CanManageShifts      bool `json:"can_manage_shifts"`
 		CanViewAudit         bool `json:"can_view_audit"`
 		CanDownloadInstaller bool `json:"can_download_installer"`
+		CanExportConfig      bool `json:"can_export_config"`
 	}
 	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
@@ -335,19 +337,20 @@ func (h *FleetHandler) UpdateUserPermissions(c *gin.Context) {
 
 	_, err = h.db.ExecContext(c.Request.Context(), `
 		INSERT INTO role_permissions
-			(user_id, can_write_tags, can_ack_alarms, can_export_data, can_manage_recipes,
+			(user_id, can_write_tags, can_ack_alarms, can_export_data, can_export_config, can_manage_recipes,
 			 can_manage_shifts, can_view_audit, can_download_installer, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NOW())
 		ON CONFLICT (user_id) DO UPDATE SET
 			can_write_tags = EXCLUDED.can_write_tags,
 			can_ack_alarms = EXCLUDED.can_ack_alarms,
 			can_export_data = EXCLUDED.can_export_data,
+			can_export_config = EXCLUDED.can_export_config,
 			can_manage_recipes = EXCLUDED.can_manage_recipes,
 			can_manage_shifts = EXCLUDED.can_manage_shifts,
 			can_view_audit = EXCLUDED.can_view_audit,
 			can_download_installer = EXCLUDED.can_download_installer,
 			updated_at = NOW()
-	`, userID, req.CanWriteTags, req.CanAckAlarms, req.CanExportData, req.CanManageRecipes,
+	`, userID, req.CanWriteTags, req.CanAckAlarms, req.CanExportData, req.CanExportConfig, req.CanManageRecipes,
 		req.CanManageShifts, req.CanViewAudit, req.CanDownloadInstaller)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})

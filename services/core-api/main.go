@@ -597,11 +597,13 @@ func main() {
 			tags.POST("/import", middleware.RequireRole(models.RoleAdmin), tagsHandler.ImportTags)
 			// A CSV or Excel sheet: previewed row by row, then applied.
 			tags.POST("/import/file", middleware.RequireRole(models.RoleAdmin), tagsHandler.ImportTagSheet)
-			tags.GET("/import/template", tagsHandler.TagImportTemplate)
+			tags.GET("/import/template",
+				middleware.RequirePermission(database, middleware.PermExportConfig),
+				tagsHandler.TagImportTemplate)
 			// Bulk export is how a tenant's data leaves the platform, and it was
 			// open to every authenticated account.
 			tags.GET("/export",
-				middleware.RequirePermission(database, middleware.PermExportData),
+				middleware.RequirePermission(database, middleware.PermExportConfig),
 				tagsHandler.ExportTags)
 			tags.PUT("/reorder", middleware.RequireRole(models.RoleAdmin), tagsHandler.ReorderTags)
 

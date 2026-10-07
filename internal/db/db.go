@@ -797,6 +797,7 @@ func runAutoMigrations(db *sql.DB) error {
 			can_manage_shifts      BOOLEAN NOT NULL DEFAULT false,
 			can_view_audit         BOOLEAN NOT NULL DEFAULT false,
 			can_download_installer BOOLEAN NOT NULL DEFAULT false,
+			can_export_config      BOOLEAN NOT NULL DEFAULT false,
 			created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
@@ -806,6 +807,10 @@ func runAutoMigrations(db *sql.DB) error {
 		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
 			return fmt.Errorf("role_permissions migration: %w", err)
 		}
+	}
+	// Config export flag on databases created before it existed.
+	if _, err := db.ExecContext(context.Background(), `ALTER TABLE role_permissions ADD COLUMN IF NOT EXISTS can_export_config BOOLEAN NOT NULL DEFAULT false`); err != nil {
+		log.Printf("Warning: role_permissions can_export_config migration: %v", err)
 	}
 
 	// Seed enterprise notification + connector settings.
