@@ -12,6 +12,8 @@ export interface PenSeries {
     color: string;
     visible: boolean;
     width?: number;
+    /** Digital signal: drawn as steps (a BOOL is 0 until it is 1, never 0.5). */
+    step?: boolean;
 }
 
 interface Props {
@@ -207,6 +209,49 @@ function touchPlugin(onZoom?: (fromMs: number, toMs: number) => void): uPlot.Plu
 }
 
 /**
+ * Last value held: from each pen's newest good sample to the right edge of the
+ * window (or now, if the window reaches past it), a dashed line at that value.
+ * A historian shows a value until the next one, and a logger reporting every
+ * six hours, or a value that has not changed, otherwise looked like data that
+ * stopped — in live mode the curve simply ended while the window moved on.
+ */
+function holdLastPlugin(pens: PenSeries[]): uPlot.Plugin {
+    return {
+        hooks: {
+            draw: (u) => {
+                const ctx = u.ctx;
+                const xs = u.data[0];
+                const xMax = Math.min(u.scales.x.max ?? 0, Date.now() / 1000);
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(u.bbox.left, u.bbox.top, u.bbox.width, u.bbox.height);
+                ctx.clip();
+                for (let i = 0; i < pens.length; i++) {
+                    const s = u.series[i + 1];
+                    if (!s?.show) continue;
+                    const col = u.data[i + 1];
+                    if (!col) continue;
+                    let j = col.length - 1;
+                    while (j >= 0 && col[j] === undefined) j--;
+                    const v = j >= 0 ? col[j] : null;
+                    if (v === null || v === undefined || xs[j] >= xMax) continue; // last cell bad, or nothing to extend
+                    const y = u.valToPos(v, s.scale ?? 'y', true);
+                    ctx.beginPath();
+                    ctx.setLineDash([5 * devicePixelRatio, 4 * devicePixelRatio]);
+                    ctx.lineWidth = Math.max(1, (pens[i].width ?? 2) - 0.5) * devicePixelRatio;
+                    ctx.strokeStyle = pens[i].color;
+                    ctx.globalAlpha = 0.55;
+                    ctx.moveTo(u.valToPos(xs[j], 'x', true), y);
+                    ctx.lineTo(u.valToPos(xMax, 'x', true), y);
+                    ctx.stroke();
+                }
+                ctx.restore();
+            },
+        },
+    };
+}
+
+/**
  * The historian chart. Fills its parent: give the parent a height (flex-1,
  * h-full…) and the chart follows it, on resize and on rotation.
  */
@@ -216,11 +261,15 @@ export function UPlotChart({ timestamps, values, pens, range, live = false, onZo
     // The latest window, read by uPlot's callbacks (axis labels) between renders.
     const rangeRef = useRef(range);
 
+    // One column per pen, always: pens restored from the address are there
+    // before their data, and uPlot (and the plugins) read a column per series.
     const data = useMemo<uPlot.AlignedData>(() => {
         const aligned: uPlot.AlignedData = [new Float64Array(timestamps)];
-        for (const v of values) aligned.push(v as unknown as uPlot.TypedArray);
+        for (let i = 0; i < pens.length; i++) {
+            aligned.push((values[i] ?? new Array(timestamps.length).fill(undefined)) as unknown as uPlot.TypedArray);
+        }
         return aligned;
-    }, [timestamps, values]);
+    }, [timestamps, values, pens.length]);
 
     // Units in display order: the first goes left, the second right, then
     // alternating, so two units read like a classic two-axis trend.
@@ -259,6 +308,7 @@ export function UPlotChart({ timestamps, values, pens, range, live = false, onZo
                 width: pen.width ?? 2,
                 show: pen.visible,
                 scale: scaleKey(pen),
+                ...(pen.step ? { paths: uPlot.paths.stepped?.({ align: 1 }) } : {}),
                 // undefined (no sample here) joins; null (bad / outage) breaks.
                 spanGaps: false,
                 // Markers when the points are far apart — a logger reporting
@@ -267,6 +317,7 @@ export function UPlotChart({ timestamps, values, pens, range, live = false, onZo
                 points: {
                     show: (u: uPlot, sidx: number) => {
                         const col = u.data[sidx];
+                        if (!col) return false;
                         let n = 0;
                         for (let i = 0; i < col.length; i++) if (col[i] !== undefined && col[i] !== null) n++;
                         return n > 0 && n <= Math.max(2, u.bbox.width / devicePixelRatio / 12);
@@ -320,7 +371,7 @@ export function UPlotChart({ timestamps, values, pens, range, live = false, onZo
             series,
             axes,
             legend: { show: false },
-            plugins: [tooltipPlugin(pens), touchPlugin(onZoom)],
+            plugins: [tooltipPlugin(pens), touchPlugin(onZoom), holdLastPlugin(pens)],
             cursor: { sync: { key: 'historian-sync' }, drag: { x: true, y: false } },
             hooks: {
                 setSelect: [(u) => {
@@ -353,8 +404,19 @@ export function UPlotChart({ timestamps, values, pens, range, live = false, onZo
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pens, units, onZoom]);
 
+    // The window is applied again with the data: set on a chart that had no
+    // data yet (pens restored from the address, before their history came),
+    // it was dropped, and the chart stayed blank with no time axis.
+    const liveRef = useRef(live);
+    useEffect(() => { liveRef.current = live; }, [live]);
     useEffect(() => {
-        plotRef.current?.setData(data);
+        const u = plotRef.current;
+        if (!u) return;
+        u.setData(data);
+        const r = rangeRef.current;
+        const span = r.to - r.from;
+        const to = liveRef.current ? Date.now() : r.to;
+        u.setScale('x', { min: (to - span) / 1000, max: to / 1000 });
     }, [data]);
 
     // A new window with the same data still has to move the axis.

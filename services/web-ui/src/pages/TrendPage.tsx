@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import {
     Activity, Play, Pause, RefreshCw, Download, PanelLeft, PanelRight,
     BarChart2, Settings2, ZoomOut,
@@ -20,6 +21,7 @@ import { PenPanel, type Pen, type PenStats } from '@/components/historian/PenPan
 import { historyApi } from '@/api/history';
 import { tagsApi } from '@/api/tags';
 import { alignPens, mergeSeries, realtimePoint } from '@/lib/trendAlign';
+import { decodeView, encodeView, resolveRange, TREND_VIEW_KEY, type TrendView } from '@/lib/trendView';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { getAutoInterval, type TrendDataPoint, type AggregationType, type TagWithHierarchy } from '@/types/trend';
@@ -41,6 +43,15 @@ const AGG_OPTIONS: { value: AggregationType; labelKey: string }[] = [
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function savedView(): TrendView | null {
+    try {
+        const s = localStorage.getItem(TREND_VIEW_KEY);
+        return s ? decodeView(new URLSearchParams(s)) : null;
+    } catch {
+        return null;
+    }
+}
 
 function defaultRange(): HistorianRange {
     const to = new Date();
@@ -97,10 +108,16 @@ function exportCSV(pens: Pen[], timestamps: number[], values: (number | null | u
 
 export default function TrendPage() {
     const { t: tr, i18n } = useTranslation();
-    const [timeRange, setTimeRange] = useState<HistorianRange>(defaultRange);
-    const [liveMode, setLiveMode] = useState(false);
-    const [aggregation, setAggregation] = useState<AggregationType>('mean');
-    const [pens, setPens] = useState<Pen[]>([]);
+    // The view comes from the address (a reload, a shared link), else from the
+    // last one seen; it used to start empty on every reload.
+    const [searchParams, setSearchParams] = useSearchParams();
+    const [initialView] = useState<TrendView | null>(() => decodeView(searchParams) ?? savedView());
+    const [timeRange, setTimeRange] = useState<HistorianRange>(() => initialView ? resolveRange(initialView.range) : defaultRange());
+    const [liveMode, setLiveMode] = useState(() => initialView?.live ?? false);
+    const [aggregation, setAggregation] = useState<AggregationType>(() => initialView?.agg ?? 'mean');
+    const [rawPens, setPens] = useState<Pen[]>(() => (initialView?.pens ?? []).map(p => ({
+        tagId: p.tagId, label: `#${p.tagId}`, color: p.color, visible: p.visible,
+    })));
     const isWide = useIsWide();
     // On a phone both panels start closed: open, they took the whole width and
     // left the chart none.
@@ -108,6 +125,20 @@ export default function TrendPage() {
     const [penPanelOpen, setPenPanelOpen] = useState(() => typeof window === 'undefined' || window.matchMedia(WIDE).matches);
     const [zoomStack, setZoomStack] = useState<HistorianRange[]>([]);
     const liveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    // Keep the address (and the saved view) in step with what is shown.
+    const viewQuery = useMemo(() => encodeView({
+        pens: rawPens.map(p => ({ tagId: p.tagId, color: p.color, visible: p.visible })),
+        range: timeRange.preset && timeRange.preset !== 'custom'
+            ? { preset: timeRange.preset }
+            : { from: timeRange.from.getTime(), to: timeRange.to.getTime() },
+        agg: aggregation,
+        live: liveMode,
+    }).toString(), [rawPens, timeRange, aggregation, liveMode]);
+    useEffect(() => {
+        setSearchParams(new URLSearchParams(viewQuery), { replace: true });
+        try { localStorage.setItem(TREND_VIEW_KEY, viewQuery); } catch { /* private mode: the address still has it */ }
+    }, [viewQuery, setSearchParams]);
 
     // Load all tags for label lookup
     const { data: allTags } = useQuery({
@@ -123,6 +154,16 @@ export default function TrendPage() {
         return m;
     }, [allTags]);
 
+    // Names and units come from the tags; a pen restored from the address
+    // whose tag is gone (or not this user's) is dropped once the tags are in.
+    const pens = useMemo<Pen[]>(() => {
+        if (!allTags) return rawPens;
+        return rawPens.flatMap(p => {
+            const t = tagMap.get(p.tagId);
+            return t ? [{ ...p, label: t.alias || t.code, unit: t.eu_unit?.trim() || undefined }] : [];
+        });
+    }, [rawPens, allTags, tagMap]);
+
     const penIds = useMemo(() => pens.map(p => p.tagId), [pens]);
     // A preset keeps its length ("1h"); "today" or a picked range keep theirs.
     const spanMs = presetMs(timeRange.preset ?? '') ?? (timeRange.to.getTime() - timeRange.from.getTime());
@@ -132,7 +173,11 @@ export default function TrendPage() {
     // added); from then on values arrive over the realtime socket, and a short
     // tail is refetched every 30 s in case the socket missed something. It
     // used to refetch the whole window every 10 s and jump by 10 s.
-    const [liveBase, setLiveBase] = useState<{ from: Date; to: Date } | null>(null);
+    const [liveBase, setLiveBase] = useState<{ from: Date; to: Date } | null>(() => {
+        if (!initialView?.live) return null;
+        const r = resolveRange(initialView.range);
+        return { from: r.from, to: r.to };
+    });
     const [rtSeries, setRtSeries] = useState<Record<number, TrendDataPoint[]>>({});
     const [lastLiveTs, setLastLiveTs] = useState<number | null>(null);
     const resetLive = useCallback((on: boolean, span: number) => {
@@ -242,6 +287,7 @@ export default function TrendPage() {
             label: p.label,
             unit: p.unit,
             decimals: tagMap.get(p.tagId)?.eu_decimals ?? undefined,
+            step: tagMap.get(p.tagId)?.data_type === 'BOOL',
             color: p.color,
             visible: p.visible,
         })), [pens, tagMap]);
