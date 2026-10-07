@@ -1495,18 +1495,44 @@ func (h *TagsHandler) GetShadowBatch(c *gin.Context) {
 	var rows *sql.Rows
 	var err error
 	orgFilter := middleware.GetOrgFilterForQuery(c)
+	// Data freshness per gateway: a shadow older than the gateway's
+	// stale_after_minutes is painted BAD (quality 2, red) even when the
+	// stored quality is still good — a silent device must not look alive.
+	staleByGw := map[int]float64{}
+	if srows, serr := h.db.QueryContext(c.Request.Context(),
+		`SELECT id, (connection_config->>'stale_after_minutes')::float FROM gateways`); serr == nil {
+		defer srows.Close()
+		for srows.Next() {
+			var gid int
+			var sm sql.NullFloat64
+			if srows.Scan(&gid, &sm) == nil && sm.Valid && sm.Float64 > 0 {
+				staleByGw[gid] = sm.Float64
+			}
+		}
+	}
+	nowMs := time.Now().UnixMilli()
+	ageOut := func(tagID, gwID int, s *TagShadowResponse) {
+		staleMin, ok := staleByGw[gwID]
+		if !ok || s.Ts <= 0 {
+			return
+		}
+		if float64(nowMs-s.Ts)/60000 >= staleMin {
+			s.Quality = 2
+			s.Source = "historic"
+		}
+	}
 	switch {
 	case gwIDStr != "":
-		rows, err = h.db.QueryContext(c.Request.Context(), `SELECT id FROM tags WHERE gateway_id = $1`, gwID)
+		rows, err = h.db.QueryContext(c.Request.Context(), `SELECT id, gateway_id FROM tags WHERE gateway_id = $1`, gwID)
 	case orgFilter != nil && *orgFilter != -1:
 		rows, err = h.db.QueryContext(c.Request.Context(),
-			`SELECT t.id FROM tags t
+			`SELECT t.id, t.gateway_id FROM tags t
 			 JOIN gateways g ON g.id = t.gateway_id
 			 JOIN areas a ON a.id = g.area_id
 			 JOIN sites s ON s.id = a.site_id
 			 WHERE s.org_id = $1`, *orgFilter)
 	default:
-		rows, err = h.db.QueryContext(c.Request.Context(), `SELECT id FROM tags`)
+		rows, err = h.db.QueryContext(c.Request.Context(), `SELECT id, gateway_id FROM tags`)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
@@ -1516,8 +1542,8 @@ func (h *TagsHandler) GetShadowBatch(c *gin.Context) {
 
 	results := []TagShadowResponse{}
 	for rows.Next() {
-		var tagID int
-		if rows.Scan(&tagID) != nil {
+		var tagID, tagGw int
+		if rows.Scan(&tagID, &tagGw) != nil {
 			continue
 		}
 		// Try Redis shadow
@@ -1526,6 +1552,7 @@ func (h *TagsHandler) GetShadowBatch(c *gin.Context) {
 			if err == nil {
 				var shadow TagShadowResponse
 				if json.Unmarshal([]byte(raw), &shadow) == nil {
+					ageOut(tagID, tagGw, &shadow)
 					results = append(results, shadow)
 					continue
 				}
