@@ -152,7 +152,6 @@ interface MapPageProps {
 const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
-    const { selectedOrgId } = useNavigationStore();
     const { isAdmin, isGlobalAdmin, isOrgAdmin } = useAuthStore();
     // Vedo-modifica: global admin o admin della propria org. L'utente normale
     // vede la mappa in sola lettura, senza pannelli di editing.
@@ -162,7 +161,8 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     const gateways = gatewaysOverride ?? gatewaysHook.gateways;
     const isLoadingGateways = gatewaysOverride ? false : gatewaysHook.isLoading;
 
-    const sitesHook = useSites(null);
+    const { selectedOrgId } = useNavigationStore();
+    const sitesHook = useSites(selectedOrgId);
     const firstSiteId = sitesHook.sites?.[0]?.id ?? null;
     const areasHook = useAreas(firstSiteId);
     const areas = areasOverride ?? areasHook.areas;
