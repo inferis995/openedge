@@ -131,7 +131,7 @@ func (h *AreasHandler) Create(c *gin.Context) {
 	}
 
 	var area models.Area
-	var boundary json.RawMessage
+	var boundary sql.NullString
 	// An absent boundary must reach SQL as NULL, not as an empty raw message
 	// (which pgx rejects: "received invalid raw message").
 	boundArg := interface{}(nil)
@@ -144,7 +144,9 @@ func (h *AreasHandler) Create(c *gin.Context) {
 		req.Name,
 		boundArg,
 	).Scan(&area.ID, &area.SiteID, &area.Name, &boundary, &area.CreatedAt)
-	area.Boundary = boundary
+	if boundary.Valid {
+			area.Boundary = json.RawMessage(boundary.String)
+		}
 
 	if err != nil {
 		log.Printf("[AREAS] create failed (site=%d name=%q boundaryLen=%d): %v", req.SiteID, req.Name, len(req.Boundary), err)
@@ -194,9 +196,13 @@ func (h *AreasHandler) List(c *gin.Context) {
 		var areas []models.Area
 		for rows.Next() {
 			var area models.Area
-			if err := rows.Scan(&area.ID, &area.SiteID, &area.Name, &area.Boundary, &area.CreatedAt); err != nil {
+			var boundary sql.NullString
+			if err := rows.Scan(&area.ID, &area.SiteID, &area.Name, &boundary, &area.CreatedAt); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan area"})
 				return
+			}
+			if boundary.Valid {
+				area.Boundary = json.RawMessage(boundary.String)
 			}
 			areas = append(areas, area)
 		}
@@ -262,9 +268,13 @@ func (h *AreasHandler) List(c *gin.Context) {
 	var areas []models.Area
 	for rows.Next() {
 		var area models.Area
-		if err := rows.Scan(&area.ID, &area.SiteID, &area.Name, &area.Boundary, &area.CreatedAt); err != nil {
+		var boundary sql.NullString
+		if err := rows.Scan(&area.ID, &area.SiteID, &area.Name, &boundary, &area.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan area"})
 			return
+		}
+		if boundary.Valid {
+			area.Boundary = json.RawMessage(boundary.String)
 		}
 		areas = append(areas, area)
 	}
@@ -301,12 +311,14 @@ func (h *AreasHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 
 	var area models.Area
-	var boundary json.RawMessage
+	var boundary sql.NullString
 	err := h.db.QueryRow(
 		"SELECT id, site_id, name, boundary, created_at FROM areas WHERE id = $1",
 		id,
 	).Scan(&area.ID, &area.SiteID, &area.Name, &boundary, &area.CreatedAt)
-	area.Boundary = boundary
+	if boundary.Valid {
+			area.Boundary = json.RawMessage(boundary.String)
+		}
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -496,7 +508,7 @@ func (h *AreasHandler) Update(c *gin.Context) {
 	}
 
 	var area models.Area
-	var boundary json.RawMessage
+	var boundary sql.NullString
 	// Nil pointer: leave the stored boundary alone. Non-nil (even "null")
 	// replaces it — dereference first, then the same empty→NULL rule as the
 	// INSERT path.
@@ -513,7 +525,9 @@ func (h *AreasHandler) Update(c *gin.Context) {
 		boundArg,
 		id,
 	).Scan(&area.ID, &area.SiteID, &area.Name, &boundary, &area.CreatedAt)
-	area.Boundary = boundary
+	if boundary.Valid {
+			area.Boundary = json.RawMessage(boundary.String)
+		}
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update area"})
