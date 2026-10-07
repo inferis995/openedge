@@ -495,9 +495,15 @@ func (h *AreasHandler) Update(c *gin.Context) {
 
 	var area models.Area
 	var boundary json.RawMessage
+	// Nil pointer: leave the stored boundary alone. Non-nil (even "null")
+	// replaces it — dereference first, then the same empty→NULL rule as the
+	// INSERT path.
 	boundArg := interface{}(nil)
-	if len(req.Boundary) > 0 {
-		boundArg = req.Boundary
+	if req.Boundary != nil {
+		boundArg = interface{}(*req.Boundary)
+		if len(*req.Boundary) == 0 {
+			boundArg = nil
+		}
 	}
 	err = h.db.QueryRow(
 		"UPDATE areas SET name = $1, boundary = $2 WHERE id = $3 RETURNING id, site_id, name, boundary, created_at",
