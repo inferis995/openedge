@@ -50,7 +50,18 @@ describe('mergeSeries', () => {
             { 1: [pt(10, 20), pt(20, 3)] },        // tail refetch overlaps it
             { 1: [pt(25, 4), pt(5, 9)] },          // socket, out of order
         ], 5 * min);
+        // The value held at 5 (the one taken at 0) is drawn from there.
         expect(merged[1].map((p) => [p.timestamp / min, p.value])).toEqual([[5, 9], [10, 20], [20, 3], [25, 4]]);
+    });
+
+    it('keeps the value held at the window start, and drops the tail\'s seed', () => {
+        const seed = (t: number, v: number) => ({ ...pt(t, v), source: 'seed' });
+        const merged = mergeSeries([1], [
+            { 1: [seed(0, 2.5), pt(3, 2.6)] },     // history: a reading at 3, long before the window
+            { 1: [seed(58, 2.6)] },                // tail: no reading in two minutes, only its seed
+            {},
+        ], 30 * min);
+        expect(merged[1].map((p) => [p.timestamp / min, p.value, p.source])).toEqual([[30, 2.6, 'seed']]);
     });
 });
 

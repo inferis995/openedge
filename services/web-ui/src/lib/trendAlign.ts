@@ -67,6 +67,13 @@ export function alignPens(pens: { tagId: number }[], batch: Record<number, Trend
  * window's history, a periodically refetched tail and the values pushed over
  * the socket; they overlap, and a duplicate instant would draw a zero-length
  * spike in the gap logic.
+ *
+ * The value held when the window starts is kept, at `fromMs`: a logger that
+ * reports every few hours has no reading inside a sliding hour, and pruning
+ * the last one before it left nothing to draw. A "seed" from a later source
+ * is dropped: the live tail asks for two minutes, and its seed — the last
+ * value, stamped two minutes ago — drew a reading that never happened, every
+ * 30 seconds, and made the newest reading always look two minutes old.
  */
 export function mergeSeries(
     tagIds: number[],
@@ -76,10 +83,17 @@ export function mergeSeries(
     const out: Record<number, TrendDataPoint[]> = {};
     for (const id of tagIds) {
         const byTs = new Map<number, TrendDataPoint>();
-        for (const src of sources) {
+        let before: TrendDataPoint | null = null;
+        sources.forEach((src, i) => {
             for (const p of src?.[id] ?? []) {
+                if (i > 0 && p.source === 'seed') continue;
                 if (p.timestamp >= fromMs) byTs.set(p.timestamp, p);
+                else if (!before || p.timestamp >= before.timestamp) before = p;
             }
+        });
+        const held = before as TrendDataPoint | null;
+        if (held && Number.isFinite(fromMs) && !byTs.has(fromMs)) {
+            byTs.set(fromMs, { ...held, timestamp: fromMs, source: 'seed' });
         }
         out[id] = [...byTs.values()].sort((a, b) => a.timestamp - b.timestamp);
     }

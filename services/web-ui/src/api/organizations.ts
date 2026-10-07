@@ -34,7 +34,9 @@ export const organizationsApi = {
             // No logo is an answer, not an error.
             validateStatus: s => (s >= 200 && s < 300) || s === 404,
         });
-        if (response.status === 404 || !(response.data instanceof Blob) || response.data.size === 0) return null;
+        // Only an image: anything else (an error page from a proxy) is no logo.
+        if (response.status === 404 || !(response.data instanceof Blob) || response.data.size === 0
+            || !response.data.type.startsWith('image/')) return null;
         const blob = response.data as Blob;
         return new Promise((resolve, reject) => {
             const r = new FileReader();

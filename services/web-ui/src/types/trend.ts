@@ -10,6 +10,12 @@ export interface TrendDataPoint {
     /** A bucket's extremes, when the point stands for several samples. */
     min?: number;
     max?: number;
+    /**
+     * Where the server took it: "raw", "1m", "1h", "1d", or "seed" — not a
+     * reading but the last value before the requested window, placed at its
+     * start so the line begins at the left edge.
+     */
+    source?: string;
 }
 
 export interface TagWithHierarchy {

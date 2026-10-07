@@ -26,6 +26,8 @@ export interface Pen {
 /** "4 h ago", in the user's language. */
 function ago(ms: number, lang: string): string {
     const s = (ms - Date.now()) / 1000;
+    // A time the server sent in another shape is shown as unknown, not a crash.
+    if (!Number.isFinite(s)) return '—';
     const rtf = new Intl.RelativeTimeFormat(lang, { numeric: 'auto', style: 'short' });
     const a = Math.abs(s);
     if (a < 60) return rtf.format(Math.round(s), 'second');

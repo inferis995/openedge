@@ -261,6 +261,7 @@ export default function TrendPage() {
     }, [rawPens, allTags, tagMap]);
 
     const penIds = useMemo(() => pens.map(p => p.tagId), [pens]);
+    const penColors = useMemo(() => new Map(pens.map(p => [p.tagId, p.color])), [pens]);
     // A preset keeps its length ("1h"); "today" or a picked range keep theirs.
     const spanMs = presetMs(timeRange.preset ?? '') ?? (timeRange.to.getTime() - timeRange.from.getTime());
 
@@ -471,15 +472,19 @@ export default function TrendPage() {
         if (!series) return pens;
         return pens.map(pen => {
             const pts = series[pen.tagId] ?? [];
+            // The newest reading: not a seed (the held value placed at the
+            // window's start), and, with none in the window, the last the
+            // server holds.
             let lastSampleAt: number | null = null;
             for (let i = pts.length - 1; i >= 0; i--) {
-                if (pts[i].quality === 0 && pts[i].value !== null) { lastSampleAt = pts[i].timestamp; break; }
+                if (pts[i].quality === 0 && pts[i].value !== null && pts[i].source !== 'seed') { lastSampleAt = pts[i].timestamp; break; }
             }
+            if (lastSampleAt === null) lastSampleAt = currentValues.get(pen.tagId)?.timestamp ?? null;
             const gw = gateways?.find(g => g.id === tagMap.get(pen.tagId)?.gateway_id);
             const contact = gw ? { at: gw.last_seen ?? null, online: (gw.connection_status ?? gw.status) === 'online' } : null;
             return { ...pen, stats: computeStats(pts), lastSampleAt, contact };
         });
-    }, [series, pens, gateways, tagMap]);
+    }, [series, pens, gateways, tagMap, currentValues]);
 
     // Build PenSeries for uPlot
     const penSeries = useMemo<PenSeries[]>(() =>
@@ -928,6 +933,7 @@ export default function TrendPage() {
                         <TagBrowser
                             onAddTagToChart={addPen}
                             selectedTagIds={penIds}
+                            penColors={penColors}
                             realtimeValues={currentValues}
                         />
                     </div>

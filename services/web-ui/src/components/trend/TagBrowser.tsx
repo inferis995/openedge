@@ -25,6 +25,8 @@ import { useStaleData, getDataStatus, getStatusClasses } from '@/hooks/useStaleD
 interface TagBrowserProps {
     onAddTagToChart: (tagId: number) => void;
     selectedTagIds: number[];
+    /** Each pen's colour on the chart, so a current value reads as its curve. */
+    penColors?: Map<number, string>;
     realtimeValues?: Map<number, { value: number; timestamp: number; quality: number }>;
 }
 
@@ -111,6 +113,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
     onAddTagToChart,
     selectedTagIds,
     realtimeValues,
+    penColors,
 }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [hierarchy, setHierarchy] = useState<TagHierarchyResponse | null>(null);
@@ -184,9 +187,9 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
         return selectedTagIds.map((id, index) => {
             const tag = allTags.find(t => t.id === id);
             const rv = realtimeValues?.get(id);
-            return { id, tag, rv, color: TAG_COLORS[index % TAG_COLORS.length] };
+            return { id, tag, rv, color: penColors?.get(id) ?? TAG_COLORS[index % TAG_COLORS.length] };
         });
-    }, [selectedTagIds, allTags, realtimeValues]);
+    }, [selectedTagIds, allTags, realtimeValues, penColors]);
 
     return (
         <div className="h-full flex flex-col bg-card border-r">
