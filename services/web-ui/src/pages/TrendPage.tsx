@@ -397,12 +397,15 @@ export default function TrendPage() {
         refetchInterval: liveMode ? 30_000 : false,
         staleTime: 15_000,
     });
-    const chartEvents = useMemo<ChartEvent[]>(() => (alarmEvents ?? []).map(e => ({
+    // Only the pens' alarms, whatever the server returned: a core-api older
+    // than the tag filter answers with the organization's latest events, and
+    // the chart then showed alarms of tags that are not on it.
+    const chartEvents = useMemo<ChartEvent[]>(() => (alarmEvents ?? []).filter(e => penIdSet.has(e.tag_id)).map(e => ({
         start: Date.parse(e.trigger_time),
         end: e.clear_time ? Date.parse(e.clear_time) : null,
         severity: e.severity,
         label: `${tagMap.get(e.tag_id)?.alias ?? `#${e.tag_id}`}: ${e.message}`,
-    })).filter(e => Number.isFinite(e.start)), [alarmEvents, tagMap]);
+    })).filter(e => Number.isFinite(e.start)), [alarmEvents, tagMap, penIdSet]);
 
     // Gateways' last contact, for the pen panel.
     const { data: gateways } = useQuery({
