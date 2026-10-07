@@ -73,11 +73,13 @@ function extractBattery(cfg: Record<string, unknown> | undefined): number | null
     return null;
 }
 
-// Nome corto della pill: l'ultimo segmento dell'alias (plant/linea/T1 → T1).
+// Nome corto della pill: l'ultimo segmento dell'alias (plant/linea/T1 → T1),
+// mai oltre 8 caratteri e sempre in maiuscoletto: nei badge conta la leggibilità.
 function shortName(tag: Tag): string {
     const source = tag.alias || tag.code || `#${tag.id}`;
     const parts = source.split('/').filter(Boolean);
-    return parts[parts.length - 1] || source;
+    const last = parts[parts.length - 1] || source;
+    return last.length > 8 ? last.slice(0, 7) + '…' : last;
 }
 
 // Micro-freccia di tendenza dagli ultimi valori numerici visti.
@@ -705,29 +707,37 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
             <style>{`
                 .gw-anchor { display: flex; flex-direction: column; align-items: center; }
                 .gw-pills {
-                    display: flex; flex-direction: column; gap: 3px; align-items: stretch;
-                    margin-bottom: 4px; max-height: 0; overflow: hidden; opacity: 0;
+                    display: flex; flex-direction: column; gap: 2px; align-items: stretch;
+                    margin-bottom: 5px; max-height: 0; overflow: hidden; opacity: 0;
                     transform: translateY(6px) scale(0.96); transition: all 0.25s ease;
                 }
-                .gw-pills-open { max-height: 320px; opacity: 1; transform: translateY(0) scale(1); }
+                .gw-pills-open { max-height: 260px; opacity: 1; transform: translateY(0) scale(1); }
                 .gw-pill {
-                    display: flex; align-items: center; gap: 6px;
-                    background: rgba(10, 10, 10, 0.95);
-                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    display: flex; align-items: center; gap: 7px;
+                    background: rgba(13, 17, 23, 0.96);
+                    border: 1px solid rgba(240, 246, 252, 0.1);
                     border-radius: 6px;
-                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
-                    padding: 3px 8px;
-                    font-size: 11px; line-height: 1.4;
-                    color: #e5e7eb; cursor: pointer; white-space: nowrap;
-                    font-family: var(--font-mono, ui-monospace, monospace);
+                    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+                    padding: 4px 9px;
+                    font-size: 11px; line-height: 1.35;
+                    color: #e6edf3; cursor: pointer; white-space: nowrap;
+                    backdrop-filter: blur(4px);
+                    transition: border-color .15s ease, transform .15s ease;
                 }
-                .gw-pill:hover { border-color: rgba(255, 255, 255, 0.3); }
-                .gw-pill-more { justify-content: center; color: #9ca3af; font-style: italic; }
-                .gw-qdot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-                .gw-pill-name { font-weight: 600; font-family: system-ui, sans-serif; }
-                .gw-pill-value { color: #38bdf8; }
-                .gw-pill-unit { color: #64748b; font-size: 9px; }
-                .gw-pill-arrow { color: #9ca3af; font-size: 9px; }
+                .gw-pill:hover { border-color: rgba(56, 189, 248, 0.55); transform: translateX(2px); }
+                .gw-pill-more { justify-content: center; color: #8b949e; font-size: 10px; letter-spacing: 0.04em; }
+                .gw-qdot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 4px currentColor; }
+                .gw-pill-name {
+                    font-weight: 600; font-family: system-ui, sans-serif;
+                    font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
+                    color: #c9d1d9; flex-shrink: 0;
+                }
+                .gw-pill-value {
+                    color: #58a6ff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                    font-variant-numeric: tabular-nums; margin-left: auto;
+                }
+                .gw-pill-unit { color: #8b949e; font-size: 9px; }
+                .gw-pill-arrow { color: #8b949e; font-size: 9px; flex-shrink: 0; }
                 .gw-pin {
                     width: 18px; height: 18px;
                     border-radius: 50% 50% 50% 0;
