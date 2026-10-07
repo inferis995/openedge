@@ -144,15 +144,15 @@ func (h *TrendViewsHandler) Save(c *gin.Context) {
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		var id int
-		if err := h.db.QueryRowContext(ctx, `
+		if insErr := h.db.QueryRowContext(ctx, `
 			INSERT INTO trend_views (org_id, name, query, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
-			orgID, req.Name, req.Query, nullableUser(userID)).Scan(&id); err != nil {
+			orgID, req.Name, req.Query, nullableUser(userID)).Scan(&id); insErr != nil {
 			var pqErr *pq.Error
-			if errors.As(err, &pqErr) && pqErr.Code == "23505" {
+			if errors.As(insErr, &pqErr) && pqErr.Code == "23505" {
 				c.JSON(http.StatusConflict, gin.H{"error": "a view with this name was just saved by someone else"})
 				return
 			}
-			log.Printf("[trend-views] insert: %v", err)
+			log.Printf("[trend-views] insert: %v", insErr)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save the view"})
 			return
 		}

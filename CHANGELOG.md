@@ -44,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   30 days into 30 daily ones, averaging spikes away. The trend draws the
   min/max envelope, shows each pen's data age and its gateway's last
   contact, and no longer offers "first", which the server never accepted.
+- **Trend export.** CSV of what is drawn, an Excel workbook from the server
+  (`POST /api/history/export.xlsx`, export permission: the period's samples,
+  or buckets with min and max past 200,000 rows, times in the user's zone,
+  an Info sheet) and a PNG of the chart with its legend.
 
 - **Trend.** On a phone the tag list and the pen panel took the whole width
   and left the chart none; they now float over it, closed by default. The

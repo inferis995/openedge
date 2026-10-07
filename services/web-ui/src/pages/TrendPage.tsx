@@ -24,6 +24,8 @@ import { tagsApi } from '@/api/tags';
 import { gatewaysApi } from '@/api/gateways';
 import { alarmsApi } from '@/api/alarms';
 import { trendViewsApi } from '@/api/trendViews';
+import api from '@/api/client';
+import { saveBlob } from '@/lib/download';
 import { alignPens, mergeSeries, realtimePoint, shiftPoints, valueAt } from '@/lib/trendAlign';
 import { compareOffset, decodeView, encodeView, resolveRange, TREND_VIEW_KEY, type CompareMode, type TrendView, type YAxisMode } from '@/lib/trendView';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -523,6 +525,55 @@ export default function TrendPage() {
         });
     }, [measure, marks, series, pens]);
 
+    // ── Export ──
+    const chartBoxRef = useRef<HTMLDivElement>(null);
+    const exportExcel = useCallback(async () => {
+        try {
+            const res = await api.post('/history/export.xlsx', {
+                tag_ids: penIds,
+                start: timeRange.from.toISOString(),
+                end: timeRange.to.toISOString(),
+                agg: aggregation,
+                tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            }, { responseType: 'blob' });
+            saveBlob(res.data as Blob, `trend_${timeRange.from.toISOString().slice(0, 16).replace(':', '')}.xlsx`);
+        } catch (e) {
+            const status = (e as { response?: { status?: number } }).response?.status;
+            toast.error(status === 403 ? tr('trendPage.export_forbidden') : tr('trendPage.export_failed'));
+        }
+    }, [penIds, timeRange, aggregation, tr]);
+    // The chart as drawn, with a title line and a legend, on the page's background.
+    const exportPNG = useCallback(() => {
+        const src = chartBoxRef.current?.querySelector<HTMLCanvasElement>('.uplot canvas');
+        if (!src) return;
+        const dpr = window.devicePixelRatio || 1;
+        const head = 34 * dpr, legendRow = 18 * dpr;
+        const visible = penSeries.filter(p => p.visible);
+        const out = document.createElement('canvas');
+        out.width = src.width;
+        out.height = src.height + head + legendRow * Math.ceil(visible.length / 3) + 8 * dpr;
+        const ctx = out.getContext('2d');
+        if (!ctx) return;
+        const style = getComputedStyle(document.body);
+        ctx.fillStyle = style.backgroundColor || '#ffffff';
+        ctx.fillRect(0, 0, out.width, out.height);
+        ctx.fillStyle = style.color || '#0f172a';
+        ctx.font = `600 ${13 * dpr}px Inter, system-ui, sans-serif`;
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`${tr('trendPage.title')} · ${timeRange.from.toLocaleString(i18n.language)} – ${timeRange.to.toLocaleString(i18n.language)}`, 12 * dpr, head / 2);
+        ctx.drawImage(src, 0, head);
+        ctx.font = `${11 * dpr}px Inter, system-ui, sans-serif`;
+        const colW = out.width / 3;
+        visible.forEach((p, i) => {
+            const x = 12 * dpr + (i % 3) * colW, y = head + src.height + 4 * dpr + Math.floor(i / 3) * legendRow + legendRow / 2;
+            ctx.fillStyle = p.color;
+            ctx.fillRect(x, y - 5 * dpr, 10 * dpr, 10 * dpr);
+            ctx.fillStyle = style.color || '#0f172a';
+            ctx.fillText(`${p.label}${p.unit ? ` (${p.unit})` : ''}`, x + 16 * dpr, y);
+        });
+        out.toBlob(b => b && saveBlob(b, `trend_${timeRange.from.toISOString().slice(0, 16).replace(':', '')}.png`), 'image/png');
+    }, [penSeries, timeRange, tr, i18n.language]);
+
     // ◀ ▶: the window moves by its own length.
     const pan = useCallback((dir: -1 | 1) => {
         const span = timeRange.to.getTime() - timeRange.from.getTime();
@@ -757,17 +808,33 @@ export default function TrendPage() {
                             <RefreshCw className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} />
                         </Button>
 
-                        {/* Export CSV */}
-                        <Button size="sm" variant="outline" className="h-9 sm:h-7 text-xs gap-1"
-                            onClick={() => {
-                                if (timestamps.length === 0) { toast.info(tr('trendPage.no_data_export')); return; }
-                                exportCSV(pens, timestamps, values);
-                                toast.success(tr('trendPage.csv_exported'));
-                            }}
-                            disabled={timestamps.length === 0}>
-                            <Download className="w-3 h-3" />
-                            CSV
-                        </Button>
+                        {/* Export: CSV of what is drawn, Excel from the server, PNG of the chart */}
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button size="sm" variant="outline" className="h-9 sm:h-7 text-xs gap-1" disabled={pens.length === 0}>
+                                    <Download className="w-3 h-3" /> {tr('trendPage.export')}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-64 p-1">
+                                <button className="w-full text-left px-3 py-2 text-xs rounded hover:bg-muted"
+                                    onClick={() => {
+                                        if (timestamps.length === 0) { toast.info(tr('trendPage.no_data_export')); return; }
+                                        exportCSV(pens, timestamps, values);
+                                        toast.success(tr('trendPage.csv_exported'));
+                                    }}>
+                                    <div className="font-medium">CSV</div>
+                                    <div className="text-[10px] text-muted-foreground">{tr('trendPage.export_csv_hint')}</div>
+                                </button>
+                                <button className="w-full text-left px-3 py-2 text-xs rounded hover:bg-muted" onClick={exportExcel}>
+                                    <div className="font-medium">Excel</div>
+                                    <div className="text-[10px] text-muted-foreground">{tr('trendPage.export_xlsx_hint')}</div>
+                                </button>
+                                <button className="w-full text-left px-3 py-2 text-xs rounded hover:bg-muted" onClick={exportPNG}>
+                                    <div className="font-medium">PNG</div>
+                                    <div className="text-[10px] text-muted-foreground">{tr('trendPage.export_png_hint')}</div>
+                                </button>
+                            </PopoverContent>
+                        </Popover>
 
                         {/* Pen panel toggle */}
                         <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7"
@@ -810,7 +877,7 @@ export default function TrendPage() {
                             </div>
                         </div>
                     ) : (
-                        <div className="flex-1 min-h-0 p-2 overflow-hidden">
+                        <div ref={chartBoxRef} className="flex-1 min-h-0 p-2 overflow-hidden">
                             <UPlotChart
                                 timestamps={timestamps}
                                 values={values}

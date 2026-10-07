@@ -969,6 +969,8 @@ func main() {
 			// them together. It has always called this path; until now nothing
 			// answered, and selecting a tag produced a 404 and an empty graph.
 			history.POST("/batch", historyHandler.BatchQuery)
+			// The trend as an Excel workbook: samples, or buckets with min/max.
+			history.POST("/export.xlsx", middleware.RequirePermission(database, middleware.PermExportData), historyHandler.ExportXLSX)
 			history.GET("/stats", historyHandler.GetTagStats)
 			history.GET("/events", historyHandler.QueryEvents)
 			history.GET("/data-range", historyHandler.GetDataRange)
