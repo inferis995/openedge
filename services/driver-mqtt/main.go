@@ -264,6 +264,16 @@ func main() {
 
 	go driver.alarmManager.StartTicker(context.Background())
 
+	// Re-evaluate the last stored value of every tag every 5 minutes.
+	// Threshold alarms only converge on new samples: after a rule edit, or
+	// when samples arrive faster than the engine restarts, violating values
+	// sat without events until the next message — hours away on these
+	// devices. The sweep feeds each tag's last stored value back through the
+	// state machine with its own timestamp, so thresholds self-heal while
+	// frozen/comm_loss keep counting real silence (they watch arrivals, and
+	// this synthesizes none).
+	go driver.reevaluateLoop(context.Background(), 5*time.Minute)
+
 	// Start the main loop
 	go driver.run()
 
@@ -1481,6 +1491,52 @@ func (d *Driver) handleSparkplugDCMD(topic string, payload []byte) {
 
 		cmdBytes, _ := json.Marshal(writeCmd)
 		d.handleWriteCommand(fmt.Sprintf("cmd/write/%d", d.gatewayID), cmdBytes)
+	}
+}
+
+// reevaluateLoop feeds every tag's last stored value back through the
+// threshold rules on a timer, so a rule edit (or a missed evaluation)
+// converges within minutes instead of at the next device message. Health
+// rules are untouched: EvaluateThresholdsAt records no sign of life.
+func (d *Driver) reevaluateLoop(ctx context.Context, every time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			d.reevaluateOnce()
+		}
+	}
+}
+
+func (d *Driver) reevaluateOnce() {
+	if d.alarmManager == nil || d.database == nil {
+		return
+	}
+	rows, err := d.database.Query(
+		`SELECT t.id, t.alias, h.value, h.time
+		 FROM tags t
+		 JOIN LATERAL (
+		   SELECT value, time FROM tag_history
+		   WHERE tag_id = t.id AND value IS NOT NULL
+		   ORDER BY time DESC LIMIT 1
+		 ) h ON true
+		 WHERE t.gateway_id = $1`, d.gatewayID)
+	if err != nil {
+		return
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id int
+		var alias string
+		var value float64
+		var ts time.Time
+		if err := rows.Scan(&id, &alias, &value, &ts); err != nil {
+			continue
+		}
+		d.alarmManager.EvaluateThresholdsAt(id, alias, value, 192, ts)
 	}
 }
 

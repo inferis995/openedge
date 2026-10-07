@@ -382,6 +382,19 @@ func (m *Manager) EvaluateTag(tagID int, alias string, value interface{}, qualit
 // overtemperature hours after it happened. The health rules still count the
 // arrival as the sign of life, since that is what they watch for.
 func (m *Manager) EvaluateTagAt(tagID int, alias string, value interface{}, quality int, at time.Time) {
+	m.evaluateAt(tagID, alias, value, quality, at, true)
+}
+
+// EvaluateThresholdsAt re-runs only the value rules (low/high/...) for one
+// reading, without recording a sign of life. Periodic sweeps use it so
+// thresholds converge after a rule edit, while frozen/comm_loss keep counting
+// real silence — feeding them a fresh "now" here would silence those alarms
+// forever.
+func (m *Manager) EvaluateThresholdsAt(tagID int, alias string, value interface{}, quality int, at time.Time) {
+	m.evaluateAt(tagID, alias, value, quality, at, false)
+}
+
+func (m *Manager) evaluateAt(tagID int, alias string, value interface{}, quality int, at time.Time, markLife bool) {
 	floatVal, isNumeric := toFloat(value)
 
 	m.mu.Lock()
@@ -401,7 +414,7 @@ func (m *Manager) EvaluateTagAt(tagID int, alias string, value interface{}, qual
 	// it is recorded before the quality gate below. That gate is exactly what
 	// used to make a dead PLC silent: no usable sample, no evaluation, and
 	// therefore no alarm about the very thing that had gone wrong.
-	if quality == qualityGood && isNumeric {
+	if markLife && quality == qualityGood && isNumeric {
 		m.recordGoodSample(tagID, defs, floatVal, time.Now())
 	}
 
