@@ -1454,7 +1454,10 @@ func (s *HistorianService) markTagOffline(tagID int) {
 			rv.Q = 2 // BAD — 1 is UNCERTAIN, and the synoptic widgets only
 			//          flag >= 2, so a dead device used to render as a normal
 			//          value on the mimic the operator watches.
-			rv.Ts = time.Now().UnixMilli()
+			// Keep the last reading time: stamping now() would make a
+			// redelivered retained sample look older than the offline mark,
+			// and storeRealtimeValue would then refuse to restore GOOD
+			// quality when the gateway comes back.
 			rvJSON, _ := json.Marshal(rv)
 			s.redisClient.Set(realtimeKey, string(rvJSON), time.Duration(realtimeCacheTTL)*time.Second)
 		}
