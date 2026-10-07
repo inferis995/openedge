@@ -180,7 +180,7 @@ export const TimePicker: React.FC<TimePickerProps> = ({
             <Button
                 variant="outline"
                 size="sm"
-                className="h-9 sm:h-7 text-xs gap-1"
+                className="h-9 sm:h-7 text-xs gap-1 hover:bg-[#050505] hover:text-[#D4FF00] dark:hover:bg-[#D4FF00] dark:hover:text-[#050505]"
                 onClick={handleGoToLastData}
                 disabled={isLoadingLastData}
                 title={t('trend.jump_last_title')}
