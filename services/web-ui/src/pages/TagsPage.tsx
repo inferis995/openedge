@@ -1514,7 +1514,8 @@ const TagsPage = () => {
                                                                     className={`text-xs ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
                                                                     title={tr('tagsPage.last_update', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })}
                                                                 >
-                                                                    {new Date(currentValue.timestamp).toLocaleTimeString(i18n.language, { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                                    {/* Date and time: a logger's value can be hours or days old. */}
+                                                                    {new Date(currentValue.timestamp).toLocaleString(i18n.language, { hour12: false, day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                                                                 </span>
                                                             )}
                                                         </>

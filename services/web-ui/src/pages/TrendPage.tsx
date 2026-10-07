@@ -111,6 +111,8 @@ function chartPoints(): number {
     return Math.max(300, Math.min(2000, Math.round(window.innerWidth)));
 }
 
+const PEN_PANEL_KEY = 'openedge.trend.penPanel';
+
 function savedView(): TrendView | null {
     try {
         const s = localStorage.getItem(TREND_VIEW_KEY);
@@ -121,9 +123,11 @@ function savedView(): TrendView | null {
 }
 
 function defaultRange(): HistorianRange {
+    // A day: a data logger reports every few hours, and an hour was most
+    // often an empty chart.
     const to = new Date();
-    const from = new Date(to.getTime() - 60 * 60_000); // last 1h
-    return { from, to, preset: '1h' };
+    const from = new Date(to.getTime() - 24 * 60 * 60_000);
+    return { from, to, preset: '24h' };
 }
 
 function computeStats(pts: TrendDataPoint[]): PenStats {
@@ -181,7 +185,8 @@ export default function TrendPage() {
     const [searchParams, setSearchParams] = useSearchParams();
     const [initialView] = useState<TrendView | null>(() => decodeView(searchParams) ?? savedView());
     const [timeRange, setTimeRange] = useState<HistorianRange>(() => initialView ? resolveRange(initialView.range) : defaultRange());
-    const [liveMode, setLiveMode] = useState(() => initialView?.live ?? false);
+    // With no view to restore, the trend opens live: the last day, moving.
+    const [liveMode, setLiveMode] = useState(() => (initialView ? initialView.live : true));
     const [aggregation, setAggregation] = useState<AggregationType>(() => initialView?.agg ?? 'mean');
     const [compare, setCompare] = useState<CompareMode>(() => initialView?.cmp ?? 'off');
     const [yModes, setYModes] = useState<Record<string, YAxisMode>>(() => initialView?.y ?? {});
@@ -198,7 +203,18 @@ export default function TrendPage() {
     // On a phone both panels start closed: open, they took the whole width and
     // left the chart none.
     const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === 'undefined' || window.matchMedia(WIDE).matches);
-    const [penPanelOpen, setPenPanelOpen] = useState(() => typeof window === 'undefined' || window.matchMedia(WIDE).matches);
+    // Closed unless the user opened it (remembered): the legend on the chart
+    // says which line is which, the panel adds the statistics.
+    const [penPanelOpen, setPenPanelOpenRaw] = useState(() => {
+        try { return localStorage.getItem(PEN_PANEL_KEY) === '1' && window.matchMedia(WIDE).matches; } catch { return false; }
+    });
+    const setPenPanelOpen = useCallback((v: boolean | ((o: boolean) => boolean)) => {
+        setPenPanelOpenRaw(prev => {
+            const next = typeof v === 'function' ? v(prev) : v;
+            try { localStorage.setItem(PEN_PANEL_KEY, next ? '1' : '0'); } catch { /* private mode */ }
+            return next;
+        });
+    }, []);
     const [zoomStack, setZoomStack] = useState<HistorianRange[]>([]);
     const liveRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -252,8 +268,8 @@ export default function TrendPage() {
     // tail is refetched every 30 s in case the socket missed something. It
     // used to refetch the whole window every 10 s and jump by 10 s.
     const [liveBase, setLiveBase] = useState<{ from: Date; to: Date } | null>(() => {
-        if (!initialView?.live) return null;
-        const r = resolveRange(initialView.range);
+        if (initialView && !initialView.live) return null;
+        const r = initialView ? resolveRange(initialView.range) : defaultRange();
         return { from: r.from, to: r.to };
     });
     const [rtSeries, setRtSeries] = useState<Record<number, TrendDataPoint[]>>({});

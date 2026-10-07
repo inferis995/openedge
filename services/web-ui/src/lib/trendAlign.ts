@@ -21,7 +21,12 @@ export function alignPens(pens: { tagId: number }[], batch: Record<number, Trend
         for (let i = 0; i < pts.length; i++) {
             const p = pts[i];
             const tsSec = Math.round(p.timestamp / 1000);
-            if (i > 0 && p.timestamp - pts[i - 1].timestamp > 3 * median) {
+            // Only a hole far beyond the usual spacing, and over an hour, is
+            // drawn as a hole: readings that arrive in bursts (a logger's
+            // batch, then live values) made "3 × median" break a
+            // quarter-hourly series into dots. A real outage is marked by the
+            // server anyway (bad quality once the gateway's timeout passes).
+            if (i > 0 && p.timestamp - pts[i - 1].timestamp > Math.max(10 * median, 3600_000)) {
                 // uPlot breaks a line only over a run of nulls with nothing
                 // else between them; other pens' instants inside the hole
                 // would read "no sample here" and join it again. So the hole

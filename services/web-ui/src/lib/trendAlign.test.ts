@@ -16,7 +16,7 @@ describe('alignPens', () => {
     });
 
     it('breaks the line over a stretch far longer than the pen\'s usual spacing, other pens included', () => {
-        const pen1 = [0, 15, 30, 45, 60, 180, 195, 210].map((m, i) => pt(m, i));
+        const pen1 = [0, 15, 30, 45, 60, 240, 255, 270].map((m, i) => pt(m, i));
         const { timestamps, values } = alignPens([{ tagId: 1 }, { tagId: 2 }], {
             1: pen1,
             2: [pt(120, 5)], // another pen sampled inside the hole
@@ -24,9 +24,16 @@ describe('alignPens', () => {
         const at = (m: number) => values[0][timestamps.indexOf(m * 60)];
         expect(at(60)).toBe(4);
         expect(at(120)).toBeNull(); // inside the hole: not "no sample here"
-        expect(at(180)).toBe(5);
-        const holeCells = timestamps.filter((t) => t > 60 * 60 && t < 180 * 60).map((t) => values[0][timestamps.indexOf(t)]);
+        expect(at(240)).toBe(5);
+        const holeCells = timestamps.filter((t) => t > 60 * 60 && t < 240 * 60).map((t) => values[0][timestamps.indexOf(t)]);
         expect(holeCells.every((v) => v === null)).toBe(true);
+    });
+
+    it('a quarter-hourly series with bursts of faster readings stays one line', () => {
+        // A logger's batch at 15 min, then live values 15 s apart.
+        const pts1 = [0, 15, 30, 45, 60].map((m) => pt(m, 1)).concat([60.25, 60.5, 60.75, 61, 61.25, 61.5].map((m) => pt(m, 2)));
+        const { values } = alignPens([{ tagId: 1 }], { 1: pts1 });
+        expect(values[0].some((v) => v === null)).toBe(false);
     });
 
     it('a logger with one or two samples is left alone', () => {
