@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	_ "github.com/ralph/industrial-edge-middleware/docs"
+	"github.com/ralph/industrial-edge-middleware/internal/alarms"
 	"github.com/ralph/industrial-edge-middleware/internal/auth"
 	"github.com/ralph/industrial-edge-middleware/internal/connectors"
 	"github.com/ralph/industrial-edge-middleware/internal/crypto"
@@ -154,6 +155,10 @@ func main() {
 			loadScalingCache(database)
 		}
 	}()
+
+	// Comm_loss from the database clock (survives driver restarts): open and
+	// close silence events every 5 minutes.
+	alarms.StartCommLossSweep(database, 5*time.Minute, make(chan struct{}))
 
 	// Load Redis configuration (needed before MQTT for health tracking)
 	redisHost := getEnv("REDIS_HOST", "localhost")
