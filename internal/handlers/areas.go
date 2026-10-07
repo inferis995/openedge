@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -13,12 +14,40 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 )
 
+// validBoundaryGeoJSON reports whether b is a GeoJSON geometry or Feature
+// worth storing: parsed JSON whose geometry is an object or null (a Feature
+// with null geometry, legal GeoJSON, draws nothing and costs nothing).
+func validBoundaryGeoJSON(b json.RawMessage) bool {
+	if len(b) == 0 {
+		return true // no boundary given — fine
+	}
+	var doc struct {
+		Type       string          `json:"type"`
+		Geometry   json.RawMessage `json:"geometry"`
+		Coordinates json.RawMessage `json:"coordinates"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return false
+	}
+	switch doc.Type {
+	case "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon":
+		return doc.Coordinates != nil
+	case "Feature":
+		return doc.Geometry != nil && string(doc.Geometry) != "null"
+	case "FeatureCollection":
+		return false // one area, one perimeter — a collection is a misuse
+	default:
+		return false
+	}
+}
+
 // Area represents an area in the system
 type Area struct {
-	ID        int    `json:"id" example:"1"`
-	SiteID    int    `json:"site_id" example:"1"`
-	Name      string `json:"name" example:"Production Line"`
-	CreatedAt string `json:"created_at" example:"2024-01-24T10:00:00Z"`
+	ID        int             `json:"id" example:"1"`
+	SiteID    int             `json:"site_id" example:"1"`
+	Name      string          `json:"name" example:"Production Line"`
+	Boundary  json.RawMessage `json:"boundary,omitempty"`
+	CreatedAt string          `json:"created_at" example:"2024-01-24T10:00:00Z"`
 }
 
 // AreasHandler handles area-related HTTP requests
@@ -39,6 +68,9 @@ func NewAreasHandler(db *sql.DB, mqttClient *mqtt.Client) *AreasHandler {
 type CreateAreaRequest struct {
 	SiteID int    `json:"site_id" binding:"required"`
 	Name   string `json:"name" binding:"required"`
+	// Optional GeoJSON perimeter drawn on the map page. Accepted as a plain
+	// geometry or as a Feature; anything else is the caller's typo.
+	Boundary json.RawMessage `json:"boundary,omitempty"`
 }
 
 // Create handles POST /api/areas
@@ -92,12 +124,20 @@ func (h *AreasHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if !validBoundaryGeoJSON(req.Boundary) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "boundary must be a GeoJSON geometry or a Feature"})
+		return
+	}
+
 	var area models.Area
+	var boundary json.RawMessage
 	err = h.db.QueryRow(
-		"INSERT INTO areas (site_id, name) VALUES ($1, $2) RETURNING id, site_id, name, created_at",
+		"INSERT INTO areas (site_id, name, boundary) VALUES ($1, $2, $3) RETURNING id, site_id, name, boundary, created_at",
 		req.SiteID,
 		req.Name,
-	).Scan(&area.ID, &area.SiteID, &area.Name, &area.CreatedAt)
+		req.Boundary,
+	).Scan(&area.ID, &area.SiteID, &area.Name, &boundary, &area.CreatedAt)
+	area.Boundary = boundary
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create area"})
@@ -133,7 +173,7 @@ func (h *AreasHandler) List(c *gin.Context) {
 	siteIDStr := c.Query("site_id")
 	if siteIDStr == "" {
 		rows, err := h.db.Query(`
-			SELECT a.id, a.site_id, a.name, a.created_at
+			SELECT a.id, a.site_id, a.name, a.boundary, a.created_at
 			FROM areas a
 			JOIN sites s ON s.id = a.site_id
 			WHERE s.org_id = $1
@@ -146,7 +186,7 @@ func (h *AreasHandler) List(c *gin.Context) {
 		var areas []models.Area
 		for rows.Next() {
 			var area models.Area
-			if err := rows.Scan(&area.ID, &area.SiteID, &area.Name, &area.CreatedAt); err != nil {
+			if err := rows.Scan(&area.ID, &area.SiteID, &area.Name, &area.Boundary, &area.CreatedAt); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan area"})
 				return
 			}
@@ -191,7 +231,7 @@ func (h *AreasHandler) List(c *gin.Context) {
 	var areaArgs []interface{}
 	if !middleware.IsGlobalAdmin(c) && hasUserID {
 		areaQuery = `
-			SELECT id, site_id, name, created_at FROM areas
+			SELECT id, site_id, name, boundary, created_at FROM areas
 			WHERE site_id = $1
 			AND (
 				NOT EXISTS (SELECT 1 FROM user_areas WHERE user_id = $2)
@@ -200,7 +240,7 @@ func (h *AreasHandler) List(c *gin.Context) {
 			ORDER BY id`
 		areaArgs = []interface{}{siteID, userID}
 	} else {
-		areaQuery = "SELECT id, site_id, name, created_at FROM areas WHERE site_id = $1 ORDER BY id"
+		areaQuery = "SELECT id, site_id, name, boundary, created_at FROM areas WHERE site_id = $1 ORDER BY id"
 		areaArgs = []interface{}{siteID}
 	}
 
@@ -214,7 +254,7 @@ func (h *AreasHandler) List(c *gin.Context) {
 	var areas []models.Area
 	for rows.Next() {
 		var area models.Area
-		if err := rows.Scan(&area.ID, &area.SiteID, &area.Name, &area.CreatedAt); err != nil {
+		if err := rows.Scan(&area.ID, &area.SiteID, &area.Name, &area.Boundary, &area.CreatedAt); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan area"})
 			return
 		}
@@ -253,10 +293,12 @@ func (h *AreasHandler) Get(c *gin.Context) {
 	id := c.Param("id")
 
 	var area models.Area
+	var boundary json.RawMessage
 	err := h.db.QueryRow(
-		"SELECT id, site_id, name, created_at FROM areas WHERE id = $1",
+		"SELECT id, site_id, name, boundary, created_at FROM areas WHERE id = $1",
 		id,
-	).Scan(&area.ID, &area.SiteID, &area.Name, &area.CreatedAt)
+	).Scan(&area.ID, &area.SiteID, &area.Name, &boundary, &area.CreatedAt)
+	area.Boundary = boundary
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -381,6 +423,9 @@ func (h *AreasHandler) Delete(c *gin.Context) {
 // UpdateAreaRequest represents the request body for updating an area
 type UpdateAreaRequest struct {
 	Name *string `json:"name" binding:"required"`
+	// Optional new perimeter. Nil leaves the stored boundary alone; an
+	// explicit JSON null clears it — an area taken off the map stays off.
+	Boundary *json.RawMessage `json:"boundary"`
 }
 
 // Update handles PUT /api/areas/{id}
@@ -443,11 +488,14 @@ func (h *AreasHandler) Update(c *gin.Context) {
 	}
 
 	var area models.Area
+	var boundary json.RawMessage
 	err = h.db.QueryRow(
-		"UPDATE areas SET name = $1 WHERE id = $2 RETURNING id, site_id, name, created_at",
+		"UPDATE areas SET name = $1, boundary = $2 WHERE id = $3 RETURNING id, site_id, name, boundary, created_at",
 		*req.Name,
+		req.Boundary,
 		id,
-	).Scan(&area.ID, &area.SiteID, &area.Name, &area.CreatedAt)
+	).Scan(&area.ID, &area.SiteID, &area.Name, &boundary, &area.CreatedAt)
+	area.Boundary = boundary
 
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update area"})

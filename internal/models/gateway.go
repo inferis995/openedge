@@ -22,7 +22,11 @@ type Gateway struct {
 	// gateway unassigned and nothing changes; with two, an unassigned gateway
 	// is one neither of them will touch.
 	EdgeAgentID *int      `json:"edge_agent_id,omitempty" db:"edge_agent_id"`
-	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+	// Map placement, decimal degrees WGS84. Both nil until someone places
+	// the gateway; the CHECK constraint keeps them always paired.
+	Latitude  *float64  `json:"latitude,omitempty" db:"latitude"`
+	Longitude *float64  `json:"longitude,omitempty" db:"longitude"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
 // ConnectionConfig is a JSONB field storing driver-specific connection parameters

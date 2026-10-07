@@ -1,0 +1,30 @@
+{
+    "map": {
+        "subtitle": "Plant on a geographic map: areas, gateways and live values",
+        "loading": "Loading map…",
+        "search_placeholder": "Search a place…",
+        "legend_online": "Online",
+        "legend_offline": "Offline",
+        "legend_never": "Never seen",
+        "placed_count": "gateways placed",
+        "battery": "Battery",
+        "live_values": "Live values",
+        "no_tags": "No tags on this gateway",
+        "open_trend": "Open Trend",
+        "place": "Place",
+        "placing_hint": "Click the map to place the gateway",
+        "place_pick": "Place a gateway",
+        "place_select": "Choose a gateway…",
+        "edit_position": "Edit position",
+        "latitude": "Latitude",
+        "longitude": "Longitude",
+        "saving": "Saving…",
+        "coords_hint": "Decimal degrees or «39.3592, 16.5142»; also accepts 39°30'N. On map: drag the pin or use «Place».",
+        "others": "more",
+        "tags_count": "tags",
+        "tag_detail": "Tag detail",
+        "quality": "Quality: {{q}}",
+        "updated_ago": "Updated {{s}}s ago",
+        "never_updated": "Never updated"
+    }
+}

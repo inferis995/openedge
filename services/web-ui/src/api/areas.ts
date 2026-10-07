@@ -26,7 +26,7 @@ export const areasApi = {
         await api.delete(`/areas/${id}`);
     },
 
-    update: async (id: number, data: { name: string }): Promise<Area> => {
+    update: async (id: number, data: { name: string; boundary?: Record<string, unknown> | null }): Promise<Area> => {
         const response = await api.put(`/areas/${id}`, data);
         return response.data;
     }

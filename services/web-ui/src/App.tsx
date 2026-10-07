@@ -12,6 +12,7 @@ import SetupWizardPage from '@/pages/SetupWizardPage';
 import SitesPage from '@/pages/SitesPage';
 import AreasPage from '@/pages/AreasPage';
 import GatewaysPage from '@/pages/GatewaysPage';
+import MapPage from '@/pages/MapPage';
 import InventoryPage from '@/pages/InventoryPage';
 import TagsPage from '@/pages/TagsPage';
 import SystemPage from '@/pages/SystemPage';
@@ -156,6 +157,7 @@ function App() {
                     <Route path="/sites" element={<SitesPage />} />
                     <Route path="/areas" element={<AreasPage />} />
                     <Route path="/gateways" element={<GatewaysPage />} />
+                    <Route path="/map" element={<MapPage />} />
                     <Route path="/inventory" element={<InventoryPage />} />
                     <Route path="/tags" element={<TagsPage />} />
                     <Route path="/system" element={<SystemPage />} />

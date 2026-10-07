@@ -25,7 +25,7 @@ var groupModules = map[string]string{
 // All lists every module key the organizations UI offers, in menu order.
 var All = []string{
 	"dashboard", "setup",
-	"sites", "areas", "gateways", "tags", "inventory", "udt",
+	"sites", "areas", "gateways", "map", "tags", "inventory", "udt",
 	"synoptics", "alarms", "recipes", "shifts", "maintenance",
 	"trend", "historian", "reports", "kpis", "oee",
 	"i3x", "connected-apps", "users",

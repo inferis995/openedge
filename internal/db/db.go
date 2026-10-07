@@ -1382,6 +1382,35 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: organization_modules index: %v", err)
 	}
 
+	// Migration: GIS map — gateway coordinates and area boundaries.
+	//
+	// latitude/longitude are decimal degrees (WGS84), NULL when nobody has
+	// placed the gateway on the map yet; boundary holds the area's perimeter
+	// as a GeoJSON Geometry object (Feature is also accepted) so the map page
+	// can draw it without a second table. Both are guarded on
+	// information_schema so the CHECK below is added only with the column,
+	// keeping the migration idempotent on databases that already have it.
+	var gisColsExist bool
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT EXISTS (SELECT 1 FROM information_schema.columns
+		               WHERE table_name = 'gateways' AND column_name = 'latitude')`).Scan(&gisColsExist); err != nil {
+		log.Printf("Warning: checking gateways.latitude: %v", err)
+	}
+	if !gisColsExist {
+		for _, stmt := range []string{
+			`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION`,
+			`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION`,
+			`ALTER TABLE areas ADD COLUMN IF NOT EXISTS boundary JSONB`,
+			`ALTER TABLE gateways ADD CONSTRAINT gateways_coords_check CHECK (
+				(latitude IS NULL AND longitude IS NULL) OR
+				(latitude IS NOT NULL AND longitude IS NOT NULL))`,
+		} {
+			if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+				log.Printf("Warning: gis map migration: %v", err)
+			}
+		}
+	}
+
 	// Migration: at most one open alarm_events row per (tag_id, definition_id).
 	ensureSingleOpenAlarmEvent(db)
 

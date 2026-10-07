@@ -7,7 +7,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
     Activity, Bell, Boxes, Building2, ChefHat, ClipboardList, Clock, Cpu, Factory,
-    FileText, Gauge, History, LayoutDashboard, LayoutTemplate, Layers, Lock, MapPin,
+    FileText, Gauge, History, LayoutDashboard, LayoutTemplate, Layers, Lock, Map, MapPin,
     Network, PackageOpen, Plug, Radio, Rocket, Server, Settings, Shield, Tags, Target,
     TrendingUp, Users, Wrench,
 } from 'lucide-react';
@@ -43,6 +43,7 @@ const pathModuleEntries: [string, string][] = [
     ['/sites', 'sites'],
     ['/areas', 'areas'],
     ['/gateways', 'gateways'],
+    ['/map', 'map'],
     ['/tags', 'tags'],
     ['/inventory', 'inventory'],
     ['/udt', 'udt'],
@@ -105,6 +106,7 @@ export function navSections(access: NavAccess, enabledModules?: Set<string> | nu
                 { key: 'nav.sites', path: '/sites', icon: Factory, hint: 'nav.hint.sites' },
                 { key: 'nav.areas', path: '/areas', icon: MapPin, hint: 'nav.hint.areas' },
                 { key: 'nav.gateways', path: '/gateways', icon: Cpu, hint: 'nav.hint.gateways' },
+                { key: 'nav.map', path: '/map', icon: Map, hint: 'nav.hint.map' },
                 { key: 'nav.tags', path: '/tags', icon: Tags, hint: 'nav.hint.tags' },
                 { key: 'nav.inventory', path: '/inventory', icon: ClipboardList, hint: 'nav.hint.inventory' },
                 { key: 'nav.udt_types', path: '/udt/types', icon: Boxes, hint: 'nav.hint.udt_types' },
