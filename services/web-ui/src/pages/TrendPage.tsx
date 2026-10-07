@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import {
     Activity, Play, Pause, RefreshCw, Download, PanelLeft, PanelRight,
-    BarChart2, Settings2, ZoomOut, ChevronLeft, ChevronRight, Ruler, GitCompareArrows,
+    BarChart2, Settings2, ZoomOut, ChevronLeft, ChevronRight, Ruler, GitCompareArrows, MoveVertical,
 } from 'lucide-react';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -23,7 +23,9 @@ import { tagsApi } from '@/api/tags';
 import { gatewaysApi } from '@/api/gateways';
 import { alarmsApi } from '@/api/alarms';
 import { alignPens, mergeSeries, realtimePoint, shiftPoints, valueAt } from '@/lib/trendAlign';
-import { compareOffset, decodeView, encodeView, resolveRange, TREND_VIEW_KEY, type CompareMode, type TrendView } from '@/lib/trendView';
+import { compareOffset, decodeView, encodeView, resolveRange, TREND_VIEW_KEY, type CompareMode, type TrendView, type YAxisMode } from '@/lib/trendView';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Input } from '@/components/ui/input';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { type TrendDataPoint, type AggregationType, type TagWithHierarchy } from '@/types/trend';
@@ -44,6 +46,54 @@ const AGG_OPTIONS: { value: AggregationType; labelKey: string }[] = [
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** One axis in the axes popover: automatic, the tag's EU range, or fixed bounds. */
+function AxisRow({ label, eu, mode, onChange }: {
+    label: string;
+    eu: { min: number; max: number } | null;
+    mode: YAxisMode | undefined;
+    onChange: (m: YAxisMode | 'auto') => void;
+}) {
+    const { t } = useTranslation();
+    const kind = mode === undefined ? 'auto' : mode === 'eu' ? 'eu' : 'fixed';
+    const fixed = mode && mode !== 'eu' ? mode : eu ?? { min: 0, max: 100 };
+    const [lo, setLo] = useState(String(fixed.min));
+    const [hi, setHi] = useState(String(fixed.max));
+    const commit = () => {
+        const a = Number(lo), b = Number(hi);
+        if (Number.isFinite(a) && Number.isFinite(b) && b > a) onChange({ min: a, max: b });
+    };
+    return (
+        <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+                <span className="text-xs font-medium flex-1 truncate">{label}</span>
+                <Select value={kind} onValueChange={v => {
+                    if (v === 'auto') onChange('auto');
+                    else if (v === 'eu') onChange('eu');
+                    else onChange({ min: Number(lo) || 0, max: Number(hi) > Number(lo) ? Number(hi) : (Number(lo) || 0) + 1 });
+                }}>
+                    <SelectTrigger className="h-7 w-40 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="auto">{t('trendPage.axis_auto')}</SelectItem>
+                        <SelectItem value="eu" disabled={!eu}>
+                            {eu ? t('trendPage.axis_eu', { min: eu.min, max: eu.max }) : t('trendPage.axis_eu_none')}
+                        </SelectItem>
+                        <SelectItem value="fixed">{t('trendPage.axis_fixed')}</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+            {kind === 'fixed' && (
+                <div className="flex items-center gap-2 pl-1">
+                    <Input className="h-7 text-xs" inputMode="decimal" value={lo} aria-label="min"
+                        onChange={e => setLo(e.target.value)} onBlur={commit} onKeyDown={e => e.key === 'Enter' && commit()} />
+                    <span className="text-xs text-muted-foreground">–</span>
+                    <Input className="h-7 text-xs" inputMode="decimal" value={hi} aria-label="max"
+                        onChange={e => setHi(e.target.value)} onBlur={commit} onKeyDown={e => e.key === 'Enter' && commit()} />
+                </div>
+            )}
+        </div>
+    );
+}
 
 /** "1 h 30 min", "45 s". */
 function fmtDuration(ms: number): string {
@@ -130,6 +180,7 @@ export default function TrendPage() {
     const [liveMode, setLiveMode] = useState(() => initialView?.live ?? false);
     const [aggregation, setAggregation] = useState<AggregationType>(() => initialView?.agg ?? 'mean');
     const [compare, setCompare] = useState<CompareMode>(() => initialView?.cmp ?? 'off');
+    const [yModes, setYModes] = useState<Record<string, YAxisMode>>(() => initialView?.y ?? {});
     const [measure, setMeasure] = useState(false);
     const [marks, setMarks] = useState<{ a: number | null; b: number | null }>({ a: null, b: null });
     // A first click places A, a second B, a third starts again.
@@ -156,7 +207,8 @@ export default function TrendPage() {
         agg: aggregation,
         live: liveMode,
         cmp: compare,
-    }).toString(), [rawPens, timeRange, aggregation, liveMode, compare]);
+        y: yModes,
+    }).toString(), [rawPens, timeRange, aggregation, liveMode, compare, yModes]);
     useEffect(() => {
         setSearchParams(new URLSearchParams(viewQuery), { replace: true });
         try { localStorage.setItem(TREND_VIEW_KEY, viewQuery); } catch { /* private mode: the address still has it */ }
@@ -385,6 +437,37 @@ export default function TrendPage() {
             visible: p.visible,
         })), [chartPens, tagMap]);
 
+    // ── Y axes: one per unit; each automatic, the tag's range, or fixed ──
+    const axisGroups = useMemo(() => {
+        const groups = new Map<string, { key: string; label: string; eu: { min: number; max: number } | null }>();
+        for (const p of pens) {
+            const key = p.unit?.trim() || `#${p.tagId}`;
+            const t = tagMap.get(p.tagId);
+            const eu = t?.scaling_eu_min != null && t?.scaling_eu_max != null && t.scaling_eu_max > t.scaling_eu_min
+                ? { min: t.scaling_eu_min, max: t.scaling_eu_max } : null;
+            const g = groups.get(key);
+            if (!g) groups.set(key, { key, label: p.unit?.trim() || p.label, eu });
+            else if (!g.eu && eu) g.eu = eu;
+        }
+        return [...groups.values()];
+    }, [pens, tagMap]);
+    const yRanges = useMemo(() => {
+        const out: Record<string, { min: number; max: number }> = {};
+        for (const g of axisGroups) {
+            const m = yModes[g.key];
+            if (m === 'eu' && g.eu) out[`y:${g.key}`] = g.eu;
+            else if (m && m !== 'eu') out[`y:${g.key}`] = m;
+        }
+        return out;
+    }, [axisGroups, yModes]);
+    const setYMode = useCallback((key: string, mode: YAxisMode | 'auto') => {
+        setYModes(prev => {
+            const next = { ...prev };
+            if (mode === 'auto') delete next[key]; else next[key] = mode;
+            return next;
+        });
+    }, []);
+
     // ── Measurement: values at A and B, and the differences ──
     const measurement = useMemo(() => {
         if (!measure || marks.a === null || !series) return null;
@@ -561,6 +644,24 @@ export default function TrendPage() {
                             </SelectContent>
                         </Select>
 
+                        {/* Y axes */}
+                        {axisGroups.length > 0 && (
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button size="sm" variant={Object.keys(yRanges).length ? 'default' : 'outline'} className="h-9 sm:h-7 text-xs gap-1">
+                                        <MoveVertical className="w-3 h-3" /> {tr('trendPage.axes')}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent align="end" className="w-80 space-y-3">
+                                    <p className="text-sm font-semibold">{tr('trendPage.axes_title')}</p>
+                                    {axisGroups.map(g => (
+                                        <AxisRow key={g.key} label={g.label} eu={g.eu} mode={yModes[g.key]}
+                                            onChange={m => setYMode(g.key, m)} />
+                                    ))}
+                                </PopoverContent>
+                            </Popover>
+                        )}
+
                         {/* Refresh */}
                         <Button size="icon" variant="outline" className="h-9 sm:h-7 w-9 sm:w-7"
                             onClick={() => refetch()} disabled={isFetching || penIds.length === 0}
@@ -629,6 +730,7 @@ export default function TrendPage() {
                                 range={{ from: timeRange.from.getTime(), to: timeRange.to.getTime() }}
                                 bands={bands}
                                 events={chartEvents}
+                                yRanges={yRanges}
                                 live={liveMode}
                                 onZoom={handleZoom}
                                 measure={measure}

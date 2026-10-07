@@ -14,7 +14,11 @@ export interface TrendView {
     live: boolean;
     /** A previous period laid over the window: the one before it, a day or a week earlier. */
     cmp?: CompareMode;
+    /** Per axis (keyed by unit, or #tagId for a pen without one): the tag's range, or fixed bounds. */
+    y?: Record<string, YAxisMode>;
 }
+
+export type YAxisMode = 'eu' | { min: number; max: number };
 
 export type CompareMode = 'off' | 'prev' | '1d' | '7d';
 const CMPS: CompareMode[] = ['prev', '1d', '7d'];
@@ -46,6 +50,9 @@ export function encodeView(v: TrendView): URLSearchParams {
     if (v.agg !== 'mean') q.set('agg', v.agg);
     if (v.live) q.set('live', '1');
     if (v.cmp && v.cmp !== 'off') q.set('cmp', v.cmp);
+    const y = Object.entries(v.y ?? {}).map(([k, m]) =>
+        `${encodeURIComponent(k)}:${m === 'eu' ? 'eu' : `${m.min}~${m.max}`}`);
+    if (y.length) q.set('y', y.join(','));
     return q;
 }
 
@@ -68,7 +75,18 @@ export function decodeView(q: URLSearchParams): TrendView | null {
     else if (Number.isFinite(from) && Number.isFinite(to) && to > from) range = { from, to };
     const agg = AGGS.includes(q.get('agg') as AggregationType) ? (q.get('agg') as AggregationType) : 'mean';
     const cmp = CMPS.includes(q.get('cmp') as CompareMode) ? (q.get('cmp') as CompareMode) : 'off';
-    return { pens: pens.slice(0, 30), range, agg, live: q.get('live') === '1' && 'preset' in range, cmp };
+    const y: Record<string, YAxisMode> = {};
+    for (const part of (q.get('y') ?? '').split(',')) {
+        const i = part.lastIndexOf(':');
+        if (i <= 0) continue;
+        let key: string;
+        try { key = decodeURIComponent(part.slice(0, i)); } catch { continue; }
+        const m = part.slice(i + 1);
+        if (m === 'eu') { y[key] = 'eu'; continue; }
+        const [lo, hi] = m.split('~').map(Number);
+        if (Number.isFinite(lo) && Number.isFinite(hi) && hi > lo) y[key] = { min: lo, max: hi };
+    }
+    return { pens: pens.slice(0, 30), range, agg, live: q.get('live') === '1' && 'preset' in range, cmp, y };
 }
 
 /** The concrete window of a view's range, now. */

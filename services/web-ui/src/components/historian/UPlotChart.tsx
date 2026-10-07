@@ -35,6 +35,8 @@ interface Props {
     bands?: ({ min: (number | undefined)[]; max: (number | undefined)[] } | null)[];
     /** Alarms to mark on the time axis. */
     events?: ChartEvent[];
+    /** Fixed y ranges by scale key (see scaleKey); an axis not listed scales to its data. */
+    yRanges?: Record<string, { min: number; max: number }>;
     /** Measuring: clicks place cursors A and B (reported, in ms) instead of zooming. */
     measure?: boolean;
     marks?: { a: number | null; b: number | null };
@@ -107,8 +109,9 @@ const TEXT_COLOR = '#94a3b8';
 const FONT = '11px Inter, system-ui, sans-serif';
 
 /** One y scale per unit, so bar, l/s and V are not squeezed onto one axis. */
-function scaleKey(pen: PenSeries): string {
-    return 'y:' + (pen.unit?.trim() || `#${pen.tagId}`);
+export function scaleKey(pen: Pick<PenSeries, 'unit' | 'tagId'>): string {
+    // abs: a comparison pen (negative id) shares its original's axis.
+    return 'y:' + (pen.unit?.trim() || `#${Math.abs(pen.tagId)}`);
 }
 
 function fmtValue(v: number, decimals?: number): string {
@@ -384,7 +387,7 @@ function marksPlugin(getMarks: () => { a: number | null; b: number | null } | un
  * h-full…) and the chart follows it, on resize and on rotation.
  */
 export function UPlotChart({
-    timestamps, values, pens, bands, events = [], range, live = false, onZoom,
+    timestamps, values, pens, bands, events = [], yRanges, range, live = false, onZoom,
     measure = false, marks, onMeasureClick,
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -395,6 +398,16 @@ export function UPlotChart({
     // a change only redraws.
     const eventsRef = useRef(events);
     const marksRef = useRef(marks);
+    const yRangesRef = useRef(yRanges);
+    // A new fixed range takes effect when the axes are ranged again.
+    useEffect(() => {
+        yRangesRef.current = yRanges;
+        const u = plotRef.current;
+        if (!u) return;
+        const x = { min: u.scales.x.min, max: u.scales.x.max };
+        u.setData(u.data);
+        if (x.min !== undefined && x.max !== undefined) u.setScale('x', { min: x.min, max: x.max });
+    }, [yRanges]);
     const onMeasureClickRef = useRef(onMeasureClick);
     useEffect(() => {
         eventsRef.current = events;
@@ -441,6 +454,8 @@ export function UPlotChart({
         for (const [key] of units) {
             scales[key] = {
                 range: (_u, min, max) => {
+                    const fixed = yRangesRef.current?.[key];
+                    if (fixed && fixed.max > fixed.min) return [fixed.min, fixed.max];
                     if (min === null || max === null || !Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
                     if (min === max) { const pad = Math.abs(min) * 0.1 || 1; return [min - pad, max + pad]; }
                     const pad = (max - min) * 0.08;
