@@ -1311,6 +1311,32 @@ func handleGatewayHealthUpdate(topic string, payload []byte, redisClient *redis.
 		return
 	}
 
+	// Data freshness gates the dot the inventory paints: a driver that is
+	// connected to the broker but whose device has not sent anything within
+	// its stale_after_minutes is shown offline. Otherwise every gateway
+	// looks alive from the link alone and nobody notices a silent device.
+	// New gateways get a grace period of one stale window from creation.
+	if status == gatewayhealth.StatusOnline && db != nil {
+		var staleMin sql.NullFloat64
+		var refAgeMin sql.NullFloat64
+		qerr := db.QueryRowContext(context.Background(), `
+			SELECT (g.connection_config->>'stale_after_minutes')::float,
+			       EXTRACT(EPOCH FROM (NOW() - COALESCE(
+			           (SELECT MAX(h.time) FROM tag_history h
+			            JOIN tags t ON t.id = h.tag_id
+			            WHERE t.gateway_id = g.id AND h.value IS NOT NULL),
+			           g.created_at))) / 60
+			FROM gateways g WHERE g.id = $1`, gatewayID,
+		).Scan(&staleMin, &refAgeMin)
+		if qerr != nil {
+			log.Printf("[HEALTH] could not check data freshness of gateway %d: %v", gatewayID, qerr)
+		} else if staleMin.Valid && staleMin.Float64 > 0 && refAgeMin.Valid && refAgeMin.Float64 >= staleMin.Float64 {
+			log.Printf("[HEALTH] gateway %d driver online but no data for %.0f min (limit %.0f): reporting offline",
+				gatewayID, refAgeMin.Float64, staleMin.Float64)
+			status = gatewayhealth.StatusOffline
+		}
+	}
+
 	// The database first: Redis is a cache the UI paints a dot from, and it is
 	// optional. What decides whether anyone is TOLD the gateway is down has to
 	// survive a Redis that is not running.
