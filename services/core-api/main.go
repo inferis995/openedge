@@ -794,6 +794,16 @@ func main() {
 		// Synoptics — SCADA mimic pages. Reads open to any org member
 		// (operators view the live plant); writes restricted to admins
 		// (the designer is an engineering task).
+		// Named trend views: any member saves and opens; author or admin changes.
+		trendViewsHandler := handlers.NewTrendViewsHandler(database)
+		trendViews := api.Group("/trend-views")
+		trendViews.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			trendViews.GET("", trendViewsHandler.List)
+			trendViews.POST("", trendViewsHandler.Save)
+			trendViews.DELETE("/:id", trendViewsHandler.Delete)
+		}
+
 		synopticsHandler := handlers.NewSynopticsHandler(database)
 		synoptics := api.Group("/synoptics")
 		synoptics.Use(middleware.RequireAuth, middleware.OrganizationContext())

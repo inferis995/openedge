@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import {
     Activity, Play, Pause, RefreshCw, Download, PanelLeft, PanelRight,
     BarChart2, Settings2, ZoomOut, ChevronLeft, ChevronRight, Ruler, GitCompareArrows, MoveVertical,
+    Bookmark, Trash2,
 } from 'lucide-react';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -22,6 +23,7 @@ import { historyApi } from '@/api/history';
 import { tagsApi } from '@/api/tags';
 import { gatewaysApi } from '@/api/gateways';
 import { alarmsApi } from '@/api/alarms';
+import { trendViewsApi } from '@/api/trendViews';
 import { alignPens, mergeSeries, realtimePoint, shiftPoints, valueAt } from '@/lib/trendAlign';
 import { compareOffset, decodeView, encodeView, resolveRange, TREND_VIEW_KEY, type CompareMode, type TrendView, type YAxisMode } from '@/lib/trendView';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -468,6 +470,49 @@ export default function TrendPage() {
         });
     }, []);
 
+    // ── Saved views of the organization ──
+    const authUser = useAuthStore(s => s.user);
+    const { data: savedViews, refetch: refetchViews } = useQuery({
+        queryKey: ['trend-views'],
+        queryFn: trendViewsApi.list,
+        staleTime: 30_000,
+    });
+    const [viewName, setViewName] = useState('');
+    const applyView = useCallback((v: TrendView) => {
+        const r = resolveRange(v.range);
+        setPens(v.pens.map(p => ({ tagId: p.tagId, label: `#${p.tagId}`, color: p.color, visible: p.visible })));
+        setTimeRange(r);
+        setAggregation(v.agg);
+        setCompare(v.cmp ?? 'off');
+        setYModes(v.y ?? {});
+        setZoomStack([]);
+        setMeasure(false);
+        setLiveMode(v.live);
+        resetLive(v.live, r.to.getTime() - r.from.getTime());
+    }, [resetLive]);
+    const saveView = useCallback(async () => {
+        const name = viewName.trim();
+        if (!name || pens.length === 0) return;
+        try {
+            await trendViewsApi.save(name, viewQuery);
+            toast.success(tr('trendPage.view_saved', { name }));
+            setViewName('');
+            refetchViews();
+        } catch (e) {
+            const msg = (e as { response?: { data?: { error?: string } } }).response?.data?.error;
+            toast.error(msg ?? tr('trendPage.view_save_failed'));
+        }
+    }, [viewName, viewQuery, pens.length, tr, refetchViews]);
+    const deleteView = useCallback(async (id: number) => {
+        try {
+            await trendViewsApi.remove(id);
+            refetchViews();
+        } catch (e) {
+            const msg = (e as { response?: { data?: { error?: string } } }).response?.data?.error;
+            toast.error(msg ?? tr('trendPage.view_delete_failed'));
+        }
+    }, [tr, refetchViews]);
+
     // ── Measurement: values at A and B, and the differences ──
     const measurement = useMemo(() => {
         if (!measure || marks.a === null || !series) return null;
@@ -643,6 +688,49 @@ export default function TrendPage() {
                                 ))}
                             </SelectContent>
                         </Select>
+
+                        {/* Saved views */}
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button size="sm" variant="outline" className="h-9 sm:h-7 text-xs gap-1">
+                                    <Bookmark className="w-3 h-3" /> {tr('trendPage.views')}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent align="end" className="w-80 space-y-3">
+                                <p className="text-sm font-semibold">{tr('trendPage.views_title')}</p>
+                                <div className="max-h-60 overflow-y-auto divide-y divide-border">
+                                    {(savedViews ?? []).length === 0 && (
+                                        <p className="text-xs text-muted-foreground py-2">{tr('trendPage.views_empty')}</p>
+                                    )}
+                                    {(savedViews ?? []).map(v => {
+                                        const parsed = decodeView(new URLSearchParams(v.query));
+                                        const mine = authUser?.role === 'admin' || v.created_by === authUser?.id;
+                                        return (
+                                            <div key={v.id} className="flex items-center gap-2 py-1.5">
+                                                <button className="flex-1 min-w-0 text-left" disabled={!parsed}
+                                                    onClick={() => parsed && applyView(parsed)}>
+                                                    <div className="text-xs font-medium truncate">{v.name}</div>
+                                                    {v.author && <div className="text-[10px] text-muted-foreground truncate">{v.author}</div>}
+                                                </button>
+                                                {mine && (
+                                                    <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive/70 hover:text-destructive"
+                                                        onClick={() => deleteView(v.id)} aria-label={tr('trendPage.view_delete')} title={tr('trendPage.view_delete')}>
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="flex gap-2 pt-1 border-t">
+                                    <Input className="h-8 text-xs" placeholder={tr('trendPage.view_name')} value={viewName} maxLength={100}
+                                        onChange={e => setViewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && saveView()} />
+                                    <Button size="sm" className="h-8 text-xs" onClick={saveView} disabled={!viewName.trim() || pens.length === 0}>
+                                        {tr('trendPage.view_save')}
+                                    </Button>
+                                </div>
+                            </PopoverContent>
+                        </Popover>
 
                         {/* Y axes */}
                         {axisGroups.length > 0 && (

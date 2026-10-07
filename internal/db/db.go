@@ -1060,6 +1060,22 @@ func runAutoMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_synoptics_org ON synoptics(org_id, name)`); err != nil {
 		log.Printf("Warning: failed to create synoptics index: %v", err)
 	}
+
+	// Named trend views, per organization: the query string the trend page
+	// keeps in its address (pens, window, aggregation, comparison, axes).
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS trend_views (
+			id          SERIAL PRIMARY KEY,
+			org_id      INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			name        TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 100),
+			query       TEXT NOT NULL CHECK (length(query) <= 4096),
+			created_by  INT REFERENCES users(id) ON DELETE SET NULL,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (org_id, name)
+		)`); err != nil {
+		log.Printf("Warning: failed to create trend_views: %v", err)
+	}
 	// Synoptics can be filed under the plant hierarchy (site → area → line)
 	// to power a navigation work tree. Both nullable: an org-level synoptic
 	// with no site/area is the "General" node.

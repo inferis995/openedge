@@ -256,3 +256,38 @@ func TestTrendBatchSizesBucketsToTheChartAndKeepsTheExtremes(t *testing.T) {
 		t.Errorf("the spike is in no bucket's max — it was averaged away")
 	}
 }
+
+// Named trend views belong to an organization: saved and listed there, not
+// visible from another, and only trend views are stored.
+func TestTrendViewsAreKeptPerOrganization(t *testing.T) {
+	admin, _ := adminSession(t)
+	mine := newFixture(t, admin)
+	theirs := newFixture(t, admin)
+	a := createOrgAdmin(t, admin, mine.org.ID, "tv-"+uniqueSuffix(), "trend-views-pass-1234")
+	a.orgID = fmt.Sprintf("%d", mine.org.ID)
+	b := createOrgAdmin(t, admin, theirs.org.ID, "tv-"+uniqueSuffix(), "trend-views-pass-1234")
+	b.orgID = fmt.Sprintf("%d", theirs.org.ID)
+
+	query := fmt.Sprintf("pens=%d%%3A3b82f6&range=24h", mine.tagID)
+	if status, raw := a.do(http.MethodPost, "/api/trend-views", map[string]string{"name": "Pressioni", "query": query}); status != http.StatusCreated {
+		t.Fatalf("save: %d %s", status, truncate(raw))
+	}
+	if status, raw := a.do(http.MethodPost, "/api/trend-views", map[string]string{"name": "x", "query": "pens=1&evil=1"}); status != http.StatusBadRequest {
+		t.Errorf("a query that is not a trend view was answered %d %s", status, truncate(raw))
+	}
+	list := func(c *apiClient) []map[string]interface{} {
+		status, raw := c.do(http.MethodGet, "/api/trend-views", nil)
+		if status != http.StatusOK {
+			t.Fatalf("list: %d %s", status, truncate(raw))
+		}
+		var out []map[string]interface{}
+		_ = json.Unmarshal(raw, &out)
+		return out
+	}
+	if l := list(a); len(l) != 1 || l[0]["name"] != "Pressioni" || l[0]["query"] != query {
+		t.Errorf("own organization lists %v", l)
+	}
+	if l := list(b); len(l) != 0 {
+		t.Errorf("another organization sees %v", l)
+	}
+}
