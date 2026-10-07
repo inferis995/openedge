@@ -711,17 +711,27 @@ const TagsPage = () => {
 
             const newValues = new Map<number, CurrentValue>();
 
-            // Fetch current value for each tag in parallel using tagsApi (includes X-Organization-ID)
-            await Promise.allSettled(
-                tags.map(async (tag) => {
-                    try {
-                        const currentValue = await tagsApi.getCurrentValue(tag.id);
-                        newValues.set(tag.id, currentValue);
-                    } catch (err) {
-                        // Silently ignore errors for individual tags (no value in Redis yet)
-                    }
-                })
-            );
+            // One batch call for the whole organization instead of one
+            // request per tag: hundreds of parallel /current calls got
+            // rate-limited and most rows stayed empty.
+            try {
+                const shadows = await tagsApi.getShadowBatch();
+                shadows.forEach((s) => {
+                    newValues.set(s.tag_id, { value: s.value, timestamp: s.ts, quality: s.quality });
+                });
+            } catch (err) {
+                // Fall back to per-tag fetch (slow) so old servers still work.
+                await Promise.allSettled(
+                    tags.map(async (tag) => {
+                        try {
+                            const currentValue = await tagsApi.getCurrentValue(tag.id);
+                            newValues.set(tag.id, currentValue);
+                        } catch (err) {
+                            // Silently ignore errors for individual tags (no value in Redis yet)
+                        }
+                    })
+                );
+            }
 
             if (newValues.size > 0) {
                 setFetchedValues(prev => {

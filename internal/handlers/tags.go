@@ -1462,36 +1462,52 @@ func (h *TagsHandler) GetShadow(c *gin.Context) {
 	})
 }
 
-// GetShadowBatch handles GET /api/tags/shadows?gateway_id=X
-// Returns shadows for all tags of a gateway in one call.
+// GetShadowBatch handles GET /api/tags/shadows[?gateway_id=X]
+// Without gateway_id it returns shadows for all tags of the organization
+// in one call, so pages with hundreds of tags don't fire one request per tag.
 func (h *TagsHandler) GetShadowBatch(c *gin.Context) {
 	gwIDStr := c.Query("gateway_id")
-	if gwIDStr == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "gateway_id required"})
-		return
-	}
-	gwID, err := strconv.Atoi(gwIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid gateway_id"})
-		return
-	}
-
-	// Verify gateway belongs to the authenticated org.
-	orgFilter := middleware.GetOrgFilterForQuery(c)
-	if orgFilter != nil {
-		var gwOrgID int
-		if err := h.db.QueryRowContext(c.Request.Context(),
-			`SELECT s.org_id FROM gateways g
-			 JOIN areas a ON a.id = g.area_id
-			 JOIN sites s ON s.id = a.site_id
-			 WHERE g.id = $1`, gwID,
-		).Scan(&gwOrgID); err != nil || gwOrgID != *orgFilter {
-			c.JSON(http.StatusNotFound, gin.H{"error": "gateway not found"})
+	var gwID int
+	if gwIDStr != "" {
+		var err error
+		gwID, err = strconv.Atoi(gwIDStr)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid gateway_id"})
 			return
+		}
+
+		// Verify gateway belongs to the authenticated org.
+		orgFilter := middleware.GetOrgFilterForQuery(c)
+		if orgFilter != nil {
+			var gwOrgID int
+			if err := h.db.QueryRowContext(c.Request.Context(),
+				`SELECT s.org_id FROM gateways g
+				 JOIN areas a ON a.id = g.area_id
+				 JOIN sites s ON s.id = a.site_id
+				 WHERE g.id = $1`, gwID,
+			).Scan(&gwOrgID); err != nil || gwOrgID != *orgFilter {
+				c.JSON(http.StatusNotFound, gin.H{"error": "gateway not found"})
+				return
+			}
 		}
 	}
 
-	rows, err := h.db.QueryContext(c.Request.Context(), `SELECT id FROM tags WHERE gateway_id = $1`, gwID)
+	var rows *sql.Rows
+	var err error
+	orgFilter := middleware.GetOrgFilterForQuery(c)
+	switch {
+	case gwIDStr != "":
+		rows, err = h.db.QueryContext(c.Request.Context(), `SELECT id FROM tags WHERE gateway_id = $1`, gwID)
+	case orgFilter != nil && *orgFilter != -1:
+		rows, err = h.db.QueryContext(c.Request.Context(),
+			`SELECT t.id FROM tags t
+			 JOIN gateways g ON g.id = t.gateway_id
+			 JOIN areas a ON a.id = g.area_id
+			 JOIN sites s ON s.id = a.site_id
+			 WHERE s.org_id = $1`, *orgFilter)
+	default:
+		rows, err = h.db.QueryContext(c.Request.Context(), `SELECT id FROM tags`)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "db error"})
 		return
