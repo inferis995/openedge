@@ -116,7 +116,8 @@ const SynopticsPage = () => {
         }
     };
 
-    useEffect(() => { startLoad(load); /* eslint-disable-next-line react-hooks/exhaustive-deps -- reload on org change; load reads current filters by design */ }, [selectedOrgId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload on org change; load reads current filters by design
+    useEffect(() => { startLoad(load); }, [selectedOrgId]);
 
     const areasBySite = useMemo(() => {
         const m = new Map<number, Area[]>();
