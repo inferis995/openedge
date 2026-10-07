@@ -4,6 +4,7 @@ import { ChevronRight, Building2, Factory, MapPin, X, Menu } from 'lucide-react'
 import { cn } from '@/lib/utils';
 import { useMqttStore } from '@/stores/useMqttStore';
 import { useNavigationStore } from '@/stores/useNavigationStore';
+import { useOrgModules } from '@/hooks/useOrgModules';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { organizationsApi } from '@/api/organizations';
 import { sitesApi } from '@/api/sites';
@@ -23,7 +24,8 @@ const Header = ({ onMenuClick }: HeaderProps) => {
     const location = useLocation();
 
     const { isMqttConnected, connectMqtt } = useMqttStore();
-    const { isOrgScoped, isAdmin, isGlobalAdmin } = useAuthStore();
+    const { user, isOrgScoped, isAdmin, isGlobalAdmin } = useAuthStore();
+    const orgModules = useOrgModules(user?.org_id);
     const { t } = useTranslation();
 
     // Get navigation context
@@ -61,7 +63,7 @@ const Header = ({ onMenuClick }: HeaderProps) => {
             isAdmin: isAdmin(),
             isGlobalAdmin: isGlobalAdmin(),
             isOrgScoped: isOrgScoped(),
-        });
+        }, orgModules);
         const crumbs = [{ name: t('nav.home'), path: '/' }];
         if (path === '/') return crumbs;
 

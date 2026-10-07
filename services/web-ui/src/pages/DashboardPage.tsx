@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useOrgModules } from '@/hooks/useOrgModules';
 import { useGateways } from '@/hooks/useGateways';
 
 import {
@@ -799,7 +800,11 @@ const DashboardPage = () => {
     // An installation with no PLC yet: the dashboard has nothing to show, and
     // a new user does not know that a gateway needs an area, a site and an
     // organization first. Point them at the guided setup.
-    const { isAdmin } = useAuthStore();
+    const { isAdmin, user } = useAuthStore();
+    // Organization modules: an org without OEE/shifts/KPIs gets a
+    // data-logger dashboard (gateways, data, alarms) instead of plant cards.
+    const orgModules = useOrgModules(user?.org_id);
+    const modOn = (m: string) => !orgModules || orgModules.has(m);
     const { gateways, isLoading: gatewaysLoading } = useGateways();
     const empty = isAdmin() && !gatewaysLoading && gateways.length === 0;
 
@@ -855,15 +860,17 @@ const DashboardPage = () => {
             {/* OEE — "lampante": prima cosa che l'operatore vede dopo lo
                 status bar. Due modalità: legacy (1 card) o profili
                 (rollup + griglia di card linea/reparto). */}
-            {data.oee && <OEEWrapper overview={data.oee} />}
+            {data.oee && modOn('oee') && <OEEWrapper overview={data.oee} />}
 
+            {modOn('kpis') && (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 {data.kpi.map((k) => <KPICard key={k.key} k={k} />)}
             </div>
+            )}
 
             {/* Turno corrente — riga a sé sopra le 3 card metriche, perché è
                 l'informazione più "operativa" che l'operatore vuole vedere subito. */}
-            <ShiftCard data={data} />
+            {modOn('shifts') && <ShiftCard data={data} />}
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <AlarmsCard      data={data} />

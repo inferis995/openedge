@@ -1360,6 +1360,23 @@ func runAutoMigrations(db *sql.DB) error {
 		log.Printf("Warning: org logo migration: %v", err)
 	}
 
+	// Which pages an organization may use. No row for (org_id, module_key)
+	// means enabled; a row with enabled=false hides the page in the menu
+	// and blocks its API group. Like the logo, a Go migration so existing
+	// databases get it at startup without a manual step.
+	if _, err := db.ExecContext(context.Background(), `CREATE TABLE IF NOT EXISTS organization_modules (
+		org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+		module_key TEXT NOT NULL,
+		enabled BOOLEAN NOT NULL DEFAULT true,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (org_id, module_key)
+	)`); err != nil {
+		log.Printf("Warning: organization_modules migration: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `CREATE INDEX IF NOT EXISTS idx_organization_modules_org ON organization_modules(org_id)`); err != nil {
+		log.Printf("Warning: organization_modules index: %v", err)
+	}
+
 	// Migration: at most one open alarm_events row per (tag_id, definition_id).
 	ensureSingleOpenAlarmEvent(db)
 
