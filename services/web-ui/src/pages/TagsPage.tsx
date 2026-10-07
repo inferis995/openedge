@@ -778,7 +778,7 @@ const TagsPage = () => {
         const m = new Map<number, 'fresh' | 'stale' | 'never'>();
         for (const t of filteredTags) {
             const v = currentValues.get(t.id);
-            m.set(t.id, !v ? 'never' : v.quality === 0 ? 'fresh' : 'stale');
+            m.set(t.id, !v ? 'stale' : v.quality === 0 ? 'fresh' : 'stale');
         }
         return m;
     }, [filteredTags, currentValues]);
@@ -1315,7 +1315,6 @@ const TagsPage = () => {
                 {([
                     ['fresh', statusCounts.fresh, 'text-green-600'],
                     ['stale', statusCounts.stale, 'text-amber-600'],
-                    ['never', statusCounts.never, 'text-muted-foreground'],
                     ['alarm', statusCounts.alarm, 'text-destructive'],
                 ] as const).map(([key, n, color]) => (
                     <button key={key} type="button"
