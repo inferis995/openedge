@@ -109,7 +109,7 @@ func main() {
 		Database: getEnv("DB_NAME", "industrial_edge"),
 	}
 
-	database, err := db.Connect(dbCfg)
+	database, err := db.Connect(db.ForDriver(dbCfg))
 	if err != nil {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}

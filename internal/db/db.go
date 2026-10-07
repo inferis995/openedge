@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	_ "github.com/lib/pq"
@@ -35,11 +36,9 @@ func Connect(cfg Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	// Production-ready connection pool settings
-	// MaxOpenConns: maximum number of open connections to the database
-	db.SetMaxOpenConns(25)
-	// MaxIdleConns: maximum number of connections in the idle connection pool
-	db.SetMaxIdleConns(10)
+	maxOpen, maxIdle := poolSize(cfg)
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
 	// ConnMaxLifetime: maximum amount of time a connection may be reused
 	db.SetConnMaxLifetime(5 * time.Minute)
 	// ConnMaxIdleTime: maximum amount of time a connection may be idle
@@ -50,14 +49,39 @@ func Connect(cfg Config) (*sql.DB, error) {
 	}
 
 	log.Printf("[DB] Connection pool configured: MaxOpen=%d, MaxIdle=%d, MaxLifetime=%v",
-		25, 10, 5*time.Minute)
+		maxOpen, maxIdle, 5*time.Minute)
 
+	if cfg.SkipMigrations {
+		return db, nil
+	}
 	// Run auto-migrations
 	if err := runAutoMigrations(db); err != nil {
 		log.Printf("Warning: Auto-migration failed: %v", err)
 	}
 
 	return db, nil
+}
+
+// poolSize is the pool's bounds: the configuration's, or 25 and 10, with the
+// environment overriding both.
+func poolSize(cfg Config) (maxOpen, maxIdle int) {
+	maxOpen, maxIdle = cfg.MaxOpenConns, cfg.MaxIdleConns
+	if maxOpen <= 0 {
+		maxOpen = 25
+	}
+	if maxIdle <= 0 {
+		maxIdle = 10
+	}
+	if n, err := strconv.Atoi(os.Getenv("DB_MAX_OPEN_CONNS")); err == nil && n > 0 {
+		maxOpen = n
+	}
+	if n, err := strconv.Atoi(os.Getenv("DB_MAX_IDLE_CONNS")); err == nil && n >= 0 {
+		maxIdle = n
+	}
+	if maxIdle > maxOpen {
+		maxIdle = maxOpen
+	}
+	return maxOpen, maxIdle
 }
 
 // Close closes the database connection

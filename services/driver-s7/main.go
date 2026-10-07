@@ -143,7 +143,7 @@ func main() {
 	var database *sql.DB
 	err = retryWithBackoff("Database connection", func() error {
 		var err error
-		database, err = db.Connect(dbCfg)
+		database, err = db.Connect(db.ForDriver(dbCfg))
 		return err
 	})
 	if err != nil {

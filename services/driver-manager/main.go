@@ -652,6 +652,11 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 		fmt.Sprintf("ORG_ID=%d", m.orgID),
 		"TZ=" + getEnv("TZ", "Europe/Rome"),
 	}
+	// A driver's pool is small by default (db.ForDriver); a site that needs
+	// otherwise sets it once here for every driver.
+	if v := getEnv("DRIVER_DB_MAX_OPEN_CONNS", ""); v != "" {
+		env = append(env, "DB_MAX_OPEN_CONNS="+v)
+	}
 
 	containerConfig := &container.Config{
 		Image: imageName,

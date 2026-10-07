@@ -41,6 +41,9 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
+    # One driver per gateway, each with its own small pool: a site with a
+    # hundred devices needs more than PostgreSQL's default 100 connections.
+    command: postgres -c max_connections=${POSTGRES_MAX_CONNECTIONS:-300}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-industrial_user}"]
       interval: 10s
@@ -227,6 +230,7 @@ services:
       DB_PORT: 5432
       DB_USER: ${POSTGRES_USER:-industrial_user}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DRIVER_DB_MAX_OPEN_CONNS: ${DRIVER_DB_MAX_OPEN_CONNS:-}
       DB_NAME: ${POSTGRES_DB:-industrial_edge}
       MQTT_HOST: mosquitto
       MQTT_PORT: 1883
