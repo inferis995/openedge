@@ -955,10 +955,10 @@ export default function TrendPage() {
                         <div className="shrink-0 flex flex-wrap gap-x-3 gap-y-1 px-3 pt-2 text-xs">
                             {pensWithStats.map(p => (
                                 <button key={p.tagId} type="button" onClick={() => togglePenVisibility(p.tagId)}
-                                    className={`inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-muted ${p.visible ? '' : 'opacity-40'}`}
+                                    className={`inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-muted max-w-full ${p.visible ? '' : 'opacity-40'}`}
                                     title={p.visible ? tr('historian.hide_pen') : tr('historian.show_pen')}>
                                     <span className="inline-block w-3 h-[3px] rounded" style={{ background: p.color }} />
-                                    <span className="font-medium max-w-[220px] truncate" style={{ color: p.color }}>{p.label}</span>
+                                    <span className="font-medium break-words" style={{ color: p.color }}>{p.label}</span>
                                     {p.stats?.last != null ? (
                                         <span className="font-mono text-muted-foreground">
                                             {Number(p.stats.last.toFixed(3))}{p.unit ? ` ${p.unit}` : ''}
@@ -1017,7 +1017,7 @@ export default function TrendPage() {
                                         <tbody>
                                             {measurement?.map(({ pen, a, b, delta }) => (
                                                 <tr key={pen.tagId}>
-                                                    <td className="pr-3 truncate max-w-[180px]" style={{ color: pen.color }}>{pen.label}</td>
+                                                    <td className="pr-3 break-words" style={{ color: pen.color }}>{pen.label}</td>
                                                     <td className="pr-3">A {a ? a.value.toFixed(3).replace(/\.?0+$/, '') : '—'}</td>
                                                     {marks.b !== null && <td className="pr-3">B {b ? b.value.toFixed(3).replace(/\.?0+$/, '') : '—'}</td>}
                                                     {marks.b !== null && <td className="font-semibold">Δ {delta === null ? '—' : `${delta >= 0 ? '+' : ''}${delta.toFixed(3).replace(/\.?0+$/, '')}`}{pen.unit ? ` ${pen.unit}` : ''}</td>}
