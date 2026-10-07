@@ -113,17 +113,17 @@ func (h *InfrastructureHandler) List(c *gin.Context) {
 
 	query := `
 		SELECT g.id, g.name, g.driver_type, g.connection_config, g.enabled,
-		       g.last_seen_at, g.last_seen_ip::text, g.agent_version,
+		       g.health_status, g.health_reported_at, g.last_seen_at, g.last_seen_ip::text, g.agent_version,
 		       COUNT(t.id) as tag_count,
 		       o.id as org_id, o.name as org_name
-		FROM gateways g
-		JOIN areas a ON a.id = g.area_id
-		JOIN sites s ON s.id = a.site_id
-		JOIN organizations o ON o.id = s.org_id
-		LEFT JOIN tags t ON t.gateway_id = g.id
-		WHERE ($1::int IS NULL OR o.id = $1)
-		GROUP BY g.id, o.id, o.name, g.last_seen_at, g.last_seen_ip, g.agent_version
-		ORDER BY o.name, g.name`
+	FROM gateways g
+	JOIN areas a ON a.id = g.area_id
+	JOIN sites s ON s.id = a.site_id
+	JOIN organizations o ON o.id = s.org_id
+	LEFT JOIN tags t ON t.gateway_id = g.id
+	WHERE ($1::int IS NULL OR o.id = $1)
+	GROUP BY g.id, o.id, o.name, g.health_status, g.health_reported_at, g.last_seen_at, g.last_seen_ip, g.agent_version
+	ORDER BY o.name, g.name`
 
 	var queryArg interface{}
 	if orgIDPtr != nil {
@@ -141,21 +141,38 @@ func (h *InfrastructureHandler) List(c *gin.Context) {
 	for rows.Next() {
 		var entry GatewayInfraEntry
 		var connConfig []byte
+		var healthStatus sql.NullString
+		var healthReportedAt sql.NullTime
 		var lastSeenAt sql.NullTime
 		var lastSeenIP sql.NullString
 		var agentVersion sql.NullString
 
 		if err := rows.Scan(
 			&entry.ID, &entry.Name, &entry.DriverType, &connConfig, &entry.Enabled,
-			&lastSeenAt, &lastSeenIP, &agentVersion,
+			&healthStatus, &healthReportedAt, &lastSeenAt, &lastSeenIP, &agentVersion,
 			&entry.TagCount, &entry.OrgID, &entry.OrgName,
 		); err != nil {
 			continue
 		}
 
-		if lastSeenAt.Valid {
+		// Either signal proves life (OR, not one or the other):
+		// - health_status: written by core-api on every internal-driver
+		//   heartbeat (with the 24h data-freshness gate) — same source as
+		//   the inventory. Internal MQTT drivers never touch last_seen_at.
+		// - last_seen_at within 5m: written by edge-agent HTTP heartbeats
+		//   for the gateways the box polls. Boxes never write health_status.
+		if healthStatus.Valid && healthStatus.String == "online" {
+			entry.Online = true
+		}
+		if lastSeenAt.Valid && time.Since(lastSeenAt.Time) < 5*time.Minute {
+			entry.Online = true
+		}
+		// Show the freshest contact, whichever channel reported it.
+		if healthReportedAt.Valid {
+			entry.LastSeenAt = &healthReportedAt.Time
+		}
+		if lastSeenAt.Valid && (entry.LastSeenAt == nil || lastSeenAt.Time.After(*entry.LastSeenAt)) {
 			entry.LastSeenAt = &lastSeenAt.Time
-			entry.Online = time.Since(lastSeenAt.Time) < 5*time.Minute
 		}
 		if lastSeenIP.Valid {
 			entry.LastSeenIP = &lastSeenIP.String
