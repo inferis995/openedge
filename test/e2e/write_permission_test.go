@@ -280,11 +280,11 @@ func TestExportRequiresThePermission(t *testing.T) {
 	viewer.mustDo(http.MethodGet, "/api/tags/export", nil, http.StatusForbidden)
 
 	admin.mustDo(http.MethodPut, fmt.Sprintf("/api/users/%d/permissions", userID),
-		map[string]interface{}{"can_export_data": true}, http.StatusOK)
+		map[string]interface{}{"can_export_data": true, "can_export_config": true}, http.StatusOK)
 
 	status, _ := viewer.do(http.MethodGet, "/api/tags/export", nil)
 	if status == http.StatusForbidden {
-		t.Fatal("granting can_export_data changed nothing — the permission is still not enforced")
+		t.Fatal("granting can_export_config changed nothing — the permission is still not enforced")
 	}
 }
 
