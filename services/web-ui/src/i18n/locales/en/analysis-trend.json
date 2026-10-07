@@ -190,7 +190,11 @@
         "stat_last": "Lst",
         "stat_min": "Min",
         "stat_max": "Max",
-        "stat_avg": "Avg"
+        "stat_avg": "Avg",
+        "last_sample": "last reading {{age}}",
+        "contact": "contact {{age}}",
+        "contact_never": "gateway never heard from",
+        "gateway_offline": "gateway offline"
     },
     "reportsPage": {
         "preparing": "Preparing…",

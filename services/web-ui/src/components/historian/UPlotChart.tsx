@@ -26,6 +26,11 @@ interface Props {
      */
     values: (number | null | undefined)[][];
     pens: PenSeries[];
+    /**
+     * Per pen, the min/max envelope of bucketed values (aligned with
+     * timestamps), or null. Drawn as a shaded band around the curve.
+     */
+    bands?: ({ min: (number | undefined)[]; max: (number | undefined)[] } | null)[];
     /** The window the user chose, in ms. The x axis always shows exactly this. */
     range: { from: number; to: number };
     /**
@@ -132,6 +137,16 @@ function tooltipPlugin(pens: PenSeries[]): uPlot.Plugin {
                     value.textContent = `${val}${pen.unit && val !== '—' ? ' ' + pen.unit : ''}`;
                     row.appendChild(value);
                     tooltip.appendChild(row);
+                    // A bucket's extremes, when this value stands for several samples.
+                    const n = pens.length;
+                    const hi = j >= 0 ? u.data[n + 1 + 2 * i]?.[j] : undefined;
+                    const lo = j >= 0 ? u.data[n + 2 + 2 * i]?.[j] : undefined;
+                    if (hi !== undefined && hi !== null && lo !== undefined && lo !== null) {
+                        const ext = document.createElement('div');
+                        ext.className = 'pl-[16px] text-[10px] text-muted-foreground font-mono';
+                        ext.textContent = `min ${fmtValue(lo, pen.decimals)} · max ${fmtValue(hi, pen.decimals)}`;
+                        tooltip.appendChild(ext);
+                    }
                 }
                 tooltip.classList.remove('hidden');
 
@@ -255,7 +270,7 @@ function holdLastPlugin(pens: PenSeries[]): uPlot.Plugin {
  * The historian chart. Fills its parent: give the parent a height (flex-1,
  * h-full…) and the chart follows it, on resize and on rotation.
  */
-export function UPlotChart({ timestamps, values, pens, range, live = false, onZoom }: Props) {
+export function UPlotChart({ timestamps, values, pens, bands, range, live = false, onZoom }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const plotRef = useRef<uPlot | null>(null);
     // The latest window, read by uPlot's callbacks (axis labels) between renders.
@@ -265,11 +280,18 @@ export function UPlotChart({ timestamps, values, pens, range, live = false, onZo
     // before their data, and uPlot (and the plugins) read a column per series.
     const data = useMemo<uPlot.AlignedData>(() => {
         const aligned: uPlot.AlignedData = [new Float64Array(timestamps)];
+        const empty = () => new Array(timestamps.length).fill(undefined);
         for (let i = 0; i < pens.length; i++) {
-            aligned.push((values[i] ?? new Array(timestamps.length).fill(undefined)) as unknown as uPlot.TypedArray);
+            aligned.push((values[i] ?? empty()) as unknown as uPlot.TypedArray);
+        }
+        // Two more columns per pen, max then min, after all the pens: the
+        // series built for them are invisible, uPlot fills between them.
+        for (let i = 0; i < pens.length; i++) {
+            aligned.push((bands?.[i]?.max ?? empty()) as unknown as uPlot.TypedArray);
+            aligned.push((bands?.[i]?.min ?? empty()) as unknown as uPlot.TypedArray);
         }
         return aligned;
-    }, [timestamps, values, pens.length]);
+    }, [timestamps, values, bands, pens.length]);
 
     // Units in display order: the first goes left, the second right, then
     // alternating, so two units read like a classic two-axis trend.
@@ -327,7 +349,22 @@ export function UPlotChart({ timestamps, values, pens, range, live = false, onZo
                 },
                 value: (_u: uPlot, v: number | null) => (v === null || v === undefined ? '—' : fmtValue(v, pen.decimals)),
             } as uPlot.Series)),
+            ...pens.flatMap((pen) => [0, 1].map(() => ({
+                scale: scaleKey(pen),
+                // The envelope's edges, faint: a spike one bucket wide is
+                // narrower than a pixel and its fill alone would not show.
+                stroke: pen.color + '73',
+                width: 1,
+                show: pen.visible,
+                points: { show: false },
+                spanGaps: false,
+            } as uPlot.Series))),
         ];
+        const n = pens.length;
+        const bandOpts: uPlot.Band[] = pens.map((pen, i) => ({
+            series: [n + 1 + 2 * i, n + 2 + 2 * i] as [number, number],
+            fill: pen.color + '2e',
+        }));
 
         const axes: uPlot.Axis[] = [{
             stroke: TEXT_COLOR,
@@ -369,6 +406,7 @@ export function UPlotChart({ timestamps, values, pens, range, live = false, onZo
             height: el.clientHeight || 300,
             scales,
             series,
+            bands: bandOpts,
             axes,
             legend: { show: false },
             plugins: [tooltipPlugin(pens), touchPlugin(onZoom), holdLastPlugin(pens)],

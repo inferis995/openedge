@@ -17,6 +17,21 @@ export interface Pen {
     color: string;
     visible: boolean;
     stats?: PenStats;
+    /** When the newest good sample in the window was taken (ms). */
+    lastSampleAt?: number | null;
+    /** The tag's gateway: when it last reported, and whether it is online. */
+    contact?: { at: number | null; online: boolean } | null;
+}
+
+/** "4 h ago", in the user's language. */
+function ago(ms: number, lang: string): string {
+    const s = (ms - Date.now()) / 1000;
+    const rtf = new Intl.RelativeTimeFormat(lang, { numeric: 'auto', style: 'short' });
+    const a = Math.abs(s);
+    if (a < 60) return rtf.format(Math.round(s), 'second');
+    if (a < 3600) return rtf.format(Math.round(s / 60), 'minute');
+    if (a < 86400) return rtf.format(Math.round(s / 3600), 'hour');
+    return rtf.format(Math.round(s / 86400), 'day');
 }
 
 interface Props {
@@ -41,7 +56,7 @@ const PALETTE = [
 ];
 
 export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: Props) {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     if (pens.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2 p-4">
@@ -127,6 +142,22 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
                                     <div className="text-[11px] font-mono font-medium">{fmt(value)}</div>
                                 </div>
                             ))}
+                        </div>
+                    )}
+
+                    {/* Data age and gateway contact: a logger can be in touch
+                        and still send old readings, or be silent with a recent one. */}
+                    {(pen.lastSampleAt || pen.contact) && (
+                        <div className="pl-5 mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
+                            {pen.lastSampleAt && <span>{t('historian.last_sample', { age: ago(pen.lastSampleAt, i18n.language) })}</span>}
+                            {pen.contact && (
+                                <span className={pen.contact.online ? '' : 'text-amber-600 dark:text-amber-500'}>
+                                    {pen.contact.at
+                                        ? t('historian.contact', { age: ago(pen.contact.at, i18n.language) })
+                                        : t('historian.contact_never')}
+                                    {!pen.contact.online && ` · ${t('historian.gateway_offline')}`}
+                                </span>
+                            )}
                         </div>
                     )}
                 </div>

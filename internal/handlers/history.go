@@ -115,6 +115,10 @@ type HistoryDataPoint struct {
 	Quality     int      `json:"quality"`
 	Source      string   `json:"source,omitempty"`       // "raw", "1m", "1h", "1d"
 	SampleCount int64    `json:"sample_count,omitempty"` // Points aggregated into this bucket
+	// The bucket's extremes, when the point stands for several samples: the
+	// chart draws them as an envelope, so a spike averaged away still shows.
+	Min *float64 `json:"min,omitempty"`
+	Max *float64 `json:"max,omitempty"`
 }
 
 // HistoryResponse wraps the data points with metadata
@@ -393,6 +397,10 @@ type BatchQueryRequest struct {
 	End      string `json:"end"`
 	Agg      string `json:"agg"`
 	Interval string `json:"interval"`
+	// Points is about how many values the chart can show (its width in
+	// pixels). When set, the bucket is sized to it and each bucket carries its
+	// min and max; a window with fewer samples than that returns the samples.
+	Points int `json:"points"`
 }
 
 // maxBatchTags bounds one request. The chart draws a handful of pens; a caller
@@ -476,7 +484,12 @@ func (h *HistoryHandler) BatchQuery(c *gin.Context) {
 			return
 		}
 
-		points, _, err := h.seriesForTag(tagID, startTime, endTime, aggFunc, req.Interval, level)
+		var points []HistoryDataPoint
+		if req.Points > 0 {
+			points, err = h.chartSeries(c.Request.Context(), tagID, startTime, endTime, aggFunc, req.Points)
+		} else {
+			points, _, err = h.seriesForTag(tagID, startTime, endTime, aggFunc, req.Interval, level)
+		}
 		if err != nil {
 			log.Printf("[HISTORY] batch: query failed for tag %d: %v", tagID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query history"})

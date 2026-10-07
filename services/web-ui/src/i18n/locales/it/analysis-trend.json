@@ -190,7 +190,11 @@
         "stat_last": "Ult",
         "stat_min": "Min",
         "stat_max": "Max",
-        "stat_avg": "Med"
+        "stat_avg": "Med",
+        "last_sample": "ultimo dato {{age}}",
+        "contact": "contatto {{age}}",
+        "contact_never": "gateway mai sentito",
+        "gateway_offline": "gateway offline"
     },
     "reportsPage": {
         "preparing": "Preparazione…",

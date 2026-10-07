@@ -20,11 +20,12 @@ import { PenPanel, type Pen, type PenStats } from '@/components/historian/PenPan
 
 import { historyApi } from '@/api/history';
 import { tagsApi } from '@/api/tags';
+import { gatewaysApi } from '@/api/gateways';
 import { alignPens, mergeSeries, realtimePoint } from '@/lib/trendAlign';
 import { decodeView, encodeView, resolveRange, TREND_VIEW_KEY, type TrendView } from '@/lib/trendView';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useAuthStore } from '@/stores/useAuthStore';
-import { getAutoInterval, type TrendDataPoint, type AggregationType, type TagWithHierarchy } from '@/types/trend';
+import { type TrendDataPoint, type AggregationType, type TagWithHierarchy } from '@/types/trend';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -38,11 +39,15 @@ const AGG_OPTIONS: { value: AggregationType; labelKey: string }[] = [
     { value: 'mean',  labelKey: 'trendPage.agg_mean'  },
     { value: 'max',   labelKey: 'trendPage.agg_max'   },
     { value: 'min',   labelKey: 'trendPage.agg_min'   },
-    { value: 'first', labelKey: 'trendPage.agg_first' },
     { value: 'last',  labelKey: 'trendPage.agg_last'  },
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Values the chart can show: about one per CSS pixel, within the server's bounds. */
+function chartPoints(): number {
+    return Math.max(300, Math.min(2000, Math.round(window.innerWidth)));
+}
 
 function savedView(): TrendView | null {
     try {
@@ -66,8 +71,9 @@ function computeStats(pts: TrendDataPoint[]): PenStats {
     for (const p of pts) {
         if (p.quality !== 0 || p.value === null) continue;
         const v = p.value;
-        if (v < min) min = v;
-        if (v > max) max = v;
+        // A bucket's own extremes, not its average: a spike stays the max.
+        if ((p.min ?? v) < min) min = p.min ?? v;
+        if ((p.max ?? v) > max) max = p.max ?? v;
         sum += v; count++; last = v;
     }
     if (count === 0) return { min: null, max: null, avg: null, last: null, count: 0 };
@@ -212,7 +218,9 @@ export default function TrendPage() {
             start: queryRange.from.toISOString(),
             end: queryRange.to.toISOString(),
             agg: aggregation,
-            interval: getAutoInterval(queryRange.from, queryRange.to),
+            // As many values as the screen can show: the server sizes its
+            // buckets to this and sends each one's min and max.
+            points: chartPoints(),
         }),
         enabled: penIds.length > 0 && (!liveMode || !!liveBase),
         staleTime: 5_000,
@@ -225,7 +233,7 @@ export default function TrendPage() {
             const from = new Date(to.getTime() - 2 * 60_000);
             return historyApi.batchQuery({
                 tag_ids: penIds, start: from.toISOString(), end: to.toISOString(),
-                agg: aggregation, interval: getAutoInterval(from, to),
+                agg: aggregation, points: chartPoints(),
             });
         },
         enabled: liveMode && penIds.length > 0,
@@ -269,16 +277,34 @@ export default function TrendPage() {
     }, [batchData, tailData, rtSeries, liveMode, liveBase, lastLiveTs, penIds, spanMs]);
 
     // Build uPlot-aligned data (seconds timestamps)
-    const { timestamps, values } = useMemo<{ timestamps: number[]; values: (number | null | undefined)[][] }>(() => {
-        if (!series || pens.length === 0) return { timestamps: [], values: [] };
+    const { timestamps, values, bands } = useMemo<ReturnType<typeof alignPens>>(() => {
+        if (!series || pens.length === 0) return { timestamps: [], values: [], bands: [] };
         return alignPens(pens, series);
     }, [series, pens]);
 
-    // Compute per-pen stats
+    // Gateways' last contact, for the pen panel.
+    const { data: gateways } = useQuery({
+        queryKey: ['gateways', 'trend-contact'],
+        queryFn: () => gatewaysApi.getAll(),
+        enabled: pens.length > 0,
+        refetchInterval: 60_000,
+        staleTime: 30_000,
+    });
+
+    // Compute per-pen stats, data age and gateway contact
     const pensWithStats = useMemo<Pen[]>(() => {
         if (!series) return pens;
-        return pens.map(pen => ({ ...pen, stats: computeStats(series[pen.tagId] ?? []) }));
-    }, [series, pens]);
+        return pens.map(pen => {
+            const pts = series[pen.tagId] ?? [];
+            let lastSampleAt: number | null = null;
+            for (let i = pts.length - 1; i >= 0; i--) {
+                if (pts[i].quality === 0 && pts[i].value !== null) { lastSampleAt = pts[i].timestamp; break; }
+            }
+            const gw = gateways?.find(g => g.id === tagMap.get(pen.tagId)?.gateway_id);
+            const contact = gw ? { at: gw.last_seen ?? null, online: (gw.connection_status ?? gw.status) === 'online' } : null;
+            return { ...pen, stats: computeStats(pts), lastSampleAt, contact };
+        });
+    }, [series, pens, gateways, tagMap]);
 
     // Build PenSeries for uPlot
     const penSeries = useMemo<PenSeries[]>(() =>
@@ -450,7 +476,7 @@ export default function TrendPage() {
             {/* ── CONTENT ────────────────────────────────────────────── */}
             {/* On a phone the page scrolls and has no height to fill: the
                 chart gets most of the screen instead (dvh follows the browser bar). */}
-            <div className={`relative flex overflow-hidden ${isWide ? 'flex-1 min-h-0' : 'h-[75dvh] min-h-[380px] shrink-0'}`}>
+            <div className={`relative flex overflow-hidden ${isWide ? 'h-[calc(100dvh-11rem)] min-h-[420px] shrink-0' : 'h-[75dvh] min-h-[380px] shrink-0'}`}>
 
                 {/* Left: tag browser. On a narrow screen it floats over the chart. */}
                 {sidebarOpen && (
@@ -481,6 +507,7 @@ export default function TrendPage() {
                                 values={values}
                                 pens={penSeries}
                                 range={{ from: timeRange.from.getTime(), to: timeRange.to.getTime() }}
+                                bands={bands}
                                 live={liveMode}
                                 onZoom={handleZoom}
                             />

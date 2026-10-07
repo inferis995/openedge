@@ -176,3 +176,83 @@ func TestTrendBatchValidatesItsInput(t *testing.T) {
 		})
 	}
 }
+
+// The chart asks for as many values as it has pixels. With more samples than
+// that, each value is a bucket carrying its min and max — a spike averaged
+// away still shows in the envelope; with fewer, the samples come back as they
+// are.
+func TestTrendBatchSizesBucketsToTheChartAndKeepsTheExtremes(t *testing.T) {
+	admin, _ := adminSession(t)
+	fx := newFixture(t, admin)
+	org := &apiClient{t: t, token: admin.token, orgID: fmt.Sprintf("%d", fx.org.ID)}
+	mq := mqttConnect(t, "e2e-trend-points-"+uniqueSuffix())
+
+	// 120 readings 5 s apart over the last 10 minutes, one of them a spike.
+	start := time.Now().Add(-11 * time.Minute).Truncate(time.Minute)
+	for i := 0; i < 120; i++ {
+		v := 10.0 + float64(i%3)*0.1 // changes every sample: the historian keeps them all
+		if i == 60 {
+			v = 99
+		}
+		publish(t, mq, fx.dataTopic, map[string]interface{}{
+			"tag_id": fx.tagID, "org_id": fx.org.ID, "v": v,
+			"ts": start.Add(time.Duration(i) * 5 * time.Second).UnixMilli(), "q": 0,
+		})
+	}
+
+	type point struct {
+		Value *float64 `json:"value"`
+		Min   *float64 `json:"min"`
+		Max   *float64 `json:"max"`
+	}
+	ask := func(points int) []point {
+		body := map[string]interface{}{
+			"tag_ids": []int{fx.tagID},
+			"start":   start.Add(-time.Second).UTC().Format(time.RFC3339),
+			"end":     start.Add(10 * time.Minute).UTC().Format(time.RFC3339),
+			"agg":     "avg", "points": points,
+		}
+		status, raw := batchQuery(t, org, body)
+		if status != http.StatusOK {
+			t.Fatalf("batch with points=%d: %d %s", points, status, truncate(raw))
+		}
+		var out map[string][]point
+		if err := json.Unmarshal(raw, &out); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return out[strconv.Itoa(fx.tagID)]
+	}
+
+	// Wait for the historian to have all of them (asking for every sample).
+	deadline := time.Now().Add(30 * time.Second)
+	for len(ask(1000)) < 120 {
+		if time.Now().After(deadline) {
+			t.Fatalf("only %d of 120 readings reached tag_history", len(ask(1000)))
+		}
+		time.Sleep(time.Second)
+	}
+
+	// Room for every sample: the samples, no envelope.
+	all := ask(1000)
+	if all[len(all)/2].Min != nil {
+		t.Errorf("a window with fewer samples than points came back bucketed")
+	}
+
+	// Room for 50: buckets, fewer than the samples, the spike in a max.
+	b := ask(50)
+	if len(b) >= 120 || len(b) < 10 {
+		t.Fatalf("%d values for 50 points over 120 samples", len(b))
+	}
+	spike := false
+	for _, p := range b {
+		if p.Min == nil || p.Max == nil {
+			continue
+		}
+		if *p.Max == 99 {
+			spike = true
+		}
+	}
+	if !spike {
+		t.Errorf("the spike is in no bucket's max — it was averaged away")
+	}
+}

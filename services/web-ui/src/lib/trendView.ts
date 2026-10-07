@@ -19,7 +19,9 @@ const PRESETS: Record<string, number> = {
     '1h': 3600e3, '4h': 4 * 3600e3, '8h': 8 * 3600e3, '12h': 12 * 3600e3,
     '24h': 24 * 3600e3, '3d': 3 * 86400e3, '7d': 7 * 86400e3, '30d': 30 * 86400e3,
 };
-const AGGS: AggregationType[] = ['mean', 'max', 'min', 'first', 'last'];
+// No "first": the history aggregates keep avg, min, max and last, and the
+// server has always refused it.
+const AGGS: AggregationType[] = ['mean', 'max', 'min', 'last'];
 
 export function encodeView(v: TrendView): URLSearchParams {
     const q = new URLSearchParams();

@@ -41,7 +41,19 @@ export function alignPens(pens: { tagId: number }[], batch: Record<number, Trend
         if (m.has(t)) return m.get(t);
         return holes.some(([a, b]) => t > a && t < b) ? null : undefined;
     }));
-    return { timestamps, values };
+    // The envelope of bucketed points, aligned the same way; a pen whose
+    // points are samples has none.
+    const bands = pens.map(pen => {
+        const lo = new Map<number, number>(), hi = new Map<number, number>();
+        for (const p of batch[pen.tagId] ?? []) {
+            if (p.min === undefined || p.max === undefined || p.quality !== 0) continue;
+            const t = Math.round(p.timestamp / 1000);
+            lo.set(t, p.min); hi.set(t, p.max);
+        }
+        if (lo.size === 0) return null;
+        return { min: timestamps.map(t => lo.get(t)), max: timestamps.map(t => hi.get(t)) };
+    });
+    return { timestamps, values, bands };
 }
 
 /**

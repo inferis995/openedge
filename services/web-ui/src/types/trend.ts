@@ -7,6 +7,9 @@ export interface TrendDataPoint {
     timestamp: number;
     value: number | null;
     quality: number; // 0 = GOOD, >0 = BAD/UNCERTAIN
+    /** A bucket's extremes, when the point stands for several samples. */
+    min?: number;
+    max?: number;
 }
 
 export interface TagWithHierarchy {
@@ -101,6 +104,8 @@ export interface BatchHistoryRequest {
     end: string;
     agg?: AggregationType;
     interval?: string;
+    /** About how many values the chart can show: buckets are sized to it. */
+    points?: number;
 }
 
 export interface BatchHistoryResponse {

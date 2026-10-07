@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **History resolution follows the chart.** `POST /api/history/batch` takes
+  `points` (about the chart's width): a window with fewer samples comes back
+  as the samples themselves; otherwise buckets are sized to it, read from
+  the narrowest continuous aggregate that fits, and carry each bucket's min
+  and max. Fixed levels used to turn 24 hours into 24 hourly averages and
+  30 days into 30 daily ones, averaging spikes away. The trend draws the
+  min/max envelope, shows each pen's data age and its gateway's last
+  contact, and no longer offers "first", which the server never accepted.
+
 - **Trend.** On a phone the tag list and the pen panel took the whole width
   and left the chart none; they now float over it, closed by default. The
   x axis showed the data's extent instead of the chosen window (a single
