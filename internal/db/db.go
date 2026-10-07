@@ -36,7 +36,7 @@ func Connect(cfg Config) (*sql.DB, error) {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
 
-	maxOpen, maxIdle := poolSize(cfg)
+	maxOpen, maxIdle := poolSize(&cfg)
 	db.SetMaxOpenConns(maxOpen)
 	db.SetMaxIdleConns(maxIdle)
 	// ConnMaxLifetime: maximum amount of time a connection may be reused
@@ -64,7 +64,7 @@ func Connect(cfg Config) (*sql.DB, error) {
 
 // poolSize is the pool's bounds: the configuration's, or 25 and 10, with the
 // environment overriding both.
-func poolSize(cfg Config) (maxOpen, maxIdle int) {
+func poolSize(cfg *Config) (maxOpen, maxIdle int) {
 	maxOpen, maxIdle = cfg.MaxOpenConns, cfg.MaxIdleConns
 	if maxOpen <= 0 {
 		maxOpen = 25

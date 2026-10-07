@@ -104,6 +104,8 @@ func TestTheInstallerSetsEveryVariableTheAgentReads(t *testing.T) {
 		// Unset, drivers join the manager's own network, which on a box is
 		// the generated compose's default network, where mosquitto is.
 		"DRIVER_NETWORK": true,
+		// Unset, each driver keeps db.ForDriver's small pool.
+		"DRIVER_DB_MAX_OPEN_CONNS": true,
 	}
 
 	for name := range wanted {

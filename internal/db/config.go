@@ -26,9 +26,10 @@ type Config struct {
 // Postgres admits a fixed number in total, and with one driver per device the
 // default pool would exhaust it long before the machine ran out of anything
 // else.
-func ForDriver(cfg Config) Config {
-	cfg.MaxOpenConns = 2
-	cfg.MaxIdleConns = 1
-	cfg.SkipMigrations = true
-	return cfg
+func ForDriver(cfg *Config) Config {
+	c := *cfg
+	c.MaxOpenConns = 2
+	c.MaxIdleConns = 1
+	c.SkipMigrations = true
+	return c
 }

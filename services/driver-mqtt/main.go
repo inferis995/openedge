@@ -167,7 +167,7 @@ func main() {
 		Database: getEnv("DB_NAME", "industrial_edge"),
 	}
 
-	database, err := db.Connect(db.ForDriver(dbCfg))
+	database, err := db.Connect(db.ForDriver(&dbCfg))
 	if err != nil {
 		log.Fatalf("[DRIVER-MQTT] Failed to connect to database: %v", err)
 	}
