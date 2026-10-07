@@ -16,7 +16,11 @@ export interface TrendView {
     cmp?: CompareMode;
     /** Per axis (keyed by unit, or #tagId for a pen without one): the tag's range, or fixed bounds. */
     y?: Record<string, YAxisMode>;
+    /** Curves of different axes in lanes, one under the other (the default), or overlaid. */
+    layout?: TrendLayout;
 }
+
+export type TrendLayout = 'lanes' | 'overlay';
 
 export type YAxisMode = 'eu' | { min: number; max: number };
 
@@ -53,6 +57,7 @@ export function encodeView(v: TrendView): URLSearchParams {
     const y = Object.entries(v.y ?? {}).map(([k, m]) =>
         `${encodeURIComponent(k)}:${m === 'eu' ? 'eu' : `${m.min}~${m.max}`}`);
     if (y.length) q.set('y', y.join(','));
+    if (v.layout === 'overlay') q.set('lay', 'ov');
     return q;
 }
 
@@ -86,7 +91,7 @@ export function decodeView(q: URLSearchParams): TrendView | null {
         const [lo, hi] = m.split('~').map(Number);
         if (Number.isFinite(lo) && Number.isFinite(hi) && hi > lo) y[key] = { min: lo, max: hi };
     }
-    return { pens: pens.slice(0, 30), range, agg, live: q.get('live') === '1' && 'preset' in range, cmp, y };
+    return { pens: pens.slice(0, 30), range, agg, live: q.get('live') === '1' && 'preset' in range, cmp, y, layout: q.get('lay') === 'ov' ? 'overlay' : 'lanes' };
 }
 
 /** The concrete window of a view's range, now. */

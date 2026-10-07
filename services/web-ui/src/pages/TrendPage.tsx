@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import {
     Activity, Play, Pause, RefreshCw, Download, PanelLeft, PanelRight,
     BarChart2, Settings2, ZoomOut, ChevronLeft, ChevronRight, Ruler, GitCompareArrows, MoveVertical,
-    Bookmark, Trash2,
+    Bookmark, Trash2, Rows3, Layers,
 } from 'lucide-react';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -27,7 +27,7 @@ import { trendViewsApi } from '@/api/trendViews';
 import api from '@/api/client';
 import { saveBlob } from '@/lib/download';
 import { alignPens, mergeSeries, realtimePoint, shiftPoints, valueAt } from '@/lib/trendAlign';
-import { compareOffset, decodeView, encodeView, resolveRange, TREND_VIEW_KEY, type CompareMode, type TrendView, type YAxisMode } from '@/lib/trendView';
+import { compareOffset, decodeView, encodeView, resolveRange, TREND_VIEW_KEY, type CompareMode, type TrendLayout, type TrendView, type YAxisMode } from '@/lib/trendView';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Input } from '@/components/ui/input';
 import { useRealtime } from '@/hooks/useRealtime';
@@ -190,6 +190,7 @@ export default function TrendPage() {
     const [aggregation, setAggregation] = useState<AggregationType>(() => initialView?.agg ?? 'mean');
     const [compare, setCompare] = useState<CompareMode>(() => initialView?.cmp ?? 'off');
     const [yModes, setYModes] = useState<Record<string, YAxisMode>>(() => initialView?.y ?? {});
+    const [layout, setLayout] = useState<TrendLayout>(() => initialView?.layout ?? 'lanes');
     const [measure, setMeasure] = useState(false);
     const [marks, setMarks] = useState<{ a: number | null; b: number | null }>({ a: null, b: null });
     // A first click places A, a second B, a third starts again.
@@ -228,7 +229,8 @@ export default function TrendPage() {
         live: liveMode,
         cmp: compare,
         y: yModes,
-    }).toString(), [rawPens, timeRange, aggregation, liveMode, compare, yModes]);
+        layout,
+    }).toString(), [rawPens, timeRange, aggregation, liveMode, compare, yModes, layout]);
     useEffect(() => {
         setSearchParams(new URLSearchParams(viewQuery), { replace: true });
         try { localStorage.setItem(TREND_VIEW_KEY, viewQuery); } catch { /* private mode: the address still has it */ }
@@ -538,6 +540,7 @@ export default function TrendPage() {
         setAggregation(v.agg);
         setCompare(v.cmp ?? 'off');
         setYModes(v.y ?? {});
+        setLayout(v.layout ?? 'lanes');
         setZoomStack([]);
         setMeasure(false);
         setLiveMode(v.live);
@@ -854,6 +857,16 @@ export default function TrendPage() {
                             </Popover>
                         )}
 
+                        {/* Lanes or overlaid: only matters with more than one axis */}
+                        {axisGroups.length > 1 && (
+                            <Button size="sm" variant="outline" className="h-9 sm:h-7 text-xs gap-1"
+                                onClick={() => setLayout(l => (l === 'lanes' ? 'overlay' : 'lanes'))}
+                                title={tr(layout === 'lanes' ? 'trendPage.layout_to_overlay' : 'trendPage.layout_to_lanes')}>
+                                {layout === 'lanes' ? <Rows3 className="w-3 h-3" /> : <Layers className="w-3 h-3" />}
+                                {tr(layout === 'lanes' ? 'trendPage.layout_lanes' : 'trendPage.layout_overlay')}
+                            </Button>
+                        )}
+
                         {/* Refresh */}
                         <Button size="icon" variant="outline" className="h-9 sm:h-7 w-9 sm:w-7"
                             onClick={() => refetch()} disabled={isFetching || penIds.length === 0}
@@ -971,6 +984,7 @@ export default function TrendPage() {
                                 bands={bands}
                                 events={chartEvents}
                                 yRanges={yRanges}
+                                stacked={layout === 'lanes'}
                                 live={liveMode}
                                 onZoom={handleZoom}
                                 measure={measure}

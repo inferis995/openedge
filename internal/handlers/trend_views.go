@@ -40,7 +40,7 @@ const maxTrendViewQuery = 4096
 // lib/trendView.ts). Anything else is refused rather than stored.
 var trendViewKeys = map[string]bool{
 	"pens": true, "range": true, "from": true, "to": true,
-	"agg": true, "live": true, "cmp": true, "y": true,
+	"agg": true, "live": true, "cmp": true, "y": true, "lay": true,
 }
 
 // validTrendViewQuery checks a saved view is a trend view: a query string of

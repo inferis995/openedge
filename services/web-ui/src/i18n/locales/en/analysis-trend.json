@@ -64,7 +64,11 @@
         "csv_exported": "CSV exported",
         "empty_title": "No pens on the chart",
         "empty_desc": "Pick tags from the list on the left to plot them",
-        "pens": "Pens"
+        "pens": "Pens",
+        "layout_lanes": "Lanes",
+        "layout_overlay": "Overlaid",
+        "layout_to_overlay": "Overlay the curves on one area",
+        "layout_to_lanes": "One lane per axis, one under the other"
     },
     "trend": {
         "favorite_add": "Add to favorites",

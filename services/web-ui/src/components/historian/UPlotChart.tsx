@@ -1,5 +1,6 @@
 import { useEffect, useRef, useMemo } from 'react';
 import uPlot from 'uplot';
+import { laneRange } from '@/lib/trendLanes';
 import 'uplot/dist/uPlot.min.css';
 import i18n from '@/i18n';
 
@@ -37,6 +38,13 @@ interface Props {
     events?: ChartEvent[];
     /** Fixed y ranges by scale key (see scaleKey); an axis not listed scales to its data. */
     yRanges?: Record<string, { min: number; max: number }>;
+    /**
+     * Lanes: each axis gets its own horizontal band, top to bottom, instead
+     * of all of them sharing the full height. With overlaid axes, curves of
+     * different units cross and cover each other, and flat ones (a level that
+     * did not change in the window) all sit in the middle, one on the other.
+     */
+    stacked?: boolean;
     /** Measuring: clicks place cursors A and B (reported, in ms) instead of zooming. */
     measure?: boolean;
     marks?: { a: number | null; b: number | null };
@@ -135,6 +143,38 @@ function timeLabels(splits: number[], spanSec: number): string[] {
         prevDay = day;
         return label;
     });
+}
+
+/** Lanes: a separator between them and each lane's name in its corner. */
+function lanesPlugin(getLanes: () => { label: string; color: string }[]): uPlot.Plugin {
+    return {
+        hooks: {
+            draw: [(u) => {
+                const lanes = getLanes();
+                if (lanes.length < 2) return;
+                const { ctx } = u;
+                const { left, top, width, height } = u.bbox;
+                const h = height / lanes.length;
+                ctx.save();
+                ctx.font = `${Math.round(11 * devicePixelRatio)}px Inter, system-ui, sans-serif`;
+                ctx.textBaseline = 'top';
+                lanes.forEach((lane, i) => {
+                    const y = top + i * h;
+                    if (i > 0) {
+                        ctx.strokeStyle = 'rgba(128,128,128,0.45)';
+                        ctx.lineWidth = devicePixelRatio;
+                        ctx.beginPath();
+                        ctx.moveTo(left, Math.round(y) + 0.5);
+                        ctx.lineTo(left + width, Math.round(y) + 0.5);
+                        ctx.stroke();
+                    }
+                    ctx.fillStyle = lane.color;
+                    ctx.fillText(lane.label, left + 6 * devicePixelRatio, y + 4 * devicePixelRatio);
+                });
+                ctx.restore();
+            }],
+        },
+    };
 }
 
 function tooltipPlugin(pens: PenSeries[], getEvents: () => ChartEvent[] = () => []): uPlot.Plugin {
@@ -388,7 +428,7 @@ function marksPlugin(getMarks: () => { a: number | null; b: number | null } | un
  */
 export function UPlotChart({
     timestamps, values, pens, bands, events = [], yRanges, range, live = false, onZoom,
-    measure = false, marks, onMeasureClick,
+    measure = false, marks, onMeasureClick, stacked = false,
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const plotRef = useRef<uPlot | null>(null);
@@ -451,18 +491,25 @@ export function UPlotChart({
             // (auto: false, set right after creation and on every change.)
             x: { time: true, auto: false },
         };
-        for (const [key] of units) {
+        // Lanes only when there is more than one axis to separate.
+        const lanes = stacked && units.length > 1;
+        // Per axis, the values its lane shows: ticks outside it are not drawn.
+        const laneBounds: Record<string, [number, number]> = {};
+        units.forEach(([key], i) => {
             scales[key] = {
                 range: (_u, min, max) => {
+                    let lo: number, hi: number;
                     const fixed = yRangesRef.current?.[key];
-                    if (fixed && fixed.max > fixed.min) return [fixed.min, fixed.max];
-                    if (min === null || max === null || !Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
-                    if (min === max) { const pad = Math.abs(min) * 0.1 || 1; return [min - pad, max + pad]; }
-                    const pad = (max - min) * 0.08;
-                    return [min - pad, max + pad];
+                    if (fixed && fixed.max > fixed.min) [lo, hi] = [fixed.min, fixed.max];
+                    else if (min === null || max === null || !Number.isFinite(min) || !Number.isFinite(max)) [lo, hi] = [0, 1];
+                    else if (min === max) { const pad = Math.abs(min) * 0.1 || 1; [lo, hi] = [min - pad, max + pad]; }
+                    else { const pad = (max - min) * 0.08; [lo, hi] = [min - pad, max + pad]; }
+                    if (!lanes) return [lo, hi];
+                    laneBounds[key] = [lo, hi];
+                    return laneRange(lo, hi, i, units.length);
                 },
             };
-        }
+        });
 
         const series: uPlot.Series[] = [
             {},
@@ -529,15 +576,26 @@ export function UPlotChart({
                 side: i % 2 === 0 ? 3 : 1,
                 stroke: units.length > 1 ? first.color : TEXT_COLOR,
                 ticks: { stroke: TICK_COLOR, width: 1, size: 4 },
-                grid: { stroke: GRID_COLOR, width: 1, show: i === 0 },
+                // In lanes each axis grids its own lane; overlaid, one grid is enough.
+                grid: { stroke: GRID_COLOR, width: 1, show: lanes || i === 0 },
                 font: FONT,
                 // The unit; with none, the pen's name, so an axis always says
-                // whose values it carries.
-                label: first.unit || (first.label.length > 22 ? first.label.slice(0, 21) + '…' : first.label),
-                labelFont: FONT,
-                labelSize: 16,
-                size: 52,
-                values: (_u, splits) => splits.map((v) => {
+                // whose values it carries. In lanes the name is in the lane.
+                ...(lanes ? {} : {
+                    label: first.unit || (first.label.length > 22 ? first.label.slice(0, 21) + '…' : first.label),
+                    labelFont: FONT,
+                    labelSize: 16,
+                }),
+                size: lanes ? 44 : 52,
+                ...(lanes ? {
+                    filter: (_u: uPlot, splits: number[]) => {
+                        const b = laneBounds[key];
+                        return b ? splits.map(v => (v >= b[0] && v <= b[1] ? v : null)) : splits;
+                    },
+                } : {}),
+                // A tick outside its lane comes through as null (see filter).
+                values: (_u, splits) => (splits as (number | null)[]).map((v) => {
+                    if (v === null) return '';
                     const a = Math.abs(v);
                     if (a >= 10000) return (v / 1000).toFixed(0) + 'k';
                     if (a >= 1000) return (v / 1000).toFixed(1) + 'k';
@@ -557,6 +615,13 @@ export function UPlotChart({
             plugins: [
                 tooltipPlugin(pens, () => eventsRef.current), touchPlugin(measure ? undefined : onZoom),
                 holdLastPlugin(pens), eventsPlugin(() => eventsRef.current), marksPlugin(() => marksRef.current),
+                // A lane holding several pens of one unit is named by the unit.
+                lanesPlugin(() => (lanes ? units.map(([key, first]) => ({
+                    label: pens.filter(p => !p.ghost && scaleKey(p) === key).length > 1 && first.unit
+                        ? first.unit
+                        : first.unit ? `${first.label} (${first.unit})` : first.label,
+                    color: first.color,
+                })) : [])),
             ],
             // Measuring, a click places a cursor; otherwise a drag zooms.
             cursor: { sync: { key: 'historian-sync' }, drag: { x: !measure, y: false } },
@@ -596,7 +661,7 @@ export function UPlotChart({
         };
         // data is pushed by the effect below; rebuilding on it would reset the cursor.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pens, units, onZoom, measure]);
+    }, [pens, units, onZoom, measure, stacked]);
 
     // The window is applied again with the data: set on a chart that had no
     // data yet (pens restored from the address, before their history came),
