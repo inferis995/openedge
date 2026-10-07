@@ -510,6 +510,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                                                 <span className="gw-pill-name">{shortName(tag)}</span>
                                                 <span className="gw-pill-value font-mono">
                                                     {live.value === null ? '—' : String(live.value)}
+                                                    {tag.eu_unit ? <span className="gw-pill-unit"> {tag.eu_unit}</span> : null}
                                                 </span>
                                                 <span className="gw-pill-arrow">{trendArrow(live.history)}</span>
                                             </button>
@@ -555,6 +556,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                                 tagLive={tagLive.current}
                                 onClose={() => setSelectedGwId(null)}
                                 onOpenTrend={(gid, tid) => navigate(`/trend?gateway=${gid}${tid ? `&tag=${tid}` : ''}`)}
+                                onOpenTrendPens={(pens) => navigate(`/trend?${pens}`)}
                                 canEdit={canEdit}
                                 onPlace={() => {
                                     setPlacingForId(selectedGw.id);
@@ -580,7 +582,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                                 tag={openTag}
                                 live={openTagLive}
                                 onClose={() => setOpenTagId(null)}
-                                onOpenTrend={(gid, tid) => navigate(`/trend?gateway=${gid}&tag=${tid}`)}
+                                onOpenTrend={(_gid, tid) => navigate(`/trend?pens=${tid}`)}
                             />
                         </Popup>
                     )}
@@ -607,7 +609,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                     tagsById={tagsById}
                     tagLive={tagLive.current}
                     onClose={() => setListGwId(null)}
-                    onOpenTrend={(gid, tid) => navigate(`/trend?gateway=${gid}&tag=${tid}`)}
+                    onOpenTrend={(_gid, tid) => navigate(`/trend?pens=${tid}`)}
                 />
             )}
 
@@ -724,6 +726,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                 .gw-qdot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
                 .gw-pill-name { font-weight: 600; font-family: system-ui, sans-serif; }
                 .gw-pill-value { color: #38bdf8; }
+                .gw-pill-unit { color: #64748b; font-size: 9px; }
                 .gw-pill-arrow { color: #9ca3af; font-size: 9px; }
                 .gw-pin {
                     width: 18px; height: 18px;
@@ -759,12 +762,13 @@ interface GatewayPopupProps {
     tagLive: Map<number, TagLive>;
     onClose: () => void;
     onOpenTrend: (gatewayId: number, tagId?: number) => void;
+    onOpenTrendPens: (query: string) => void;
     canEdit: boolean;
     onPlace: () => void;
 }
 
 // Popup del gateway cliccato: nome, stato, batteria, valori live dei tag.
-function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, canEdit, onPlace }: GatewayPopupProps) {
+function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpenTrendPens, canEdit, onPlace }: GatewayPopupProps) {
     const { t } = useTranslation();
     const battery = extractBattery(gateway.connection_config);
     const tags = [...tagsById.values()].filter((tg) => tg.gateway_id === gateway.id);
@@ -811,7 +815,14 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, canEdi
                 <button
                     type="button"
                     className="px-2 py-1 rounded bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90"
-                    onClick={() => { onOpenTrend(gateway.id); onClose(); }}
+                    onClick={() => {
+                        // Open the trend with THIS gateway's pens preloaded:
+                        // ?pens=<ids> is the format the trend page understands.
+                        const ids = tags.map((tg) => tg.id).join(',');
+                        if (ids) onOpenTrendPens(`pens=${ids}`);
+                        else onOpenTrend(gateway.id);
+                        onClose();
+                    }}
                 >
                     {t('map.open_trend')}
                 </button>
@@ -875,7 +886,7 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
                 <button
                     type="button"
                     className="px-2 py-1 rounded border border-white/20 text-xs hover:bg-white/10"
-                    onClick={onClose}
+                    onClick={() => onOpenTrend(tag.gateway_id, tag.id)}
                 >
                     {t('common.close')}
                 </button>
