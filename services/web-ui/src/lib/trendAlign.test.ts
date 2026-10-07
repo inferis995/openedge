@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignPens } from './trendAlign';
+import { alignPens, mergeSeries, realtimePoint } from './trendAlign';
 
 const min = 60_000;
 const pt = (t: number, value: number, quality = 0) => ({ timestamp: t * min, value, quality });
@@ -32,5 +32,26 @@ describe('alignPens', () => {
     it('a logger with one or two samples is left alone', () => {
         const { values } = alignPens([{ tagId: 1 }], { 1: [pt(0, 3.6), pt(360, 3.5)] });
         expect(values[0]).toEqual([3.6, 3.5]);
+    });
+});
+
+
+describe('mergeSeries', () => {
+    it('keeps one sample per instant, later sources winning, sorted and pruned', () => {
+        const merged = mergeSeries([1], [
+            { 1: [pt(0, 1), pt(10, 2)] },          // history
+            { 1: [pt(10, 20), pt(20, 3)] },        // tail refetch overlaps it
+            { 1: [pt(25, 4), pt(5, 9)] },          // socket, out of order
+        ], 5 * min);
+        expect(merged[1].map((p) => [p.timestamp / min, p.value])).toEqual([[5, 9], [10, 20], [20, 3], [25, 4]]);
+    });
+});
+
+describe('realtimePoint', () => {
+    it('normalises socket values to history points', () => {
+        expect(realtimePoint({ value: true, timestamp: 1_700_000_000, quality: 192 })).toEqual({ timestamp: 1_700_000_000_000, value: 1, quality: 0 });
+        expect(realtimePoint({ value: '3.5', timestamp: 1_700_000_000_000, quality: 0 })?.value).toBe(3.5);
+        expect(realtimePoint({ value: 'n/a', timestamp: 1, quality: 0 })).toBeNull();
+        expect(realtimePoint({ value: 1, timestamp: 1_700_000_000_000, quality: 64 })?.quality).toBe(1);
     });
 });

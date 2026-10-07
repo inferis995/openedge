@@ -26,6 +26,11 @@ interface Props {
     pens: PenSeries[];
     /** The window the user chose, in ms. The x axis always shows exactly this. */
     range: { from: number; to: number };
+    /**
+     * Live: the window keeps the length of `range` and its right edge is now,
+     * moving continuously (a pixel at a time) rather than in steps.
+     */
+    live?: boolean;
     /** Called when the user selects (mouse drag, or pinch) a sub-range to zoom */
     onZoom?: (fromMs: number, toMs: number) => void;
 }
@@ -205,7 +210,7 @@ function touchPlugin(onZoom?: (fromMs: number, toMs: number) => void): uPlot.Plu
  * The historian chart. Fills its parent: give the parent a height (flex-1,
  * h-full…) and the chart follows it, on resize and on rotation.
  */
-export function UPlotChart({ timestamps, values, pens, range, onZoom }: Props) {
+export function UPlotChart({ timestamps, values, pens, range, live = false, onZoom }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const plotRef = useRef<uPlot | null>(null);
     // The latest window, read by uPlot's callbacks (axis labels) between renders.
@@ -355,8 +360,32 @@ export function UPlotChart({ timestamps, values, pens, range, onZoom }: Props) {
     // A new window with the same data still has to move the axis.
     useEffect(() => {
         rangeRef.current = { from: range.from, to: range.to };
-        plotRef.current?.setScale('x', { min: range.from / 1000, max: range.to / 1000 });
-    }, [range.from, range.to]);
+        if (!live) plotRef.current?.setScale('x', { min: range.from / 1000, max: range.to / 1000 });
+    }, [range.from, range.to, live]);
+
+    // Live: slide the window with the clock. One redraw per pixel of time
+    // (a 1 h window 1000 px wide moves every 3.6 s, a 5 min one every 0.3 s),
+    // never faster than 20 a second, and none while the tab is hidden.
+    useEffect(() => {
+        if (!live) return;
+        let raf = 0;
+        let last = 0;
+        const tick = (t: number) => {
+            const u = plotRef.current;
+            if (u && !document.hidden) {
+                const span = rangeRef.current.to - rangeRef.current.from;
+                const pxWidth = Math.max(1, u.bbox.width / devicePixelRatio);
+                if (t - last >= Math.max(50, span / pxWidth)) {
+                    last = t;
+                    const now = Date.now();
+                    u.setScale('x', { min: (now - span) / 1000, max: now / 1000 });
+                }
+            }
+            raf = requestAnimationFrame(tick);
+        };
+        raf = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(raf);
+    }, [live]);
 
     return <div ref={containerRef} className="w-full h-full min-h-[220px] overflow-hidden relative" />;
 }

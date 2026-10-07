@@ -43,3 +43,41 @@ export function alignPens(pens: { tagId: number }[], batch: Record<number, Trend
     }));
     return { timestamps, values };
 }
+
+/**
+ * Merges history and live points per tag: one sample per instant (a later
+ * source wins), sorted, and nothing older than `fromMs`. Live mode keeps the
+ * window's history, a periodically refetched tail and the values pushed over
+ * the socket; they overlap, and a duplicate instant would draw a zero-length
+ * spike in the gap logic.
+ */
+export function mergeSeries(
+    tagIds: number[],
+    sources: (Record<number, TrendDataPoint[]> | undefined)[],
+    fromMs = -Infinity,
+): Record<number, TrendDataPoint[]> {
+    const out: Record<number, TrendDataPoint[]> = {};
+    for (const id of tagIds) {
+        const byTs = new Map<number, TrendDataPoint>();
+        for (const src of sources) {
+            for (const p of src?.[id] ?? []) {
+                if (p.timestamp >= fromMs) byTs.set(p.timestamp, p);
+            }
+        }
+        out[id] = [...byTs.values()].sort((a, b) => a.timestamp - b.timestamp);
+    }
+    return out;
+}
+
+/**
+ * A value pushed over the realtime socket, as a history point: booleans as
+ * 0/1, timestamps in ms (a seconds timestamp is converted), quality 0 for good
+ * (the socket carries 0 or 192 for good, history 0).
+ */
+export function realtimePoint(v: { value: unknown; timestamp: number; quality: number }): TrendDataPoint | null {
+    const n = typeof v.value === 'boolean' ? (v.value ? 1 : 0) : Number(v.value);
+    if (v.value === null || v.value === undefined || !Number.isFinite(n)) return null;
+    const ts = v.timestamp < 1e11 ? v.timestamp * 1000 : v.timestamp;
+    const good = v.quality === 0 || v.quality === 192;
+    return { timestamp: ts, value: n, quality: good ? 0 : 1 };
+}

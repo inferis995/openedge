@@ -18,11 +18,20 @@ export interface RealtimeResult {
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 
-export const useRealtime = (orgId: number | undefined, tagIds?: ReadonlySet<number>): RealtimeResult => {
+/**
+ * onBatch, when given, receives every batch of updates as it is applied (the
+ * returned map keeps only the latest value per tag; a trend needs them all).
+ */
+export const useRealtime = (
+    orgId: number | undefined,
+    tagIds?: ReadonlySet<number>,
+    onBatch?: (batch: ReadonlyMap<number, { value: unknown; timestamp: number; quality: number }>) => void,
+): RealtimeResult => {
     const [values, setValues] = useState<Map<number, { value: unknown; timestamp: number; quality: number }>>(new Map());
     const [connected, setConnected] = useState(false);
     const ws = useRef<WebSocket | null>(null);
     const tagIdsRef = useRef<ReadonlySet<number> | undefined>(tagIds);
+    const onBatchRef = useRef(onBatch);
     // The socket follows the session: a new token (sign-in, refresh) opens a
     // new one, signing out closes it. The token used to be read once, so a
     // socket outlived the logout and reconnected with an expired token forever.
@@ -31,7 +40,8 @@ export const useRealtime = (orgId: number | undefined, tagIds?: ReadonlySet<numb
     // Keep ref in sync without causing WS reconnect
     useEffect(() => {
         tagIdsRef.current = tagIds;
-    }, [tagIds]);
+        onBatchRef.current = onBatch;
+    }, [tagIds, onBatch]);
 
     useEffect(() => {
         if (!orgId || !token) return;
@@ -53,6 +63,7 @@ export const useRealtime = (orgId: number | undefined, tagIds?: ReadonlySet<numb
             if (disposed || pending.size === 0) return;
             const batch = pending;
             pending = new Map();
+            onBatchRef.current?.(batch);
             setValues(prev => {
                 const next = new Map(prev);
                 for (const [k, v] of batch) next.set(k, v);

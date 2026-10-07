@@ -19,7 +19,9 @@ import { PenPanel, type Pen, type PenStats } from '@/components/historian/PenPan
 
 import { historyApi } from '@/api/history';
 import { tagsApi } from '@/api/tags';
-import { alignPens } from '@/lib/trendAlign';
+import { alignPens, mergeSeries, realtimePoint } from '@/lib/trendAlign';
+import { useRealtime } from '@/hooks/useRealtime';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { getAutoInterval, type TrendDataPoint, type AggregationType, type TagWithHierarchy } from '@/types/trend';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -121,50 +123,117 @@ export default function TrendPage() {
         return m;
     }, [allTags]);
 
-    // Live mode: shift the time window every 10 s
+    const penIds = useMemo(() => pens.map(p => p.tagId), [pens]);
+    // A preset keeps its length ("1h"); "today" or a picked range keep theirs.
+    const spanMs = presetMs(timeRange.preset ?? '') ?? (timeRange.to.getTime() - timeRange.from.getTime());
+
+    // ── Live ────────────────────────────────────────────────────────────────
+    // The window's history is fetched once, when live starts (or a pen is
+    // added); from then on values arrive over the realtime socket, and a short
+    // tail is refetched every 30 s in case the socket missed something. It
+    // used to refetch the whole window every 10 s and jump by 10 s.
+    const [liveBase, setLiveBase] = useState<{ from: Date; to: Date } | null>(null);
+    const [rtSeries, setRtSeries] = useState<Record<number, TrendDataPoint[]>>({});
+    const [lastLiveTs, setLastLiveTs] = useState<number | null>(null);
+    const resetLive = useCallback((on: boolean, span: number) => {
+        const to = new Date();
+        setLiveBase(on ? { from: new Date(to.getTime() - span), to } : null);
+        setRtSeries({});
+        setLastLiveTs(null);
+    }, []);
+    const toggleLive = useCallback(() => {
+        setLiveMode(!liveMode);
+        resetLive(!liveMode, spanMs);
+    }, [liveMode, resetLive, spanMs]);
+
+    // The picker's text follows the clock (it is only a label while live).
     useEffect(() => {
         if (liveRef.current) clearInterval(liveRef.current);
-        if (!liveMode || timeRange.preset === 'custom') return;
+        if (!liveMode) return;
         liveRef.current = setInterval(() => {
-            const ms = presetMs(timeRange.preset ?? '1h');
             const to = new Date();
-            const from = new Date(to.getTime() - ms);
-            setTimeRange(r => ({ ...r, from, to }));
+            setTimeRange(r => ({ ...r, from: new Date(to.getTime() - spanMs), to }));
         }, 10_000);
         return () => { if (liveRef.current) clearInterval(liveRef.current); };
-    }, [liveMode, timeRange.preset]);
+    }, [liveMode, spanMs]);
 
-    const penIds = useMemo(() => pens.map(p => p.tagId), [pens]);
+    const queryRange = liveMode && liveBase ? liveBase : timeRange;
 
     // Fetch historical data for all selected pens
     const { data: batchData, isFetching, refetch } = useQuery({
-        queryKey: ['historian-batch', penIds, timeRange.from.toISOString(), timeRange.to.toISOString(), aggregation],
+        queryKey: ['historian-batch', penIds, queryRange.from.toISOString(), queryRange.to.toISOString(), aggregation],
         queryFn: () => historyApi.batchQuery({
             tag_ids: penIds,
-            start: timeRange.from.toISOString(),
-            end: timeRange.to.toISOString(),
+            start: queryRange.from.toISOString(),
+            end: queryRange.to.toISOString(),
             agg: aggregation,
-            interval: getAutoInterval(timeRange.from, timeRange.to),
+            interval: getAutoInterval(queryRange.from, queryRange.to),
         }),
-        enabled: penIds.length > 0,
-        refetchInterval: liveMode ? 10_000 : false,
+        enabled: penIds.length > 0 && (!liveMode || !!liveBase),
         staleTime: 5_000,
     });
 
+    const { data: tailData } = useQuery({
+        queryKey: ['historian-tail', penIds, aggregation],
+        queryFn: () => {
+            const to = new Date();
+            const from = new Date(to.getTime() - 2 * 60_000);
+            return historyApi.batchQuery({
+                tag_ids: penIds, start: from.toISOString(), end: to.toISOString(),
+                agg: aggregation, interval: getAutoInterval(from, to),
+            });
+        },
+        enabled: liveMode && penIds.length > 0,
+        refetchInterval: liveMode ? 30_000 : false,
+    });
+
+    // The socket follows the pens' organization (a global admin's pens carry it).
+    const userOrg = useAuthStore(s => s.user?.org_id);
+    const liveOrg = userOrg ?? (pens.length > 0 ? tagMap.get(pens[0].tagId)?.org_id : undefined);
+    const penIdSet = useMemo(() => new Set(penIds), [penIds]);
+    // Every value the socket delivers while live, per tag (the hook's own map
+    // keeps only the latest one).
+    const onRealtime = useCallback((batch: ReadonlyMap<number, { value: unknown; timestamp: number; quality: number }>) => {
+        const add: [number, TrendDataPoint][] = [];
+        for (const [id, v] of batch) {
+            const p = realtimePoint(v);
+            if (p) add.push([id, p]);
+        }
+        if (add.length === 0) return;
+        setRtSeries(prev => {
+            const next = { ...prev };
+            for (const [id, p] of add) {
+                const list = next[id] ?? [];
+                const last = list[list.length - 1];
+                if (!last || p.timestamp > last.timestamp) next[id] = [...list, p];
+            }
+            return next;
+        });
+        setLastLiveTs(t => Math.max(t ?? 0, ...add.map(([, p]) => p.timestamp)));
+    }, []);
+    const { connected: rtConnected } = useRealtime(liveMode ? liveOrg : undefined, penIdSet, onRealtime);
+
+    // What is drawn: the history, plus — while live — the tail and the socket's
+    // values, without what has scrolled out of the window.
+    const series = useMemo<Record<number, TrendDataPoint[]> | undefined>(() => {
+        if (!batchData) return undefined;
+        if (!liveMode) return batchData as Record<number, TrendDataPoint[]>;
+        const edge = Math.max(liveBase?.to.getTime() ?? 0, lastLiveTs ?? 0);
+        return mergeSeries(penIds, [batchData as Record<number, TrendDataPoint[]>, tailData, rtSeries],
+            edge - spanMs * 1.05);
+    }, [batchData, tailData, rtSeries, liveMode, liveBase, lastLiveTs, penIds, spanMs]);
+
     // Build uPlot-aligned data (seconds timestamps)
     const { timestamps, values } = useMemo<{ timestamps: number[]; values: (number | null | undefined)[][] }>(() => {
-        if (!batchData || pens.length === 0) return { timestamps: [], values: [] };
-        return alignPens(pens, batchData as Record<number, TrendDataPoint[]>);
-    }, [batchData, pens]);
+        if (!series || pens.length === 0) return { timestamps: [], values: [] };
+        return alignPens(pens, series);
+    }, [series, pens]);
 
     // Compute per-pen stats
     const pensWithStats = useMemo<Pen[]>(() => {
-        if (!batchData) return pens;
-        return pens.map(pen => {
-            const pts: TrendDataPoint[] = (batchData as Record<number, TrendDataPoint[]>)[pen.tagId] ?? [];
-            return { ...pen, stats: computeStats(pts) };
-        });
-    }, [batchData, pens]);
+        if (!series) return pens;
+        return pens.map(pen => ({ ...pen, stats: computeStats(series[pen.tagId] ?? []) }));
+    }, [series, pens]);
 
     // Build PenSeries for uPlot
     const penSeries = useMemo<PenSeries[]>(() =>
@@ -192,7 +261,13 @@ export default function TrendPage() {
         }]);
         // On a phone the tag list covers the chart: close it once a tag is picked.
         if (!isWide) setSidebarOpen(false);
-    }, [pens, tagMap, isWide]);
+        // Live: the new pen needs the window's history up to now, not up to
+        // when live started.
+        if (liveMode) {
+            const to = new Date();
+            setLiveBase({ from: new Date(to.getTime() - spanMs), to });
+        }
+    }, [pens, tagMap, isWide, liveMode, spanMs]);
 
     const togglePenVisibility = useCallback((tagId: number) => {
         setPens(prev => prev.map(p => p.tagId === tagId ? { ...p, visible: !p.visible } : p));
@@ -245,12 +320,18 @@ export default function TrendPage() {
                             <p className="text-[10px] text-muted-foreground leading-none">
                                 {tr('trendPage.pens_count', { count: pens.length })} · {tr('trendPage.points_count', { count: totalPoints, formatted: totalPoints.toLocaleString(i18n.language) })}
                                 {isFetching && <span className="ml-1 text-primary">{tr('trendPage.loading')}</span>}
-                                {liveMode && (
-                                    <span className="ml-2 inline-flex items-center gap-1 text-green-500">
+                                {liveMode && (rtConnected ? (
+                                    <span className="ml-2 inline-flex items-center gap-1 text-green-600 dark:text-green-500">
                                         <span className="w-1.5 h-1.5 rounded-full animate-pulse bg-green-500 inline-block" />
                                         {tr('trendPage.live_badge')}
+                                        {lastLiveTs !== null && ` · ${tr('trendPage.live_last', { time: new Date(lastLiveTs).toLocaleTimeString(i18n.language) })}`}
                                     </span>
-                                )}
+                                ) : (
+                                    <span className="ml-2 inline-flex items-center gap-1 text-amber-600 dark:text-amber-500" title={tr('trendPage.live_no_socket_hint')}>
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 inline-block" />
+                                        {tr('trendPage.live_badge')} · {tr('trendPage.live_no_socket')}
+                                    </span>
+                                ))}
                             </p>
                         </div>
                     </div>
@@ -273,7 +354,7 @@ export default function TrendPage() {
                             size="sm"
                             variant={liveMode ? 'default' : 'outline'}
                             className="h-9 sm:h-7 text-xs gap-1"
-                            onClick={() => setLiveMode(m => !m)}
+                            onClick={toggleLive}
                             disabled={timeRange.preset === 'custom'}
                         >
                             {liveMode ? <><Pause className="w-3 h-3" /> {tr('trendPage.stop')}</> : <><Play className="w-3 h-3" /> {tr('trendPage.live')}</>}
@@ -354,6 +435,7 @@ export default function TrendPage() {
                                 values={values}
                                 pens={penSeries}
                                 range={{ from: timeRange.from.getTime(), to: timeRange.to.getTime() }}
+                                live={liveMode}
                                 onZoom={handleZoom}
                             />
                         </div>
@@ -391,7 +473,7 @@ export default function TrendPage() {
 
 // ── Utility ───────────────────────────────────────────────────────────────────
 
-function presetMs(preset: string): number {
+function presetMs(preset: string): number | undefined {
     const map: Record<string, number> = {
         '1h':  1  * 60 * 60_000,
         '4h':  4  * 60 * 60_000,
@@ -402,5 +484,5 @@ function presetMs(preset: string): number {
         '7d':  7  * 24 * 60 * 60_000,
         '30d': 30 * 24 * 60 * 60_000,
     };
-    return map[preset] ?? 60 * 60_000;
+    return map[preset];
 }

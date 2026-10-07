@@ -44,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Each unit has its own y axis (bar, l/s and V were squeezed onto one),
   units come from the tag, a stretch with no data breaks the line instead
   of being bridged, and one finger reads values while two pinch-zoom.
+- **Trend live mode** slides continuously (one pixel at a time) instead of
+  jumping 10 s, draws values as they arrive over the realtime socket, and
+  fetches the window's history once plus a 2-minute tail every 30 s — it
+  re-downloaded the whole window every 10 s. The badge shows the time of
+  the last value, or that the realtime channel is down.
 
 - **Drivers started by driver-manager could not reach the internal broker.**
   driver-manager put them on a network of its own ("industrial-network",
