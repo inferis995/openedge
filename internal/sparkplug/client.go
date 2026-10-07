@@ -309,8 +309,8 @@ func (c *SparkplugClient) PublishDDEATH(deviceID string) error {
 		}
 	}
 
-	// Publish with QoS 0, retained=true for death messages
-	if err := c.mqttClient.PublishWithQoS(topic, string(payloadBytes), 0, true); err != nil {
+	// Same as NDEATH above: device deaths are real-time news, never sticky state.
+	if err := c.mqttClient.PublishWithQoS(topic, string(payloadBytes), 0, false); err != nil {
 		return fmt.Errorf("failed to publish DDEATH: %w", err)
 	}
 
@@ -457,7 +457,12 @@ func (c *SparkplugClient) sendNDEATH() error {
 		}
 	}
 
-	return c.mqttClient.PublishWithQoS(topic, string(payloadBytes), 0, true)
+	// Deaths are NOT retained: a retained NDEATH outlives the outage it
+	// announces, so every late subscriber (monitor pages, data-status
+	// hooks) reads birth-then-death and concludes the node is dead even
+	// while it is happily publishing. Live subscribers still get the death
+	// in real time; only the sticky ghost is gone.
+	return c.mqttClient.PublishWithQoS(topic, string(payloadBytes), 0, false)
 }
 
 // nextSeq returns the next sequence number of this edge node's single stream,
