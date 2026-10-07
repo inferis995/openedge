@@ -72,8 +72,16 @@ func commLossSweep(db *sql.DB) error {
 		var last sql.NullTime
 		if err := db.QueryRowContext(ctx,
 			`SELECT MAX(time) FROM tag_history WHERE tag_id = $1 AND value IS NOT NULL`,
-			r.tagID).Scan(&last); err != nil || !last.Valid {
-			continue // never heard from: grace, not silence
+			r.tagID).Scan(&last); err != nil {
+			continue
+		}
+		if !last.Valid {
+			// Never heard from: silence counts from the tag's creation,
+			// so a device mute since installation still alarms.
+			if err := db.QueryRowContext(ctx,
+				`SELECT created_at FROM tags WHERE id = $1`, r.tagID).Scan(&last); err != nil || !last.Valid {
+				continue
+			}
 		}
 		silence := now.Sub(last.Time.UTC())
 		if silence < time.Duration(r.delay)*time.Second {
