@@ -79,8 +79,6 @@ function TagCombobox({
                 className="h-10 sm:h-8 text-xs w-full rounded-md border border-input bg-background px-2 font-normal"
                 value={value}
                 onChange={e => onChange(e.target.value)}
-                size={Math.min(10, Math.max(4, total + groups.length))}
-                style={{ overflowY: 'auto' }}
             >
                 <option value="none">{tr('synopticEditor.no_tag')}</option>
                 {groups.map((g, gi) => g.label ? (
