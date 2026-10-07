@@ -1014,7 +1014,12 @@ export default function TrendPage() {
                                 </span>
                             )}
                         </div>
-                        <div ref={chartBoxRef} className="flex-1 min-h-0 p-2 overflow-hidden">
+                        <div ref={chartBoxRef} className="relative flex-1 min-h-0 p-2 overflow-hidden">
+                            {penSeries.length > 0 && !values.some(col => col.some(v => v !== null && v !== undefined)) && (
+                                <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+                                    <p className="text-sm text-muted-foreground bg-card/80 border rounded px-3 py-1.5">{tr('trendPage.no_data_in_range')}</p>
+                                </div>
+                            )}
                             <UPlotChart
                                 timestamps={timestamps}
                                 values={values}

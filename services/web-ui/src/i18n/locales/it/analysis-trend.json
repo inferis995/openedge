@@ -69,7 +69,8 @@
     "layout_overlay": "Sovrapposte",
     "layout_to_overlay": "Curve sovrapposte sulla stessa area",
     "layout_to_lanes": "Una corsia per asse, una sotto l'altra",
-    "resize_browser": "Allarga pannello tag"
+    "resize_browser": "Allarga pannello tag",
+    "no_data_in_range": "Nessun dato in questo intervallo"
   },
   "trend": {
     "favorite_add": "Aggiungi ai preferiti",
