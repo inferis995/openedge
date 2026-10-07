@@ -336,8 +336,8 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [titleDraft, setTitleDraft] = useState(chart.title || t('trend.chart_default'));
 
-    const safeStart = timeRange.start instanceof Date ? timeRange.start : new Date(timeRange.start);
-    const safeEnd = timeRange.end instanceof Date ? timeRange.end : new Date(timeRange.end);
+    const safeStart = useMemo(() => (timeRange.start instanceof Date ? timeRange.start : new Date(timeRange.start)), [timeRange]);
+    const safeEnd = useMemo(() => (timeRange.end instanceof Date ? timeRange.end : new Date(timeRange.end)), [timeRange]);
 
     // Only visible series participate in chart rendering
     const visibleSeries = useMemo(() => seriesData.filter((s) => s.visible !== false), [seriesData]);

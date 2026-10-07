@@ -65,7 +65,7 @@ function TagCombobox({
             { label: areaName ? `⬤ ${areaName}` : null, items: mine },
             { label: tr('synopticEditor.other_tags'), items: rest },
         ].filter(g => g.items.length > 0);
-    }, [tags, filter, areaId]);
+    }, [tags, filter, areaId, tr]);
     const total = groups.reduce((n, g) => n + g.items.length, 0);
 
     return (
@@ -282,7 +282,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
             setShadowValues(m);
         }).catch(() => { /* old server without org-wide batch: live only */ });
         return () => { ignore = true; };
-    }, [isEdit, id]);
+    }, [isEdit, id, canvasTagIds.size]);
 
     // Fetch active alarms for tags on this canvas (view mode only)
     const [activeAlarmTagIds, setAlarmTagIds] = useState<Set<number>>(new Set());

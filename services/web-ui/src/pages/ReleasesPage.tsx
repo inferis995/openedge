@@ -71,7 +71,7 @@ const ReleasesPage = () => {
         return fetchData();
     };
 
-    useEffect(() => { startLoad(fetchData); }, []);
+    useEffect(() => { startLoad(fetchData); /* eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once load; fetchData is recreated per render by design */ }, []);
 
     const validate = () => {
         const errs: Record<string, string> = {};

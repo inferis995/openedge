@@ -278,6 +278,7 @@ const UsersPage = () => {
 
     useEffect(() => {
         startLoad(fetchUsers);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-once load; fetchUsers is recreated per render by design
     }, []);
 
     const handleCreate = async () => {
