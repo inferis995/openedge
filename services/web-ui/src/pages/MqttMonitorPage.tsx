@@ -542,10 +542,10 @@ const MqttMonitorPage = () => {
                                 <TableRow>
                                     <TableHead className="w-[100px]">{t('mqttMonitor.col_time')}</TableHead>
                                     <TableHead className="w-[70px]">{t('mqttMonitor.col_format')}</TableHead>
-                                    <TableHead className="w-[80px]">{t('mqttMonitor.col_tag_id')}</TableHead>
+                                    <TableHead className="w-[80px] hidden sm:table-cell">{t('mqttMonitor.col_tag_id')}</TableHead>
                                     <TableHead>{t('mqttMonitor.col_topic')}</TableHead>
                                     <TableHead className="w-[120px] text-right">{t('mqttMonitor.col_value')}</TableHead>
-                                    <TableHead className="w-[100px] text-center">{t('mqttMonitor.col_quality')}</TableHead>
+                                    <TableHead className="w-[100px] text-center hidden sm:table-cell">{t('mqttMonitor.col_quality')}</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -582,7 +582,7 @@ const MqttMonitorPage = () => {
                                                 <TableCell>
                                                     {getFormatBadge(msg.format)}
                                                 </TableCell>
-                                                <TableCell>
+                                                <TableCell className="hidden sm:table-cell">
                                                     {msg.tagId > 0 ? (
                                                         <Badge variant="outline">{msg.tagId}</Badge>
                                                     ) : (
@@ -611,7 +611,7 @@ const MqttMonitorPage = () => {
                                                 <TableCell className={`text-right font-semibold ${isLifecycle ? (isDeath ? 'text-red-500' : 'text-green-500') : 'text-foreground'}`}>
                                                     {formatValue(msg.value)}
                                                 </TableCell>
-                                                <TableCell className="text-center">
+                                                <TableCell className="text-center hidden sm:table-cell">
                                                     {getQualityBadge(msg.quality)}
                                                 </TableCell>
                                             </TableRow>
