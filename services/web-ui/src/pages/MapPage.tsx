@@ -429,9 +429,12 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                     <p className="text-muted-foreground">{t('map.subtitle')}</p>
                 </div>
 
+                {/* Su mobile filtro+ricerca in riga piena, ordinati e senza sovrapposizioni */}
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center w-full sm:w-auto">
+
                 {/* Filtro area/impianto: restringe pin, poligoni e conteggio */}
                 <select
-                    className="h-10 sm:h-8 px-2 rounded-md border bg-background text-sm"
+                    className="h-10 sm:h-8 px-2 rounded-md border bg-background text-sm w-full sm:w-auto"
                     value={areaFilter ?? ''}
                     onChange={(e) => {
                         const v = e.target.value ? parseInt(e.target.value) : null;
@@ -484,6 +487,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                             ))}
                         </ul>
                     )}
+                </div>
                 </div>
             </div>
 
