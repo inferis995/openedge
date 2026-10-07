@@ -7,22 +7,11 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Trash2, Plus, Activity, AlertTriangle } from 'lucide-react';
 import { tagsApi } from '@/api/tags';
+import type { TagAlarmRule as AlarmDefinition } from '@/api/alarms';
 import { ALARM_TYPE_LABELS, NO_THRESHOLD_TYPES, HEALTH_TYPES } from '@/lib/alarmTypes';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
-
-export interface AlarmDefinition {
-    id?: number;
-    tag_id: number;
-    alarm_type: string;
-    threshold: number | null;
-    deadband: number;
-    delay_seconds: number;
-    severity: string;
-    message: string;
-    enabled: boolean;
-}
 
 interface Props {
     tagId: number;

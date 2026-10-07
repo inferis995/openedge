@@ -1,13 +1,15 @@
 import api from './client';
 
 export interface TagAlarmRule {
+    id?: number;
+    tag_id: number;
     alarm_type: string;
-    threshold?: number;
-    deadband?: number;
-    delay_seconds?: number;
-    severity?: string;
-    message?: string;
-    enabled?: boolean;
+    threshold: number | null;
+    deadband: number;
+    delay_seconds: number;
+    severity: string;
+    message: string;
+    enabled: boolean;
 }
 
 export interface AlarmEvent {

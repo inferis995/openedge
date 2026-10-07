@@ -32,13 +32,13 @@ const Header = ({ onMenuClick }: HeaderProps) => {
     // Fetch context names
     const { data: org } = useQuery({
         queryKey: ['org', selectedOrgId],
-        queryFn: () => organizationsApi.get(selectedOrgId!),
+        queryFn: () => organizationsApi.get(selectedOrgId ?? -1),
         enabled: !!selectedOrgId
     });
 
     const { data: site } = useQuery({
         queryKey: ['site', selectedSiteId],
-        queryFn: () => sitesApi.get(selectedSiteId!),
+        queryFn: () => sitesApi.get(selectedSiteId ?? -1),
         enabled: !!selectedSiteId
     });
 

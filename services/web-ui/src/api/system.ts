@@ -1,5 +1,28 @@
 import api from './client';
 
+export interface BackupCatalogEntry {
+    id: number;
+    filename: string;
+    size_bytes: number;
+    sha256: string;
+    encrypted: boolean;
+    schema_version: string;
+    storage: string;
+    s3_key?: string;
+    created_at: string;
+    deleted_at?: string;
+}
+
+export interface BackupAuditEntry {
+    id: number;
+    action: string;
+    filename: string;
+    user_email: string;
+    ip_addr: string;
+    details: string;
+    created_at: string;
+}
+
 export interface GlobalSettings {
     publish_mode: string;
     rbe_heartbeat_seconds: string;
@@ -314,13 +337,13 @@ export const systemApi = {
     },
 
     // Backup catalog (rich list with sha256, size, storage info)
-    getBackupCatalog: async (): Promise<any[]> => {
+    getBackupCatalog: async (): Promise<BackupCatalogEntry[]> => {
         const response = await api.get('/system/backup/catalog');
         return response.data;
     },
 
     // Audit log for all backup-related operations
-    getBackupAudit: async (): Promise<any[]> => {
+    getBackupAudit: async (): Promise<BackupAuditEntry[]> => {
         const response = await api.get('/system/backup/audit');
         return response.data;
     },
