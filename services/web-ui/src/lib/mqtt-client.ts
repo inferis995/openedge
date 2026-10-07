@@ -30,7 +30,7 @@ class MQTTClientService {
             // Connect through Nginx proxy (same host/port as the web UI)
             const wsUrl = `${protocol}//${window.location.host}${creds.path}`;
 
-            console.log('Connecting to MQTT broker:', wsUrl.replace(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/, 'xxx.xxx.xxx.xxx'));
+            console.warn('Connecting to MQTT broker:', wsUrl.replace(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/, 'xxx.xxx.xxx.xxx'));
 
             this.client = mqtt.connect(wsUrl, {
                 clientId: `web-ui-${Date.now()}`,
@@ -43,7 +43,7 @@ class MQTTClientService {
             });
 
             this.client.on('connect', () => {
-                console.log('MQTT connected successfully');
+                console.warn('MQTT connected successfully');
                 this.reconnectAttempts = 0;
                 this.isManuallyDisconnected = false;
                 resolve();
@@ -70,7 +70,7 @@ class MQTTClientService {
             });
 
             this.client.on('reconnect', () => {
-                console.log('MQTT reconnecting...');
+                console.warn('MQTT reconnecting...');
             });
         });
     }
