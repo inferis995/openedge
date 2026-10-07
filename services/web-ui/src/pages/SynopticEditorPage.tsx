@@ -5,7 +5,7 @@ import {
     Lock, Unlock, AlignLeft, AlignCenterHorizontal, AlignRight,
     AlignStartVertical, AlignCenterVertical, AlignEndVertical,
     AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
-    Maximize2, ChevronsUpDown, LayoutTemplate, List as ListIcon,
+    Maximize2, LayoutTemplate, List as ListIcon,
 } from 'lucide-react';
 import { synopticsApi, Synoptic, SynopticWidget } from '@/api/synoptics';
 import { tagsApi } from '@/api/tags';
@@ -21,10 +21,6 @@ import { Label } from '@/components/ui/label';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import {
-    Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
-} from '@/components/ui/command';
 import { cn } from '@/lib/utils';
 import { SynopticWidgetView, WIDGET_CATALOG, LiveValue } from '@/components/synoptics/SynopticWidget';
 import { useTranslation } from 'react-i18next';
@@ -33,7 +29,10 @@ import i18n from '@/i18n';
 // Symbols that show a running/stopped state, like the pump and the motor.
 const BINARY_SYMBOLS: string[] = ['fan', 'conveyor', 'mixer', 'compressor', 'heater'];
 
-// Searchable tag combobox for the properties panel
+// Tag picker for the properties panel: a filter box plus a native select.
+// The previous Popover+Command combobox often swallowed taps on touch
+// screens (the popover closed without selecting), so tags could not be
+// picked from a phone. A native select works with mouse, touch and keyboard.
 function TagCombobox({
     tags,
     value,
@@ -44,43 +43,39 @@ function TagCombobox({
     onChange: (val: string) => void;
 }) {
     const { t: tr } = useTranslation();
-    const [open, setOpen] = useState(false);
-    const current = value === 'none' ? null : tags.find(t => String(t.id) === value);
-    const label = current ? (current.alias || current.code) : tr('synopticEditor.no_tag');
+    const [filter, setFilter] = useState('');
+    const filtered = useMemo(() => {
+        const f = filter.trim().toLowerCase();
+        if (!f) return tags;
+        return tags.filter(t => `${t.alias || ''} ${t.code || ''} #${t.id}`.toLowerCase().includes(f));
+    }, [tags, filter]);
 
     return (
-        <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger asChild>
-                <Button variant="outline" role="combobox" className="h-10 sm:h-8 text-xs w-full justify-between font-normal">
-                    <span className="truncate">{label}</span>
-                    <ChevronsUpDown className="ml-1 h-3 w-3 shrink-0 opacity-50" />
-                </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-64 p-0" align="start">
-                <Command>
-                    <CommandInput placeholder={tr('synopticEditor.search_tag')} className="h-10 sm:h-8 text-xs" />
-                    <CommandList>
-                        <CommandEmpty className="text-xs">{tr('synopticEditor.no_tag_found')}</CommandEmpty>
-                        <CommandGroup>
-                            <CommandItem value="none" onSelect={() => { onChange('none'); setOpen(false); }}
-                                className="text-xs">
-                                {tr('synopticEditor.no_tag')}
-                            </CommandItem>
-                            {tags.map(t => (
-                                <CommandItem key={t.id} value={`${t.alias || t.code} ${t.code} #${t.id}`}
-                                    onSelect={() => { onChange(String(t.id)); setOpen(false); }}
-                                    className="text-xs">
-                                    <span className="truncate">{t.alias || t.code}</span>
-                                    {t.scaling_enabled && t.eu_unit && (
-                                        <span className="ml-1 text-[10px] text-muted-foreground">[{t.eu_unit}]</span>
-                                    )}
-                                </CommandItem>
-                            ))}
-                        </CommandGroup>
-                    </CommandList>
-                </Command>
-            </PopoverContent>
-        </Popover>
+        <div className="grid gap-1">
+            <Input
+                placeholder={tr('synopticEditor.search_tag')}
+                className="h-10 sm:h-8 text-xs"
+                value={filter}
+                onChange={e => setFilter(e.target.value)}
+            />
+            <select
+                className="h-10 sm:h-8 text-xs w-full rounded-md border border-input bg-background px-2 font-normal"
+                value={value}
+                onChange={e => onChange(e.target.value)}
+                size={Math.min(8, Math.max(3, filtered.length + 1))}
+                style={{ overflowY: 'auto' }}
+            >
+                <option value="none">{tr('synopticEditor.no_tag')}</option>
+                {filtered.map(t => (
+                    <option key={t.id} value={String(t.id)}>
+                        {(t.alias || t.code) + (t.scaling_enabled && t.eu_unit ? ` [${t.eu_unit}]` : '')}
+                    </option>
+                ))}
+            </select>
+            {filter.trim() !== '' && filtered.length === 0 && (
+                <span className="text-xs text-muted-foreground">{tr('synopticEditor.no_tag_found')}</span>
+            )}
+        </div>
     );
 }
 
@@ -250,6 +245,23 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const { values: liveValues, connected: wsConnected } = useRealtime(
         !isEdit && canvasTagIds.size > 0 ? (selectedOrgId ?? undefined) : undefined, canvasTagIds);
 
+    // Initial values for the viewer: the socket only pushes new samples, so a
+    // widget bound to a tag with no live update yet showed "—" even when the
+    // server holds a last-known value. One batch call fills them in; live
+    // updates override afterwards.
+    const [shadowValues, setShadowValues] = useState<Map<number, LiveValue>>(new Map());
+    useEffect(() => {
+        if (isEdit || canvasTagIds.size === 0) { setShadowValues(new Map()); return; }
+        let ignore = false;
+        tagsApi.getShadowBatch().then(shadows => {
+            if (ignore) return;
+            const m = new Map<number, LiveValue>();
+            shadows.forEach(s => { m.set(s.tag_id, { value: s.value, quality: s.quality, timestamp: s.ts }); });
+            setShadowValues(m);
+        }).catch(() => { /* old server without org-wide batch: live only */ });
+        return () => { ignore = true; };
+    }, [isEdit, id]);
+
     // Fetch active alarms for tags on this canvas (view mode only)
     const [activeAlarmTagIds, setAlarmTagIds] = useState<Set<number>>(new Set());
     // The editor shows no alarm styling: the set fetched by the viewer used to
@@ -404,15 +416,15 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const tagValue = useCallback((tagId?: number | null): LiveValue | undefined => {
         if (tagId == null) return undefined; // unbound widget → always preview
         if (mode !== 'view') return undefined; // edit mode → preview
-        const v = liveValues.get(tagId);
-        // Tag is bound but no live data yet (edge offline / WS not connected) →
+        const v = liveValues.get(tagId) ?? shadowValues.get(tagId);
+        // Tag is bound but no data at all (never sent / edge offline) →
         // return BAD-quality null so widgets show "—" / grey / off state.
         if (!v) return { value: null, quality: 2 };
         // With the socket down the last values stay on screen; they are no
         // longer live, and showing them as good made a frozen page look fine.
         const quality = wsConnected ? v.quality : Math.max(v.quality, 1);
         return { value: v.value, quality, timestamp: v.timestamp };
-    }, [liveValues, mode, wsConnected]);
+    }, [liveValues, shadowValues, mode, wsConnected]);
 
     // onWrite: called by button widgets in view mode to write a value to a tag
     // via the i3X interface (PUT /api/i3x/v1/properties/tag-{id}/value).
