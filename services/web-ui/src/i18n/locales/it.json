@@ -134,7 +134,9 @@
       "setup": "Dall'impianto vuoto ai primi valori dal PLC, passo per passo"
     },
     "mqtt_reconnecting": "Connessione ai dati in tempo reale persa: riconnessione in corso…",
-    "setup": "Primi passi"
+    "setup": "Primi passi",
+    "all_orgs": "Tutte le organizzazioni",
+    "select_org": "Scegli organizzazione"
   },
   "system": {
     "title": "Pannello di sistema",

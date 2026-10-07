@@ -131,11 +131,17 @@ func (h *AreasHandler) Create(c *gin.Context) {
 
 	var area models.Area
 	var boundary json.RawMessage
+	// An absent boundary must reach SQL as NULL, not as an empty raw message
+	// (which pgx rejects: "received invalid raw message").
+	boundArg := interface{}(nil)
+	if len(req.Boundary) > 0 {
+		boundArg = req.Boundary
+	}
 	err = h.db.QueryRow(
 		"INSERT INTO areas (site_id, name, boundary) VALUES ($1, $2, $3) RETURNING id, site_id, name, boundary, created_at",
 		req.SiteID,
 		req.Name,
-		req.Boundary,
+		boundArg,
 	).Scan(&area.ID, &area.SiteID, &area.Name, &boundary, &area.CreatedAt)
 	area.Boundary = boundary
 
@@ -489,10 +495,14 @@ func (h *AreasHandler) Update(c *gin.Context) {
 
 	var area models.Area
 	var boundary json.RawMessage
+	boundArg := interface{}(nil)
+	if len(req.Boundary) > 0 {
+		boundArg = req.Boundary
+	}
 	err = h.db.QueryRow(
 		"UPDATE areas SET name = $1, boundary = $2 WHERE id = $3 RETURNING id, site_id, name, boundary, created_at",
 		*req.Name,
-		req.Boundary,
+		boundArg,
 		id,
 	).Scan(&area.ID, &area.SiteID, &area.Name, &boundary, &area.CreatedAt)
 	area.Boundary = boundary

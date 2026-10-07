@@ -29,7 +29,16 @@ const Header = ({ onMenuClick }: HeaderProps) => {
     const { t } = useTranslation();
 
     // Get navigation context
-    const { selectedOrgId, selectedSiteId, selectedAreaId, clearSelection } = useNavigationStore();
+    const { selectedOrgId, selectedSiteId, selectedAreaId, setSelectedOrgId, setSelectedSiteId, setSelectedAreaId, clearSelection } = useNavigationStore();
+
+    // Organizations for the switcher: a global admin can hop between tenants.
+    const { data: orgsData } = useQuery({
+        queryKey: ['organizations'],
+        queryFn: () => organizationsApi.getAll(),
+        enabled: isGlobalAdmin(),
+        staleTime: 5 * 60 * 1000,
+    });
+    const orgs = orgsData ?? [];
 
     // Fetch context names
     const { data: org } = useQuery({
@@ -123,6 +132,26 @@ const Header = ({ onMenuClick }: HeaderProps) => {
                         </div>
                     ))}
                 </div>
+
+                {/* Org switcher (global admin only): the selected org scopes
+                    every page. Native select so it works on mobile too. */}
+                {isGlobalAdmin() && orgs.length > 0 && (
+                    <select
+                        className="h-8 max-w-[140px] md:max-w-[200px] px-2 rounded-md border bg-background text-sm shrink-0"
+                        value={selectedOrgId ?? ''}
+                        onChange={(e) => {
+                            const v = e.target.value ? parseInt(e.target.value) : null;
+                            setSelectedOrgId(v);
+                            setSelectedSiteId(null);
+                            setSelectedAreaId(null);
+                            navigate('/');
+                        }}
+                        aria-label={t('nav.select_org')}
+                    >
+                        <option value="">{t('nav.all_orgs')}</option>
+                        {orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                    </select>
+                )}
 
                 {/* Context Indicator (Professional Badge) */}
                 {(selectedOrgId || selectedSiteId || selectedAreaId) && (

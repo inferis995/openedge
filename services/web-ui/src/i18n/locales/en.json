@@ -134,7 +134,9 @@
       "setup": "From an empty plant to the first values from a PLC, step by step"
     },
     "mqtt_reconnecting": "Live data connection lost: reconnecting…",
-    "setup": "Getting started"
+    "setup": "Getting started",
+    "all_orgs": "All organizations",
+    "select_org": "Select organization"
   },
   "system": {
     "title": "System Manager",
