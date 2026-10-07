@@ -781,13 +781,13 @@ openedge gateways create --area <id> --name "MiDo Cariati" --driver MQTT --confi
   "broker_host":"broker.example.com","broker_port":1883,
   "broker_username":"<user>","broker_password":"<pass>",
   "broker_client_id":"openedge-<org>-<area>",
-  "decoder_preset":"mido","stale_after_minutes":420,"alarms_on_history":true}'
+  "decoder_preset":"mido","stale_after_minutes":1440,"alarms_on_history":true}'
 ```
 
 | Chiave | Effetto |
 |---|---|
 | `decoder_preset` / `decoder_script` | Come leggere il payload. Validati al salvataggio. |
-| `stale_after_minutes` | Minuti senza dati prima che i tag diventino "non aggiornati". Mettilo poco sopra l'intervallo di invio (4–6 h → 420). 0/assente con decoder = nessun controllo. |
+| `stale_after_minutes` | Minuti senza dati prima che i tag diventino "non aggiornati". Mettilo ben sopra l'intervallo di invio, così un invio saltato non fa scattare nulla (invio ogni 4–6 h → 1440, un giorno). 0/assente con decoder = nessun controllo. |
 | `alarms_on_history` | Allarmi valutati su tutte le letture del pacchetto con i loro orari; notificato solo ciò che è ancora attivo all'ultima lettura (o la fine di uno già notificato). |
 | `broker_client_id` | Unico per gateway: due client con lo stesso id si scollegano a vicenda. |
 

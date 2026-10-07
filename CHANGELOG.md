@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Tags page counts said the wrong thing.** "N with alarms" counted tags
+  with an alarm *configured*, and "good quality" lumped values marked stale
+  together with tags that never received one. The bar now reads up to date
+  · not valid · no data · active alarms · with alarms configured, each a
+  filter on the table, with a hint on what it counts.
+
 - **History resolution follows the chart.** `POST /api/history/batch` takes
   `points` (about the chart's width): a window with fewer samples comes back
   as the samples themselves; otherwise buckets are sized to it, read from

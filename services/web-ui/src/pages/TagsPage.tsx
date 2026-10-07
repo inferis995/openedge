@@ -72,6 +72,8 @@ function SortIcon({ field, current, dir }: { field: string; current: string | nu
     return <span className="ml-1">{dir === 'asc' ? '↑' : '↓'}</span>;
 }
 
+type TagStatusFilter = 'all' | 'fresh' | 'stale' | 'never' | 'alarm' | 'configured';
+
 const TagsPage = () => {
     const { t: tr } = useTranslation();
     const queryClient = useQueryClient();
@@ -81,6 +83,8 @@ const TagsPage = () => {
     const [searchInput, setSearchInput] = useState<string>('');
     const searchQuery = useDeferredValue(searchInput);
     const [filterDriverType, setFilterDriverType] = useState('all');
+    // A status chip in the stats bar narrows the table to those tags.
+    const [statusFilter, setStatusFilter] = useState<TagStatusFilter>('all');
     const [sortField, setSortField] = useState<'alias' | 'code' | 'data_type' | 'sort_order' | null>(null);
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const { selectedOrgId } = useNavigationStore();
@@ -759,10 +763,36 @@ const TagsPage = () => {
     // the build anyway. Without the memo every live value update would
     // re-filter and re-sort the whole tag list.
     // eslint-disable-next-line react-hooks/preserve-manual-memoization
-    const tagsList = useMemo(
+    const filteredTags = useMemo(
         () => filterAndSortTags(tags, gateways, filterDriverType, searchQuery, sortField, sortDir),
         [tags, searchQuery, filterDriverType, gateways, sortField, sortDir],
     );
+    // What each tag's current value says: valid now, not valid (bad quality,
+    // or marked stale because nothing arrived within the gateway's timeout),
+    // or nothing received yet. "Good quality" alone lumped the last two
+    // together and read as a plant mostly broken.
+    const statusById = useMemo(() => {
+        const m = new Map<number, 'fresh' | 'stale' | 'never'>();
+        for (const t of filteredTags) {
+            const v = currentValues.get(t.id);
+            m.set(t.id, !v ? 'never' : v.quality === 0 ? 'fresh' : 'stale');
+        }
+        return m;
+    }, [filteredTags, currentValues]);
+    const statusCounts = useMemo(() => {
+        const c = { fresh: 0, stale: 0, never: 0, alarm: 0, configured: 0 };
+        for (const t of filteredTags) {
+            c[statusById.get(t.id) ?? 'never']++;
+            if (activeAlarms[t.id]) c.alarm++;
+            if (alarmDefsCount[t.id] > 0) c.configured++;
+        }
+        return c;
+    }, [filteredTags, statusById, activeAlarms, alarmDefsCount]);
+    // A plain filter, cheap next to the sort above it.
+    const tagsList = statusFilter === 'all' ? filteredTags : filteredTags.filter(t =>
+        statusFilter === 'alarm' ? !!activeAlarms[t.id]
+            : statusFilter === 'configured' ? alarmDefsCount[t.id] > 0
+                : statusById.get(t.id) === statusFilter);
 
     if (isLoading) {
         return <div className="p-8 text-center text-muted-foreground">{tr('tagsPage.loading')}</div>;
@@ -1273,17 +1303,26 @@ const TagsPage = () => {
             }
 
             {/* Stats bar */}
-            <div className="flex items-center gap-6 text-sm text-muted-foreground px-1">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground px-1">
                 <span>
                     <strong className="text-foreground">{tagsList.length}</strong>
                     {tagsList.length !== tags.length && ` / ${tags.length}`} {tr('tagsPage.stat_tags', { count: tags.length })}
                 </span>
-                <span>
-                    <strong className="text-green-600">{tagsList.filter(t => {
-                        const v = currentValues.get(t.id);
-                        return v && v.quality === 0;
-                    }).length}</strong> {tr('tagsPage.stat_good')}
-                </span>
+                {/* Status chips: what the current values say, each one a filter. */}
+                {([
+                    ['fresh', statusCounts.fresh, 'text-green-600'],
+                    ['stale', statusCounts.stale, 'text-amber-600'],
+                    ['never', statusCounts.never, 'text-muted-foreground'],
+                    ['alarm', statusCounts.alarm, 'text-destructive'],
+                ] as const).map(([key, n, color]) => (
+                    <button key={key} type="button"
+                        onClick={() => setStatusFilter(f => (f === key ? 'all' : key))}
+                        title={tr(`tagsPage.stat_${key}_hint`)}
+                        aria-pressed={statusFilter === key}
+                        className={`whitespace-nowrap rounded px-1.5 py-0.5 hover:bg-muted ${statusFilter === key ? 'bg-muted ring-1 ring-border' : ''}`}>
+                        <strong className={color}>{n}</strong> {tr(`tagsPage.stat_${key}`)}
+                    </button>
+                ))}
                 {!realtimeConnected && (
                     // Without this the table kept rendering the last values with
                     // green "good" badges after the socket dropped, so an
@@ -1294,11 +1333,15 @@ const TagsPage = () => {
                         {tr('tagsPage.live_disconnected')}
                     </span>
                 )}
-                <span>
-                    <strong className="text-amber-500">{tagsList.filter(t => alarmDefsCount[t.id] > 0).length}</strong> {tr('tagsPage.stat_with_alarms')}
-                </span>
-                {(tagsList.length !== tags.length || filterDriverType !== 'all') && (
-                    <Button variant="ghost" size="sm" className="h-9 sm:h-6 text-xs" onClick={() => { setSearchInput(''); setSelectedGatewayId('all'); setFilterDriverType('all'); }}>
+                <button type="button"
+                    onClick={() => setStatusFilter(f => (f === 'configured' ? 'all' : 'configured'))}
+                    title={tr('tagsPage.stat_configured_hint')}
+                    aria-pressed={statusFilter === 'configured'}
+                    className={`whitespace-nowrap rounded px-1.5 py-0.5 text-xs hover:bg-muted ${statusFilter === 'configured' ? 'bg-muted ring-1 ring-border' : ''}`}>
+                    <strong>{statusCounts.configured}</strong> {tr('tagsPage.stat_configured')}
+                </button>
+                {(tagsList.length !== tags.length || filterDriverType !== 'all' || statusFilter !== 'all') && (
+                    <Button variant="ghost" size="sm" className="h-9 sm:h-6 text-xs" onClick={() => { setSearchInput(''); setSelectedGatewayId('all'); setFilterDriverType('all'); setStatusFilter('all'); }}>
                         {tr('tagsPage.clear_filters')}
                     </Button>
                 )}
