@@ -1,5 +1,5 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Map as MapGL, Marker, Popup, NavigationControl, Source, Layer, type MapRef } from 'react-map-gl/maplibre';
@@ -13,7 +13,9 @@ import { useSites } from '@/hooks/useSites';
 import { useRealtime } from '@/hooks/useRealtime';
 import { tagsApi } from '@/api/tags';
 import type { TagValue } from '@/api/tags';
-import type { Tag } from '@/types';
+import type { Tag, Gateway, Area } from '@/types';
+import { gatewaysApi } from '@/api/gateways';
+import { areasApi } from '@/api/areas';
 import { parseCoords, formatCoord, searchPlace, type PlaceResult } from '@/lib/coords';
 import { Battery, Cpu, Loader2, MapPin, Search } from 'lucide-react';
 
@@ -157,16 +159,47 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     // vede la mappa in sola lettura, senza pannelli di editing.
     const canEdit = (isGlobalAdmin() || isOrgAdmin()) && isAdmin();
 
-    const gatewaysHook = useGateways(null);
-    const gateways = gatewaysOverride ?? gatewaysHook.gateways;
-    const isLoadingGateways = gatewaysOverride ? false : gatewaysHook.isLoading;
-
+    // Dati in funzione dell'org selezionata nell'header dal global admin
+    // (o della propria org per gli org-user): cambiando org, mappa, aree,
+    // siti e pin seguono. Il filtro sito restringe ulteriormente.
     const { selectedOrgId } = useNavigationStore();
     const sitesHook = useSites(selectedOrgId);
-    const firstSiteId = sitesHook.sites?.[0]?.id ?? null;
-    const areasHook = useAreas(firstSiteId);
-    const areas = areasOverride ?? areasHook.areas;
-    const isLoadingAreas = areasOverride ? false : areasHook.isLoading;
+    const sites = sitesHook.sites ?? [];
+    // Aree di tutti i siti dell'org (l'hook è per-sito): le uniamo qui,
+    // cambiando org o sito la lista segue.
+    const areaSiteIds = sites.map((st) => st.id);
+    const [areas, setAreas] = useState<Area[]>([]);
+    useEffect(() => {
+        let cancelled = false;
+        if (areasOverride) { (async () => { if (!cancelled) setAreas(areasOverride); })(); return; }
+        (async () => {
+            try {
+                const lists = await Promise.all(areaSiteIds.map((sid) => areasApi.getAll(sid)));
+                if (!cancelled) setAreas(lists.flat());
+            } catch { if (!cancelled) setAreas([]); }
+        })();
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [JSON.stringify(areaSiteIds), areasOverride]);
+
+    // Gateway: recuperati per area via query diretta quando servono (l'hook
+    // useGateways richiede un area_id); il canale principale resta uno.
+    const [gateways, setGateways] = useState<Gateway[]>([]);
+    const [isLoadingGateways, setIsLoadingGateways] = useState(true);
+    useEffect(() => {
+        let cancelled = false;
+        if (gatewaysOverride) { (async () => { if (!cancelled) setGateways(gatewaysOverride); })(); return; }
+        (async () => {
+            try {
+                const all = await gatewaysApi.getAll();
+                if (cancelled) return;
+                // scoping: solo i gateway le cui aree appartengono ai siti dell'org
+                const areaIds = new Set(areas.map((a) => a.id));
+                setGateways(all.filter((g) => areaIds.has(g.area_id)));
+            } finally { if (!cancelled) setIsLoadingGateways(false); }
+        })();
+        return () => { cancelled = true; };
+    }, [areas, gatewaysOverride]);
 
     // Ombre iniziali di tutti i tag (valore + quality + timestamp). Le pill poi
     // vivono di realtime: stesso canale MQTT/WS delle altre pagine, niente reload.
@@ -208,7 +241,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     // Vista live per tag: ombra iniziale, poi il realtime la sovrascrive.
     // history tiene gli ultimi 5 valori per la freccia di tendenza.
     const tagLive = useRef<Map<number, TagLive>>(new Map());
-    const [, bumpVersion] = useState(0);
+    const [liveVersion, bumpVersion] = useState(0);
     useEffect(() => {
         let changed = false;
         // Ombre dal REST: base iniziale.
@@ -226,7 +259,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
             tagLive.current.set(tagId, { value: v.value, quality: v.quality, ts: v.timestamp, history });
             changed = true;
         }
-        if (changed) bumpVersion((n) => n + 1);
+        if (changed) startTransition(() => bumpVersion((n) => n + 1));
     }, [shadows, rtValues]);
 
     const mapRef = useRef<MapRef>(null);
@@ -247,6 +280,20 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     const [openTagId, setOpenTagId] = useState<number | null>(null);
     // Popup gateway completo (dal «+N altri»).
     const [listGwId, setListGwId] = useState<number | null>(null);
+    // tagLive è un ref (mutato dal realtime): il re-render lo legge solo qui,
+    // dentro un tick successivo al bump di versione.
+    // Snapshot del ref mutabile: copia in state quando la versione cambia,
+    // così il render non legge mai .current.
+    const [liveSnapshot, setLiveSnapshot] = useState<Map<number, TagLive>>(() => new Map());
+    useEffect(() => {
+        setLiveSnapshot(new Map(tagLive.current));
+    }, [liveVersion]);
+    const detailMode = zoom >= DETAIL_ZOOM;
+    const openTag = openTagId !== null ? tagsById.get(openTagId) ?? null : null;
+    const [openTagLive, setOpenTagLive] = useState<TagLive | null>(null);
+    useEffect(() => {
+        setOpenTagLive(openTagId !== null ? tagLive.current.get(openTagId) ?? null : null);
+    }, [openTagId, liveVersion]);
     const listGw = gateways.find((g) => g.id === listGwId) ?? null;
 
     const placedGateways = useMemo(
@@ -286,11 +333,11 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     );
 
     // Tag di un gateway con vista live, in ordine di id.
-    const liveTagsFor = (gatewayId: number): { tag: Tag; live: TagLive }[] => {
+    const liveTagsFor = (gatewayId: number, snap: Map<number, TagLive>): { tag: Tag; live: TagLive }[] => {
         const out: { tag: Tag; live: TagLive }[] = [];
         for (const tg of allTags) {
             if (tg.gateway_id !== gatewayId) continue;
-            const live = tagLive.current.get(tg.id);
+            const live = snap.get(tg.id);
             if (live) out.push({ tag: tg, live });
         }
         return out;
@@ -307,7 +354,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     const [searchingPlaces, setSearchingPlaces] = useState(false);
     useEffect(() => {
         const q = placeQuery.trim();
-        if (q.length < 3) { setPlaces([]); return; }
+        if (q.length < 3) { startTransition(() => setPlaces([])); return; }
         const controller = new AbortController();
         const timer = setTimeout(() => {
             setSearchingPlaces(true);
@@ -391,7 +438,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
         if (!editGw) return;
         setSavingPos(true);
         try {
-            await gatewaysHook.update({ id: editGw.id, data: { latitude: lat, longitude: lon } });
+            await gatewaysApi.update(editGw.id, { latitude: lat, longitude: lon });
         } finally {
             setSavingPos(false);
         }
@@ -412,7 +459,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
         void saveGatewayPos(e.lngLat.lat, e.lngLat.lng);
     };
 
-    if (isLoadingGateways || isLoadingAreas) {
+    if (isLoadingGateways) {
         return (
             <div className="p-8 flex items-center justify-center text-muted-foreground">
                 <Loader2 className="h-6 w-6 animate-spin mr-2" /> {t('map.loading')}
@@ -420,9 +467,6 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
         );
     }
 
-    const detailMode = zoom >= DETAIL_ZOOM;
-    const openTag = openTagId !== null ? tagsById.get(openTagId) ?? null : null;
-    const openTagLive = openTagId !== null ? tagLive.current.get(openTagId) ?? null : null;
 
     return (
         <div className="space-y-4">
@@ -546,7 +590,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
 
                     {visibleGateways.map((gw) => {
                         const gwDetail = detailMode || selectedGwId === gw.id;
-                        const gwTags = gwDetail ? liveTagsFor(gw.id) : [];
+                        const gwTags = gwDetail ? liveTagsFor(gw.id, liveSnapshot) : [];
                         const visibleTags = gwTags.slice(0, MAX_PILLS);
                         const extra = gwTags.length - visibleTags.length;
                         return (
@@ -627,7 +671,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                             <GatewayPopup
                                 gateway={selectedGw}
                                 tagsById={tagsById}
-                                tagLive={tagLive.current}
+                                tagLive={liveSnapshot}
                                 onClose={() => setSelectedGwId(null)}
                                 onOpenTrend={(gid, tid) => navigate(`/trend?gateway=${gid}${tid ? `&tag=${tid}` : ''}`)}
                                 onOpenTrendPens={(pens) => navigate(`/trend?${pens}`)}
@@ -681,7 +725,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                 <GatewayListDialog
                     gateway={listGw}
                     tagsById={tagsById}
-                    tagLive={tagLive.current}
+                    tagLive={liveSnapshot}
                     onClose={() => setListGwId(null)}
                     onOpenTrend={(_gid, tid) => navigate(`/trend?pens=${tid}`)}
                 />
@@ -974,7 +1018,9 @@ interface TagDetailProps {
 // Dettaglio di un tag dal click sulla pill: valore grande, unità, aggiornamento.
 function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
     const { t } = useTranslation();
-    const ago = live.ts > 0 ? Math.max(0, Math.round((Date.now() - live.ts) / 1000)) : null;
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => { const id = setInterval(() => setNow(Date.now()), 5000); return () => clearInterval(id); }, []);
+    const ago = live.ts > 0 ? Math.max(0, Math.round((now - live.ts) / 1000)) : null;
     return (
         <div className="space-y-2 text-sm">
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{t('map.tag_detail')}</div>
