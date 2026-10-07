@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import {
     Activity, Play, Pause, RefreshCw, Download, PanelLeft, PanelRight,
-    BarChart2, Settings2, ZoomOut,
+    BarChart2, Settings2, ZoomOut, ChevronLeft, ChevronRight, Ruler, GitCompareArrows,
 } from 'lucide-react';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -22,8 +22,8 @@ import { historyApi } from '@/api/history';
 import { tagsApi } from '@/api/tags';
 import { gatewaysApi } from '@/api/gateways';
 import { alarmsApi } from '@/api/alarms';
-import { alignPens, mergeSeries, realtimePoint } from '@/lib/trendAlign';
-import { decodeView, encodeView, resolveRange, TREND_VIEW_KEY, type TrendView } from '@/lib/trendView';
+import { alignPens, mergeSeries, realtimePoint, shiftPoints, valueAt } from '@/lib/trendAlign';
+import { compareOffset, decodeView, encodeView, resolveRange, TREND_VIEW_KEY, type CompareMode, type TrendView } from '@/lib/trendView';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { type TrendDataPoint, type AggregationType, type TagWithHierarchy } from '@/types/trend';
@@ -44,6 +44,13 @@ const AGG_OPTIONS: { value: AggregationType; labelKey: string }[] = [
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** "1 h 30 min", "45 s". */
+function fmtDuration(ms: number): string {
+    const s = Math.round(ms / 1000);
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+    return [d && `${d} d`, h && `${h} h`, m && `${m} min`, !d && !h && r && `${r} s`].filter(Boolean).join(' ') || '0 s';
+}
 
 /** Values the chart can show: about one per CSS pixel, within the server's bounds. */
 function chartPoints(): number {
@@ -122,6 +129,13 @@ export default function TrendPage() {
     const [timeRange, setTimeRange] = useState<HistorianRange>(() => initialView ? resolveRange(initialView.range) : defaultRange());
     const [liveMode, setLiveMode] = useState(() => initialView?.live ?? false);
     const [aggregation, setAggregation] = useState<AggregationType>(() => initialView?.agg ?? 'mean');
+    const [compare, setCompare] = useState<CompareMode>(() => initialView?.cmp ?? 'off');
+    const [measure, setMeasure] = useState(false);
+    const [marks, setMarks] = useState<{ a: number | null; b: number | null }>({ a: null, b: null });
+    // A first click places A, a second B, a third starts again.
+    const onMeasureClick = useCallback((ms: number) => {
+        setMarks(m => (m.a === null ? { a: ms, b: null } : m.b === null ? { a: m.a, b: ms } : { a: ms, b: null }));
+    }, []);
     const [rawPens, setPens] = useState<Pen[]>(() => (initialView?.pens ?? []).map(p => ({
         tagId: p.tagId, label: `#${p.tagId}`, color: p.color, visible: p.visible,
     })));
@@ -141,7 +155,8 @@ export default function TrendPage() {
             : { from: timeRange.from.getTime(), to: timeRange.to.getTime() },
         agg: aggregation,
         live: liveMode,
-    }).toString(), [rawPens, timeRange, aggregation, liveMode]);
+        cmp: compare,
+    }).toString(), [rawPens, timeRange, aggregation, liveMode, compare]);
     useEffect(() => {
         setSearchParams(new URLSearchParams(viewQuery), { replace: true });
         try { localStorage.setItem(TREND_VIEW_KEY, viewQuery); } catch { /* private mode: the address still has it */ }
@@ -278,10 +293,41 @@ export default function TrendPage() {
     }, [batchData, tailData, rtSeries, liveMode, liveBase, lastLiveTs, penIds, spanMs]);
 
     // Build uPlot-aligned data (seconds timestamps)
+    // ── Comparison: the same pens over an earlier window, laid over this one ──
+    const cmpOffset = compareOffset(compare, timeRange.to.getTime() - timeRange.from.getTime());
+    const { data: compareData } = useQuery({
+        queryKey: ['historian-compare', penIds, queryRange.from.getTime() - cmpOffset, queryRange.to.getTime() - cmpOffset, aggregation],
+        queryFn: () => historyApi.batchQuery({
+            tag_ids: penIds,
+            start: new Date(queryRange.from.getTime() - cmpOffset).toISOString(),
+            end: new Date(queryRange.to.getTime() - cmpOffset).toISOString(),
+            agg: aggregation,
+            points: chartPoints(),
+        }),
+        enabled: compare !== 'off' && penIds.length > 0,
+        staleTime: 60_000,
+    });
+    // Comparison pens carry the tag id negated; they are drawn dashed.
+    const chartPens = useMemo(() => {
+        if (compare === 'off' || !compareData) return pens;
+        const suffix = tr(`trendPage.compare_suffix_${compare}`);
+        return [...pens, ...pens.map(p => ({ ...p, tagId: -p.tagId, label: `${p.label} (${suffix})` }))];
+    }, [pens, compare, compareData, tr]);
+    const chartSeriesData = useMemo(() => {
+        if (!series || compare === 'off' || !compareData) return series;
+        const out: Record<number, TrendDataPoint[]> = { ...series };
+        for (const p of pens) {
+            // Values only: the earlier window's envelope would hide this one's.
+            out[-p.tagId] = shiftPoints((compareData as Record<number, TrendDataPoint[]>)[p.tagId], cmpOffset)
+                .map(({ timestamp, value, quality }) => ({ timestamp, value, quality }));
+        }
+        return out;
+    }, [series, compare, compareData, pens, cmpOffset]);
+
     const { timestamps, values, bands } = useMemo<ReturnType<typeof alignPens>>(() => {
-        if (!series || pens.length === 0) return { timestamps: [], values: [], bands: [] };
-        return alignPens(pens, series);
-    }, [series, pens]);
+        if (!chartSeriesData || chartPens.length === 0) return { timestamps: [], values: [], bands: [] };
+        return alignPens(chartPens, chartSeriesData);
+    }, [chartSeriesData, chartPens]);
 
     // The pens' alarms in the window, for the time axis.
     const { data: alarmEvents } = useQuery({
@@ -328,15 +374,36 @@ export default function TrendPage() {
 
     // Build PenSeries for uPlot
     const penSeries = useMemo<PenSeries[]>(() =>
-        pens.map(p => ({
+        chartPens.map(p => ({
             tagId: p.tagId,
             label: p.label,
             unit: p.unit,
-            decimals: tagMap.get(p.tagId)?.eu_decimals ?? undefined,
-            step: tagMap.get(p.tagId)?.data_type === 'BOOL',
+            decimals: tagMap.get(Math.abs(p.tagId))?.eu_decimals ?? undefined,
+            step: tagMap.get(Math.abs(p.tagId))?.data_type === 'BOOL',
+            ghost: p.tagId < 0,
             color: p.color,
             visible: p.visible,
-        })), [pens, tagMap]);
+        })), [chartPens, tagMap]);
+
+    // ── Measurement: values at A and B, and the differences ──
+    const measurement = useMemo(() => {
+        if (!measure || marks.a === null || !series) return null;
+        return pens.map(p => {
+            const a = valueAt(series[p.tagId], marks.a as number);
+            const b = marks.b === null ? null : valueAt(series[p.tagId], marks.b);
+            return { pen: p, a, b, delta: a && b ? b.value - a.value : null };
+        });
+    }, [measure, marks, series, pens]);
+
+    // ◀ ▶: the window moves by its own length.
+    const pan = useCallback((dir: -1 | 1) => {
+        const span = timeRange.to.getTime() - timeRange.from.getTime();
+        const now = Date.now();
+        const to = Math.min(now, timeRange.to.getTime() + dir * span);
+        setTimeRange({ from: new Date(to - span), to: new Date(to), preset: 'custom' });
+        setLiveMode(false);
+        setZoomStack([]);
+    }, [timeRange]);
 
     // Add tag as pen
     const addPen = useCallback((tagId: number) => {
@@ -461,6 +528,39 @@ export default function TrendPage() {
                             </Button>
                         )}
 
+                        {/* Pan */}
+                        <div className="flex">
+                            <Button size="icon" variant="outline" className="h-9 sm:h-7 w-9 sm:w-7 rounded-r-none"
+                                onClick={() => pan(-1)} title={tr('trendPage.pan_back')} aria-label={tr('trendPage.pan_back')}>
+                                <ChevronLeft className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button size="icon" variant="outline" className="h-9 sm:h-7 w-9 sm:w-7 rounded-l-none border-l-0"
+                                onClick={() => pan(1)} disabled={liveMode || timeRange.preset !== 'custom'}
+                                title={tr('trendPage.pan_fwd')} aria-label={tr('trendPage.pan_fwd')}>
+                                <ChevronRight className="w-3.5 h-3.5" />
+                            </Button>
+                        </div>
+
+                        {/* Measure */}
+                        <Button size="sm" variant={measure ? 'default' : 'outline'} className="h-9 sm:h-7 text-xs gap-1"
+                            onClick={() => { setMeasure(m => !m); setMarks({ a: null, b: null }); }}
+                            title={tr('trendPage.measure_hint')}>
+                            <Ruler className="w-3 h-3" /> {tr('trendPage.measure')}
+                        </Button>
+
+                        {/* Compare */}
+                        <Select value={compare} onValueChange={v => setCompare(v as CompareMode)}>
+                            <SelectTrigger className="h-9 sm:h-7 w-auto gap-1 text-xs" aria-label={tr('trendPage.compare')}>
+                                <GitCompareArrows className="w-3 h-3" />
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {(['off', 'prev', '1d', '7d'] as const).map(m => (
+                                    <SelectItem key={m} value={m}>{tr(`trendPage.compare_${m}`)}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+
                         {/* Refresh */}
                         <Button size="icon" variant="outline" className="h-9 sm:h-7 w-9 sm:w-7"
                             onClick={() => refetch()} disabled={isFetching || penIds.length === 0}
@@ -531,7 +631,40 @@ export default function TrendPage() {
                                 events={chartEvents}
                                 live={liveMode}
                                 onZoom={handleZoom}
+                                measure={measure}
+                                marks={marks}
+                                onMeasureClick={onMeasureClick}
                             />
+                        </div>
+                    )}
+                    {measure && pens.length > 0 && (
+                        <div className="shrink-0 border-t bg-card/60 px-3 py-2 text-xs">
+                            {marks.a === null ? (
+                                <p className="text-muted-foreground">{tr('trendPage.measure_hint')}</p>
+                            ) : (
+                                <div className="overflow-x-auto">
+                                    <div className="flex items-center gap-3 mb-1 font-mono text-[11px]">
+                                        <span>A {new Date(marks.a).toLocaleString(i18n.language)}</span>
+                                        {marks.b !== null && <span>B {new Date(marks.b).toLocaleString(i18n.language)}</span>}
+                                        {marks.b !== null && <span className="font-semibold">{tr('trendPage.delta_t')} {fmtDuration(Math.abs(marks.b - marks.a))}</span>}
+                                        <Button size="sm" variant="ghost" className="h-6 ml-auto text-xs" onClick={() => setMarks({ a: null, b: null })}>
+                                            {tr('trendPage.measure_clear')}
+                                        </Button>
+                                    </div>
+                                    <table className="w-full font-mono text-[11px]">
+                                        <tbody>
+                                            {measurement?.map(({ pen, a, b, delta }) => (
+                                                <tr key={pen.tagId}>
+                                                    <td className="pr-3 truncate max-w-[180px]" style={{ color: pen.color }}>{pen.label}</td>
+                                                    <td className="pr-3">A {a ? a.value.toFixed(3).replace(/\.?0+$/, '') : '—'}</td>
+                                                    {marks.b !== null && <td className="pr-3">B {b ? b.value.toFixed(3).replace(/\.?0+$/, '') : '—'}</td>}
+                                                    {marks.b !== null && <td className="font-semibold">Δ {delta === null ? '—' : `${delta >= 0 ? '+' : ''}${delta.toFixed(3).replace(/\.?0+$/, '')}`}{pen.unit ? ` ${pen.unit}` : ''}</td>}
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>

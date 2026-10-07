@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { alignPens, mergeSeries, realtimePoint } from './trendAlign';
+import { alignPens, mergeSeries, realtimePoint, shiftPoints, valueAt } from './trendAlign';
 
 const min = 60_000;
 const pt = (t: number, value: number, quality = 0) => ({ timestamp: t * min, value, quality });
@@ -53,5 +53,24 @@ describe('realtimePoint', () => {
         expect(realtimePoint({ value: '3.5', timestamp: 1_700_000_000_000, quality: 0 })?.value).toBe(3.5);
         expect(realtimePoint({ value: 'n/a', timestamp: 1, quality: 0 })).toBeNull();
         expect(realtimePoint({ value: 1, timestamp: 1_700_000_000_000, quality: 64 })?.quality).toBe(1);
+    });
+});
+
+describe('valueAt', () => {
+    const pts = [pt(0, 1), pt(10, 2), pt(20, 3, 192), pt(30, 4)];
+    it('holds the newest good sample at or before the instant', () => {
+        expect(valueAt(pts, 10 * min)).toEqual({ value: 2, at: 10 * min });
+        expect(valueAt(pts, 15 * min)?.value).toBe(2);
+        expect(valueAt(pts, 99 * min)?.value).toBe(4);
+    });
+    it('has nothing before the first sample, or where the newest is bad', () => {
+        expect(valueAt(pts, -1)).toBeNull();
+        expect(valueAt(pts, 25 * min)).toBeNull();
+    });
+});
+
+describe('shiftPoints', () => {
+    it('moves a previous period onto the current window', () => {
+        expect(shiftPoints([pt(0, 1)], 60 * min)[0].timestamp).toBe(60 * min);
     });
 });

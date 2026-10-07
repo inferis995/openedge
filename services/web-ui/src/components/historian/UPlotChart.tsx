@@ -14,6 +14,8 @@ export interface PenSeries {
     width?: number;
     /** Digital signal: drawn as steps (a BOOL is 0 until it is 1, never 0.5). */
     step?: boolean;
+    /** A comparison curve (a previous period): dashed, thin, no held value. */
+    ghost?: boolean;
 }
 
 interface Props {
@@ -33,6 +35,10 @@ interface Props {
     bands?: ({ min: (number | undefined)[]; max: (number | undefined)[] } | null)[];
     /** Alarms to mark on the time axis. */
     events?: ChartEvent[];
+    /** Measuring: clicks place cursors A and B (reported, in ms) instead of zooming. */
+    measure?: boolean;
+    marks?: { a: number | null; b: number | null };
+    onMeasureClick?: (ms: number) => void;
     /** The window the user chose, in ms. The x axis always shows exactly this. */
     range: { from: number; to: number };
     /**
@@ -312,7 +318,7 @@ function holdLastPlugin(pens: PenSeries[]): uPlot.Plugin {
                 ctx.clip();
                 for (let i = 0; i < pens.length; i++) {
                     const s = u.series[i + 1];
-                    if (!s?.show) continue;
+                    if (!s?.show || pens[i].ghost) continue;
                     const col = u.data[i + 1];
                     if (!col) continue;
                     let j = col.length - 1;
@@ -335,21 +341,67 @@ function holdLastPlugin(pens: PenSeries[]): uPlot.Plugin {
     };
 }
 
+/** Cursors A and B of a measurement: a solid and a dashed line, labelled. */
+function marksPlugin(getMarks: () => { a: number | null; b: number | null } | undefined): uPlot.Plugin {
+    return {
+        hooks: {
+            draw: (u) => {
+                const m = getMarks();
+                if (!m) return;
+                const ctx = u.ctx;
+                const { top, height } = u.bbox;
+                ctx.save();
+                ([['A', m.a, []], ['B', m.b, [6, 4]]] as const).forEach(([label, at, dash]) => {
+                    if (at === null) return;
+                    const x = u.valToPos(at / 1000, 'x', true);
+                    if (x < u.bbox.left || x > u.bbox.left + u.bbox.width) return;
+                    ctx.beginPath();
+                    ctx.setLineDash(dash.map((d) => d * devicePixelRatio));
+                    ctx.strokeStyle = '#0f172a';
+                    ctx.globalAlpha = 0.8;
+                    ctx.lineWidth = 1.5 * devicePixelRatio;
+                    ctx.moveTo(x, top);
+                    ctx.lineTo(x, top + height);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.globalAlpha = 1;
+                    ctx.fillStyle = '#0f172a';
+                    ctx.fillRect(x - 8 * devicePixelRatio, top, 16 * devicePixelRatio, 14 * devicePixelRatio);
+                    ctx.fillStyle = '#fff';
+                    ctx.font = `bold ${10 * devicePixelRatio}px Inter, system-ui, sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(label, x, top + 7 * devicePixelRatio);
+                });
+                ctx.restore();
+            },
+        },
+    };
+}
+
 /**
  * The historian chart. Fills its parent: give the parent a height (flex-1,
  * h-full…) and the chart follows it, on resize and on rotation.
  */
-export function UPlotChart({ timestamps, values, pens, bands, events = [], range, live = false, onZoom }: Props) {
+export function UPlotChart({
+    timestamps, values, pens, bands, events = [], range, live = false, onZoom,
+    measure = false, marks, onMeasureClick,
+}: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const plotRef = useRef<uPlot | null>(null);
     // The latest window, read by uPlot's callbacks (axis labels) between renders.
     const rangeRef = useRef(range);
-    // Events are read by the plugins at draw time; a change only redraws.
+    // Events and measurement cursors are read by the plugins at draw time;
+    // a change only redraws.
     const eventsRef = useRef(events);
+    const marksRef = useRef(marks);
+    const onMeasureClickRef = useRef(onMeasureClick);
     useEffect(() => {
         eventsRef.current = events;
+        marksRef.current = marks;
+        onMeasureClickRef.current = onMeasureClick;
         plotRef.current?.redraw(false);
-    }, [events]);
+    }, [events, marks, onMeasureClick]);
 
     // One column per pen, always: pens restored from the address are there
     // before their data, and uPlot (and the plugins) read a column per series.
@@ -402,7 +454,8 @@ export function UPlotChart({ timestamps, values, pens, bands, events = [], range
             ...pens.map((pen) => ({
                 label: pen.label,
                 stroke: pen.color,
-                width: pen.width ?? 2,
+                width: pen.ghost ? 1.25 : (pen.width ?? 2),
+                ...(pen.ghost ? { dash: [6, 4], alpha: 0.75 } : {}),
                 show: pen.visible,
                 scale: scaleKey(pen),
                 ...(pen.step ? { paths: uPlot.paths.stepped?.({ align: 1 }) } : {}),
@@ -484,8 +537,12 @@ export function UPlotChart({ timestamps, values, pens, bands, events = [], range
             bands: bandOpts,
             axes,
             legend: { show: false },
-            plugins: [tooltipPlugin(pens, () => eventsRef.current), touchPlugin(onZoom), holdLastPlugin(pens), eventsPlugin(() => eventsRef.current)],
-            cursor: { sync: { key: 'historian-sync' }, drag: { x: true, y: false } },
+            plugins: [
+                tooltipPlugin(pens, () => eventsRef.current), touchPlugin(measure ? undefined : onZoom),
+                holdLastPlugin(pens), eventsPlugin(() => eventsRef.current), marksPlugin(() => marksRef.current),
+            ],
+            // Measuring, a click places a cursor; otherwise a drag zooms.
+            cursor: { sync: { key: 'historian-sync' }, drag: { x: !measure, y: false } },
             hooks: {
                 setSelect: [(u) => {
                     if (u.select.width > 0 && onZoom) {
@@ -500,6 +557,13 @@ export function UPlotChart({ timestamps, values, pens, bands, events = [], range
 
         plotRef.current?.destroy();
         plotRef.current = new uPlot(opts, data, el);
+        const plot = plotRef.current;
+        const onClick = () => {
+            const left = plot.cursor.left;
+            if (!measure || left === undefined || left < 0) return;
+            onMeasureClickRef.current?.(Math.round(plot.posToVal(left, 'x') * 1000));
+        };
+        plot.over.addEventListener('click', onClick);
         plotRef.current.setScale('x', { min: rangeRef.current.from / 1000, max: rangeRef.current.to / 1000 });
 
         // Follow the parent's size in both directions (rotation, panels opening).
@@ -515,7 +579,7 @@ export function UPlotChart({ timestamps, values, pens, bands, events = [], range
         };
         // data is pushed by the effect below; rebuilding on it would reset the cursor.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pens, units, onZoom]);
+    }, [pens, units, onZoom, measure]);
 
     // The window is applied again with the data: set on a chart that had no
     // data yet (pens restored from the address, before their history came),

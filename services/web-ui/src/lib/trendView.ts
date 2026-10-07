@@ -12,6 +12,19 @@ export interface TrendView {
     range: { preset: string } | { from: number; to: number };
     agg: AggregationType;
     live: boolean;
+    /** A previous period laid over the window: the one before it, a day or a week earlier. */
+    cmp?: CompareMode;
+}
+
+export type CompareMode = 'off' | 'prev' | '1d' | '7d';
+const CMPS: CompareMode[] = ['prev', '1d', '7d'];
+
+/** How far back a comparison looks, for a window of `spanMs`. */
+export function compareOffset(mode: CompareMode | undefined, spanMs: number): number {
+    if (mode === 'prev') return spanMs;
+    if (mode === '1d') return 86400e3;
+    if (mode === '7d') return 7 * 86400e3;
+    return 0;
 }
 
 export const TREND_VIEW_KEY = 'openedge.trend.view';
@@ -32,6 +45,7 @@ export function encodeView(v: TrendView): URLSearchParams {
     else { q.set('from', new Date(v.range.from).toISOString()); q.set('to', new Date(v.range.to).toISOString()); }
     if (v.agg !== 'mean') q.set('agg', v.agg);
     if (v.live) q.set('live', '1');
+    if (v.cmp && v.cmp !== 'off') q.set('cmp', v.cmp);
     return q;
 }
 
@@ -53,7 +67,8 @@ export function decodeView(q: URLSearchParams): TrendView | null {
     if (preset && (preset in PRESETS || preset === 'today' || preset === 'yesterday')) range = { preset };
     else if (Number.isFinite(from) && Number.isFinite(to) && to > from) range = { from, to };
     const agg = AGGS.includes(q.get('agg') as AggregationType) ? (q.get('agg') as AggregationType) : 'mean';
-    return { pens: pens.slice(0, 30), range, agg, live: q.get('live') === '1' && 'preset' in range };
+    const cmp = CMPS.includes(q.get('cmp') as CompareMode) ? (q.get('cmp') as CompareMode) : 'off';
+    return { pens: pens.slice(0, 30), range, agg, live: q.get('live') === '1' && 'preset' in range, cmp };
 }
 
 /** The concrete window of a view's range, now. */

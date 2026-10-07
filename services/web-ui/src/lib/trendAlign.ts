@@ -93,3 +93,25 @@ export function realtimePoint(v: { value: unknown; timestamp: number; quality: n
     const good = v.quality === 0 || v.quality === 192;
     return { timestamp: ts, value: n, quality: good ? 0 : 1 };
 }
+
+/**
+ * A pen's value at an instant, as the chart shows it: the newest good sample
+ * at or before `atMs` (a historian holds a value until the next one), or null
+ * when there is none or the newest one before it is bad.
+ */
+export function valueAt(points: TrendDataPoint[] | undefined, atMs: number): { value: number; at: number } | null {
+    if (!points?.length) return null;
+    let lo = 0, hi = points.length - 1, found = -1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (points[mid].timestamp <= atMs) { found = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    if (found < 0) return null;
+    const p = points[found];
+    return p.quality === 0 && p.value !== null ? { value: p.value, at: p.timestamp } : null;
+}
+
+/** The same points `offsetMs` later: a previous period laid over the current one. */
+export function shiftPoints(points: TrendDataPoint[] | undefined, offsetMs: number): TrendDataPoint[] {
+    return (points ?? []).map(p => ({ ...p, timestamp: p.timestamp + offsetMs }));
+}
