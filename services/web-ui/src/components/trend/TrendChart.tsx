@@ -614,7 +614,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                 },
             ],
         };
-    }, [visibleSeries, timeRange, safeStart, safeEnd, t, i18nInst.language]);
+    }, [visibleSeries, safeStart, safeEnd, t, i18nInst.language]);
 
     const handleChartClick = useCallback(
         (params: unknown) => {

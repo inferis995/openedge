@@ -127,7 +127,7 @@ const MqttMonitorPage = () => {
     useEffect(() => {
         isMountedRef.current = true;
 
-        console.log('[MQTT Monitor] Connecting...');
+        console.warn('[MQTT Monitor] Connecting...');
 
         // The broker requires credentials, and fetching them is a round trip to
         // the API, so the client arrives asynchronously — see wire() below.
@@ -140,14 +140,14 @@ const MqttMonitorPage = () => {
             client.on('connect', () => {
                 if (!isMountedRef.current) return;
                 setIsConnected(true);
-                console.log('[MQTT Monitor] Connected to MQTT broker');
+                console.warn('[MQTT Monitor] Connected to MQTT broker');
 
                 // Subscribe to legacy data topics
                 client.subscribe('data/#', { qos: 0 }, (err) => {
                     if (err) {
                         console.error('[MQTT Monitor] Subscribe error (data/#):', err);
                     } else {
-                        console.log('[MQTT Monitor] Subscribed to data/# (Legacy)');
+                        console.warn('[MQTT Monitor] Subscribed to data/# (Legacy)');
                     }
                 });
 
@@ -156,7 +156,7 @@ const MqttMonitorPage = () => {
                     if (err) {
                         console.error('[MQTT Monitor] Subscribe error (spBv1.0/#):', err);
                     } else {
-                        console.log('[MQTT Monitor] Subscribed to spBv1.0/# (Sparkplug B)');
+                        console.warn('[MQTT Monitor] Subscribed to spBv1.0/# (Sparkplug B)');
                     }
                 });
             });
@@ -317,11 +317,11 @@ const MqttMonitorPage = () => {
             client.on('close', () => {
                 if (!isMountedRef.current) return;
                 setIsConnected(false);
-                console.log('[MQTT Monitor] Disconnected');
+                console.warn('[MQTT Monitor] Disconnected');
             });
 
             client.on('reconnect', () => {
-                console.log('[MQTT Monitor] Reconnecting...');
+                console.warn('[MQTT Monitor] Reconnecting...');
             });
 
         };
@@ -340,7 +340,7 @@ const MqttMonitorPage = () => {
             });
 
         return () => {
-            console.log('[MQTT Monitor] Cleanup - closing connection');
+            console.warn('[MQTT Monitor] Cleanup - closing connection');
             isMountedRef.current = false;
 
             // Clear any pending batch timeout
