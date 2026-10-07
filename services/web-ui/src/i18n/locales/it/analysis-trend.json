@@ -9,6 +9,8 @@
         "points_count_other": "{{formatted}} punti",
         "loading": "caricamento…",
         "live_badge": "LIVE",
+        "no_data_in_window": "nessun dato nel periodo",
+        "last_reading": "ultima lettura {{time}}",
         "export": "Esporta",
         "export_csv_hint": "I valori disegnati, una colonna per curva",
         "export_xlsx_hint": "Dati reali del periodo (o intervalli con min/max), con foglio Info",

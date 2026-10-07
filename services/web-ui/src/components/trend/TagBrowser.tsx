@@ -255,7 +255,11 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                             deviceOnline === false ? 'text-destructive font-medium' : 'text-muted-foreground'
                                         }`}>
                                             {rv ? (
-                                                new Date(rv.timestamp).toLocaleTimeString(i18n.language)
+                                                // The date too when it is not today: a logger's
+                                                // last reading can be days old.
+                                                new Date(rv.timestamp).toDateString() === new Date().toDateString()
+                                                    ? new Date(rv.timestamp).toLocaleTimeString(i18n.language)
+                                                    : new Date(rv.timestamp).toLocaleString(i18n.language, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
                                             ) : '-'}
                                         </div>
                                     </div>

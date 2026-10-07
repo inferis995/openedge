@@ -9,6 +9,8 @@
         "points_count_other": "{{formatted}} pts",
         "loading": "loading…",
         "live_badge": "LIVE",
+        "no_data_in_window": "no data in this period",
+        "last_reading": "last reading {{time}}",
         "export": "Export",
         "export_csv_hint": "The values drawn, one column per pen",
         "export_xlsx_hint": "The period's real data (or buckets with min/max), with an Info sheet",

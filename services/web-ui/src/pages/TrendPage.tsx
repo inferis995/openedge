@@ -318,7 +318,12 @@ export default function TrendPage() {
     const penIdSet = useMemo(() => new Set(penIds), [penIds]);
     // Every value the socket delivers while live, per tag (the hook's own map
     // keeps only the latest one).
+    // The socket now runs whenever pens are shown (for the current values);
+    // only in live mode do its values join the curves.
+    const liveModeRef = useRef(liveMode);
+    useEffect(() => { liveModeRef.current = liveMode; }, [liveMode]);
     const onRealtime = useCallback((batch: ReadonlyMap<number, { value: unknown; timestamp: number; quality: number }>) => {
+        if (!liveModeRef.current) return;
         const add: [number, TrendDataPoint][] = [];
         for (const [id, v] of batch) {
             const p = realtimePoint(v);
@@ -336,7 +341,34 @@ export default function TrendPage() {
         });
         setLastLiveTs(t => Math.max(t ?? 0, ...add.map(([, p]) => p.timestamp)));
     }, []);
-    const { connected: rtConnected } = useRealtime(liveMode ? liveOrg : undefined, penIdSet, onRealtime);
+    const { values: rtValues, connected: rtConnected } = useRealtime(pens.length > 0 ? liveOrg : undefined, penIdSet, onRealtime);
+
+    // Current values for the panel on the left: the last value the server
+    // holds for each pen, then whatever the socket pushes. The panel was
+    // never given any, and showed "-" for every tag.
+    const { data: shadows } = useQuery({
+        queryKey: ['tag-shadows', 'trend'],
+        queryFn: () => tagsApi.getShadowBatch(),
+        enabled: pens.length > 0,
+        refetchInterval: 60_000,
+        staleTime: 30_000,
+    });
+    const currentValues = useMemo(() => {
+        const m = new Map<number, { value: number; timestamp: number; quality: number }>();
+        const q = (x: number) => (x === 0 || x === 192 ? 0 : x === 64 || x === 1 ? 1 : 2);
+        for (const sh of shadows ?? []) {
+            if (!penIdSet.has(sh.tag_id)) continue;
+            const v = typeof sh.value === 'boolean' ? (sh.value ? 1 : 0) : Number(sh.value);
+            if (Number.isFinite(v)) m.set(sh.tag_id, { value: v, timestamp: sh.ts, quality: q(sh.quality) });
+        }
+        for (const [id, rv] of rtValues) {
+            if (!penIdSet.has(id)) continue;
+            const p = realtimePoint(rv);
+            const prev = m.get(id);
+            if (p && (!prev || p.timestamp >= prev.timestamp)) m.set(id, { value: p.value as number, timestamp: p.timestamp, quality: q(rv.quality) });
+        }
+        return m;
+    }, [shadows, rtValues, penIdSet]);
 
     // What is drawn: the history, plus — while live — the tail and the socket's
     // values, without what has scrolled out of the window.
@@ -867,6 +899,7 @@ export default function TrendPage() {
                         <TagBrowser
                             onAddTagToChart={addPen}
                             selectedTagIds={penIds}
+                            realtimeValues={currentValues}
                         />
                     </div>
                 )}
@@ -891,9 +924,17 @@ export default function TrendPage() {
                                     title={p.visible ? tr('historian.hide_pen') : tr('historian.show_pen')}>
                                     <span className="inline-block w-3 h-[3px] rounded" style={{ background: p.color }} />
                                     <span className="font-medium max-w-[220px] truncate" style={{ color: p.color }}>{p.label}</span>
-                                    {p.stats?.last != null && (
+                                    {p.stats?.last != null ? (
                                         <span className="font-mono text-muted-foreground">
                                             {Number(p.stats.last.toFixed(3))}{p.unit ? ` ${p.unit}` : ''}
+                                        </span>
+                                    ) : series && (
+                                        // Nothing in the window: say so, and when the last reading was.
+                                        <span className="text-amber-600 dark:text-amber-500">
+                                            {tr('trendPage.no_data_in_window')}
+                                            {currentValues.get(p.tagId) && ` · ${tr('trendPage.last_reading', {
+                                                time: new Date(currentValues.get(p.tagId)!.timestamp).toLocaleString(i18n.language),
+                                            })}`}
                                         </span>
                                     )}
                                 </button>
