@@ -285,7 +285,7 @@ func (h *DashboardHandler) alarms(sc dashScope) AlarmsBlock {
 	// Active counts.
 	rows, err := h.db.Query(`
 		SELECT LOWER(severity), COUNT(*) FROM alarm_events
-		WHERE status = 'ACTIVE' AND ` + sc.tags("tag_id") + ` GROUP BY LOWER(severity)`)
+		WHERE status IN ('ACTIVE','ACKNOWLEDGED') AND ` + sc.tags("tag_id") + ` GROUP BY LOWER(severity)`)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -520,7 +520,7 @@ func (h *DashboardHandler) kpis(sc dashScope) []KPIWidget {
 
 	// KPI #2 — Allarmi critical aperti (snapshot, no delta).
 	var crit int
-	_ = h.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM alarm_events WHERE status='ACTIVE' AND LOWER(severity)='critical' AND ` + sc.tags("tag_id")).Scan(&crit)
+	_ = h.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM alarm_events WHERE status IN ('ACTIVE','ACKNOWLEDGED') AND LOWER(severity)='critical' AND ` + sc.tags("tag_id")).Scan(&crit)
 	out = append(out, KPIWidget{
 		Key: "open_critical", Label: "Critical attivi", Value: float64(crit),
 		Unit: "", Trend: "flat", DeltaPct: 0, GoodWhen: "down",

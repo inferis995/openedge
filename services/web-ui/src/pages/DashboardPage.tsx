@@ -101,6 +101,9 @@ const StatusBar = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
     const offlineGw = data.gateways.offline;
     const crit = data.alarms.active_by_level.critical ?? 0;
     const high = data.alarms.active_by_level.high ?? 0;
+    const medium = data.alarms.active_by_level.medium ?? 0;
+    const low = data.alarms.active_by_level.low ?? 0;
+    const activeTotal = data.alarms.active_total ?? (crit + high + medium + low);
 
     // Pill cliccabile — porta alla pagina di drill-down corrispondente.
     const pill = (ok: boolean, label: string, to?: string) => (
@@ -122,7 +125,7 @@ const StatusBar = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
 
     const alarmsToneClass = crit > 0
         ? 'border-red-500/30 text-red-500 bg-red-500/5'
-        : high > 0
+        : activeTotal > 0
         ? 'border-orange-500/30 text-orange-500 bg-orange-500/5'
         : 'border-emerald-500/30 text-emerald-500 bg-emerald-500/5';
 
@@ -140,7 +143,7 @@ const StatusBar = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
                 onClick={() => navigate('/alarms')}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border hover:shadow-sm cursor-pointer transition-all ${alarmsToneClass}`}>
                 <Bell size={12} />
-                {crit > 0 ? t('dashboardPage.n_critical', { count: crit }) : high > 0 ? t('dashboardPage.n_high', { count: high }) : t('dashboardPage.no_active_alarms')}
+                {activeTotal > 0 ? t('dashboardPage.n_active', { count: activeTotal }) : t('dashboardPage.no_active_alarms')}
             </button>
             <button
                 type="button"
