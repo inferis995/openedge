@@ -1,5 +1,15 @@
 import api from './client';
 
+export interface TagAlarmRule {
+    alarm_type: string;
+    threshold?: number;
+    deadband?: number;
+    delay_seconds?: number;
+    severity?: string;
+    message?: string;
+    enabled?: boolean;
+}
+
 export interface AlarmEvent {
     id: number;
     tag_id: number;
@@ -47,9 +57,9 @@ export const alarmsApi = {
         return response.data;
     },
 
-    getTagAlarms: async (tagId: number): Promise<any[]> => {
+    getTagAlarms: async (tagId: number): Promise<TagAlarmRule[]> => {
         const response = await api.get(`/tags/${tagId}/alarms`);
-        return response.data || [];
+        return (response.data || []) as TagAlarmRule[];
     },
 
     acknowledgeAlarm: async (id: number): Promise<void> => {

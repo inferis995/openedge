@@ -20,19 +20,19 @@ export const gatewaysApi = {
         } : undefined;
 
         // Transform flat DTO to nested backend structure
-        const payload: any = {
+        const payload: Record<string, unknown> = {
             area_id: data.area_id,
             name: data.name,
             driver_type: data.driver_type,
             scan_rate_ms: data.scan_rate_ms,
             enabled: data.enabled,
-            zero_based: (data as any).zero_based ?? false,
+            zero_based: data.zero_based ?? false,
         };
 
         // GatewaysPage pre-builds connection_config for all driver types including LORAWAN/MQTT.
         // Use it when present; fall back to field-by-field construction otherwise.
-        if ((data as any).connection_config) {
-            payload.connection_config = (data as any).connection_config;
+        if (data.connection_config) {
+            payload.connection_config = data.connection_config;
         } else if (data.driver_type === 'OPC_UA') {
             payload.connection_config = {
                 endpoint: data.endpoint || '',
@@ -66,13 +66,13 @@ export const gatewaysApi = {
         } : undefined;
 
         // Build a CLEAN payload with ONLY the fields the backend UpdateGatewayRequest expects
-        const payload: any = {};
+        const payload: Record<string, unknown> = {};
 
         if (data.name !== undefined) payload.name = data.name;
         if (data.driver_type !== undefined) payload.driver_type = data.driver_type;
         if (data.scan_rate_ms !== undefined) payload.scan_rate_ms = data.scan_rate_ms;
         if (data.enabled !== undefined) payload.enabled = data.enabled;
-        if ((data as any).zero_based !== undefined) payload.zero_based = (data as any).zero_based;
+        if (data.zero_based !== undefined) payload.zero_based = data.zero_based;
 
         // Build connection_config based on driver type
         if (data.driver_type === 'OPC_UA') {
@@ -87,8 +87,8 @@ export const gatewaysApi = {
         } else if (data.driver_type === 'S7') {
             payload.connection_config = {
                 ip_address: data.ip_address,
-                rack: (data as any).rack,
-                slot: (data as any).slot,
+                rack: data.rack,
+                slot: data.slot,
             };
         } else if (data.driver_type === 'MODBUS_TCP') {
             payload.connection_config = {
@@ -97,9 +97,9 @@ export const gatewaysApi = {
                 slave_id: data.slave_id,
             };
         } else if (data.driver_type === 'MQTT') {
-            payload.connection_config = (data as any).connection_config || {};
+            payload.connection_config = data.connection_config || {};
         } else if (data.driver_type === 'LORAWAN') {
-            payload.connection_config = (data as any).connection_config || {};
+            payload.connection_config = data.connection_config || {};
         } else if (data.ip_address || data.port || data.rack || data.slot || data.slave_id) {
             // Fallback for partial updates without driver_type
             payload.connection_config = {
@@ -112,8 +112,8 @@ export const gatewaysApi = {
         }
 
         // If data already has a pre-built connection_config (from GatewaysPage), use it
-        if ((data as any).connection_config && !payload.connection_config) {
-            payload.connection_config = (data as any).connection_config;
+        if (data.connection_config && !payload.connection_config) {
+            payload.connection_config = data.connection_config;
         }
 
         const response = await api.put(`/gateways/${id}`, payload, config);

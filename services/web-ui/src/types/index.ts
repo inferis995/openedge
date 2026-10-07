@@ -96,6 +96,7 @@ export interface CreateGatewayDto {
     scan_rate_ms: number;
     enabled: boolean;
     zero_based?: boolean; // For MODBUS_TCP: true = addresses start from 0, false = standard 1-based addressing
+    connection_config?: Record<string, unknown>; // Pre-built driver config (MQTT/LORAWAN pages build it themselves)
     org_id?: number; // Helper for passing context to API layer
 }
 
