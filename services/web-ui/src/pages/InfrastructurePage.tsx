@@ -51,7 +51,9 @@ const InfrastructurePage = () => {
         for (const g of filtered) {
             const key = g.org_name;
             if (!groups.has(key)) groups.set(key, []);
-            groups.get(key)!.push(g);
+            const arr = groups.get(key);
+            if (arr) arr.push(g);
+            else groups.set(key, [g]);
         }
         return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
     }, [filtered]);

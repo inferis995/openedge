@@ -124,8 +124,8 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
 
   const downlinkMutation = useMutation({
     mutationFn: () => lorawanApi.sendDownlink(gatewayId, {
-      device_id: downlinkDevice!.device_id,
-      dev_eui: downlinkDevice!.dev_eui,
+      device_id: downlinkDevice?.device_id ?? '',
+      dev_eui: downlinkDevice?.dev_eui ?? '',
       f_port: dlFPort,
       payload_hex: dlPayload,
       confirmed: dlConfirmed,

@@ -55,7 +55,7 @@ export const useSites = (orgId?: number | null) => {
 export const useSite = (id?: number | null) => {
     return useQuery({
         queryKey: ['site', id],
-        queryFn: () => sitesApi.get(id!),
+        queryFn: () => sitesApi.get(id ?? -1),
         enabled: !!id,
     });
 };

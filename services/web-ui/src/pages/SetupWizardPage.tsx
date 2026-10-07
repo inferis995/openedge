@@ -83,7 +83,7 @@ export default function SetupWizardPage() {
     const [importOpen, setImportOpen] = useState(false);
     const { data: tagCount = 0 } = useQuery({
         queryKey: ['tags', gatewayId ?? 'none', 'count'],
-        queryFn: async () => (await tagsApi.getAll(gatewayId!)).length,
+        queryFn: async () => (await tagsApi.getAll(gatewayId ?? -1)).length,
         enabled: !!gatewayId && step === 'tags',
         refetchInterval: step === 'tags' ? 3000 : false,
     });

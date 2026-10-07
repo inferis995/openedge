@@ -22,7 +22,8 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { SynopticWidgetView, WIDGET_CATALOG, LiveValue } from '@/components/synoptics/SynopticWidget';
+import { SynopticWidgetView, LiveValue } from '@/components/synoptics/SynopticWidget';
+import { WIDGET_CATALOG } from '@/components/synoptics/widgetCatalog';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
 
@@ -475,7 +476,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
 
     // ── Editing actions ────────────────────────────────────────────────────
     const addWidget = (type: SynopticWidget['type']) => {
-        const meta = WIDGET_CATALOG.find(w => w.type === type)!;
+        const meta = WIDGET_CATALOG.find(w => w.type === type) ?? WIDGET_CATALOG[0];
         const w: SynopticWidget = {
             id: uid(), type, x: 40, y: 40, w: meta.defaultW, h: meta.defaultH,
             label: type === 'label' ? tr('synopticWidget.label_default') : '',
@@ -958,9 +959,9 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             (w.config?.tagBinding as number | null | undefined)
                                         )}
                                         inAlarm={alarmTagIds.has(w.tagId ?? -1)}
-                                        onWrite={w.tagId != null && !w.config?.navigateSynopticId ? (v) => onWrite(w.tagId!, v) : undefined}
+                                        onWrite={w.tagId != null && w.config?.navigateSynopticId == null ? (v) => onWrite(w.tagId as number, v) : undefined}
                                         onNavigate={!isEdit && w.config?.navigateSynopticId != null
-                                            ? () => navigate(`/synoptics/${w.config!.navigateSynopticId}`)
+                                            ? () => navigate(`/synoptics/${w.config?.navigateSynopticId}`)
                                             : undefined} />
                                     </div>
                                     {!isEdit && alarmTagIds.has(w.tagId ?? -1) && (

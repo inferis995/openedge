@@ -281,7 +281,7 @@ const MqttMonitorPage = () => {
 
                     // Legacy format (JSON)
                     const message = payload.toString();
-                    let data: any;
+                    let data: { tag_id?: number; v?: unknown; value?: unknown; ts?: number; timestamp?: number; q?: number; quality?: number };
 
                     try {
                         data = JSON.parse(message);
@@ -294,7 +294,10 @@ const MqttMonitorPage = () => {
                         topic: topic,
                         tagId: data.tag_id || 0,
                         tagAlias: extractAliasFromTopic(topic),
-                        value: data.v ?? data.value ?? '-',
+                        value: (typeof data.v === 'string' || typeof data.v === 'number' || typeof data.v === 'boolean')
+                            ? data.v
+                            : (typeof data.value === 'string' || typeof data.value === 'number' || typeof data.value === 'boolean')
+                                ? data.value : '-',
                         timestamp: data.ts || data.timestamp || Date.now(),
                         quality: data.q ?? data.quality ?? 0,
                         receivedAt: new Date(),

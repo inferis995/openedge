@@ -48,7 +48,7 @@ interface ExtendedCreateGatewayDto extends Omit<CreateGatewayDto, 'connection_co
     zero_based: boolean;
     // Quale scatola interroga questo gateway. Zero significa nessuna.
     edge_agent_id?: number;
-    connection_config: any;
+    connection_config: Record<string, unknown>;
     auth_mode?: string;
     username?: string;
     password?: string;
@@ -121,8 +121,8 @@ const GatewaysPage = () => {
         return gateways.filter(gw =>
             gw.name.toLowerCase().includes(q) ||
             gw.driver_type.toLowerCase().includes(q) ||
-            (gw.connection_config?.ip_address || '').toLowerCase().includes(q) ||
-            (gw.connection_config?.endpoint || '').toLowerCase().includes(q),
+            (String(gw.connection_config?.ip_address ?? '')).toLowerCase().includes(q) ||
+            (String(gw.connection_config?.endpoint ?? '')).toLowerCase().includes(q),
         );
     }, [gateways, searchQuery]);
 
@@ -179,12 +179,12 @@ const GatewaysPage = () => {
         selectedAreaId ? selectedAreaId.toString() : ''
     );
 
-    const handleInputChange = (field: keyof ExtendedCreateGatewayDto, value: any) => {
+    const handleInputChange = (field: keyof ExtendedCreateGatewayDto, value: ExtendedCreateGatewayDto[keyof ExtendedCreateGatewayDto]) => {
         setFormData(prev => ({ ...prev, [field]: value }));
     };
 
     const buildConnectionConfig = () => {
-        let connection_config: any = {};
+        let connection_config: Record<string, unknown> = {};
         if (formData.driver_type === 'S7') {
             connection_config = { ip_address: formData.ip_address, rack: formData.rack, slot: formData.slot };
         } else if (formData.driver_type === 'MODBUS_TCP') {
@@ -257,7 +257,7 @@ const GatewaysPage = () => {
         // refuses to save a configuration that is perfectly valid.
         const isSerialModbus = formData.driver_type === 'MODBUS_TCP' && formData.modbus_transport === 'rtu';
         if (isSerialModbus && !formData.modbus_device) return;
-        if (!isSerialModbus && !noIPDrivers.includes(formData.driver_type!) && !formData.ip_address) return;
+        if (!isSerialModbus && !noIPDrivers.includes(formData.driver_type ?? '') && !formData.ip_address) return;
         if (formData.driver_type === 'OPC_UA' && !formData.endpoint) return;
         if (formData.driver_type === 'LORAWAN' && (!formData.lora_server_host || !formData.lora_application_id)) return;
 
@@ -348,46 +348,48 @@ const GatewaysPage = () => {
         let lora_tls_enabled = false, lora_username = '', lora_password = '', lora_application_id = '';
 
         if (gateway.connection_config) {
-            const config = gateway.connection_config;
-            ip_address = config.ip_address || '';
+            const config: Record<string, unknown> = gateway.connection_config;
+            const str = (v: unknown, fb = ''): string => (typeof v === 'string' ? v : fb);
+            const num = (v: unknown, fb: number): number => (typeof v === 'number' ? v : fb);
+            ip_address = str(config.ip_address);
             if (gateway.driver_type === 'S7') {
-                rack = config.rack || 0;
-                slot = config.slot || 2;
+                rack = num(config.rack, 0);
+                slot = num(config.slot, 2);
             } else if (gateway.driver_type === 'MODBUS_TCP') {
-                port = config.port || 502;
-                slave_id = config.slave_id || 1;
-                modbus_transport = config.transport || config.mode || 'tcp';
-                modbus_device = config.device || config.serial_port || '';
-                modbus_baud_rate = config.baud_rate || 9600;
-                modbus_parity = config.parity || 'N';
-                modbus_data_bits = config.data_bits || 8;
-                modbus_stop_bits = config.stop_bits || 1;
+                port = num(config.port, 502);
+                slave_id = num(config.slave_id, 1);
+                modbus_transport = str(config.transport || config.mode, 'tcp');
+                modbus_device = str(config.device || config.serial_port);
+                modbus_baud_rate = num(config.baud_rate, 9600);
+                modbus_parity = str(config.parity, 'N');
+                modbus_data_bits = num(config.data_bits, 8);
+                modbus_stop_bits = num(config.stop_bits, 1);
             } else if (gateway.driver_type === 'OPC_UA') {
-                endpoint = config.endpoint || '';
-                auth_mode = config.auth_mode || 'Anonymous';
-                username = config.username || '';
-                password = config.password || '';
-                cert_file = config.cert_file || '';
-                key_file = config.key_file || '';
+                endpoint = str(config.endpoint);
+                auth_mode = str(config.auth_mode, 'Anonymous');
+                username = str(config.username);
+                password = str(config.password);
+                cert_file = str(config.cert_file);
+                key_file = str(config.key_file);
             } else if (gateway.driver_type === 'MQTT') {
-                broker_host = config.broker_host || '';
-                broker_port = config.broker_port || 1883;
+                broker_host = str(config.broker_host);
+                broker_port = num(config.broker_port, 1883);
                 broker_tls = !!config.broker_tls;
-                broker_username = config.broker_username || '';
-                broker_password = config.broker_password || '';
-                broker_client_id = config.broker_client_id || '';
-                decoder_preset = config.decoder_preset || '';
-                decoder_script = config.decoder_script || '';
+                broker_username = str(config.broker_username);
+                broker_password = str(config.broker_password);
+                broker_client_id = str(config.broker_client_id);
+                decoder_preset = str(config.decoder_preset);
+                decoder_script = str(config.decoder_script);
                 stale_after_minutes = Number(config.stale_after_minutes) || 0;
                 alarms_on_history = config.alarms_on_history === true;
             } else if (gateway.driver_type === 'LORAWAN') {
-                lora_server_type = config.server_type || 'ttn_v3';
-                lora_server_host = config.server_host || '';
-                lora_server_port = config.server_port || 1883;
+                lora_server_type = str(config.server_type, 'ttn_v3');
+                lora_server_host = str(config.server_host);
+                lora_server_port = num(config.server_port, 1883);
                 lora_tls_enabled = !!config.tls_enabled;
-                lora_username = config.username || '';
-                lora_password = config.password || '';
-                lora_application_id = config.application_id || '';
+                lora_username = str(config.username);
+                lora_password = str(config.password);
+                lora_application_id = str(config.application_id);
             }
         }
 
@@ -1121,7 +1123,7 @@ const GatewaysPage = () => {
                                     <TableCell className="font-medium">
                                         <div className="flex flex-col">
                                             <span>{gw.name}</span>
-                                            <span className="text-xs text-muted-foreground">{gw.connection_config?.ip_address || ''}</span>
+                                            <span className="text-xs text-muted-foreground">{String(gw.connection_config?.ip_address ?? '')}</span>
                                         </div>
                                     </TableCell>
                                     <TableCell>
@@ -1129,15 +1131,15 @@ const GatewaysPage = () => {
                                     </TableCell>
                                     <TableCell className="text-xs text-muted-foreground">
                                         {gw.driver_type === 'S7'
-                                            ? `Rack: ${gw.connection_config?.rack ?? 0}, Slot: ${gw.connection_config?.slot ?? 0}`
+                                            ? `Rack: ${Number(gw.connection_config?.rack ?? 0)}, Slot: ${Number(gw.connection_config?.slot ?? 0)}`
                                             : gw.driver_type === 'MODBUS_TCP'
-                                                ? t('gatewaysPage.cfg_modbus', { port: gw.connection_config?.port ?? 502, slave: gw.connection_config?.slave_id ?? 1 })
+                                                ? t('gatewaysPage.cfg_modbus', { port: Number(gw.connection_config?.port ?? 502), slave: Number(gw.connection_config?.slave_id ?? 1) })
                                                 : gw.driver_type === 'OPC_UA'
-                                                    ? (gw.connection_config?.endpoint || t('gatewaysPage.cfg_no_endpoint'))
+                                                    ? (typeof gw.connection_config?.endpoint === 'string' && gw.connection_config.endpoint ? gw.connection_config.endpoint : t('gatewaysPage.cfg_no_endpoint'))
                                                     : gw.driver_type === 'MQTT'
-                                                        ? (gw.connection_config?.broker_host ? `${gw.connection_config.broker_host}:${gw.connection_config.broker_port ?? 1883}` : t('gatewaysPage.cfg_internal_broker'))
+                                                        ? (typeof gw.connection_config?.broker_host === 'string' && gw.connection_config.broker_host ? `${gw.connection_config.broker_host}:${Number(gw.connection_config.broker_port ?? 1883)}` : t('gatewaysPage.cfg_internal_broker'))
                                                         : gw.driver_type === 'LORAWAN'
-                                                            ? `${gw.connection_config?.server_type ?? 'ttn_v3'} · ${gw.connection_config?.server_host || '—'}`
+                                                            ? `${String(gw.connection_config?.server_type ?? 'ttn_v3')} · ${String(gw.connection_config?.server_host ?? '—')}`
                                                             : '—'
                                         }
                                         {gw.driver_type !== 'MQTT' && gw.driver_type !== 'LORAWAN' && (

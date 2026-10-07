@@ -69,7 +69,12 @@ export const OEEShiftMatrix = ({ profileId }: Props) => {
             if (!shiftMap.has(r.shift_id)) {
                 shiftMap.set(r.shift_id, { id: r.shift_id, name: r.shift_name, byDate: new Map() });
             }
-            shiftMap.get(r.shift_id)!.byDate.set(r.date, r);
+            let shift = shiftMap.get(r.shift_id);
+            if (!shift) {
+                shift = { id: r.shift_id, name: r.shift_name, byDate: new Map() };
+                shiftMap.set(r.shift_id, shift);
+            }
+            shift.byDate.set(r.date, r);
         }
         return {
             shifts: Array.from(shiftMap.values()).sort((a, b) => a.id - b.id),

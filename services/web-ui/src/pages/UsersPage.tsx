@@ -465,7 +465,7 @@ const UsersPage = () => {
                                     </SelectTrigger>
                                     <SelectContent>
                                         <SelectItem value="global">{t('usersPage.global_admin_option')}</SelectItem>
-                                        {!orgsLoading && organizations.map((org: any) => (
+                                        {!orgsLoading && organizations.map((org) => (
                                             <SelectItem key={org.id} value={org.id.toString()}>
                                                 {org.name}
                                             </SelectItem>
@@ -723,7 +723,7 @@ const UsersPage = () => {
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="global">{t('usersPage.global_admin_option')}</SelectItem>
-                                    {!orgsLoading && organizations.map((org: any) => (
+                                    {!orgsLoading && organizations.map((org) => (
                                         <SelectItem key={org.id} value={org.id.toString()}>
                                             {org.name}
                                         </SelectItem>

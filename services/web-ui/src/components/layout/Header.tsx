@@ -44,7 +44,7 @@ const Header = ({ onMenuClick }: HeaderProps) => {
 
     const { data: area } = useQuery({
         queryKey: ['area', selectedAreaId],
-        queryFn: () => areasApi.get(selectedAreaId!),
+        queryFn: () => areasApi.get(selectedAreaId ?? -1),
         enabled: !!selectedAreaId
     });
 

@@ -74,7 +74,15 @@ const buildHierarchyFromFlat = (tags: TagWithHierarchy[]): TagHierarchyResponse 
             });
         }
 
-        const org = orgMap.get(tag.org_id)!;
+        let org = orgMap.get(tag.org_id);
+        if (!org) {
+            org = {
+                id: tag.org_id,
+                name: tag.org_name,
+                sites: new Map(),
+            };
+            orgMap.set(tag.org_id, org);
+        }
 
         if (tag.site_id && tag.site_name) {
             if (!org.sites.has(tag.site_id)) {
@@ -85,7 +93,15 @@ const buildHierarchyFromFlat = (tags: TagWithHierarchy[]): TagHierarchyResponse 
                 });
             }
 
-            const site = org.sites.get(tag.site_id)!;
+            let site = org.sites.get(tag.site_id);
+            if (!site) {
+                site = {
+                    id: tag.site_id,
+                    name: tag.site_name,
+                    areas: [],
+                };
+                org.sites.set(tag.site_id, site);
+            }
 
             if (tag.area_id && tag.area_name) {
                 let area = site.areas.find(a => a.id === tag.area_id);
