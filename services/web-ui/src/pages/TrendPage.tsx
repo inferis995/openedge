@@ -19,6 +19,7 @@ import { PenPanel, type Pen, type PenStats } from '@/components/historian/PenPan
 
 import { historyApi } from '@/api/history';
 import { tagsApi } from '@/api/tags';
+import { alignPens } from '@/lib/trendAlign';
 import { getAutoInterval, type TrendDataPoint, type AggregationType, type TagWithHierarchy } from '@/types/trend';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -46,15 +47,31 @@ function defaultRange(): HistorianRange {
 }
 
 function computeStats(pts: TrendDataPoint[]): PenStats {
-    const vals = pts
-        .filter(p => p.quality === 0 && p.value !== null)
-        .map(p => p.value as number);
-    if (vals.length === 0) return { min: null, max: null, avg: null, last: null, count: 0 };
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
-    const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
-    const last = vals[vals.length - 1] ?? null;
-    return { min, max, avg, last, count: vals.length };
+    // A loop, not Math.min(...vals): spreading a long series overflows the
+    // call stack (a month of 1-second data is 2.6 million arguments).
+    let min = Infinity, max = -Infinity, sum = 0, count = 0, last: number | null = null;
+    for (const p of pts) {
+        if (p.quality !== 0 || p.value === null) continue;
+        const v = p.value;
+        if (v < min) min = v;
+        if (v > max) max = v;
+        sum += v; count++; last = v;
+    }
+    if (count === 0) return { min: null, max: null, avg: null, last: null, count: 0 };
+    return { min, max, avg: sum / count, last, count };
+}
+
+/** Below this width the side panels float over the chart instead of squeezing it. */
+const WIDE = '(min-width: 1024px)';
+function useIsWide(): boolean {
+    const [wide, setWide] = useState(() => typeof window === 'undefined' || window.matchMedia(WIDE).matches);
+    useEffect(() => {
+        const mq = window.matchMedia(WIDE);
+        const on = () => setWide(mq.matches);
+        mq.addEventListener('change', on);
+        return () => mq.removeEventListener('change', on);
+    }, []);
+    return wide;
 }
 
 function exportCSV(pens: Pen[], timestamps: number[], values: (number | null | undefined)[][]): void {
@@ -82,8 +99,11 @@ export default function TrendPage() {
     const [liveMode, setLiveMode] = useState(false);
     const [aggregation, setAggregation] = useState<AggregationType>('mean');
     const [pens, setPens] = useState<Pen[]>([]);
-    const [sidebarOpen, setSidebarOpen] = useState(true);
-    const [penPanelOpen, setPenPanelOpen] = useState(true);
+    const isWide = useIsWide();
+    // On a phone both panels start closed: open, they took the whole width and
+    // left the chart none.
+    const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === 'undefined' || window.matchMedia(WIDE).matches);
+    const [penPanelOpen, setPenPanelOpen] = useState(() => typeof window === 'undefined' || window.matchMedia(WIDE).matches);
     const [zoomStack, setZoomStack] = useState<HistorianRange[]>([]);
     const liveRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -132,22 +152,9 @@ export default function TrendPage() {
     });
 
     // Build uPlot-aligned data (seconds timestamps)
-    const { timestamps, values } = useMemo(() => {
+    const { timestamps, values } = useMemo<{ timestamps: number[]; values: (number | null | undefined)[][] }>(() => {
         if (!batchData || pens.length === 0) return { timestamps: [], values: [] };
-        const tsSet = new Set<number>();
-        const maps = pens.map(pen => {
-            const pts: TrendDataPoint[] = (batchData as Record<number, TrendDataPoint[]>)[pen.tagId] ?? [];
-            const m = new Map<number, number | null>();
-            for (const p of pts) {
-                const tsSec = Math.round(p.timestamp / 1000);
-                tsSet.add(tsSec);
-                m.set(tsSec, p.quality === 0 ? p.value : null);
-            }
-            return m;
-        });
-        const sortedTs = Array.from(tsSet).sort((a, b) => a - b);
-        const vals = maps.map(m => sortedTs.map(t => m.get(t) ?? null));
-        return { timestamps: sortedTs, values: vals };
+        return alignPens(pens, batchData as Record<number, TrendDataPoint[]>);
     }, [batchData, pens]);
 
     // Compute per-pen stats
@@ -165,9 +172,10 @@ export default function TrendPage() {
             tagId: p.tagId,
             label: p.label,
             unit: p.unit,
+            decimals: tagMap.get(p.tagId)?.eu_decimals ?? undefined,
             color: p.color,
             visible: p.visible,
-        })), [pens]);
+        })), [pens, tagMap]);
 
     // Add tag as pen
     const addPen = useCallback((tagId: number) => {
@@ -178,11 +186,13 @@ export default function TrendPage() {
         setPens(prev => [...prev, {
             tagId,
             label: tag.alias || tag.code,
-            unit: undefined,
+            unit: tag.eu_unit?.trim() || undefined,
             color: PEN_COLORS[colorIdx],
             visible: true,
         }]);
-    }, [pens, tagMap]);
+        // On a phone the tag list covers the chart: close it once a tag is picked.
+        if (!isWide) setSidebarOpen(false);
+    }, [pens, tagMap, isWide]);
 
     const togglePenVisibility = useCallback((tagId: number) => {
         setPens(prev => prev.map(p => p.tagId === tagId ? { ...p, visible: !p.visible } : p));
@@ -223,7 +233,7 @@ export default function TrendPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div className="flex items-center gap-2">
                         <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7"
-                            onClick={() => setSidebarOpen(o => !o)}
+                            onClick={() => { setSidebarOpen(o => !o); if (!isWide) setPenPanelOpen(false); }}
                             title={tr('trendPage.toggle_tags')} aria-label={tr('trendPage.toggle_tags')}>
                             <PanelLeft className={`w-4 h-4 ${sidebarOpen ? 'text-primary' : 'text-muted-foreground'}`} />
                         </Button>
@@ -245,7 +255,7 @@ export default function TrendPage() {
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                         {/* Aggregation */}
                         <Select value={aggregation} onValueChange={v => setAggregation(v as AggregationType)}>
                             <SelectTrigger className="h-9 sm:h-7 w-24 text-xs">
@@ -299,7 +309,7 @@ export default function TrendPage() {
 
                         {/* Pen panel toggle */}
                         <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7"
-                            onClick={() => setPenPanelOpen(o => !o)}
+                            onClick={() => { setPenPanelOpen(o => !o); if (!isWide) setSidebarOpen(false); }}
                             title={tr('trendPage.toggle_pens')} aria-label={tr('trendPage.toggle_pens')}>
                             <PanelRight className={`w-4 h-4 ${penPanelOpen ? 'text-primary' : 'text-muted-foreground'}`} />
                         </Button>
@@ -311,11 +321,15 @@ export default function TrendPage() {
             </div>
 
             {/* ── CONTENT ────────────────────────────────────────────── */}
-            <div className="flex flex-1 overflow-hidden">
+            {/* On a phone the page scrolls and has no height to fill: the
+                chart gets most of the screen instead (dvh follows the browser bar). */}
+            <div className={`relative flex overflow-hidden ${isWide ? 'flex-1 min-h-0' : 'h-[75dvh] min-h-[380px] shrink-0'}`}>
 
-                {/* Left: tag browser */}
+                {/* Left: tag browser. On a narrow screen it floats over the chart. */}
                 {sidebarOpen && (
-                    <div className="w-64 shrink-0 border-r overflow-y-auto bg-card/50">
+                    <div className={isWide
+                        ? 'w-64 shrink-0 border-r overflow-y-auto bg-card/50'
+                        : 'absolute inset-y-0 left-0 z-20 w-[85%] max-w-xs border-r overflow-y-auto bg-card shadow-xl'}>
                         <TagBrowser
                             onAddTagToChart={addPen}
                             selectedTagIds={penIds}
@@ -324,7 +338,7 @@ export default function TrendPage() {
                 )}
 
                 {/* Center: chart */}
-                <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
                     {pens.length === 0 ? (
                         <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground">
                             <BarChart2 className="w-16 h-16 opacity-20" />
@@ -334,12 +348,12 @@ export default function TrendPage() {
                             </div>
                         </div>
                     ) : (
-                        <div className="flex-1 p-2 overflow-hidden">
+                        <div className="flex-1 min-h-0 p-2 overflow-hidden">
                             <UPlotChart
                                 timestamps={timestamps}
                                 values={values}
                                 pens={penSeries}
-                                height={Math.max(280, window.innerHeight - 220)}
+                                range={{ from: timeRange.from.getTime(), to: timeRange.to.getTime() }}
                                 onZoom={handleZoom}
                             />
                         </div>
@@ -348,7 +362,9 @@ export default function TrendPage() {
 
                 {/* Right: pen panel + stats */}
                 {penPanelOpen && (
-                    <div className="w-56 shrink-0 border-l flex flex-col bg-card/50">
+                    <div className={isWide
+                        ? 'w-56 shrink-0 border-l flex flex-col bg-card/50'
+                        : 'absolute inset-y-0 right-0 z-20 w-[85%] max-w-xs border-l flex flex-col bg-card shadow-xl'}>
                         <div className="px-3 py-2 border-b flex items-center gap-1.5">
                             <Settings2 className="w-3.5 h-3.5 text-muted-foreground" />
                             <span className="text-xs font-medium">{tr('trendPage.pens')}</span>

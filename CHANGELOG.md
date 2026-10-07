@@ -36,6 +36,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trend.** On a phone the tag list and the pen panel took the whole width
+  and left the chart none; they now float over it, closed by default. The
+  x axis showed the data's extent instead of the chosen window (a single
+  sample put "2027 2028 2029" under it), and a logger's lone sample in the
+  window drew nothing: the axis is the window, sparse series get markers.
+  Each unit has its own y axis (bar, l/s and V were squeezed onto one),
+  units come from the tag, a stretch with no data breaks the line instead
+  of being bridged, and one finger reads values while two pinch-zoom.
+
 - **Drivers started by driver-manager could not reach the internal broker.**
   driver-manager put them on a network of its own ("industrial-network",
   which no compose file defines) while mosquitto is on openedge-net (or the
