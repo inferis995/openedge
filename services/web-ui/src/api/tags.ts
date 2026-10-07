@@ -145,9 +145,9 @@ export const tagsApi = {
         return response.data;
     },
 
-    // Batch shadows for all tags of a gateway.
-    getShadowBatch: async (gatewayId: number): Promise<{ tag_id: number; value: any; quality: number; ts: number; source: string }[]> => {
-        const response = await api.get('/tags/shadows', { params: { gateway_id: gatewayId } });
+    // Batch shadows for all tags of a gateway, or of the whole organization.
+    getShadowBatch: async (gatewayId?: number): Promise<{ tag_id: number; value: any; quality: number; ts: number; source: string }[]> => {
+        const response = await api.get('/tags/shadows', gatewayId ? { params: { gateway_id: gatewayId } } : undefined);
         return response.data;
     },
 };
