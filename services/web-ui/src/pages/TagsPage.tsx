@@ -1445,7 +1445,7 @@ const TagsPage = () => {
                                             <div className="flex items-center gap-2">
                                                 {tag.alias || '-'}
                                                 {activeAlarms[tag.id] && (
-                                                    <Badge variant="destructive" className="h-5 px-1.5 flex gap-1 items-center animate-pulse">
+                                                    <Badge variant="destructive" className="shrink-0 whitespace-nowrap tracking-normal px-2 py-0.5 flex gap-1 items-center animate-pulse">
                                                         <Bell size={10} /> {tr('tagsPage.alarm_badge')}
                                                     </Badge>
                                                 )}
@@ -1544,9 +1544,12 @@ const TagsPage = () => {
                                         </TableCell>
                                         <TableCell>
                                             {tag.historize ? (
-                                                <div className="flex items-center gap-1 text-xs text-green-600">
-                                                    <Database size={12} />
-                                                    <span>{tr('tagsPage.history_on', { deadband: tag.deadband_value })}</span>
+                                                <div className="flex items-center gap-1 text-xs text-green-600 whitespace-nowrap">
+                                                    <Database size={12} className="shrink-0" />
+                                                    {/* The list carries historize_deadband; deadband_value is the form's. */}
+                                                    <span>{(tag.historize_deadband ?? tag.deadband_value) != null
+                                                        ? tr('tagsPage.history_on', { deadband: tag.historize_deadband ?? tag.deadband_value })
+                                                        : tr('tagsPage.history_on_plain')}</span>
                                                 </div>
                                             ) : (
                                                 <span className="text-xs text-muted-foreground">{tr('tagsPage.history_off')}</span>
@@ -1556,12 +1559,12 @@ const TagsPage = () => {
                                             {alarmDefsCount[tag.id] ? (
                                                 <div className="flex items-center gap-1">
                                                     {activeAlarms[tag.id] ? (
-                                                        <Badge variant="destructive" className="h-5 px-1.5 gap-1 items-center animate-pulse text-xs">
+                                                        <Badge variant="destructive" className="whitespace-nowrap tracking-normal px-2 py-0.5 gap-1 items-center animate-pulse text-xs">
                                                             <BellRing size={10} />
                                                             {tr('tagsPage.alarm_active', { count: alarmDefsCount[tag.id] })}
                                                         </Badge>
                                                     ) : (
-                                                        <Badge variant="secondary" className="h-5 px-1.5 gap-1 items-center text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                                        <Badge variant="secondary" className="whitespace-nowrap tracking-normal px-2 py-0.5 gap-1 items-center text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                                                             <Bell size={10} />
                                                             {tr('tagsPage.alarm_count', { count: alarmDefsCount[tag.id] })}
                                                         </Badge>

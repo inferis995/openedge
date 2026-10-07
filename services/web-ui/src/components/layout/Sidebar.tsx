@@ -17,6 +17,7 @@ import {
 import { isActivePath, navSections, openQuickSearch, type NavItem } from '@/components/layout/navigation';
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useOrgLogo } from '@/hooks/useOrgLogo';
 import { useThemeStore } from '@/stores/useThemeStore';
 
 const FOLDED_KEY = 'openedge.nav.folded';
@@ -43,6 +44,7 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location.pathname]);
     const { user, logout, isAdmin, isGlobalAdmin, isOrgScoped } = useAuthStore();
+    const { data: orgLogo } = useOrgLogo(user?.org_id);
     const { theme, toggleTheme } = useThemeStore();
 
     const sections = navSections({
@@ -143,7 +145,11 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
                 "p-4 border-b border-[hsl(var(--sidebar-border))] flex items-center h-16 transition-all",
                 collapsed ? "justify-center" : "justify-between"
             )}>
-                {collapsed ? (
+                {orgLogo ? (
+                    // The organization's own logo, for its users.
+                    <img src={orgLogo} alt={t('nav.my_organization')}
+                        className={cn("object-contain", collapsed ? "h-10 sm:h-8 w-10 sm:w-8" : "h-10 max-w-full")} />
+                ) : collapsed ? (
                     <img src="/avatar.png" alt="OpenEdge" className="h-10 sm:h-8 w-10 sm:w-8 rounded-lg object-cover" />
                 ) : (
                     <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap">

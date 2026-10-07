@@ -1351,6 +1351,14 @@ func runAutoMigrations(db *sql.DB) error {
 	if _, err := db.ExecContext(context.Background(), `ALTER TABLE organizations ADD COLUMN IF NOT EXISTS mfa_required BOOLEAN NOT NULL DEFAULT false`); err != nil {
 		log.Printf("Warning: org mfa_required migration: %v", err)
 	}
+	// The organization's logo, shown to its users in place of the product's.
+	// Small (capped at upload), so it lives with the organization.
+	if _, err := db.ExecContext(context.Background(), `ALTER TABLE organizations
+		ADD COLUMN IF NOT EXISTS logo BYTEA,
+		ADD COLUMN IF NOT EXISTS logo_type TEXT,
+		ADD COLUMN IF NOT EXISTS logo_updated_at TIMESTAMPTZ`); err != nil {
+		log.Printf("Warning: org logo migration: %v", err)
+	}
 
 	// Migration: at most one open alarm_events row per (tag_id, definition_id).
 	ensureSingleOpenAlarmEvent(db)

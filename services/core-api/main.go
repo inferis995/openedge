@@ -515,6 +515,10 @@ func main() {
 			orgs.GET("/:id", orgsHandler.Get)
 			orgs.PUT("/:id", middleware.RequireRole(models.RoleAdmin), orgsHandler.Update)
 			orgs.PUT("/:id/mfa-required", middleware.RequireRole(models.RoleAdmin), orgsHandler.SetMFARequired)
+			// The logo: everyone in the organization sees it, its admins change it.
+			orgs.GET("/:id/logo", orgsHandler.GetLogo)
+			orgs.PUT("/:id/logo", middleware.RequireRole(models.RoleAdmin), orgsHandler.SetLogo)
+			orgs.DELETE("/:id/logo", middleware.RequireRole(models.RoleAdmin), orgsHandler.DeleteLogo)
 			orgs.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), orgsHandler.Delete)
 		}
 

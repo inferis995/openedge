@@ -318,6 +318,7 @@
         "last_update": "Ultimo aggiornamento: {{time}}",
         "write_value": "Scrivi valore",
         "history_on": "Sì (deadband: {{deadband}})",
+        "history_on_plain": "Sì",
         "history_off": "Disattivato",
         "alarm_active": "ATTIVO ({{count}})",
         "alarm_count_one": "{{count}} allarme",

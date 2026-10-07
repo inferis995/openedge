@@ -266,7 +266,17 @@
         "create_first": "Create the first organization",
         "created_on": "Created {{date}}",
         "enter": "Enter",
-        "rename_title": "Rename organization"
+        "rename_title": "Rename organization",
+        "logo": "Logo",
+        "logo_none": "No logo",
+        "logo_upload": "Upload logo",
+        "logo_change": "Change logo",
+        "logo_remove": "Remove",
+        "logo_saved": "Logo saved",
+        "logo_removed": "Logo removed",
+        "logo_failed": "Could not save the logo",
+        "logo_too_big": "The logo must be at most 512 KB",
+        "logo_hint": "PNG, JPEG or WebP, up to 512 KB. The organization's users see it at the top of the menu."
     },
     "infrastructurePage": {
         "subtitle": "All gateways, where they are and whether they are reachable",

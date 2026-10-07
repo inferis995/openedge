@@ -27,6 +27,33 @@ export interface SSOProviderInput {
 }
 
 export const organizationsApi = {
+    // The organization's logo as a data URL, or null when it has none.
+    getLogo: async (id: number): Promise<string | null> => {
+        const response = await api.get(`/organizations/${id}/logo`, {
+            responseType: 'blob',
+            // No logo is an answer, not an error.
+            validateStatus: s => (s >= 200 && s < 300) || s === 404,
+        });
+        if (response.status === 404 || !(response.data instanceof Blob) || response.data.size === 0) return null;
+        const blob = response.data as Blob;
+        return new Promise((resolve, reject) => {
+            const r = new FileReader();
+            r.onload = () => resolve(typeof r.result === 'string' ? r.result : null);
+            r.onerror = () => reject(r.error);
+            r.readAsDataURL(blob);
+        });
+    },
+
+    setLogo: async (id: number, file: File): Promise<void> => {
+        const form = new FormData();
+        form.append('file', file);
+        await api.put(`/organizations/${id}/logo`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+    },
+
+    deleteLogo: async (id: number): Promise<void> => {
+        await api.delete(`/organizations/${id}/logo`);
+    },
+
     getAll: async (): Promise<Organization[]> => {
         const response = await api.get('/organizations');
         return response.data;
