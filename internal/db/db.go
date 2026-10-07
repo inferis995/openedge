@@ -1396,11 +1396,14 @@ func runAutoMigrations(db *sql.DB) error {
 		               WHERE table_name = 'gateways' AND column_name = 'latitude')`).Scan(&gisColsExist); err != nil {
 		log.Printf("Warning: checking gateways.latitude: %v", err)
 	}
+	// NOTE: one guard for the gateways pair (they are always added together),
+	// but areas.boundary gets its OWN guard. A single shared guard once hid a
+	// half-applied state — gateways done, areas missing — and every area
+	// INSERT died with a bare 500 that the handler never logged.
 	if !gisColsExist {
 		for _, stmt := range []string{
 			`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION`,
 			`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION`,
-			`ALTER TABLE areas ADD COLUMN IF NOT EXISTS boundary JSONB`,
 			`ALTER TABLE gateways ADD CONSTRAINT gateways_coords_check CHECK (
 				(latitude IS NULL AND longitude IS NULL) OR
 				(latitude IS NOT NULL AND longitude IS NOT NULL))`,
@@ -1408,6 +1411,18 @@ func runAutoMigrations(db *sql.DB) error {
 			if _, err := db.ExecContext(context.Background(), stmt); err != nil {
 				log.Printf("Warning: gis map migration: %v", err)
 			}
+		}
+	}
+	var areaBoundaryExists bool
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT EXISTS (SELECT 1 FROM information_schema.columns
+		               WHERE table_name = 'areas' AND column_name = 'boundary')`).Scan(&areaBoundaryExists); err != nil {
+		log.Printf("Warning: checking areas.boundary: %v", err)
+	}
+	if !areaBoundaryExists {
+		if _, err := db.ExecContext(context.Background(),
+			`ALTER TABLE areas ADD COLUMN IF NOT EXISTS boundary JSONB`); err != nil {
+			log.Printf("Warning: gis map migration (areas.boundary): %v", err)
 		}
 	}
 

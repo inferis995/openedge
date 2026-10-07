@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -146,6 +147,7 @@ func (h *AreasHandler) Create(c *gin.Context) {
 	area.Boundary = boundary
 
 	if err != nil {
+		log.Printf("[AREAS] create failed (site=%d name=%q boundaryLen=%d): %v", req.SiteID, req.Name, len(req.Boundary), err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create area"})
 		return
 	}
