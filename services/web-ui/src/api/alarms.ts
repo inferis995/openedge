@@ -39,6 +39,14 @@ export const alarmsApi = {
         return response.data;
     },
 
+    /** Events of these tags that overlap [start, end] (raised before its end, cleared after its start or not at all). */
+    getAlarmWindow: async (tagIds: number[], start: Date, end: Date): Promise<AlarmEvent[]> => {
+        const response = await api.get('/alarms/history', {
+            params: { tag_ids: tagIds.join(','), start: start.toISOString(), end: end.toISOString(), limit: 500 },
+        });
+        return response.data;
+    },
+
     getTagAlarms: async (tagId: number): Promise<any[]> => {
         const response = await api.get(`/tags/${tagId}/alarms`);
         return response.data || [];

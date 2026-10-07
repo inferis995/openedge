@@ -14,13 +14,14 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 
 import { TagBrowser } from '@/components/trend/TagBrowser';
-import { UPlotChart, type PenSeries } from '@/components/historian/UPlotChart';
+import { UPlotChart, type PenSeries, type ChartEvent } from '@/components/historian/UPlotChart';
 import { HistorianDatePicker, type HistorianRange } from '@/components/historian/HistorianDatePicker';
 import { PenPanel, type Pen, type PenStats } from '@/components/historian/PenPanel';
 
 import { historyApi } from '@/api/history';
 import { tagsApi } from '@/api/tags';
 import { gatewaysApi } from '@/api/gateways';
+import { alarmsApi } from '@/api/alarms';
 import { alignPens, mergeSeries, realtimePoint } from '@/lib/trendAlign';
 import { decodeView, encodeView, resolveRange, TREND_VIEW_KEY, type TrendView } from '@/lib/trendView';
 import { useRealtime } from '@/hooks/useRealtime';
@@ -282,6 +283,25 @@ export default function TrendPage() {
         return alignPens(pens, series);
     }, [series, pens]);
 
+    // The pens' alarms in the window, for the time axis.
+    const { data: alarmEvents } = useQuery({
+        queryKey: ['trend-alarms', penIds, liveMode ? 'live' : timeRange.from.getTime(), liveMode ? 0 : timeRange.to.getTime()],
+        queryFn: () => {
+            const to = liveMode ? new Date() : timeRange.to;
+            const from = new Date(to.getTime() - (timeRange.to.getTime() - timeRange.from.getTime()));
+            return alarmsApi.getAlarmWindow(penIds, from, to);
+        },
+        enabled: penIds.length > 0,
+        refetchInterval: liveMode ? 30_000 : false,
+        staleTime: 15_000,
+    });
+    const chartEvents = useMemo<ChartEvent[]>(() => (alarmEvents ?? []).map(e => ({
+        start: Date.parse(e.trigger_time),
+        end: e.clear_time ? Date.parse(e.clear_time) : null,
+        severity: e.severity,
+        label: `${tagMap.get(e.tag_id)?.alias ?? `#${e.tag_id}`}: ${e.message}`,
+    })).filter(e => Number.isFinite(e.start)), [alarmEvents, tagMap]);
+
     // Gateways' last contact, for the pen panel.
     const { data: gateways } = useQuery({
         queryKey: ['gateways', 'trend-contact'],
@@ -508,6 +528,7 @@ export default function TrendPage() {
                                 pens={penSeries}
                                 range={{ from: timeRange.from.getTime(), to: timeRange.to.getTime() }}
                                 bands={bands}
+                                events={chartEvents}
                                 live={liveMode}
                                 onZoom={handleZoom}
                             />

@@ -7,9 +7,11 @@ import (
 	"math"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lib/pq"
 	alarmengine "github.com/ralph/industrial-edge-middleware/internal/alarms"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
@@ -464,31 +466,64 @@ func (h *AlarmHandler) GetAlarmHistory(c *gin.Context) {
 		}
 	}
 
-	var rows *sql.Rows
-	var err error
-
-	if orgFilter == nil {
-		// Global admin - get all alarm history across all organizations
-		rows, err = h.db.Query(`
-			SELECT e.id, e.tag_id, e.definition_id, e.status, e.alarm_type, e.severity, e.message, e.value_at_trigger, e.trigger_time, e.clear_time, e.bg_ack_user, e.ack_time
-			FROM alarm_events e
-			ORDER BY e.trigger_time DESC
-			LIMIT $1 OFFSET $2
-		`, limit, offset)
-	} else {
-		// Regular user - filter by their organization
-		rows, err = h.db.Query(`
-			SELECT e.id, e.tag_id, e.definition_id, e.status, e.alarm_type, e.severity, e.message, e.value_at_trigger, e.trigger_time, e.clear_time, e.bg_ack_user, e.ack_time
-			FROM alarm_events e
-			JOIN tags t ON e.tag_id = t.id
-			JOIN gateways g ON t.gateway_id = g.id
-			JOIN areas a ON g.area_id = a.id
-			JOIN sites s ON a.site_id = s.id
-			WHERE s.org_id = $1
-			ORDER BY e.trigger_time DESC
-			LIMIT $2 OFFSET $3
-		`, *orgFilter, limit, offset)
+	// Optional filters, for the trend's time axis: events of these tags that
+	// overlap [start, end] (raised before its end, not cleared before its
+	// start). Without them the latest events, as before.
+	where := []string{}
+	args := []interface{}{}
+	arg := func(v interface{}) string { args = append(args, v); return fmt.Sprintf("$%d", len(args)) }
+	if orgFilter != nil {
+		where = append(where, "s.org_id = "+arg(*orgFilter))
 	}
+	if raw := c.Query("tag_ids"); raw != "" {
+		ids := []int64{}
+		for _, part := range strings.Split(raw, ",") {
+			id, convErr := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+			if convErr != nil || id <= 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "tag_ids must be a comma-separated list of ids"})
+				return
+			}
+			ids = append(ids, id)
+		}
+		if len(ids) > 100 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "at most 100 tag_ids"})
+			return
+		}
+		where = append(where, "e.tag_id = ANY("+arg(pq.Array(ids))+")")
+	}
+	for _, f := range []struct{ param, cond string }{
+		{"end", "e.trigger_time <= %s"},
+		{"start", "(e.clear_time IS NULL OR e.clear_time >= %s)"},
+	} {
+		if v := c.Query(f.param); v != "" {
+			t, parseErr := time.Parse(time.RFC3339, v)
+			if parseErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": f.param + " must be RFC 3339"})
+				return
+			}
+			where = append(where, fmt.Sprintf(f.cond, arg(t)))
+		}
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	query := `
+		SELECT e.id, e.tag_id, e.definition_id, e.status, e.alarm_type, e.severity, e.message, e.value_at_trigger, e.trigger_time, e.clear_time, e.bg_ack_user, e.ack_time
+		FROM alarm_events e`
+	if orgFilter != nil {
+		query += `
+		JOIN tags t ON e.tag_id = t.id
+		JOIN gateways g ON t.gateway_id = g.id
+		JOIN areas a ON g.area_id = a.id
+		JOIN sites s ON a.site_id = s.id`
+	}
+	if len(where) > 0 {
+		query += "\n\t\tWHERE " + strings.Join(where, " AND ")
+	}
+	query += "\n\t\tORDER BY e.trigger_time DESC LIMIT " + arg(limit) + " OFFSET " + arg(offset)
+
+	// #nosec G202 -- the WHERE list is built from fixed fragments; every value is a bind parameter.
+	rows, err := h.db.QueryContext(c.Request.Context(), query, args...)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query alarm history"})
 		return

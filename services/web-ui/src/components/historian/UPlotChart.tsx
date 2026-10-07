@@ -31,6 +31,8 @@ interface Props {
      * timestamps), or null. Drawn as a shaded band around the curve.
      */
     bands?: ({ min: (number | undefined)[]; max: (number | undefined)[] } | null)[];
+    /** Alarms to mark on the time axis. */
+    events?: ChartEvent[];
     /** The window the user chose, in ms. The x axis always shows exactly this. */
     range: { from: number; to: number };
     /**
@@ -40,6 +42,57 @@ interface Props {
     live?: boolean;
     /** Called when the user selects (mouse drag, or pinch) a sub-range to zoom */
     onZoom?: (fromMs: number, toMs: number) => void;
+}
+
+/** An alarm on the time axis: raised at `start`, cleared at `end` (null: still active). */
+export interface ChartEvent {
+    start: number;
+    end: number | null;
+    severity: string;
+    label: string;
+}
+
+const SEVERITY_COLOR: Record<string, string> = {
+    critical: '#dc2626', high: '#ea580c', medium: '#d97706', warning: '#d97706', low: '#2563eb', info: '#64748b',
+};
+const severityColor = (s: string) => SEVERITY_COLOR[s?.toLowerCase()] ?? '#d97706';
+
+/**
+ * Alarms on the time axis: a strip at the top of the plot for each alarm's
+ * duration (to now while active), in its severity's colour, and a faint
+ * shade over the curves. What happened is read where it happened.
+ */
+function eventsPlugin(getEvents: () => ChartEvent[]): uPlot.Plugin {
+    return {
+        hooks: {
+            drawClear: (u) => {
+                const ctx = u.ctx;
+                const evs = getEvents();
+                if (evs.length === 0) return;
+                const { left, top, width, height } = u.bbox;
+                const xMin = u.scales.x.min ?? 0, xMax = u.scales.x.max ?? 0;
+                const nowSec = Date.now() / 1000;
+                const strip = 5 * devicePixelRatio;
+                ctx.save();
+                ctx.beginPath();
+                ctx.rect(left, top, width, height);
+                ctx.clip();
+                evs.forEach((ev, i) => {
+                    const a = ev.start / 1000, b = ev.end === null ? Math.min(nowSec, xMax) : ev.end / 1000;
+                    if (b < xMin || a > xMax) return;
+                    const x0 = u.valToPos(Math.max(a, xMin), 'x', true);
+                    const x1 = Math.max(x0 + devicePixelRatio, u.valToPos(Math.min(b, xMax), 'x', true));
+                    const color = severityColor(ev.severity);
+                    ctx.fillStyle = color;
+                    ctx.globalAlpha = 0.07;
+                    ctx.fillRect(x0, top, x1 - x0, height);
+                    ctx.globalAlpha = 0.9;
+                    ctx.fillRect(x0, top + (i % 3) * (strip + devicePixelRatio), x1 - x0, strip);
+                });
+                ctx.restore();
+            },
+        },
+    };
 }
 
 const GRID_COLOR = 'rgba(128,128,128,0.15)';
@@ -75,7 +128,7 @@ function timeLabels(splits: number[], spanSec: number): string[] {
     });
 }
 
-function tooltipPlugin(pens: PenSeries[]): uPlot.Plugin {
+function tooltipPlugin(pens: PenSeries[], getEvents: () => ChartEvent[] = () => []): uPlot.Plugin {
     let tooltip: HTMLDivElement;
     return {
         hooks: {
@@ -147,6 +200,22 @@ function tooltipPlugin(pens: PenSeries[]): uPlot.Plugin {
                         ext.textContent = `min ${fmtValue(lo, pen.decimals)} · max ${fmtValue(hi, pen.decimals)}`;
                         tooltip.appendChild(ext);
                     }
+                }
+                // Alarms in progress at this instant.
+                const atMs = ts * 1000;
+                for (const ev of getEvents()) {
+                    if (ev.start > atMs || (ev.end !== null && ev.end < atMs)) continue;
+                    const row = document.createElement('div');
+                    row.className = 'flex items-center gap-1.5 mt-1 pt-1 border-t border-border';
+                    const dot = document.createElement('span');
+                    dot.style.cssText = 'width:8px;height:8px;border-radius:9999px;flex-shrink:0;display:inline-block';
+                    dot.style.background = severityColor(ev.severity);
+                    row.appendChild(dot);
+                    const text = document.createElement('span');
+                    text.className = 'text-[10px]';
+                    text.textContent = ev.label;
+                    row.appendChild(text);
+                    tooltip.appendChild(row);
                 }
                 tooltip.classList.remove('hidden');
 
@@ -270,11 +339,17 @@ function holdLastPlugin(pens: PenSeries[]): uPlot.Plugin {
  * The historian chart. Fills its parent: give the parent a height (flex-1,
  * h-full…) and the chart follows it, on resize and on rotation.
  */
-export function UPlotChart({ timestamps, values, pens, bands, range, live = false, onZoom }: Props) {
+export function UPlotChart({ timestamps, values, pens, bands, events = [], range, live = false, onZoom }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const plotRef = useRef<uPlot | null>(null);
     // The latest window, read by uPlot's callbacks (axis labels) between renders.
     const rangeRef = useRef(range);
+    // Events are read by the plugins at draw time; a change only redraws.
+    const eventsRef = useRef(events);
+    useEffect(() => {
+        eventsRef.current = events;
+        plotRef.current?.redraw(false);
+    }, [events]);
 
     // One column per pen, always: pens restored from the address are there
     // before their data, and uPlot (and the plugins) read a column per series.
@@ -409,7 +484,7 @@ export function UPlotChart({ timestamps, values, pens, bands, range, live = fals
             bands: bandOpts,
             axes,
             legend: { show: false },
-            plugins: [tooltipPlugin(pens), touchPlugin(onZoom), holdLastPlugin(pens)],
+            plugins: [tooltipPlugin(pens, () => eventsRef.current), touchPlugin(onZoom), holdLastPlugin(pens), eventsPlugin(() => eventsRef.current)],
             cursor: { sync: { key: 'historian-sync' }, drag: { x: true, y: false } },
             hooks: {
                 setSelect: [(u) => {
