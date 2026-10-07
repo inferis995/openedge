@@ -25,7 +25,8 @@
     "tag_detail": "Tag detail",
     "quality": "Quality: {{q}}",
     "updated_ago": "Updated {{s}}s ago",
-    "never_updated": "Never updated"
+    "never_updated": "Never updated",
+    "pick_gateway": "Go to gateway…"
   },
   "all_areas": "All areas"
 }

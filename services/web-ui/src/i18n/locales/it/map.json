@@ -25,7 +25,8 @@
     "tag_detail": "Dettaglio tag",
     "quality": "Qualità: {{q}}",
     "updated_ago": "Aggiornato {{s}}s fa",
-    "never_updated": "Mai aggiornato"
+    "never_updated": "Mai aggiornato",
+    "pick_gateway": "Vai al gateway…"
   },
   "all_areas": "Tutte le aree"
 }

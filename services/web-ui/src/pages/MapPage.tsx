@@ -15,7 +15,7 @@ import { tagsApi } from '@/api/tags';
 import type { TagValue } from '@/api/tags';
 import type { Tag } from '@/types';
 import { parseCoords, formatCoord, searchPlace, type PlaceResult } from '@/lib/coords';
-import { Battery, Loader2, MapPin, Search } from 'lucide-react';
+import { Battery, Cpu, Loader2, MapPin, Search } from 'lucide-react';
 
 // Stile Carto Dark Matter GL: vettoriale, gratuito, senza API key.
 // Carto Dark Matter in versione raster: le tile PNG si vedono ovunque
@@ -686,6 +686,40 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                     onOpenTrend={(_gid, tid) => navigate(`/trend?pens=${tid}`)}
                 />
             )}
+
+            {/* Selettore gateway: ricerca e volo sul pin, come nel Trend */}
+            <div className="clip-chamfer border bg-card px-3 py-2.5 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <Cpu size={14} className="text-muted-foreground shrink-0" />
+                    <select
+                        className="h-8 w-full max-w-md rounded-md border bg-background text-sm"
+                        value={selectedGwId ?? ''}
+                        onChange={(e) => {
+                            const id = e.target.value ? parseInt(e.target.value) : null;
+                            if (id === null) { setSelectedGwId(null); return; }
+                            const gw = gateways.find((g) => g.id === id);
+                            if (gw && typeof gw.latitude === 'number' && typeof gw.longitude === 'number') {
+                                handleSelectGateway(id, gw.longitude, gw.latitude);
+                            } else {
+                                setSelectedGwId(id);
+                            }
+                        }}
+                    >
+                        <option value="">{t('map.pick_gateway')}</option>
+                        {visibleGateways.map((gw) => (
+                            <option key={gw.id} value={gw.id}>
+                                {gw.name}{gw.connection_status === 'online' ? '' : ' ·'}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+                {selectedGw && (
+                    <span className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: statusColor(selectedGw.connection_status) }} />
+                        {selectedGw.name}
+                    </span>
+                )}
+            </div>
 
             {/* Legenda */}
             <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground px-1">
