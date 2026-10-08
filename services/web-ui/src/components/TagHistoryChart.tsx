@@ -11,7 +11,6 @@ import {
 } from 'recharts';
 import { History } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import {
     Select,
     SelectContent,
