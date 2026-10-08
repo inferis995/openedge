@@ -142,7 +142,8 @@ export default function TagHistoryChart({
                             strokeWidth={1.5}
                             fill={`url(#tagHist-${tagId})`}
                             connectNulls={false}
-                            dot={false}
+                            dot={{ r: 2, fill: 'hsl(var(--primary))', strokeWidth: 0 }}
+                            activeDot={{ r: 4 }}
                         />
                     </AreaChart>
                 </ResponsiveContainer>
