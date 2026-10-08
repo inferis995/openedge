@@ -582,7 +582,7 @@ export default function I3XPage() {
         if (selectedEq) loadProperties(selectedEq);
     };
 
-    const activeAlarmCount = alarms.filter(a => a.status === 'Active').length;
+    const activeAlarmCount = alarms.filter(a => a.status !== 'Cleared').length;
     const equipmentCount   = allEquipment.filter(e => e.type === 'Equipment').length;
 
     return (
