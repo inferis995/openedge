@@ -475,7 +475,18 @@ export default function I3XPage() {
         if (selectedEq) loadProperties(selectedEq);
     };
 
-    const activeAlarmCount = alarms.filter(a => a.status !== 'Cleared').length;
+    // One alarm per tag+type (latest event wins): the engine used to stack a
+    // new open row every cycle for acknowledged alarms, inflating the count.
+    const openAlarms = [...alarms
+        .filter(a => a.status !== 'Cleared')
+        .reduce((m, a) => {
+            const k = `${a.propertyId}|${a.alarmType}`;
+            if (!m.has(k)) m.set(k, a);
+            return m;
+        }, new Map<string, typeof alarms[number]>())
+        .values()];
+    const activeAlarmCount = openAlarms.filter(a => a.status === 'Active').length;
+    const ackedAlarmCount = openAlarms.filter(a => a.status === 'Acknowledged').length;
     const equipmentCount   = allEquipment.filter(e => e.type === 'Equipment').length;
 
     return (
@@ -551,6 +562,9 @@ export default function I3XPage() {
                         <div>
                             <p className="text-2xl font-bold">{activeAlarmCount}</p>
                             <p className="text-xs text-muted-foreground">{t('i3xPage.stat_active_alarms')}</p>
+                            {ackedAlarmCount > 0 && (
+                                <p className="text-[11px] text-muted-foreground">{t('i3xPage.stat_acked_alarms', { count: ackedAlarmCount })}</p>
+                            )}
                         </div>
                     </CardContent>
                 </Card>
@@ -814,7 +828,7 @@ export default function I3XPage() {
                                 <div className="p-4 space-y-2">
                                     {[1, 2].map(i => <div key={i} className="h-10 bg-muted animate-pulse clip-chamfer-sm" />)}
                                 </div>
-                            ) : alarms.length === 0 ? (
+                            ) : openAlarms.length === 0 ? (
                                 <div className="p-8 text-center flex flex-col items-center gap-2">
                                     <CheckCircle2 size={32} className="text-green-500 opacity-60" />
                                     <p className="text-sm text-muted-foreground">{t('i3xPage.no_active_alarms')}</p>
@@ -835,7 +849,7 @@ export default function I3XPage() {
                                         </TableRow>
                                     </TableHeader>
                                     <TableBody>
-                                        {alarms.map(alarm => (
+                                        {openAlarms.map(alarm => (
                                             <TableRow key={alarm.id}>
                                                 <TableCell><SeverityIcon severity={alarm.severity} /></TableCell>
                                                 <TableCell className="font-mono text-xs text-muted-foreground">{alarm.id}</TableCell>
