@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Organization represents the top level of the organizational hierarchy
 type Organization struct {
@@ -19,8 +22,12 @@ type Site struct {
 
 // Area represents a sub-section of a site
 type Area struct {
-	ID        int       `json:"id" db:"id"`
-	SiteID    int       `json:"site_id" db:"site_id"`
-	Name      string    `json:"name" db:"name"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	ID        int             `json:"id" db:"id"`
+	SiteID    int             `json:"site_id" db:"site_id"`
+	Name      string          `json:"name" db:"name"`
+	// Perimeter as a GeoJSON geometry (or Feature), drawn on the map page.
+	// NULL until someone pastes one in: an area without a boundary simply has
+	// no polygon.
+	Boundary  json.RawMessage `json:"boundary,omitempty" db:"boundary"`
+	CreatedAt time.Time       `json:"created_at" db:"created_at"`
 }

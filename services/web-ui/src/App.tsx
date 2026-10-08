@@ -1,4 +1,6 @@
-import { Routes, Route, Outlet } from 'react-router-dom';
+import { Routes, Route, Outlet, Navigate, useLocation } from 'react-router-dom';
+import { moduleForPath } from '@/components/layout/navigation';
+import { useOrgModules } from '@/hooks/useOrgModules';
 import MainLayout from '@/components/layout/MainLayout';
 import LoginPage from '@/pages/LoginPage';
 import RequireAuth from '@/components/RequireAuth';
@@ -10,6 +12,7 @@ import SetupWizardPage from '@/pages/SetupWizardPage';
 import SitesPage from '@/pages/SitesPage';
 import AreasPage from '@/pages/AreasPage';
 import GatewaysPage from '@/pages/GatewaysPage';
+import MapPage from '@/pages/MapPage';
 import InventoryPage from '@/pages/InventoryPage';
 import TagsPage from '@/pages/TagsPage';
 import SystemPage from '@/pages/SystemPage';
@@ -55,11 +58,26 @@ import { organizationsApi } from '@/api/organizations';
 import { useSparkplugListener } from '@/hooks/useSparkplugListener';
 import { Loader2 } from 'lucide-react';
 
-const LayoutWrapper = () => (
-    <MainLayout>
-        <Outlet />
-    </MainLayout>
-);
+const LayoutWrapper = () => {
+    const location = useLocation();
+    const { user } = useAuthStore();
+    const orgModules = useOrgModules(user?.org_id);
+    const mod = moduleForPath(location.pathname);
+    if (orgModules && mod && !orgModules.has(mod)) {
+        // Guessed URL of a page this organization disabled: back to the
+        // dashboard. The backend answers 403 on the data either way.
+        return (
+            <MainLayout>
+                <Navigate to="/" replace />
+            </MainLayout>
+        );
+    }
+    return (
+        <MainLayout>
+            <Outlet />
+        </MainLayout>
+    );
+};
 
 function App() {
     const { selectedOrgId, setSelectedOrgId } = useNavigationStore();
@@ -139,6 +157,7 @@ function App() {
                     <Route path="/sites" element={<SitesPage />} />
                     <Route path="/areas" element={<AreasPage />} />
                     <Route path="/gateways" element={<GatewaysPage />} />
+                    <Route path="/map" element={<MapPage />} />
                     <Route path="/inventory" element={<InventoryPage />} />
                     <Route path="/tags" element={<TagsPage />} />
                     <Route path="/system" element={<SystemPage />} />

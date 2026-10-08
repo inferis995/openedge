@@ -1,0 +1,32 @@
+{
+  "map": {
+    "subtitle": "Impianto su carta geografica: aree, gateway e valori live",
+    "loading": "Carico la mappa…",
+    "search_placeholder": "Cerca un luogo…",
+    "legend_online": "Online",
+    "legend_offline": "Offline",
+    "legend_never": "Mai connesso",
+    "placed_count": "gateway posizionati",
+    "battery": "Batteria",
+    "live_values": "Valori live",
+    "no_tags": "Nessun tag su questo gateway",
+    "open_trend": "Apri Trend",
+    "place": "Sposta",
+    "placing_hint": "Clicca sulla mappa per impostare la posizione del gateway",
+    "place_pick": "Sposta un gateway",
+    "place_select": "Scegli un gateway…",
+    "edit_position": "Modifica posizione",
+    "latitude": "Latitudine",
+    "longitude": "Longitudine",
+    "saving": "Salvo…",
+    "coords_hint": "Gradi decimali o «39.3592, 16.5142»; accetta anche 39°30'N. Su mappa: trascina il pin o usa «Posiziona».",
+    "others": "altri",
+    "tags_count": "tag",
+    "tag_detail": "Dettaglio tag",
+    "quality": "Qualità: {{q}}",
+    "updated_ago": "Aggiornato {{s}}s fa",
+    "never_updated": "Mai aggiornato",
+    "pick_gateway": "Vai al gateway…",
+    "all_areas": "Tutte le aree"
+  }
+}

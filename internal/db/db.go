@@ -797,6 +797,7 @@ func runAutoMigrations(db *sql.DB) error {
 			can_manage_shifts      BOOLEAN NOT NULL DEFAULT false,
 			can_view_audit         BOOLEAN NOT NULL DEFAULT false,
 			can_download_installer BOOLEAN NOT NULL DEFAULT false,
+			can_export_config      BOOLEAN NOT NULL DEFAULT false,
 			created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
@@ -806,6 +807,10 @@ func runAutoMigrations(db *sql.DB) error {
 		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
 			return fmt.Errorf("role_permissions migration: %w", err)
 		}
+	}
+	// Config export flag on databases created before it existed.
+	if _, err := db.ExecContext(context.Background(), `ALTER TABLE role_permissions ADD COLUMN IF NOT EXISTS can_export_config BOOLEAN NOT NULL DEFAULT false`); err != nil {
+		log.Printf("Warning: role_permissions can_export_config migration: %v", err)
 	}
 
 	// Seed enterprise notification + connector settings.
@@ -1358,6 +1363,67 @@ func runAutoMigrations(db *sql.DB) error {
 		ADD COLUMN IF NOT EXISTS logo_type TEXT,
 		ADD COLUMN IF NOT EXISTS logo_updated_at TIMESTAMPTZ`); err != nil {
 		log.Printf("Warning: org logo migration: %v", err)
+	}
+
+	// Which pages an organization may use. No row for (org_id, module_key)
+	// means enabled; a row with enabled=false hides the page in the menu
+	// and blocks its API group. Like the logo, a Go migration so existing
+	// databases get it at startup without a manual step.
+	if _, err := db.ExecContext(context.Background(), `CREATE TABLE IF NOT EXISTS organization_modules (
+		org_id INTEGER NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+		module_key TEXT NOT NULL,
+		enabled BOOLEAN NOT NULL DEFAULT true,
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (org_id, module_key)
+	)`); err != nil {
+		log.Printf("Warning: organization_modules migration: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(), `CREATE INDEX IF NOT EXISTS idx_organization_modules_org ON organization_modules(org_id)`); err != nil {
+		log.Printf("Warning: organization_modules index: %v", err)
+	}
+
+	// Migration: GIS map — gateway coordinates and area boundaries.
+	//
+	// latitude/longitude are decimal degrees (WGS84), NULL when nobody has
+	// placed the gateway on the map yet; boundary holds the area's perimeter
+	// as a GeoJSON Geometry object (Feature is also accepted) so the map page
+	// can draw it without a second table. Both are guarded on
+	// information_schema so the CHECK below is added only with the column,
+	// keeping the migration idempotent on databases that already have it.
+	var gisColsExist bool
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT EXISTS (SELECT 1 FROM information_schema.columns
+		               WHERE table_name = 'gateways' AND column_name = 'latitude')`).Scan(&gisColsExist); err != nil {
+		log.Printf("Warning: checking gateways.latitude: %v", err)
+	}
+	// NOTE: one guard for the gateways pair (they are always added together),
+	// but areas.boundary gets its OWN guard. A single shared guard once hid a
+	// half-applied state — gateways done, areas missing — and every area
+	// INSERT died with a bare 500 that the handler never logged.
+	if !gisColsExist {
+		for _, stmt := range []string{
+			`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION`,
+			`ALTER TABLE gateways ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION`,
+			`ALTER TABLE gateways ADD CONSTRAINT gateways_coords_check CHECK (
+				(latitude IS NULL AND longitude IS NULL) OR
+				(latitude IS NOT NULL AND longitude IS NOT NULL))`,
+		} {
+			if _, err := db.ExecContext(context.Background(), stmt); err != nil {
+				log.Printf("Warning: gis map migration: %v", err)
+			}
+		}
+	}
+	var areaBoundaryExists bool
+	if err := db.QueryRowContext(context.Background(), `
+		SELECT EXISTS (SELECT 1 FROM information_schema.columns
+		               WHERE table_name = 'areas' AND column_name = 'boundary')`).Scan(&areaBoundaryExists); err != nil {
+		log.Printf("Warning: checking areas.boundary: %v", err)
+	}
+	if !areaBoundaryExists {
+		if _, err := db.ExecContext(context.Background(),
+			`ALTER TABLE areas ADD COLUMN IF NOT EXISTS boundary JSONB`); err != nil {
+			log.Printf("Warning: gis map migration (areas.boundary): %v", err)
+		}
 	}
 
 	// Migration: at most one open alarm_events row per (tag_id, definition_id).

@@ -73,6 +73,11 @@ export const gatewaysApi = {
         if (data.scan_rate_ms !== undefined) payload.scan_rate_ms = data.scan_rate_ms;
         if (data.enabled !== undefined) payload.enabled = data.enabled;
         if (data.zero_based !== undefined) payload.zero_based = data.zero_based;
+        // Posizione sulla mappa: sempre in coppia, il backend le vuole insieme
+        if (data.latitude !== undefined && data.longitude !== undefined) {
+            payload.latitude = data.latitude;
+            payload.longitude = data.longitude;
+        }
 
         // Build connection_config based on driver type
         if (data.driver_type === 'OPC_UA') {

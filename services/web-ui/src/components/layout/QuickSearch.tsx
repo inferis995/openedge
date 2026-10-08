@@ -5,6 +5,7 @@ import {
     CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from '@/components/ui/command';
 import { navSections, scorePage, QUICK_SEARCH_EVENT as OPEN_EVENT } from '@/components/layout/navigation';
+import { useOrgModules } from '@/hooks/useOrgModules';
 import { useAuthStore } from '@/stores/useAuthStore';
 
 /**
@@ -19,7 +20,8 @@ export default function QuickSearch() {
     const [open, setOpen] = useState(false);
     const navigate = useNavigate();
     const { t } = useTranslation();
-    const { isAdmin, isGlobalAdmin, isOrgScoped } = useAuthStore();
+    const { isAdmin, isGlobalAdmin, isOrgScoped, user } = useAuthStore();
+    const orgModules = useOrgModules(user?.org_id);
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
@@ -41,7 +43,7 @@ export default function QuickSearch() {
         isAdmin: isAdmin(),
         isGlobalAdmin: isGlobalAdmin(),
         isOrgScoped: isOrgScoped(),
-    });
+    }, orgModules);
 
     return (
         <CommandDialog open={open} onOpenChange={setOpen} filter={scorePage}>

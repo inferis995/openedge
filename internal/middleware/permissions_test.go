@@ -101,6 +101,7 @@ func TestRequirePermission_ConstNames(t *testing.T) {
 		middleware.PermManageShifts,
 		middleware.PermViewAudit,
 		middleware.PermDownloadInstaller,
+		middleware.PermExportConfig,
 	}
 	seen := map[string]bool{}
 	for _, p := range perms {

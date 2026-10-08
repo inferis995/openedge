@@ -56,6 +56,16 @@ export const organizationsApi = {
         await api.delete(`/organizations/${id}/logo`);
     },
 
+    // Page visibility: the full module list with the effective state.
+    getModules: async (id: number): Promise<{ key: string; enabled: boolean }[]> => {
+        const response = await api.get(`/organizations/${id}/modules`);
+        return response.data.modules ?? [];
+    },
+
+    setModules: async (id: number, disabled: string[]): Promise<void> => {
+        await api.put(`/organizations/${id}/modules`, { disabled });
+    },
+
     getAll: async (): Promise<Organization[]> => {
         const response = await api.get('/organizations');
         return response.data;

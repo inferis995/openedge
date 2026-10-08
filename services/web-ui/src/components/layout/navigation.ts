@@ -7,7 +7,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
     Activity, Bell, Boxes, Building2, ChefHat, ClipboardList, Clock, Cpu, Factory,
-    FileText, Gauge, History, LayoutDashboard, LayoutTemplate, Layers, Lock, MapPin,
+    FileText, Gauge, History, LayoutDashboard, LayoutTemplate, Layers, Lock, Map, MapPin,
     Network, PackageOpen, Plug, Radio, Rocket, Server, Settings, Shield, Tags, Target,
     TrendingUp, Users, Wrench,
 } from 'lucide-react';
@@ -34,13 +34,55 @@ export interface NavAccess {
 }
 
 /**
+ * Which organization module owns a menu path. Pages without a module
+ * (dashboard shell, admin tools) are platform surface and always visible.
+ * Exported so the route guard and the menu filter share one list.
+ */
+const pathModuleEntries: [string, string][] = [
+    ['/setup', 'setup'],
+    ['/sites', 'sites'],
+    ['/areas', 'areas'],
+    ['/gateways', 'gateways'],
+    ['/map', 'map'],
+    ['/tags', 'tags'],
+    ['/inventory', 'inventory'],
+    ['/udt', 'udt'],
+    ['/synoptics', 'synoptics'],
+    ['/alarms', 'alarms'],
+    ['/recipes', 'recipes'],
+    ['/shifts', 'shifts'],
+    ['/maintenance', 'maintenance'],
+    ['/trend', 'trend'],
+    ['/history', 'historian'],
+    ['/reports', 'reports'],
+    ['/kpis', 'kpis'],
+    ['/oee-profiles', 'oee'],
+    ['/i3x', 'i3x'],
+    ['/connected-apps', 'connected-apps'],
+    ['/users', 'users'],
+];
+
+export function moduleForPath(path: string): string | null {
+    // Detail pages (/synoptics/4, /tags/12) belong to their section.
+    let best: string | null = null;
+    let bestLen = 0;
+    for (const [prefix, mod] of pathModuleEntries) {
+        if ((path === prefix || path.startsWith(prefix + '/')) && prefix.length > bestLen) {
+            best = mod;
+            bestLen = prefix.length;
+        }
+    }
+    return best;
+}
+
+/**
  * The sections a user sees, in order.
  *
  * Grouped by what the person is doing rather than by how the backend is laid
  * out: first the plant is described (Impianto), then it is run (Operatività),
  * then looked back on (Analisi). Administration comes last and only for admins.
  */
-export function navSections(access: NavAccess): NavSection[] {
+export function navSections(access: NavAccess, enabledModules?: Set<string> | null): NavSection[] {
     const organization: NavItem[] = access.isGlobalAdmin
         ? [{ key: 'nav.organizations', path: '/organizations', icon: Building2, hint: 'nav.hint.organizations' }]
         : access.isOrgScoped && access.isAdmin
@@ -64,6 +106,7 @@ export function navSections(access: NavAccess): NavSection[] {
                 { key: 'nav.sites', path: '/sites', icon: Factory, hint: 'nav.hint.sites' },
                 { key: 'nav.areas', path: '/areas', icon: MapPin, hint: 'nav.hint.areas' },
                 { key: 'nav.gateways', path: '/gateways', icon: Cpu, hint: 'nav.hint.gateways' },
+                { key: 'nav.map', path: '/map', icon: Map, hint: 'nav.hint.map' },
                 { key: 'nav.tags', path: '/tags', icon: Tags, hint: 'nav.hint.tags' },
                 { key: 'nav.inventory', path: '/inventory', icon: ClipboardList, hint: 'nav.hint.inventory' },
                 { key: 'nav.udt_types', path: '/udt/types', icon: Boxes, hint: 'nav.hint.udt_types' },
@@ -120,7 +163,15 @@ export function navSections(access: NavAccess): NavSection[] {
         });
     }
 
-    return sections.filter((s) => s.items.length > 0);
+    const filtered = sections.map((s) => ({
+        ...s,
+        items: s.items.filter((item) => {
+            if (!enabledModules) return true;
+            const mod = moduleForPath(item.path);
+            return mod == null || enabledModules.has(mod);
+        }),
+    }));
+    return filtered.filter((s) => s.items.length > 0);
 }
 
 /**

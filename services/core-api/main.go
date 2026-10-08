@@ -21,6 +21,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	_ "github.com/ralph/industrial-edge-middleware/docs"
+	"github.com/ralph/industrial-edge-middleware/internal/alarms"
 	"github.com/ralph/industrial-edge-middleware/internal/auth"
 	"github.com/ralph/industrial-edge-middleware/internal/connectors"
 	"github.com/ralph/industrial-edge-middleware/internal/crypto"
@@ -154,6 +155,10 @@ func main() {
 			loadScalingCache(database)
 		}
 	}()
+
+	// Comm_loss from the database clock (survives driver restarts): open and
+	// close silence events every 5 minutes.
+	alarms.StartCommLossSweep(database, 5*time.Minute, make(chan struct{}))
 
 	// Load Redis configuration (needed before MQTT for health tracking)
 	redisHost := getEnv("REDIS_HOST", "localhost")
@@ -519,6 +524,9 @@ func main() {
 			orgs.GET("/:id/logo", orgsHandler.GetLogo)
 			orgs.PUT("/:id/logo", middleware.RequireRole(models.RoleAdmin), orgsHandler.SetLogo)
 			orgs.DELETE("/:id/logo", middleware.RequireRole(models.RoleAdmin), orgsHandler.DeleteLogo)
+			// Page visibility: everyone in the org reads, admins change.
+			orgs.GET("/:id/modules", orgsHandler.GetModules)
+			orgs.PUT("/:id/modules", middleware.RequireRole(models.RoleAdmin), orgsHandler.SetModules)
 			orgs.DELETE("/:id", middleware.RequireRole(models.RoleAdmin), orgsHandler.Delete)
 		}
 
@@ -594,11 +602,13 @@ func main() {
 			tags.POST("/import", middleware.RequireRole(models.RoleAdmin), tagsHandler.ImportTags)
 			// A CSV or Excel sheet: previewed row by row, then applied.
 			tags.POST("/import/file", middleware.RequireRole(models.RoleAdmin), tagsHandler.ImportTagSheet)
-			tags.GET("/import/template", tagsHandler.TagImportTemplate)
+			tags.GET("/import/template",
+				middleware.RequirePermission(database, middleware.PermExportConfig),
+				tagsHandler.TagImportTemplate)
 			// Bulk export is how a tenant's data leaves the platform, and it was
 			// open to every authenticated account.
 			tags.GET("/export",
-				middleware.RequirePermission(database, middleware.PermExportData),
+				middleware.RequirePermission(database, middleware.PermExportConfig),
 				tagsHandler.ExportTags)
 			tags.PUT("/reorder", middleware.RequireRole(models.RoleAdmin), tagsHandler.ReorderTags)
 
@@ -754,7 +764,7 @@ func main() {
 		// org-wide audit log. Standard ranges + optional tag filter.
 		reportsHandler := handlers.NewReportsHandler(database)
 		reports := api.Group("/reports")
-		reports.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		reports.Use(middleware.RequireAuth, middleware.OrganizationContext(), middleware.RequireModule(database, "reports"))
 		{
 			reports.GET("/history.csv", reportsHandler.HistoryCSV)
 			reports.GET("/alarms.csv", reportsHandler.AlarmsCSV)
@@ -775,7 +785,7 @@ func main() {
 		// in one shot to the PLCs. Scoped to the caller's organization.
 		recipesHandler := handlers.NewRecipesHandler(database, mqttClient)
 		recipes := api.Group("/recipes")
-		recipes.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		recipes.Use(middleware.RequireAuth, middleware.OrganizationContext(), middleware.RequireModule(database, "recipes"))
 		{
 			recipes.GET("", recipesHandler.List)
 			recipes.POST("", middleware.RequirePermission(database, middleware.PermManageRecipes), recipesHandler.Create)
@@ -801,7 +811,7 @@ func main() {
 		// Named trend views: any member saves and opens; author or admin changes.
 		trendViewsHandler := handlers.NewTrendViewsHandler(database)
 		trendViews := api.Group("/trend-views")
-		trendViews.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		trendViews.Use(middleware.RequireAuth, middleware.OrganizationContext(), middleware.RequireModule(database, "trend"))
 		{
 			trendViews.GET("", trendViewsHandler.List)
 			trendViews.POST("", trendViewsHandler.Save)
@@ -810,7 +820,7 @@ func main() {
 
 		synopticsHandler := handlers.NewSynopticsHandler(database)
 		synoptics := api.Group("/synoptics")
-		synoptics.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		synoptics.Use(middleware.RequireAuth, middleware.OrganizationContext(), middleware.RequireModule(database, "synoptics"))
 		{
 			synoptics.GET("", synopticsHandler.List)
 			synoptics.GET("/:id", synopticsHandler.Get)
@@ -828,7 +838,7 @@ func main() {
 		// real. Reads are open to anyone in the tenant.
 		udtHandler := handlers.NewUDTHandler(database)
 		udt := api.Group("/udt")
-		udt.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		udt.Use(middleware.RequireAuth, middleware.OrganizationContext(), middleware.RequireModule(database, "udt"))
 		{
 			udtWrite := middleware.RequirePermission(database, middleware.PermWriteTags)
 
@@ -850,7 +860,7 @@ func main() {
 		// scritture sono ristrette a admin.
 		shiftsHandler := handlers.NewShiftsHandler(database)
 		shifts := api.Group("/shifts")
-		shifts.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		shifts.Use(middleware.RequireAuth, middleware.OrganizationContext(), middleware.RequireModule(database, "shifts"))
 		{
 			shifts.GET("", shiftsHandler.List)
 			shifts.GET("/current", shiftsHandler.Current)
@@ -867,7 +877,7 @@ func main() {
 		// dashboard di chiunque), scritture admin-only.
 		customKPIsHandler := handlers.NewCustomKPIsHandler(database)
 		customKPIs := api.Group("/custom-kpis")
-		customKPIs.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		customKPIs.Use(middleware.RequireAuth, middleware.OrganizationContext(), middleware.RequireModule(database, "kpis"))
 		{
 			customKPIs.GET("", customKPIsHandler.List)
 			customKPIs.POST("", middleware.RequireRole(models.RoleAdmin), customKPIsHandler.Create)
@@ -881,7 +891,7 @@ func main() {
 		// una finestra è attiva il notifier silenzia email/Telegram.
 		maintenanceHandler := handlers.NewMaintenanceHandler(database)
 		maintenance := api.Group("/maintenance")
-		maintenance.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		maintenance.Use(middleware.RequireAuth, middleware.OrganizationContext(), middleware.RequireModule(database, "maintenance"))
 		{
 			maintenance.GET("", maintenanceHandler.List)
 			maintenance.POST("", middleware.RequireRole(models.RoleAdmin), maintenanceHandler.Create)
@@ -895,7 +905,7 @@ func main() {
 		// "vero" quando admin configura i tag di produzione via System.
 		oeeHandler := handlers.NewOEEHandler(database)
 		oeeGrp := api.Group("/oee")
-		oeeGrp.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		oeeGrp.Use(middleware.RequireAuth, middleware.OrganizationContext(), middleware.RequireModule(database, "oee"))
 		{
 			oeeGrp.GET("", oeeHandler.Snapshot)
 			oeeGrp.GET("/history", oeeHandler.History)
@@ -1118,7 +1128,7 @@ func main() {
 		// a vendor-neutral REST interface compatible with CESMII i3X v1 spec.
 		i3xHandler := handlers.NewI3XHandler(database, mqttClient, redisClient)
 		i3x := api.Group("/i3x/v1")
-		i3x.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		i3x.Use(middleware.RequireAuth, middleware.OrganizationContext(), middleware.RequireModule(database, "i3x"))
 		{
 			i3x.GET("/equipment", i3xHandler.ListEquipment)
 			i3x.GET("/equipment/:id", i3xHandler.GetEquipment)

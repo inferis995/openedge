@@ -463,7 +463,7 @@ const MqttMonitorPage = () => {
             {/* Controls */}
             <Card>
                 <CardContent className="py-3">
-                    <div className="flex items-center gap-4">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                         {/* Pause/Resume */}
                         {isPaused ? (
                             <Button onClick={handleResume} variant="default" className="gap-2">
@@ -509,13 +509,13 @@ const MqttMonitorPage = () => {
                         </div>
 
                         {/* Filter */}
-                        <div className="flex-1 flex items-center gap-2 ml-4">
-                            <Filter className="h-4 w-4 text-muted-foreground" />
+                        <div className="w-full sm:w-auto sm:flex-1 flex items-center gap-2 sm:ml-4">
+                            <Filter className="h-4 w-4 text-muted-foreground shrink-0" />
                             <Input
                                 placeholder={t('mqttMonitor.filter_ph')}
                                 value={filter}
                                 onChange={(e) => setFilter(e.target.value)}
-                                className="max-w-sm"
+                                className="w-full sm:max-w-sm"
                             />
                         </div>
 
@@ -542,10 +542,10 @@ const MqttMonitorPage = () => {
                                 <TableRow>
                                     <TableHead className="w-[100px]">{t('mqttMonitor.col_time')}</TableHead>
                                     <TableHead className="w-[70px]">{t('mqttMonitor.col_format')}</TableHead>
-                                    <TableHead className="w-[80px]">{t('mqttMonitor.col_tag_id')}</TableHead>
+                                    <TableHead className="w-[80px] hidden sm:table-cell">{t('mqttMonitor.col_tag_id')}</TableHead>
                                     <TableHead>{t('mqttMonitor.col_topic')}</TableHead>
                                     <TableHead className="w-[120px] text-right">{t('mqttMonitor.col_value')}</TableHead>
-                                    <TableHead className="w-[100px] text-center">{t('mqttMonitor.col_quality')}</TableHead>
+                                    <TableHead className="w-[100px] text-center hidden sm:table-cell">{t('mqttMonitor.col_quality')}</TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -582,7 +582,7 @@ const MqttMonitorPage = () => {
                                                 <TableCell>
                                                     {getFormatBadge(msg.format)}
                                                 </TableCell>
-                                                <TableCell>
+                                                <TableCell className="hidden sm:table-cell">
                                                     {msg.tagId > 0 ? (
                                                         <Badge variant="outline">{msg.tagId}</Badge>
                                                     ) : (
@@ -590,7 +590,7 @@ const MqttMonitorPage = () => {
                                                     )}
                                                 </TableCell>
                                                 <TableCell className="text-xs">
-                                                    <div className="truncate max-w-[350px]" title={msg.topic}>
+                                                    <div className="truncate max-w-[140px] sm:max-w-[350px]" title={msg.topic}>
                                                         {isLifecycle ? (
                                                             <span>
                                                                 <span className={`font-semibold ${isDeath ? 'text-red-600' : 'text-green-600'}`}>
@@ -611,7 +611,7 @@ const MqttMonitorPage = () => {
                                                 <TableCell className={`text-right font-semibold ${isLifecycle ? (isDeath ? 'text-red-500' : 'text-green-500') : 'text-foreground'}`}>
                                                     {formatValue(msg.value)}
                                                 </TableCell>
-                                                <TableCell className="text-center">
+                                                <TableCell className="text-center hidden sm:table-cell">
                                                     {getQualityBadge(msg.quality)}
                                                 </TableCell>
                                             </TableRow>

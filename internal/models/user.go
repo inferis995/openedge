@@ -20,6 +20,9 @@ type User struct {
 	SiteIDs      []int     `json:"site_ids"` // empty = access all org sites
 	AreaIDs      []int     `json:"area_ids"` // empty = access all accessible areas
 	CreatedAt    time.Time `json:"created_at"`
+	// Granular flags for UI affordances (export button, write controls).
+	// Admins hold them all; empty for users without a row denies.
+	Permissions map[string]bool `json:"permissions,omitempty"`
 	// Still on the built-in default password: the session may do nothing but
 	// change it (middleware.RequireAuth).
 	MustChangePassword bool `json:"must_change_password,omitempty"`

@@ -23,6 +23,7 @@ import { useNavigate } from 'react-router-dom';
 import { organizationsApi } from '@/api/organizations';
 import OrgInfrastructureDialog from '@/components/OrgInfrastructureDialog';
 import { OrgLogoField } from '@/components/OrgLogoField';
+import { OrgModulesField } from '@/components/OrgModulesField';
 import { Organization } from '@/types';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
@@ -287,6 +288,7 @@ const OrganizationsPage = () => {
                             />
                         </div>
                         {editingOrg && <OrgLogoField orgId={editingOrg.id} />}
+                        {editingOrg && <OrgModulesField orgId={editingOrg.id} />}
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setIsEditOpen(false)}>{t('common.cancel')}</Button>

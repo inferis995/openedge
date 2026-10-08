@@ -18,6 +18,7 @@ import { isActivePath, navSections, openQuickSearch, type NavItem } from '@/comp
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useOrgLogo } from '@/hooks/useOrgLogo';
+import { useOrgModules } from '@/hooks/useOrgModules';
 import { useThemeStore } from '@/stores/useThemeStore';
 
 const FOLDED_KEY = 'openedge.nav.folded';
@@ -45,13 +46,14 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
     }, [location.pathname]);
     const { user, logout, isAdmin, isGlobalAdmin, isOrgScoped } = useAuthStore();
     const { data: orgLogo } = useOrgLogo(user?.org_id);
+    const orgModules = useOrgModules(user?.org_id);
     const { theme, toggleTheme } = useThemeStore();
 
     const sections = navSections({
         isAdmin: isAdmin(),
         isGlobalAdmin: isGlobalAdmin(),
         isOrgScoped: isOrgScoped(),
-    });
+    }, orgModules);
 
     // Sections the user folded away, remembered on this browser. A section
     // holding the current page is never folded: the user would lose their

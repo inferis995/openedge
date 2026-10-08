@@ -1,11 +1,15 @@
 {
-    "areas": {
-        "subtitle": "Reparti e linee dentro un sito (es. Linea 1, Magazzino). Clicca un'area per vederne i gateway.",
-        "add": "Nuova area",
-        "create_title": "Nuova area",
-        "name": "Nome dell'area",
-        "name_placeholder": "es. Linea di assemblaggio 1",
-        "edit_title": "Modifica area",
-        "edit_desc": "Cambia il nome dell'area."
-    }
+  "areas": {
+    "subtitle": "Reparti e linee dentro un sito (es. Linea 1, Magazzino). Clicca un'area per vederne i gateway.",
+    "add": "Nuova area",
+    "create_title": "Nuova area",
+    "name": "Nome dell'area",
+    "name_placeholder": "es. Linea di assemblaggio 1",
+    "edit_title": "Modifica area",
+    "edit_desc": "Cambia il nome dell'area.",
+    "boundary": "Perimetro (GeoJSON)",
+    "boundary_placeholder": "{\"type\": \"Polygon\", \"coordinates\": [[[16.51, 39.30], [16.55, 39.30], [16.55, 39.33], [16.51, 39.33], [16.51, 39.30]]]}",
+    "boundary_invalid": "Il testo non è un GeoJSON valido (geometry o Feature).",
+    "boundary_hint": "Incolla una geometry o Feature GeoJSON; il poligono appare sulla Mappa. Vuoto = nessun perimetro."
+  }
 }

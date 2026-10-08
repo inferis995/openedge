@@ -31,7 +31,7 @@ export const useAreas = (siteId?: number | null) => {
 
     const updateMutation = useMutation({
         onError: (e) => showApiError(e, i18n.t('feedback.update_area_failed')),
-        mutationFn: ({ id, data }: { id: number; data: { name: string } }) => areasApi.update(id, data),
+        mutationFn: ({ id, data }: { id: number; data: { name: string; boundary?: Record<string, unknown> | null } }) => areasApi.update(id, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['areas'] });
         },

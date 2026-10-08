@@ -15,6 +15,9 @@ export interface Area {
     id: number;
     site_id: number;
     name: string;
+    // Perimetro GeoJSON (geometry o Feature) disegnato sulla mappa. Assente =
+    // area senza poligono.
+    boundary?: Record<string, unknown> | null;
     created_at: string;
 }
 
@@ -33,6 +36,9 @@ export interface Gateway {
     zero_based?: boolean;
     // Quale scatola interroga questo gateway, quando ce n'è più d'una.
     edge_agent_id?: number | null;
+    // Posizione sulla mappa, gradi decimali. Assenti = gateway non piazzato.
+    latitude?: number | null;
+    longitude?: number | null;
 }
 
 export interface Tag {
@@ -99,6 +105,9 @@ export interface CreateGatewayDto {
     zero_based?: boolean; // For MODBUS_TCP: true = addresses start from 0, false = standard 1-based addressing
     connection_config?: Record<string, unknown>; // Pre-built driver config (MQTT/LORAWAN pages build it themselves)
     org_id?: number; // Helper for passing context to API layer
+    // Posizione sulla mappa, gradi decimali (opzionali, sempre in coppia)
+    latitude?: number;
+    longitude?: number;
 }
 
 export interface CreateTagDto {

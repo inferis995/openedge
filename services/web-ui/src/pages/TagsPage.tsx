@@ -88,7 +88,10 @@ const TagsPage = () => {
     const [sortField, setSortField] = useState<'alias' | 'code' | 'data_type' | 'sort_order' | null>(null);
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const { selectedOrgId } = useNavigationStore();
-    const { isAdmin } = useAuthStore();
+    const { isAdmin, user } = useAuthStore();
+    // Tag export: admins always, regular users with the export flag
+    // (the backend enforces it too — this only shows the button).
+    const canExport = isAdmin() || user?.permissions?.can_export_config === true;
 
     // Follow ?gateway_id= when it changes (a link from another page).
     // Adjusted during render rather than in an effect.
@@ -775,7 +778,7 @@ const TagsPage = () => {
         const m = new Map<number, 'fresh' | 'stale' | 'never'>();
         for (const t of filteredTags) {
             const v = currentValues.get(t.id);
-            m.set(t.id, !v ? 'never' : v.quality === 0 ? 'fresh' : 'stale');
+            m.set(t.id, !v ? 'stale' : v.quality === 0 ? 'fresh' : 'stale');
         }
         return m;
     }, [filteredTags, currentValues]);
@@ -857,7 +860,7 @@ const TagsPage = () => {
                         </Select>
                     </div>
 
-                    {isAdmin() && (
+                    {canExport && (
                         <>
                             {/* Export: a small menu of formats */}
                             <Popover>
@@ -1312,7 +1315,6 @@ const TagsPage = () => {
                 {([
                     ['fresh', statusCounts.fresh, 'text-green-600'],
                     ['stale', statusCounts.stale, 'text-amber-600'],
-                    ['never', statusCounts.never, 'text-muted-foreground'],
                     ['alarm', statusCounts.alarm, 'text-destructive'],
                 ] as const).map(([key, n, color]) => (
                     <button key={key} type="button"

@@ -109,6 +109,21 @@ func (h *AuditHandler) GetAuditLogs(c *gin.Context) {
 	args := []interface{}{}
 	argPos := 1
 
+	// Non-global admins only ever see their own organization's trail: the
+	// audit page must not leak other tenants' activity through the user_id
+	// or action filters.
+	isGlobal := middleware.IsGlobalAdmin(c)
+	if !isGlobal {
+		orgID, ok := middleware.GetOrganizationID(c)
+		if !ok {
+			c.JSON(http.StatusForbidden, gin.H{"error": "Organization context not found"})
+			return
+		}
+		query += ` AND al.user_id IN (SELECT id FROM users WHERE org_id = $` + itoa(argPos) + `)`
+		args = append(args, orgID)
+		argPos++
+	}
+
 	// Filter by time range
 	if startStr != "" {
 		if startTime, err := time.Parse(time.RFC3339, startStr); err == nil {

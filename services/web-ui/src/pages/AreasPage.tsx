@@ -38,6 +38,21 @@ import i18n from '@/i18n';
 import { EmptyState } from '@/components/ui/empty-state';
 import { MapPin as MapPinIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Textarea } from '@/components/ui/textarea';
+
+// Verifica rapida che il testo incollato sia un GeoJSON geometry o Feature:
+// la validità vera la dice il server (400 su boundary non valido), qui si
+// evita solo di salvare testo che non è JSON.
+function looksLikeGeoJSON(text: string): boolean {
+    const s = text.trim();
+    if (!s) return true; // vuoto = nessun boundary
+    try {
+        const doc = JSON.parse(s) as { type?: string };
+        return typeof doc.type === 'string';
+    } catch {
+        return false;
+    }
+}
 
 const AreasPage = () => {
     const navigate = useNavigate();
@@ -50,7 +65,13 @@ const AreasPage = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [newAreaName, setNewAreaName] = useState('');
-    const [editingArea, setEditingArea] = useState<{ id: number; name: string } | null>(null);
+    const [newAreaBoundary, setNewAreaBoundary] = useState('');
+    const [boundaryError, setBoundaryError] = useState(false);
+    const [editingArea, setEditingArea] = useState<{ id: number; name: string; boundary: string } | null>(null);
+    const { isAdmin: isUserAdmin, isGlobalAdmin, isOrgAdmin } = useAuthStore();
+    // Solo global admin e admin della propria org possono modificare (anche il
+    // boundary); gli altri vedono la pagina in sola lettura.
+    const canEdit = isUserAdmin() && (isGlobalAdmin() || isOrgAdmin());
     const [selectedSiteForCreate, setSelectedSiteForCreate] = useState<string>(
         selectedSiteId ? selectedSiteId.toString() : ''
     );
@@ -74,6 +95,11 @@ const AreasPage = () => {
         }
 
         try {
+            const boundaryText = newAreaBoundary.trim();
+            if (boundaryText && !looksLikeGeoJSON(boundaryText)) {
+                setBoundaryError(true);
+                return;
+            }
             await create({
                 site_id: parseInt(selectedSiteForCreate),
                 name: newAreaName,
@@ -81,6 +107,8 @@ const AreasPage = () => {
             });
             setIsOpen(false);
             setNewAreaName('');
+            setNewAreaBoundary('');
+            setBoundaryError(false);
         } catch (error) {
             console.error('Failed to create area', error);
         }
@@ -106,16 +134,34 @@ const AreasPage = () => {
         return <div className="p-8 text-center text-muted-foreground">Loading areas...</div>;
     }
 
-    const handleEdit = (e: React.MouseEvent, area: { id: number; name: string }) => {
+    const handleEdit = (e: React.MouseEvent, area: { id: number; name: string; boundary?: Record<string, unknown> | null }) => {
         e.stopPropagation();
-        setEditingArea(area);
+        setEditingArea({
+            id: area.id,
+            name: area.name,
+            boundary: area.boundary ? JSON.stringify(area.boundary, null, 2) : '',
+        });
         setIsEditOpen(true);
     };
 
     const handleUpdate = async () => {
         if (!editingArea || !editingArea.name) return;
+        const boundaryText = editingArea.boundary.trim();
+        if (boundaryText && !looksLikeGeoJSON(boundaryText)) {
+            setBoundaryError(true);
+            return;
+        }
+        setBoundaryError(false);
         try {
-            await update({ id: editingArea.id, data: { name: editingArea.name } });
+            // boundary: null rimuove il perimetro; assente = invariato. Qui il
+            // campo è sempre inviato: vuoto significa «togli il poligono».
+            await update({
+                id: editingArea.id,
+                data: {
+                    name: editingArea.name,
+                    boundary: boundaryText ? (JSON.parse(boundaryText) as Record<string, unknown>) : null,
+                },
+            });
             setIsEditOpen(false);
             setEditingArea(null);
         } catch (error) {
@@ -175,6 +221,23 @@ const AreasPage = () => {
                                             placeholder={t('areas.name_placeholder')}
                                         />
                                     </div>
+                                    {canEdit && (
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="boundary">{t('areas.boundary')}</Label>
+                                            <Textarea
+                                                id="boundary"
+                                                rows={6}
+                                                className="font-mono text-xs"
+                                                value={newAreaBoundary}
+                                                onChange={(e) => { setNewAreaBoundary(e.target.value); setBoundaryError(false); }}
+                                                placeholder={t('areas.boundary_placeholder')}
+                                            />
+                                            {boundaryError && (
+                                                <p className="text-xs text-destructive">{t('areas.boundary_invalid')}</p>
+                                            )}
+                                            <p className="text-[11px] text-muted-foreground">{t('areas.boundary_hint')}</p>
+                                        </div>
+                                    )}
                                 </div>
                                 <DialogFooter>
                                     <Button onClick={handleCreate}>{t('common.create')}</Button>
@@ -200,6 +263,26 @@ const AreasPage = () => {
                                             placeholder={t('areas.name_placeholder')}
                                         />
                                     </div>
+                                    {canEdit && (
+                                        <div className="grid gap-2">
+                                            <Label htmlFor="edit-boundary">{t('areas.boundary')}</Label>
+                                            <Textarea
+                                                id="edit-boundary"
+                                                rows={8}
+                                                className="font-mono text-xs"
+                                                value={editingArea?.boundary || ''}
+                                                onChange={(e) => {
+                                                    setEditingArea(prev => prev ? { ...prev, boundary: e.target.value } : null);
+                                                    setBoundaryError(false);
+                                                }}
+                                                placeholder={t('areas.boundary_placeholder')}
+                                            />
+                                            {boundaryError && (
+                                                <p className="text-xs text-destructive">{t('areas.boundary_invalid')}</p>
+                                            )}
+                                            <p className="text-[11px] text-muted-foreground">{t('areas.boundary_hint')}</p>
+                                        </div>
+                                    )}
                                 </div>
                                 <DialogFooter>
                                     <Button onClick={handleUpdate}>{t('common.save')}</Button>

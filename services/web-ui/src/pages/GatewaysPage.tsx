@@ -75,6 +75,9 @@ interface ExtendedCreateGatewayDto extends Omit<CreateGatewayDto, 'connection_co
     decoder_script?: string;
     stale_after_minutes?: number;
     alarms_on_history?: boolean;
+    // Posizione sulla mappa, gradi decimali (entrambi o nessuno).
+    latitude?: number;
+    longitude?: number;
     // LoRaWAN fields
     lora_server_type?: string;
     lora_server_host?: string;
@@ -166,6 +169,8 @@ const GatewaysPage = () => {
         decoder_script: '',
         stale_after_minutes: 0,
         alarms_on_history: false,
+        latitude: undefined,
+        longitude: undefined,
         // LoRaWAN
         lora_server_type: 'ttn_v3',
         lora_server_host: '',
@@ -320,6 +325,8 @@ const GatewaysPage = () => {
             stale_after_minutes: 0,
             alarms_on_history: false,
             key_file: '',
+            latitude: undefined,
+            longitude: undefined,
             // LoRaWAN
             lora_server_type: 'ttn_v3',
             lora_server_host: '',
@@ -436,6 +443,9 @@ const GatewaysPage = () => {
             lora_username,
             lora_password,
             lora_application_id,
+            // Posizione sulla mappa: assente = non piazzato
+            latitude: gateway.latitude ?? undefined,
+            longitude: gateway.longitude ?? undefined,
         });
         setIsOpen(true);
     };
@@ -550,6 +560,37 @@ const GatewaysPage = () => {
                                         placeholder={t('gatewaysPage.name_placeholder')}
                                     />
                                 </div>
+
+                                {/* Posizione sulla mappa: gradi decimali, entrambi o nessuno */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="latitude">{t('map.latitude')}</Label>
+                                        <Input
+                                            id="latitude"
+                                            type="number"
+                                            step="any"
+                                            min={-90}
+                                            max={90}
+                                            value={formData.latitude ?? ''}
+                                            onChange={(e) => handleInputChange('latitude', e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                                            placeholder="39.3592"
+                                        />
+                                    </div>
+                                    <div className="grid gap-2">
+                                        <Label htmlFor="longitude">{t('map.longitude')}</Label>
+                                        <Input
+                                            id="longitude"
+                                            type="number"
+                                            step="any"
+                                            min={-180}
+                                            max={180}
+                                            value={formData.longitude ?? ''}
+                                            onChange={(e) => handleInputChange('longitude', e.target.value === '' ? undefined : parseFloat(e.target.value))}
+                                            placeholder="16.5142"
+                                        />
+                                    </div>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground -mt-2">{t('map.coords_hint')}</p>
 
                                 {/* Chi interroga questo gateway: il server, oppure una scatola.
                                     Compare appena esiste una scatola; senza scatole è sempre il

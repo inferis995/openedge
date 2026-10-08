@@ -204,6 +204,34 @@ export default function TrendPage() {
     // On a phone both panels start closed: open, they took the whole width and
     // left the chart none.
     const [sidebarOpen, setSidebarOpen] = useState(() => typeof window === 'undefined' || window.matchMedia(WIDE).matches);
+    // Sidebar width: draggable on desktop, remembered on this browser.
+    const [browserW, setBrowserW] = useState(() => {
+        const n = Number(typeof window === 'undefined' ? NaN : window.localStorage.getItem('openedge.trend.browserW'));
+        return Number.isFinite(n) && n >= 200 && n <= 560 ? n : 256;
+    });
+    const dragX = useRef<number | null>(null);
+    const startDrag = useCallback((e: React.MouseEvent) => {
+        dragX.current = e.clientX;
+        const move = (ev: MouseEvent) => {
+            if (dragX.current == null) return;
+            setBrowserW(w => {
+                const next = Math.min(560, Math.max(200, w + ev.clientX - (dragX.current ?? ev.clientX)));
+                dragX.current = ev.clientX;
+                return next;
+            });
+        };
+        const up = () => {
+            dragX.current = null;
+            window.removeEventListener('mousemove', move);
+            window.removeEventListener('mouseup', up);
+            setBrowserW(w => {
+                window.localStorage.setItem('openedge.trend.browserW', String(w));
+                return w;
+            });
+        };
+        window.addEventListener('mousemove', move);
+        window.addEventListener('mouseup', up);
+    }, []);
     // Closed unless the user opened it (remembered): the legend on the chart
     // says which line is which, the panel adds the statistics.
     const [penPanelOpen, setPenPanelOpenRaw] = useState(() => {
@@ -908,10 +936,10 @@ export default function TrendPage() {
                         </Popover>
 
                         {/* Pen panel toggle */}
-                        <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7"
+                        <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7 hover:bg-[#050505] hover:text-[#D4FF00] dark:hover:bg-[#D4FF00] dark:hover:text-[#050505]"
                             onClick={() => { setPenPanelOpen(o => !o); if (!isWide) setSidebarOpen(false); }}
                             title={tr('trendPage.toggle_pens')} aria-label={tr('trendPage.toggle_pens')}>
-                            <PanelRight className={`w-4 h-4 ${penPanelOpen ? 'text-primary' : 'text-muted-foreground'}`} />
+                            <PanelRight className={`w-4 h-4 ${penPanelOpen ? '' : 'opacity-50'}`} />
                         </Button>
                     </div>
                 </div>
@@ -928,14 +956,19 @@ export default function TrendPage() {
                 {/* Left: tag browser. On a narrow screen it floats over the chart. */}
                 {sidebarOpen && (
                     <div className={isWide
-                        ? 'w-64 shrink-0 border-r overflow-y-auto bg-card/50'
-                        : 'absolute inset-y-0 left-0 z-20 w-[85%] max-w-xs border-r overflow-y-auto bg-card shadow-xl'}>
+                        ? 'relative shrink-0 border-r overflow-y-auto bg-card/50'
+                        : 'absolute inset-y-0 left-0 z-20 w-[85%] max-w-xs border-r overflow-y-auto bg-card shadow-xl'}
+                        style={isWide ? { width: browserW } : undefined}>
                         <TagBrowser
                             onAddTagToChart={addPen}
                             selectedTagIds={penIds}
                             penColors={penColors}
                             realtimeValues={currentValues}
                         />
+                        {isWide && (
+                            <div onMouseDown={startDrag} title={tr('trendPage.resize_browser')}
+                                className="absolute inset-y-0 right-0 w-2 cursor-ew-resize hover:bg-primary/30" />
+                        )}
                     </div>
                 )}
 
@@ -955,10 +988,10 @@ export default function TrendPage() {
                         <div className="shrink-0 flex flex-wrap gap-x-3 gap-y-1 px-3 pt-2 text-xs">
                             {pensWithStats.map(p => (
                                 <button key={p.tagId} type="button" onClick={() => togglePenVisibility(p.tagId)}
-                                    className={`inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-muted ${p.visible ? '' : 'opacity-40'}`}
+                                    className={`inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 hover:bg-muted max-w-full ${p.visible ? '' : 'opacity-40'}`}
                                     title={p.visible ? tr('historian.hide_pen') : tr('historian.show_pen')}>
                                     <span className="inline-block w-3 h-[3px] rounded" style={{ background: p.color }} />
-                                    <span className="font-medium max-w-[220px] truncate" style={{ color: p.color }}>{p.label}</span>
+                                    <span className="font-medium break-words" style={{ color: p.color }}>{p.label}</span>
                                     {p.stats?.last != null ? (
                                         <span className="font-mono text-muted-foreground">
                                             {Number(p.stats.last.toFixed(3))}{p.unit ? ` ${p.unit}` : ''}
@@ -981,7 +1014,12 @@ export default function TrendPage() {
                                 </span>
                             )}
                         </div>
-                        <div ref={chartBoxRef} className="flex-1 min-h-0 p-2 overflow-hidden">
+                        <div ref={chartBoxRef} className="relative flex-1 min-h-0 p-2 overflow-hidden">
+                            {penSeries.length > 0 && !values.some(col => col.some(v => v !== null && v !== undefined)) && (
+                                <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+                                    <p className="text-sm text-muted-foreground bg-card/80 border rounded px-3 py-1.5">{tr('trendPage.no_data_in_range')}</p>
+                                </div>
+                            )}
                             <UPlotChart
                                 timestamps={timestamps}
                                 values={values}
@@ -1017,7 +1055,7 @@ export default function TrendPage() {
                                         <tbody>
                                             {measurement?.map(({ pen, a, b, delta }) => (
                                                 <tr key={pen.tagId}>
-                                                    <td className="pr-3 truncate max-w-[180px]" style={{ color: pen.color }}>{pen.label}</td>
+                                                    <td className="pr-3 break-words" style={{ color: pen.color }}>{pen.label}</td>
                                                     <td className="pr-3">A {a ? a.value.toFixed(3).replace(/\.?0+$/, '') : '—'}</td>
                                                     {marks.b !== null && <td className="pr-3">B {b ? b.value.toFixed(3).replace(/\.?0+$/, '') : '—'}</td>}
                                                     {marks.b !== null && <td className="font-semibold">Δ {delta === null ? '—' : `${delta >= 0 ? '+' : ''}${delta.toFixed(3).replace(/\.?0+$/, '')}`}{pen.unit ? ` ${pen.unit}` : ''}</td>}

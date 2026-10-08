@@ -125,7 +125,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">
                                 <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: s.color }} />
-                                <span className="text-xs font-semibold truncate">{s.tagName}</span>
+                                <span className="text-xs font-semibold break-words">{s.tagName}</span>
                                 {s.isBool && (
                                     <span className="text-[9px] bg-muted px-1 rounded font-bold text-muted-foreground">BOOL</span>
                                 )}

@@ -65,6 +65,11 @@ type UpdateGatewayRequest struct {
 	Enabled          *bool                    `json:"enabled"`
 	ZeroBased        *bool                    `json:"zero_based"`
 
+	// Map placement. Nil leaves the coordinates alone; both must arrive
+	// together — one without the other would put the gateway in the sea.
+	Latitude  *float64 `json:"latitude"`
+	Longitude *float64 `json:"longitude"`
+
 	// EdgeAgentID assigns this gateway to one of the organization's boxes.
 	// Zero unassigns it: a nil pointer already means "leave it alone", so
 	// there has to be a value that means "nobody", or a gateway could be
@@ -95,6 +100,9 @@ type GatewayWithHealth struct {
 	// It was read from the database and then dropped here, so the UI showed
 	// every gateway as the server's and an edit could not show the assignment.
 	EdgeAgentID *int `json:"edge_agent_id,omitempty"`
+	// Map placement, decimal degrees. Omitted when the gateway has none.
+	Latitude  *float64 `json:"latitude,omitempty"`
+	Longitude *float64 `json:"longitude,omitempty"`
 }
 
 // getGatewayHealth retrieves the health status for a gateway from Redis
@@ -141,6 +149,8 @@ func (h *GatewaysHandler) enrichGatewayWithHealth(gateway models.Gateway) Gatewa
 		ConnectionStatus: status,
 		LastSeen:         lastSeen,
 		EdgeAgentID:      gateway.EdgeAgentID,
+		Latitude:         gateway.Latitude,
+		Longitude:        gateway.Longitude,
 	}
 }
 
@@ -250,7 +260,7 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 	err = h.db.QueryRow(
 		`INSERT INTO gateways (area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, edge_agent_id)
 		 VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7)
-		 RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at, edge_agent_id`,
+		 RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at, edge_agent_id, latitude, longitude`,
 		req.AreaID,
 		req.Name,
 		req.DriverType,
@@ -258,7 +268,7 @@ func (h *GatewaysHandler) Create(c *gin.Context) {
 		scanRateMs,
 		zeroBased,
 		agentArg,
-	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt, &agent)
+	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt, &agent, &gateway.Latitude, &gateway.Longitude)
 	gateway.EdgeAgentID = nullableInt(agent)
 
 	if err != nil {
@@ -336,13 +346,13 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 		}
 
 		rows, err = h.db.Query(
-			"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at, edge_agent_id FROM gateways WHERE area_id = $1 ORDER BY id",
+			"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at, edge_agent_id, latitude, longitude FROM gateways WHERE area_id = $1 ORDER BY id",
 			areaID,
 		)
 	} else {
 		// Case 2: List All Gateways for Organization
 		rows, err = h.db.Query(
-			`SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled, g.zero_based, g.created_at, g.edge_agent_id
+			`SELECT g.id, g.area_id, g.name, g.driver_type, g.connection_config, g.scan_rate_ms, g.enabled, g.zero_based, g.created_at, g.edge_agent_id, g.latitude, g.longitude
 			 FROM gateways g
 			 JOIN areas a ON g.area_id = a.id
 			 JOIN sites s ON a.site_id = s.id
@@ -366,7 +376,7 @@ func (h *GatewaysHandler) List(c *gin.Context) {
 	for rows.Next() {
 		var gateway models.Gateway
 		var agent sql.NullInt64
-		if err := rows.Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt, &agent); err != nil {
+		if err := rows.Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt, &agent, &gateway.Latitude, &gateway.Longitude); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan gateway"})
 			return
 		}
@@ -411,9 +421,9 @@ func (h *GatewaysHandler) Get(c *gin.Context) {
 	var gateway models.Gateway
 	var agent sql.NullInt64
 	err := h.db.QueryRow(
-		"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at, edge_agent_id FROM gateways WHERE id = $1",
+		"SELECT id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at, edge_agent_id, latitude, longitude FROM gateways WHERE id = $1",
 		id,
-	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt, &agent)
+	).Scan(&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType, &gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt, &agent, &gateway.Latitude, &gateway.Longitude)
 	gateway.EdgeAgentID = nullableInt(agent)
 
 	if err != nil {
@@ -740,6 +750,16 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 		args = append(args, *req.ZeroBased)
 		argPos++
 	}
+	// Map placement. One without the other would put the gateway in the sea,
+	// so both must arrive together; a nil pointer leaves what is stored alone.
+	if req.Latitude != nil && req.Longitude != nil {
+		updates = append(updates, "latitude = $"+strconv.Itoa(argPos))
+		args = append(args, *req.Latitude)
+		argPos++
+		updates = append(updates, "longitude = $"+strconv.Itoa(argPos))
+		args = append(args, *req.Longitude)
+		argPos++
+	}
 
 	if req.EdgeAgentID != nil {
 		// The box has to belong to the same organization as the gateway.
@@ -773,12 +793,13 @@ func (h *GatewaysHandler) Update(c *gin.Context) {
 	for i := 1; i < len(updates); i++ {
 		query += ", " + updates[i]
 	}
-	query += " WHERE id = $" + strconv.Itoa(argPos) + " RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at"
+	query += " WHERE id = $" + strconv.Itoa(argPos) + " RETURNING id, area_id, name, driver_type, connection_config, scan_rate_ms, enabled, zero_based, created_at, latitude, longitude"
 
 	var gateway models.Gateway
 	err = h.db.QueryRow(query, args...).Scan(
 		&gateway.ID, &gateway.AreaID, &gateway.Name, &gateway.DriverType,
 		&gateway.ConnectionConfig, &gateway.ScanRateMs, &gateway.Enabled, &gateway.ZeroBased, &gateway.CreatedAt,
+		&gateway.Latitude, &gateway.Longitude,
 	)
 
 	if err != nil {

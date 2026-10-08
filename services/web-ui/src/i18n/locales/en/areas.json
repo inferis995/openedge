@@ -1,11 +1,15 @@
 {
-    "areas": {
-        "subtitle": "Departments and lines inside a site (e.g. Line 1, Warehouse). Click an area to see its gateways.",
-        "add": "New area",
-        "create_title": "New area",
-        "name": "Area name",
-        "name_placeholder": "e.g. Assembly line 1",
-        "edit_title": "Edit area",
-        "edit_desc": "Change the area's name."
-    }
+  "areas": {
+    "subtitle": "Departments and lines inside a site (e.g. Line 1, Warehouse). Click an area to see its gateways.",
+    "add": "New area",
+    "create_title": "New area",
+    "name": "Area name",
+    "name_placeholder": "e.g. Assembly line 1",
+    "edit_title": "Edit area",
+    "edit_desc": "Change the area's name.",
+    "boundary": "Boundary (GeoJSON)",
+    "boundary_placeholder": "{\"type\": \"Polygon\", \"coordinates\": [[[16.51, 39.30], [16.55, 39.30], [16.55, 39.33], [16.51, 39.33], [16.51, 39.30]]]}",
+    "boundary_invalid": "The text is not valid GeoJSON (geometry or Feature).",
+    "boundary_hint": "Paste a GeoJSON geometry or Feature; the polygon shows on the Map. Empty = no boundary."
+  }
 }

@@ -209,7 +209,7 @@ export function HistorianDatePicker({ value, onChange }: Props) {
             <Button
                 variant="ghost"
                 size="sm"
-                className="h-9 sm:h-7 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                className="h-9 sm:h-7 text-xs gap-1 text-muted-foreground"
                 onClick={jumpToLastData}
                 disabled={jumping}
                 title={t('historian.jump_last_title')}

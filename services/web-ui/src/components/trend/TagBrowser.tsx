@@ -233,7 +233,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                             className="w-2.5 h-2.5 rounded-full shrink-0"
                                             style={{ backgroundColor: color }}
                                         />
-                                        <span className="text-xs font-medium text-foreground truncate">{tag.alias || tag.code}</span>
+                                        <span className="text-xs font-medium text-foreground break-words">{tag.alias || tag.code}</span>
                                         {deviceOnline === false && (
                                             <span title={tr('trend.device_offline')}>
                                                 <AlertTriangle className="w-3 h-3 text-destructive shrink-0" />
@@ -350,7 +350,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
                                         >
                                             <div className="flex items-center gap-2 min-w-0">
                                                 <TagIcon className="w-3 h-3 text-muted-foreground" />
-                                                <span className="text-xs text-foreground truncate">{tag.alias || tag.code}</span>
+                                                <span className="text-xs text-foreground break-words">{tag.alias || tag.code}</span>
                                                 <Badge variant="secondary" className="text-[10px] h-4">
                                                     {tag.data_type}
                                                 </Badge>
