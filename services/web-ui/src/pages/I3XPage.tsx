@@ -52,6 +52,7 @@ import {
 } from '@/api/i3x';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { toast } from 'sonner';
+import { HistoryPanel, type HistoryPoint } from '@/components/TagHistoryChart';
 import { useTranslation } from 'react-i18next';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
@@ -247,124 +248,35 @@ const RANGE_OPTIONS = [
     { label: '7d',  value: 168 },
 ];
 
+// Property history, rendered with the shared HistoryPanel: byte-for-byte the
+// same chrome as the Tags table and the Map popup (header, samples, ranges,
+// refresh, dots). Only the source differs — I3X property history.
 function PropertyHistoryPanel({ property }: { property: I3XProperty }) {
-    const { t } = useTranslation();
-    const [range, setRange]   = useState(1);
-    const [points, setPoints] = useState<I3XHistoryPoint[]>([]);
-    // Starts true: the effect below fetches on mount.
-    const [loading, setLoading] = useState(true);
-    const [loadedPropertyId, setLoadedPropertyId] = useState(property.id);
-
-    // A different property refetches via the effect; flag it during render
-    // instead of synchronously inside the effect.
-    if (loadedPropertyId !== property.id) {
-        setLoadedPropertyId(property.id);
-        setLoading(true);
-    }
-
-    const fetchHistory = useCallback(async () => {
-        try {
-            const to   = new Date();
-            const from = new Date(to.getTime() - range * 3600_000);
-            const res  = await i3xApi.getPropertyHistory(
+    const fetchData = useCallback(
+        async (rangeHours: number): Promise<HistoryPoint[]> => {
+            const to = new Date();
+            const from = new Date(to.getTime() - rangeHours * 3600_000);
+            const res = await i3xApi.getPropertyHistory(
                 property.id,
                 from.toISOString(),
                 to.toISOString(),
                 500,
             );
-            setPoints(res.items ?? []);
-        } catch {
-            toast.error(i18n.t('i3xPage.history_load_error'));
-        } finally {
-            setLoading(false);
-        }
-    }, [property.id, range]);
-
-    const load = () => {
-        setLoading(true);
-        fetchHistory();
-    };
-
-    const changeRange = (next: number) => {
-        if (next === range) return;
-        setLoading(true);
-        setRange(next);
-    };
-
-    useEffect(() => { startLoad(fetchHistory); }, [fetchHistory]);
-
-    const chartData = useMemo(
-        () =>
-            points.map(p => ({
+            return (res.items ?? []).map(p => ({
                 t: new Date(p.timestamp).toLocaleTimeString(i18n.language, { hour: '2-digit', minute: '2-digit' }),
                 v: p.value,
-            })),
-        [points],
+            }));
+        },
+        [property.id],
     );
-
     return (
-        <div className="border-t bg-muted/30 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-medium">
-                    <History size={14} className="text-primary" />
-                    <span>{t('i3xPage.history_of', { name: property.name })}</span>
-                    <Badge variant="outline" className="text-xs font-mono">
-                        {t('i3xPage.samples', { count: points.length })}
-                    </Badge>
-                </div>
-                <div className="flex items-center gap-2">
-                    <Select value={String(range)} onValueChange={v => changeRange(Number(v))}>
-                        <SelectTrigger className="h-9 sm:h-7 text-xs w-20 clip-chamfer-sm">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {RANGE_OPTIONS.map(o => (
-                                <SelectItem key={o.value} value={String(o.value)} className="text-xs">
-                                    {o.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7" onClick={load} disabled={loading}>
-                        <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
-                    </Button>
-                </div>
-            </div>
-
-            {loading ? (
-                <div className="h-40 bg-muted animate-pulse rounded" />
-            ) : points.length === 0 ? (
-                <div className="h-40 flex items-center justify-center text-xs text-muted-foreground">
-                    {t('i3xPage.history_empty')}
-                </div>
-            ) : (
-                <ResponsiveContainer width="100%" height={140}>
-                    <AreaChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-                        <defs>
-                            <linearGradient id="histGrad" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%"  stopColor="hsl(var(--primary))" stopOpacity={0.3} />
-                                <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}   />
-                            </linearGradient>
-                        </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis dataKey="t" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
-                        <YAxis tick={{ fontSize: 10 }} />
-                        <Tooltip
-                            contentStyle={{ fontSize: 11 }}
-                            formatter={(v: unknown) => [formatValue(v), property.name]}
-                        />
-                        <Area
-                            type="monotone"
-                            dataKey="v"
-                            stroke="hsl(var(--primary))"
-                            strokeWidth={1.5}
-                            fill="url(#histGrad)"
-                            connectNulls={false}
-                            dot={false}
-                        />
-                    </AreaChart>
-                </ResponsiveContainer>
-            )}
+        <div className="border-t bg-muted/30 p-4">
+            <HistoryPanel
+                title={property.name}
+                fetchData={fetchData}
+                chartId={`i3xHist-${property.id}`}
+                height={140}
+            />
         </div>
     );
 }

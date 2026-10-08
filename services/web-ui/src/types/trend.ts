@@ -204,13 +204,13 @@ export const TAG_COLORS = [
     '#8b5cf6', // Violet
     '#06b6d4', // Cyan
     '#ec4899', // Pink
-    '#84cc16', // Lime
+    '#d946ef', // Fuchsia
     '#f97316', // Orange
     '#6366f1', // Indigo
     '#14b8a6', // Teal
     '#f43f5e', // Rose
     '#a855f7', // Purple
-    '#eab308', // Yellow
+    '#0ea5e9', // Sky
     '#22d3ee', // Light Cyan
 ];
 

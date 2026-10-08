@@ -78,7 +78,7 @@ interface SeriesSettingsPanelProps {
 const TAG_COLORS_PALETTE = [
     '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6',
     '#06b6d4', '#ec4899', '#f97316', '#6366f1', '#14b8a6',
-    '#a855f7', '#eab308', '#84cc16', '#f43f5e', '#22d3ee',
+    '#a855f7', '#0ea5e9', '#d946ef', '#f43f5e', '#22d3ee',
 ];
 
 const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({

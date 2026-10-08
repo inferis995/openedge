@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     Area,
@@ -9,8 +9,9 @@ import {
     XAxis,
     YAxis,
 } from 'recharts';
-import { History } from 'lucide-react';
+import { History, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import {
     Select,
     SelectContent,
@@ -29,92 +30,96 @@ const TAG_HISTORY_RANGES = [
     { label: '7d', value: 168 },
 ];
 
+export interface HistoryPoint {
+    t: string;
+    v: number | null;
+}
+
 /**
- * Shared tag history chart: the same samples-and-range view everywhere
- * (I3X property panel, Tags table, Map popup). One tag, one range selector,
- * gaps in the data stay gaps — an offline stretch reads as a hole, never
- * as a zero line.
+ * The one history panel used everywhere — I3X property view, Tags table,
+ * Map popup. Same header (name + sample count), same range selector and
+ * refresh, same chart: samples are always drawn as dots, gaps stay gaps.
+ * Only the data source differs per caller, passed in as fetchData.
  */
-export default function TagHistoryChart({
-    tagId,
-    tagName,
+export function HistoryPanel({
+    title,
+    fetchData,
+    chartId,
     height = 140,
 }: {
-    tagId: number;
-    tagName: string;
+    title: string;
+    fetchData: (rangeHours: number) => Promise<HistoryPoint[]>;
+    chartId: string;
     height?: number;
 }) {
     const { t } = useTranslation();
     const [range, setRange] = useState(24);
-    const [points, setPoints] = useState<{ t: string; v: number | null }[]>([]);
+    const [points, setPoints] = useState<HistoryPoint[]>([]);
+    // Starts true: the effect below fetches on mount.
     const [loading, setLoading] = useState(true);
 
-    const fetchHistory = useCallback(async () => {
+    const load = useCallback(async () => {
         try {
-            const to = new Date();
-            const from = new Date(to.getTime() - range * 3600_000);
-            const rows = await historyApi.query({
-                tag_id: tagId,
-                start: from.toISOString(),
-                end: to.toISOString(),
-            });
-            setPoints(
-                (rows ?? []).map((p) => ({
-                    t: new Date(p.timestamp).toLocaleString(i18n.language, {
-                        hour12: false,
-                        day: '2-digit',
-                        month: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                    }),
-                    v: p.value,
-                })),
-            );
+            setPoints(await fetchData(range));
         } catch {
             setPoints([]);
         } finally {
             setLoading(false);
         }
-    }, [tagId, range]);
+    }, [fetchData, range]);
 
-    // Loading starts true on mount and on every range/tag change (the
-    // select handler sets it); the fetch clears it. Nothing is set inside
-    // the effect itself.
+    // Loading starts true on mount and on every range change (the select
+    // handler sets it); the fetch clears it. Nothing is set inside the
+    // effect itself.
     useEffect(() => {
-        startLoad(fetchHistory);
-    }, [fetchHistory]);
+        startLoad(load);
+    }, [load]);
 
-    const samples = useMemo(() => points.filter((p) => p.v !== null).length, [points]);
+    const changeRange = (next: number) => {
+        if (next === range) return;
+        setLoading(true);
+        setRange(next);
+    };
+
+    const samples = points.filter((p) => p.v !== null).length;
 
     return (
         <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 text-sm font-medium min-w-0">
                     <History size={14} className="text-primary shrink-0" />
-                    <span className="truncate">{tagName}</span>
+                    <span className="truncate">{title}</span>
                     <Badge variant="outline" className="text-xs font-mono shrink-0">
                         {t('tagHistory.samples', { count: samples })}
                     </Badge>
                 </div>
-                <Select
-                    value={String(range)}
-                    onValueChange={(v) => { setRange(Number(v)); setLoading(true); }}
-                >
-                    <SelectTrigger className="h-9 sm:h-7 text-xs w-20">
-                        <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {TAG_HISTORY_RANGES.map((o) => (
-                            <SelectItem key={o.value} value={String(o.value)} className="text-xs">
-                                {o.label}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2 shrink-0">
+                    <Select value={String(range)} onValueChange={(v) => changeRange(Number(v))}>
+                        <SelectTrigger className="h-9 sm:h-7 text-xs w-20">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {TAG_HISTORY_RANGES.map((o) => (
+                                <SelectItem key={o.value} value={String(o.value)} className="text-xs">
+                                    {o.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 sm:h-7 w-9 sm:w-7"
+                        onClick={() => { setLoading(true); void load(); }}
+                        disabled={loading}
+                    >
+                        <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+                    </Button>
+                </div>
             </div>
 
             {loading ? (
-                <div className="h-40 bg-muted animate-pulse rounded" style={{ height }} />
+                <div className="bg-muted animate-pulse rounded" style={{ height }} />
             ) : samples === 0 ? (
                 <div
                     className="flex items-center justify-center text-xs text-muted-foreground"
@@ -126,7 +131,7 @@ export default function TagHistoryChart({
                 <ResponsiveContainer width="100%" height={height}>
                     <AreaChart data={points} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
                         <defs>
-                            <linearGradient id={`tagHist-${tagId}`} x1="0" y1="0" x2="0" y2="1">
+                            <linearGradient id={chartId} x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3} />
                                 <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                             </linearGradient>
@@ -134,13 +139,23 @@ export default function TagHistoryChart({
                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                         <XAxis dataKey="t" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                         <YAxis tick={{ fontSize: 10 }} domain={['auto', 'auto']} />
-                        <Tooltip contentStyle={{ fontSize: 11 }} />
+                        <Tooltip
+                            contentStyle={{
+                                fontSize: 11,
+                                background: 'hsl(var(--card))',
+                                border: '1px solid hsl(var(--border))',
+                                borderRadius: 6,
+                                color: 'hsl(var(--foreground))',
+                            }}
+                            labelStyle={{ color: 'hsl(var(--muted-foreground))' }}
+                            formatter={(v: unknown) => [typeof v === 'number' ? v : String(v ?? ''), title]}
+                        />
                         <Area
                             type="monotone"
                             dataKey="v"
                             stroke="hsl(var(--primary))"
                             strokeWidth={1.5}
-                            fill={`url(#tagHist-${tagId})`}
+                            fill={`url(#${chartId})`}
                             connectNulls={false}
                             dot={{ r: 2, fill: 'hsl(var(--primary))', strokeWidth: 0 }}
                             activeDot={{ r: 4 }}
@@ -149,5 +164,50 @@ export default function TagHistoryChart({
                 </ResponsiveContainer>
             )}
         </div>
+    );
+}
+
+/**
+ * Tag-based flavor: samples come from the tag historian with the same
+ * range selector. Gaps (offline stretches) render as holes, never as zero.
+ */
+export default function TagHistoryChart({
+    tagId,
+    tagName,
+    height = 140,
+}: {
+    tagId: number;
+    tagName: string;
+    height?: number;
+}) {
+    const fetchData = useCallback(
+        async (rangeHours: number): Promise<HistoryPoint[]> => {
+            const to = new Date();
+            const from = new Date(to.getTime() - rangeHours * 3600_000);
+            const rows = await historyApi.query({
+                tag_id: tagId,
+                start: from.toISOString(),
+                end: to.toISOString(),
+            });
+            return (rows ?? []).map((p) => ({
+                t: new Date(p.timestamp).toLocaleString(i18n.language, {
+                    hour12: false,
+                    day: '2-digit',
+                    month: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
+                v: p.value,
+            }));
+        },
+        [tagId],
+    );
+    return (
+        <HistoryPanel
+            title={tagName}
+            fetchData={fetchData}
+            chartId={`tagHist-${tagId}`}
+            height={height}
+        />
     );
 }
