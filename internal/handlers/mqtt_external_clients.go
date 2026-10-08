@@ -150,7 +150,7 @@ func (h *MQTTExternalClientsHandler) SetEnabled(c *gin.Context) {
 	var req struct {
 		Enabled bool `json:"enabled"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "enabled is required"})
 		return
 	}
