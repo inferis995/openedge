@@ -365,6 +365,9 @@ const TagsPage = () => {
         realtimeValues.forEach((val, id) => next.set(id, val));
         return next;
     }, [fetchedValues, realtimeValues]);
+    // First values batch arrived: until then every value cell renders the
+    // same skeleton, so rows never visibly jump when data lands.
+    const valuesReady = fetchedValues.size > 0 || realtimeValues.size > 0;
 
 
     const handleSave = async () => {
@@ -1398,7 +1401,7 @@ const TagsPage = () => {
                             tagsList.map((tag) => {
                                 const currentValue = currentValues.get(tag.id);
                                 return (
-                                    <TableRow key={tag.id} className={`${selectedTagIds.includes(tag.id) ? 'bg-muted/50' : 'hover:bg-muted/30'} [&>td]:py-3`}>
+                                    <TableRow key={tag.id} className={`${selectedTagIds.includes(tag.id) ? 'bg-muted/50' : 'hover:bg-muted/30'} [&>td]:py-2`}>
                                         {isAdmin() && (
                                             <TableCell>
                                                 <div className="flex items-center gap-1">
@@ -1460,7 +1463,10 @@ const TagsPage = () => {
                                             <Badge variant="secondary" className="text-xs">{tag.data_type}</Badge>
                                         </TableCell>
                                         <TableCell>
-                                            <div className="flex flex-col gap-1">
+                                            {!valuesReady ? (
+                                                <div className="h-[26px] w-[130px] bg-muted animate-pulse rounded" />
+                                            ) : (
+                                            <div className="flex items-center gap-2">
                                                 {/* Value display with distinct styling */}
                                                 {(() => {
                                                     const deviceName = gatewayMap.get(tag.gateway_id)?.name;
@@ -1470,17 +1476,16 @@ const TagsPage = () => {
 
                                                     return (
                                                         <>
-                                                            <div className="flex items-center gap-2">
                                                             {/* Quality dot */}
                                                             {currentValue && (
                                                                 <span className={[
-                                                                    'inline-block w-2.5 h-2.5 rounded-full shrink-0',
+                                                                    'inline-block w-2 h-2 rounded-full shrink-0',
                                                                     currentValue.quality === 0 ? 'bg-green-500' :
                                                                     currentValue.quality === 1 ? 'bg-yellow-500' : 'bg-red-500'
                                                                 ].join(' ')} />
                                                             )}
                                                             <div className={`
-                                                                font-mono font-semibold text-sm px-3 py-1.5 rounded-md border min-w-[92px] text-center
+                                                                font-mono font-medium text-[13px] tabular-nums px-2 py-1 rounded border min-w-[84px] text-center
                                                                 ${statusClasses.bg} ${statusClasses.border} ${statusClasses.text}
                                                             `}>
                                                                 {currentValue ? (
@@ -1514,32 +1519,24 @@ const TagsPage = () => {
                                                                 </Badge>
                                                             )}
                                                             </div>
-
-                                                            {/* Timestamp on its own line: for a stale tag this is
-                                                                the last real message, not a fresh reading. */}
+                                                            {/* Timestamp: for a stale tag this is the last real
+                                                                message, not a fresh reading. */}
                                                             {currentValue?.timestamp && (
-                                                                <span className="flex items-center gap-1.5 leading-tight pl-4">
-                                                                    <span
-                                                                        className={`text-[11px] ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
-                                                                        title={status === 'bad'
-                                                                            ? tr('tagsPage.last_message_title', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })
-                                                                            : tr('tagsPage.last_update', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })}
-                                                                    >
-                                                                        {/* Date and time: a logger's value can be hours or days old. */}
-                                                                        {new Date(currentValue.timestamp).toLocaleString(i18n.language, { hour12: false, day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                                                                    </span>
-                                                                    {status === 'bad' && (
-                                                                        <span className="text-[10px] text-red-500/80">
-                                                                            · {tr('tagsPage.offline_since')}
-                                                                        </span>
-                                                                    )}
+                                                                <span
+                                                                    className={`text-[11px] tabular-nums whitespace-nowrap ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
+                                                                    title={status === 'bad'
+                                                                        ? tr('tagsPage.last_message_title', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })
+                                                                        : tr('tagsPage.last_update', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })}
+                                                                >
+                                                                    {new Date(currentValue.timestamp).toLocaleString(i18n.language, { hour12: false, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                                                    {status === 'bad' && <> · {tr('tagsPage.offline_since')}</>}
                                                                 </span>
                                                             )}
                                                         </>
                                                     );
                                                 })()}
                                                 {/* History button: same samples-and-range chart as I3X and the map. */}
-                                                <div className="flex items-center gap-1 pl-4">
+                                                <div className="flex items-center gap-1">
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
@@ -1571,6 +1568,7 @@ const TagsPage = () => {
                                                 )}
                                                 </div>
                                             </div>
+                                            )}
                                         </TableCell>
                                         <TableCell className="hidden lg:table-cell">
                                             {tag.historize ? (
