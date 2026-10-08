@@ -163,7 +163,11 @@
     "influx_ns": "nanoseconds",
     "hist_retention_hint": "Every day the cleanup job deletes rows older than this from <code>tag_history</code>. Set 0 to turn it off.",
     "retain_title": "Retain last value",
-    "retain_desc": "Drivers publish legacy data with the retained flag: external apps and the monitor immediately read the freshest known value. Every payload carries its timestamp, so its age is always visible."
+    "retain_desc": "Drivers publish legacy data with the retained flag: external apps and the monitor immediately read the freshest known value. Every payload carries its timestamp, so its age is always visible.",
+    "republish_now": "Republish retained now",
+    "republish_busy": "Publishing…",
+    "republish_done": "Retained written: {published} published, {skipped} skipped, {failed} failed.",
+    "republish_fail": "Republish failed."
   },
   "backup": {
     "sched_03": "Daily at 03:00 UTC (recommended)",

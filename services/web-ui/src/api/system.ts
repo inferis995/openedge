@@ -212,6 +212,13 @@ export interface PostRestoreResponse {
     steps: ServiceStatus[];
 }
 
+export interface RepublishRetainedResult {
+    published: number;
+    skipped: number;
+    failed: number;
+    errors?: string[];
+}
+
 export const systemApi = {
     reload: async (): Promise<void> => {
         await api.post('/system/reload');
@@ -224,6 +231,17 @@ export const systemApi = {
 
     updateSettings: async (settings: UpdateSettingsRequest): Promise<void> => {
         await api.put('/system/settings', settings);
+    },
+
+    /**
+     * One-shot retained backfill: publishes every tag's last known value as
+     * a retained legacy message on its native topic. After this call the
+     * broker holds one retained message per tag; native driver publishes
+     * keep it fresh.
+     */
+    republishRetained: async (orgId?: number): Promise<RepublishRetainedResult> => {
+        const { data } = await api.post('/system/mqtt/republish-retained', orgId ? { org_id: orgId } : {});
+        return data;
     },
 
     // Save the notification panel as a single PUT. Empty secret values

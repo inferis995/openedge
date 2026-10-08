@@ -399,6 +399,11 @@ func main() {
 	historyHandler.InitializeRetentionPolicy()
 
 	systemHandler := handlers.NewSystemHandler(database, mqttClient, settingsMgr, historyHandler)
+	// Typed-nil guard: a nil *redis.Client inside the interface would pass
+	// the nil check and panic on first Get — attach only when connected.
+	if redisClient != nil {
+		systemHandler.SetRedisClient(redisClient)
+	}
 	notificationsHandler := handlers.NewNotificationsHandler(notifDispatcher)
 	diagnosticsHandler := handlers.NewDiagnosticsHandler(database, redisClient)
 
@@ -684,6 +689,7 @@ func main() {
 			system.PUT("/settings", middleware.RequireGlobalAdmin(), systemHandler.UpdateSettings)
 			// Tries a broker the settings page is about to save.
 			system.POST("/mqtt/test", middleware.RequireGlobalAdmin(), systemHandler.TestMQTTBroker)
+			system.POST("/mqtt/republish-retained", middleware.RequireGlobalAdmin(), systemHandler.RepublishRetained)
 			system.GET("/metrics", systemHandler.GetMetrics)
 			// Fire a synthetic alarm to every configured notification channel.
 			// Operator-facing "is my SMTP / Telegram setup actually working?"
