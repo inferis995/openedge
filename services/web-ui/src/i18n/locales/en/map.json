@@ -29,6 +29,6 @@
     "pick_gateway": "Go to gateway…",
     "all_areas": "All areas",
     "history": "History",
-    "offline_no_new_data": "Offline — no new data since the message above"
+    "offline_no_new_data": "Offline — no new data"
   }
 }

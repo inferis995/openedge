@@ -1401,7 +1401,7 @@ const TagsPage = () => {
                             tagsList.map((tag) => {
                                 const currentValue = currentValues.get(tag.id);
                                 return (
-                                    <TableRow key={tag.id} className={`${selectedTagIds.includes(tag.id) ? 'bg-muted/50' : 'hover:bg-muted/30'} [&>td]:py-2`}>
+                                    <TableRow key={tag.id} className={`${selectedTagIds.includes(tag.id) ? 'bg-muted/50' : 'hover:bg-muted/30'} [&>td]:py-2 [&>td]:px-2`}>
                                         {isAdmin() && (
                                             <TableCell>
                                                 <div className="flex items-center gap-1">
@@ -1451,7 +1451,7 @@ const TagsPage = () => {
                                         </TableCell>
                                         <TableCell className="font-medium">
                                             <div className="flex items-center gap-2 min-w-0">
-                                                <span className="truncate max-w-[140px] sm:max-w-[260px]" title={tag.alias || ''}>{tag.alias || '-'}</span>
+                                                <span className="truncate max-w-[120px] sm:max-w-[180px] xl:max-w-[260px]" title={tag.alias || ''}>{tag.alias || '-'}</span>
                                                 {activeAlarms[tag.id] && (
                                                     <Badge variant="destructive" className="shrink-0 whitespace-nowrap tracking-normal px-2 py-0.5 flex gap-1 items-center animate-pulse">
                                                         <Bell size={10} /> {tr('tagsPage.alarm_badge')}
@@ -1571,12 +1571,14 @@ const TagsPage = () => {
                                         </TableCell>
                                         <TableCell className="hidden lg:table-cell">
                                             {tag.historize ? (
-                                                <div className="flex items-center gap-1 text-xs text-green-600 whitespace-nowrap">
-                                                    <Database size={12} className="shrink-0" />
-                                                    {/* The list carries historize_deadband; deadband_value is the form's. */}
-                                                    <span>{(tag.historize_deadband ?? tag.deadband_value) != null
+                                                <div
+                                                    className="flex items-center gap-1 text-xs text-green-600 whitespace-nowrap"
+                                                    title={(tag.historize_deadband ?? tag.deadband_value) != null
                                                         ? tr('tagsPage.history_on', { deadband: tag.historize_deadband ?? tag.deadband_value })
-                                                        : tr('tagsPage.history_on_plain')}</span>
+                                                        : tr('tagsPage.history_on_plain')}
+                                                >
+                                                    <Database size={12} className="shrink-0" />
+                                                    <span>{tr('tagsPage.history_on_plain')}</span>
                                                 </div>
                                             ) : (
                                                 <span className="text-xs text-muted-foreground">{tr('tagsPage.history_off')}</span>
