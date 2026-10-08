@@ -33,8 +33,16 @@ type dynsecPublisher interface {
 	Publish(topic string, payload interface{}) error
 }
 
+// dynsecSubscriber is the reply path: the control response topic the broker
+// answers on. Kept separate from dynsecPublisher so unit tests can keep
+// faking the publish side with a stub.
+type dynsecSubscriber interface {
+	Subscribe(topic string, handler MessageHandler) error
+}
+
 type DynsecClient struct {
 	client dynsecPublisher
+	sub    dynsecSubscriber
 
 	// Held for a whole command/response exchange: one in flight at a time.
 	cmdMu sync.Mutex
@@ -73,7 +81,7 @@ type dynsecResponse struct {
 // NewDynsecClient wraps an existing connected MQTT client with dynamic-security
 // command support.  It subscribes to the response topic immediately.
 func NewDynsecClient(c *Client) *DynsecClient {
-	d := &DynsecClient{client: c}
+	d := &DynsecClient{client: c, sub: c}
 
 	if err := d.ensureSubscribed(); err != nil {
 		log.Printf("[MQTT] dynsec response subscription failed at startup: %v (retried before every exchange)", err)
@@ -113,7 +121,10 @@ func (d *DynsecClient) onResponse(_ string, payload []byte) {
 // while the broker itself answers in milliseconds. Re-subscribing is idempotent,
 // so every exchange starts by guaranteeing the reply path is live.
 func (d *DynsecClient) ensureSubscribed() error {
-	return d.client.Subscribe("$CONTROL/dynamic-security/v1/response", d.onResponse)
+	if d.sub == nil {
+		return nil // unit-test doubles publish without a subscription side
+	}
+	return d.sub.Subscribe("$CONTROL/dynamic-security/v1/response", d.onResponse)
 }
 
 // dynsecTimeout bounds one command/response exchange with the broker.
