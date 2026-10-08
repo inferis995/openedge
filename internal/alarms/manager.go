@@ -830,7 +830,7 @@ func (s *sqlStore) InsertActive(tagID int, def models.AlarmDefinition, val float
 		SELECT $1, $2, 'ACTIVE', $3, $4, $5, $6, $7
 		WHERE NOT EXISTS (
 			SELECT 1 FROM alarm_events
-			WHERE tag_id = $1 AND definition_id = $2 AND status = 'ACTIVE' AND clear_time IS NULL
+			WHERE tag_id = $1 AND definition_id = $2 AND status IN ('ACTIVE','ACKNOWLEDGED') AND clear_time IS NULL
 		)
 		RETURNING id
 	`, tagID, def.ID, def.AlarmType, def.Severity, def.Message, val, triggerTime).Scan(&eventID)
@@ -840,14 +840,15 @@ func (s *sqlStore) InsertActive(tagID int, def models.AlarmDefinition, val float
 		return eventID, nil
 
 	case errors.Is(err, sql.ErrNoRows):
-		// Nothing inserted: an ACTIVE row for this tag+definition is already
-		// open (e.g. left behind by a restart). Adopt it.
+		// Nothing inserted: an open row for this tag+definition is already
+		// there — ACTIVE or ACKNOWLEDGED (an acknowledged alarm is still
+		// open). Adopt the latest instead of stacking a duplicate.
 		lookupCtx, lookupCancel := context.WithTimeout(context.Background(), alarmDBTimeout)
 		defer lookupCancel()
 
 		err = s.db.QueryRowContext(lookupCtx, `
 			SELECT id FROM alarm_events
-			WHERE tag_id = $1 AND definition_id = $2 AND status = 'ACTIVE' AND clear_time IS NULL
+			WHERE tag_id = $1 AND definition_id = $2 AND status IN ('ACTIVE','ACKNOWLEDGED') AND clear_time IS NULL
 			ORDER BY trigger_time DESC LIMIT 1
 		`, tagID, def.ID).Scan(&eventID)
 		if err != nil {
