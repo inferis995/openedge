@@ -14,6 +14,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/crypto"
 	"github.com/ralph/industrial-edge-middleware/internal/models"
 	"github.com/ralph/industrial-edge-middleware/internal/settings"
+	"github.com/ralph/industrial-edge-middleware/internal/sparkplug"
 	"strconv"
 )
 
@@ -41,6 +42,7 @@ func (h *SystemHandler) upsertSetting(key, value string) error {
 type SystemHandler struct {
 	db             *sql.DB
 	mqttClient     MQTTClient // Use same interface as GatewaysHandler
+	redisClient    RedisClient
 	settingsMgr    *settings.Manager
 	historyHandler *HistoryHandler
 }
@@ -53,6 +55,12 @@ func NewSystemHandler(db *sql.DB, mqttClient MQTTClient, settingsMgr *settings.M
 		settingsMgr:    settingsMgr,
 		historyHandler: historyHandler,
 	}
+}
+
+// SetRedisClient attaches Redis after construction (main.go owns the client).
+// RepublishRetained degrades to history-only values when Redis is absent.
+func (h *SystemHandler) SetRedisClient(rc RedisClient) {
+	h.redisClient = rc
 }
 
 // Reload publishes a configuration reload command to all drivers via MQTT
@@ -583,4 +591,93 @@ func (h *SystemHandler) GetMetrics(c *gin.Context) {
 		SavedPercent: 0,
 	}
 	c.JSON(http.StatusOK, metrics)
+}
+
+// RepublishRetained handles POST /api/system/mqtt/republish-retained.
+// One-shot backfill, not a new path: it publishes each tag's last known
+// value (the same tag_shadow the UI reads) as a RETAINED legacy message on
+// the tag's native topic, with the native payload shape. After this call the
+// broker holds one retained message per tag and the drivers' native retained
+// publishes keep it fresh on every device window. Admin-only, explicit.
+func (h *SystemHandler) RepublishRetained(c *gin.Context) {
+	var req struct {
+		OrgID int `json:"org_id"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	if h.mqttClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MQTT broker not connected"})
+		return
+	}
+
+	query := `SELECT t.id, t.alias, s.org_id, o.name, st.name, a.name, g.name, g.id
+		FROM tags t
+		JOIN gateways g ON g.id = t.gateway_id
+		JOIN areas a ON a.id = g.area_id
+		JOIN sites st ON st.id = a.site_id
+		JOIN organizations o ON o.id = st.org_id`
+	var rows *sql.Rows
+	var err error
+	if req.OrgID > 0 {
+		query += ` WHERE o.id = $1`
+		rows, err = h.db.QueryContext(c.Request.Context(), query, req.OrgID)
+	} else {
+		rows, err = h.db.QueryContext(c.Request.Context(), query)
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list tags"})
+		return
+	}
+	defer func() { _ = rows.Close() }()
+
+	published, skipped, failed := 0, 0, 0
+	var firstErrs []string
+	for rows.Next() {
+		var tagID, orgID, gwID int
+		var alias, orgName, siteName, areaName, gwName string
+		if err := rows.Scan(&tagID, &alias, &orgID, &orgName, &siteName, &areaName, &gwName, &gwID); err != nil {
+			continue
+		}
+		// Last known value: the tag_shadow the UI reads (nil Redis -> skip,
+		// never invent a value).
+		if h.redisClient == nil {
+			skipped++
+			continue
+		}
+		raw, err := h.redisClient.Get(fmt.Sprintf("tag_shadow:%d", tagID))
+		if err != nil {
+			skipped++
+			continue
+		}
+		var shadow TagShadowResponse
+		if uerr := json.Unmarshal([]byte(raw), &shadow); uerr != nil || shadow.Value == nil {
+			skipped++
+			continue
+		}
+		ApplyStaleAging(c.Request.Context(), h.db, gwID, &shadow)
+		payload := models.TagPayload{
+			TagID:     tagID,
+			OrgID:     orgID,
+			Value:     shadow.Value,
+			Timestamp: shadow.Ts,
+			Quality:   shadow.Quality,
+		}
+		payloadBytes, err := json.Marshal(payload)
+		if err != nil {
+			skipped++
+			continue
+		}
+		topic := sparkplug.BuildLegacyTopic(orgName, siteName, areaName, gwName, alias)
+		if err := h.mqttClient.PublishWithQoS(topic, string(payloadBytes), 1, true); err != nil {
+			failed++
+			if len(firstErrs) < 5 {
+				firstErrs = append(firstErrs, fmt.Sprintf("tag %d: %v", tagID, err))
+			}
+			continue
+		}
+		published++
+	}
+	log.Printf("[SYSTEM] republish-retained: published=%d skipped=%d failed=%d", published, skipped, failed)
+	c.JSON(http.StatusOK, gin.H{
+		"published": published, "skipped": skipped, "failed": failed, "errors": firstErrs,
+	})
 }

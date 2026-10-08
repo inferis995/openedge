@@ -1048,7 +1048,7 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
                 <button
                     type="button"
                     className="px-2 py-1 rounded border border-white/20 text-xs hover:bg-white/10"
-                    onClick={() => onOpenTrend(tag.gateway_id, tag.id)}
+                    onClick={onClose}
                 >
                     {t('common.close')}
                 </button>

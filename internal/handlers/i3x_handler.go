@@ -104,30 +104,34 @@ func parseTagID(s string) (int, bool) {
 	return id, err == nil
 }
 
-// currentValueFromRedis reads the current tag value from Redis (best-effort)
-func (h *I3XHandler) currentValueFromRedis(tagID int) *i3x.PropertyValue {
+// currentValueFromRedis reads the current tag value from the same tag_shadow
+// the tags page uses — never the raw realtime key, which can carry a stale
+// offline stamp (quality 2 on fresh data) the UI already healed past. The
+// gateway stale window is applied exactly like GetShadowBatch, so i3X and the
+// dashboard always agree on what "alive" means.
+func (h *I3XHandler) currentValueFromRedis(ctx context.Context, tagID int) *i3x.PropertyValue {
 	if h.redisClient == nil {
 		return nil
 	}
-	raw, err := h.redisClient.Get(fmt.Sprintf("realtime:%d", tagID))
+	raw, err := h.redisClient.Get(fmt.Sprintf("tag_shadow:%d", tagID))
 	if err != nil {
 		return nil
 	}
-	var payload struct {
-		V  interface{} `json:"v"`
-		Ts int64       `json:"ts"`
-		Q  int         `json:"q"`
-	}
-	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+	var shadow TagShadowResponse
+	if err := json.Unmarshal([]byte(raw), &shadow); err != nil {
 		return nil
 	}
-	ts := time.Unix(0, payload.Ts*int64(time.Millisecond))
-	if payload.Ts == 0 {
+	var gwID int
+	if err := h.db.QueryRowContext(ctx, `SELECT gateway_id FROM tags WHERE id = $1`, tagID).Scan(&gwID); err == nil {
+		ApplyStaleAging(ctx, h.db, gwID, &shadow)
+	}
+	ts := time.Unix(0, shadow.Ts*int64(time.Millisecond))
+	if shadow.Ts == 0 {
 		ts = time.Now()
 	}
 	return &i3x.PropertyValue{
-		Value:     payload.V,
-		Quality:   i3x.MapQuality(payload.Q, payload.V != nil),
+		Value:     shadow.Value,
+		Quality:   i3x.MapQuality(shadow.Quality, shadow.Value != nil),
 		Timestamp: ts,
 	}
 }
@@ -538,7 +542,7 @@ func (h *I3XHandler) ListEquipmentProperties(c *gin.Context) {
 			EquipmentID: gwEquipmentID(gwID),
 			DataType:    i3x.MapDataType(dataType),
 			Historize:   historize,
-			Current:     h.currentValueFromRedis(tagID),
+			Current:     h.currentValueFromRedis(c.Request.Context(), tagID),
 		})
 	}
 	if items == nil {
@@ -595,7 +599,7 @@ func (h *I3XHandler) GetEquipmentProperty(c *gin.Context) {
 		EquipmentID: gwEquipmentID(gwID),
 		DataType:    i3x.MapDataType(dataType),
 		Historize:   historize,
-		Current:     h.currentValueFromRedis(tagID),
+		Current:     h.currentValueFromRedis(c.Request.Context(), tagID),
 	})
 }
 
@@ -684,7 +688,7 @@ func (h *I3XHandler) ListProperties(c *gin.Context) {
 			EquipmentID: gwEquipmentID(gwID),
 			DataType:    i3x.MapDataType(dataType),
 			Historize:   historize,
-			Current:     h.currentValueFromRedis(tagID),
+			Current:     h.currentValueFromRedis(c.Request.Context(), tagID),
 		})
 	}
 	if items == nil {
@@ -731,7 +735,7 @@ func (h *I3XHandler) GetProperty(c *gin.Context) {
 		EquipmentID: gwEquipmentID(gwID),
 		DataType:    i3x.MapDataType(dataType),
 		Historize:   historize,
-		Current:     h.currentValueFromRedis(tagID),
+		Current:     h.currentValueFromRedis(c.Request.Context(), tagID),
 	})
 }
 
@@ -1375,7 +1379,7 @@ func (h *I3XHandler) BatchReadProperties(c *gin.Context) {
 			EquipmentID: gwEquipmentID(gwID),
 			DataType:    i3x.MapDataType(dataType),
 			Historize:   historize,
-			Current:     h.currentValueFromRedis(tagID),
+			Current:     h.currentValueFromRedis(c.Request.Context(), tagID),
 		})
 	}
 	if items == nil {

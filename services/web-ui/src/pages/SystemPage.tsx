@@ -100,6 +100,8 @@ const SystemPage = () => {
     const [settingsLoading, setSettingsLoading] = useState(true);
     const [publishMode, setPublishMode] = useState<string>('dual');
     const [retainLastValues, setRetainLastValues] = useState<boolean>(true);
+    const [republishBusy, setRepublishBusy] = useState<boolean>(false);
+    const [republishResult, setRepublishResult] = useState<string | null>(null);
     const [heartbeat, setHeartbeat] = useState<number>(60);
     const [deadband, setDeadband] = useState<number>(0.5);
     // Validità dei comandi di scrittura, in secondi. Vedi internal/commands.
@@ -929,6 +931,30 @@ const SystemPage = () => {
                                                     {t('systemPage.retain_title')}
                                                 </Label>
                                                 <p className="text-xs text-muted-foreground mt-1">{t('systemPage.retain_desc')}</p>
+                                                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        disabled={republishBusy}
+                                                        onClick={async () => {
+                                                            setRepublishBusy(true);
+                                                            setRepublishResult(null);
+                                                            try {
+                                                                const r = await systemApi.republishRetained();
+                                                                setRepublishResult(t('systemPage.republish_done', { published: r.published, skipped: r.skipped, failed: r.failed }));
+                                                            } catch {
+                                                                setRepublishResult(t('systemPage.republish_fail'));
+                                                            } finally {
+                                                                setRepublishBusy(false);
+                                                            }
+                                                        }}
+                                                    >
+                                                        {republishBusy ? t('systemPage.republish_busy') : t('systemPage.republish_now')}
+                                                    </Button>
+                                                    {republishResult && (
+                                                        <span className="text-xs text-muted-foreground">{republishResult}</span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
 

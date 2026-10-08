@@ -163,7 +163,11 @@
     "influx_ns": "nanosecondi",
     "hist_retention_hint": "Ogni giorno la pulizia elimina da <code>tag_history</code> le righe più vecchie di così. Metti 0 per spegnerla.",
     "retain_title": "Trattieni ultimo valore (retain)",
-    "retain_desc": "I driver pubblicano i dati legacy con flag retained: app esterne e monitor vedono subito l’ultimo valore noto. Ogni payload porta il timestamp, quindi si capisce quanto è vecchio."
+    "retain_desc": "I driver pubblicano i dati legacy con flag retained: app esterne e monitor vedono subito l’ultimo valore noto. Ogni payload porta il timestamp, quindi si capisce quanto è vecchio.",
+    "republish_now": "Ripubblica retained ora",
+    "republish_busy": "Pubblicazione…",
+    "republish_done": "Retained scritti: {published} pubblicati, {skipped} saltati, {failed} errori.",
+    "republish_fail": "Ripubblicazione fallita."
   },
   "backup": {
     "sched_03": "Ogni giorno alle 03:00 UTC (consigliato)",

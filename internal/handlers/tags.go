@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -1397,6 +1398,34 @@ type TagShadowResponse struct {
 	Quality int         `json:"quality"`
 	Ts      int64       `json:"ts"`
 	Source  string      `json:"source"` // "live" | "historic" | "unknown"
+}
+
+// StaleWindowMinutes returns the gateway's stale_after_minutes when configured
+// (>0), so every reader paints the same red: a shadow older than the window
+// is BAD even when the stored quality is still good.
+func StaleWindowMinutes(ctx context.Context, db *sql.DB, gwID int) (float64, bool) {
+	var m sql.NullFloat64
+	if err := db.QueryRowContext(ctx, `SELECT (connection_config->>'stale_after_minutes')::float FROM gateways WHERE id = $1`, gwID).Scan(&m); err != nil || !m.Valid || m.Float64 <= 0 {
+		return 0, false
+	}
+	return m.Float64, true
+}
+
+// ApplyStaleAging paints a shadow BAD (quality 2, source historic) when it is
+// older than its gateway's stale window. Same rule as GetShadowBatch: every
+// surface (tags page, i3X, monitor) must agree on what "alive" means.
+func ApplyStaleAging(ctx context.Context, db *sql.DB, gwID int, s *TagShadowResponse) {
+	if s == nil || s.Ts <= 0 {
+		return
+	}
+	staleMin, ok := StaleWindowMinutes(ctx, db, gwID)
+	if !ok {
+		return
+	}
+	if float64(time.Now().UnixMilli()-s.Ts)/60000 >= staleMin {
+		s.Quality = 2
+		s.Source = "historic"
+	}
 }
 
 // GetShadow handles GET /api/tags/:id/shadow.
