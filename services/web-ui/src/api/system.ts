@@ -107,6 +107,7 @@ export interface GlobalSettings {
 
 export interface UpdateSettingsRequest {
     publish_mode?: string;
+    retain_last_values?: boolean;
     rbe_heartbeat_seconds?: number;
     rbe_deadband_percent?: number;
     // Per quanti secondi un comando di scrittura verso un PLC resta valido.

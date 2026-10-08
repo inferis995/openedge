@@ -561,6 +561,25 @@ type DualPublisher struct {
 	areaName        string
 	gatewayName     string
 	orgID           int
+	// retainLegacy publishes the legacy topic with the retained flag, so a
+	// late subscriber immediately reads the freshest known value. Guarded
+	// by mu: Publish runs on the hot path while the toggle arrives from
+	// the settings reload on another goroutine.
+	mu           sync.RWMutex
+	retainLegacy bool
+}
+
+// SetRetainLegacy flips retained publishing of the legacy topic at runtime.
+func (dp *DualPublisher) SetRetainLegacy(retain bool) {
+	dp.mu.Lock()
+	defer dp.mu.Unlock()
+	dp.retainLegacy = retain
+}
+
+func (dp *DualPublisher) getRetainLegacy() bool {
+	dp.mu.RLock()
+	defer dp.mu.RUnlock()
+	return dp.retainLegacy
 }
 
 // NewDualPublisher creates a new dual publisher
@@ -598,7 +617,7 @@ func (dp *DualPublisher) Publish(tagID int, alias string, value interface{}, dat
 		return fmt.Errorf("failed to marshal legacy payload: %w", err)
 	}
 
-	if err := mqttClient.PublishWithQoS(legacyTopic, string(legacyBytes), 1, false); err != nil {
+	if err := mqttClient.PublishWithQoS(legacyTopic, string(legacyBytes), 1, dp.getRetainLegacy()); err != nil {
 		return fmt.Errorf("failed to publish legacy: %w", err)
 	}
 

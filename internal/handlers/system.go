@@ -247,6 +247,7 @@ func isSecretKey(key string) bool {
 // UpdateSettingsRequest represents the request body for updating settings
 type UpdateSettingsRequest struct {
 	PublishMode           *string  `json:"publish_mode"`
+	RetainLastValues      *bool    `json:"retain_last_values"`
 	RBEHeartbeatSeconds   *int     `json:"rbe_heartbeat_seconds"`
 	RBEDeadbandPercent    *float64 `json:"rbe_deadband_percent"`
 	StaleThresholdSeconds *int     `json:"stale_threshold_seconds"`
@@ -348,6 +349,13 @@ func (h *SystemHandler) UpdateSettings(c *gin.Context) {
 	if req.PublishMode != nil {
 		if err := h.upsertSetting("publish_mode", *req.PublishMode); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update publish_mode"})
+			return
+		}
+	}
+
+	if req.RetainLastValues != nil {
+		if err := h.upsertSetting("retain_last_values", strconv.FormatBool(*req.RetainLastValues)); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update retain_last_values"})
 			return
 		}
 	}

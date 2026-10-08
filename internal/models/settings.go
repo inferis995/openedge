@@ -44,6 +44,12 @@ func (m MQTTBrokerMode) IsValid() bool {
 // GlobalSettings represents the global system settings
 type GlobalSettings struct {
 	PublishMode           PublishMode `json:"publish_mode"`
+	// RetainLastValues makes drivers publish legacy tag data with the MQTT
+	// retained flag, so a late subscriber (an external app, the live
+	// monitor's "last values" tab) immediately reads the freshest known
+	// value per topic. Every payload already carries its own timestamp, so
+	// consumers can tell how old the retained reading is.
+	RetainLastValues      bool        `json:"retain_last_values"`
 	RBEHeartbeatSeconds   int         `json:"rbe_heartbeat_seconds"`
 	RBEDeadbandPercent    float64     `json:"rbe_deadband_percent"`
 	StaleThresholdSeconds int         `json:"stale_threshold_seconds"`

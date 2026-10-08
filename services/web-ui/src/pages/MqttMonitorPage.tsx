@@ -58,6 +58,10 @@ const MqttMonitorPage = () => {
     const [isPaused, setIsPaused] = useState(false);
     const [filter, setFilter] = useState('');
     const [formatFilter, setFormatFilter] = useState<MessageFormat>('all');
+    const [view, setView] = useState<'live' | 'last'>('live');
+    // Ultimo messaggio per topic: popolato anche dai retained all'iscrizione,
+    // quindi mostra l'ultimo valore noto anche senza traffico live.
+    const [lastByTopic, setLastByTopic] = useState<Map<string, MqttMessage>>(new Map());
     const [autoScroll, setAutoScroll] = useState(true);
     const [stats, setStats] = useState({ total: 0, legacy: 0, sparkplug: 0 });
 
@@ -110,6 +114,12 @@ const MqttMonitorPage = () => {
             legacy: prev.legacy + (format === 'legacy' ? 1 : 0),
             sparkplug: prev.sparkplug + (format === 'sparkplug' ? 1 : 0)
         }));
+
+        setLastByTopic(prev => {
+            const next = new Map(prev);
+            next.set(msg.topic, msg);
+            return next;
+        });
 
         if (isPausedRef.current) return;
 
@@ -382,6 +392,7 @@ const MqttMonitorPage = () => {
     const handleClear = () => {
         setMessages([]);
         pendingMessagesRef.current = [];
+        setLastByTopic(new Map());
         setStats({ total: 0, legacy: 0, sparkplug: 0 });
     };
 
@@ -493,6 +504,28 @@ const MqttMonitorPage = () => {
                             {t('mqttMonitor.autoscroll')}
                         </Button>
 
+                        {/* Vista Live / Ultimi valori */}
+                        <div className="flex items-center gap-1 p-1 rounded-md border bg-muted/50">
+                            <Button
+                                size="sm"
+                                variant={view === 'live' ? 'default' : 'ghost'}
+                                className="h-7 text-xs gap-1"
+                                onClick={() => setView('live')}
+                            >
+                                <Radio className="h-3 w-3" />
+                                {t('mqttMonitor.view_live')}
+                            </Button>
+                            <Button
+                                size="sm"
+                                variant={view === 'last' ? 'default' : 'ghost'}
+                                className="h-7 text-xs gap-1"
+                                onClick={() => setView('last')}
+                            >
+                                <Zap className="h-3 w-3" />
+                                {t('mqttMonitor.view_last', { count: lastByTopic.size })}
+                            </Button>
+                        </div>
+
                         {/* Format Filter */}
                         <div className="flex items-center gap-2">
                             <span className="text-sm text-muted-foreground">{t('mqttMonitor.format_label')}</span>
@@ -528,6 +561,7 @@ const MqttMonitorPage = () => {
             </Card>
 
             {/* Messages Table */}
+            {view === 'live' && (
             <Card className="flex-1 overflow-hidden">
                 <CardHeader className="py-3">
                     <CardTitle className="text-base">{t('mqttMonitor.stream')}</CardTitle>
@@ -624,6 +658,72 @@ const MqttMonitorPage = () => {
                     </div>
                 </CardContent>
             </Card>
+            )}
+
+            {/* Ultimi valori: un rigo per topic, dall'ultimo messaggio visto
+                (retained all'iscrizione + live). E quello che legge un'app esterna. */}
+            {view === 'last' && (
+            <Card className="flex-1 overflow-hidden">
+                <CardHeader className="py-3">
+                    <CardTitle className="text-base">{t('mqttMonitor.last_title')}</CardTitle>
+                    <CardDescription>
+                        {t('mqttMonitor.last_desc', { count: lastByTopic.size })}
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                    <div className="h-[calc(100vh-380px)] overflow-auto">
+                        <Table>
+                            <TableHeader className="sticky top-0 bg-background z-10">
+                                <TableRow>
+                                    <TableHead className="w-[70px]">{t('mqttMonitor.col_format')}</TableHead>
+                                    <TableHead>{t('mqttMonitor.col_topic')}</TableHead>
+                                    <TableHead className="w-[120px] text-right">{t('mqttMonitor.col_value')}</TableHead>
+                                    <TableHead className="w-[110px] text-right hidden sm:table-cell">{t('mqttMonitor.col_time')}</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {[...lastByTopic.values()]
+                                    .filter(m => {
+                                        if (formatFilter === 'legacy' && m.format !== 'legacy') return false;
+                                        if (formatFilter === 'sparkplug' && m.format !== 'sparkplug') return false;
+                                        if (filter) {
+                                            return m.topic.toLowerCase().includes(filter.toLowerCase()) ||
+                                                m.tagAlias.toLowerCase().includes(filter.toLowerCase());
+                                        }
+                                        return true;
+                                    })
+                                    .sort((a, b) => a.topic.localeCompare(b.topic))
+                                    .map((msg) => (
+                                        <TableRow key={msg.topic} className="font-mono text-sm">
+                                            <TableCell>
+                                                {getFormatBadge(msg.format)}
+                                            </TableCell>
+                                            <TableCell className="text-xs">
+                                                <div className="truncate max-w-[140px] sm:max-w-[350px]" title={msg.topic}>
+                                                    {msg.tagAlias && msg.tagAlias !== msg.topic.split('/').pop() ? (
+                                                        <span>
+                                                            <span className="font-medium text-[#4a5500] dark:text-[#c8e600]">{msg.tagAlias}</span>
+                                                            <span className="text-muted-foreground ml-1">({msg.topic})</span>
+                                                        </span>
+                                                    ) : (
+                                                        <span>{msg.topic}</span>
+                                                    )}
+                                                </div>
+                                            </TableCell>
+                                            <TableCell className="text-right font-semibold">
+                                                {formatValue(msg.value)}
+                                            </TableCell>
+                                            <TableCell className="text-right text-muted-foreground hidden sm:table-cell">
+                                                {formatTime(new Date(msg.timestamp))}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                            </TableBody>
+                        </Table>
+                    </div>
+                </CardContent>
+            </Card>
+            )}
         </div>
     );
 };

@@ -99,6 +99,7 @@ const SystemPage = () => {
     const [settings, setSettings] = useState<GlobalSettings | null>(null);
     const [settingsLoading, setSettingsLoading] = useState(true);
     const [publishMode, setPublishMode] = useState<string>('dual');
+    const [retainLastValues, setRetainLastValues] = useState<boolean>(true);
     const [heartbeat, setHeartbeat] = useState<number>(60);
     const [deadband, setDeadband] = useState<number>(0.5);
     // Validità dei comandi di scrittura, in secondi. Vedi internal/commands.
@@ -234,6 +235,9 @@ const SystemPage = () => {
             const data = await systemApi.getSettings();
             setSettings(data);
             setPublishMode(data.publish_mode || 'dual');
+            if (data.retain_last_values !== undefined) {
+                setRetainLastValues(data.retain_last_values === 'true');
+            }
             const parsedHeartbeat = parseInt(data.rbe_heartbeat_seconds);
             setHeartbeat(isNaN(parsedHeartbeat) ? 60 : parsedHeartbeat);
             const parsedDeadband = parseFloat(data.rbe_deadband_percent);
@@ -319,6 +323,7 @@ const SystemPage = () => {
         try {
             const update: UpdateSettingsRequest = {
                 publish_mode: publishMode,
+                retain_last_values: retainLastValues,
                 mqtt_broker_mode: mqttBrokerMode,
                 db_retention_days: dbRetention,
             };
@@ -909,6 +914,23 @@ const SystemPage = () => {
                                                 );
                                             })}
                                         </RadioGroup>
+
+                                        {/* Retain last values: drivers publish legacy data retained,
+                                            so late subscribers immediately read the freshest known value. */}
+                                        <div className="flex items-start gap-3 p-3.5 clip-chamfer border border-border bg-card mt-2">
+                                            <Switch
+                                                checked={retainLastValues}
+                                                onCheckedChange={setRetainLastValues}
+                                                id="retain-last-values"
+                                                className="mt-0.5 shrink-0"
+                                            />
+                                            <div className="flex-1 min-w-0">
+                                                <Label htmlFor="retain-last-values" className="text-sm font-medium cursor-pointer">
+                                                    {t('systemPage.retain_title')}
+                                                </Label>
+                                                <p className="text-xs text-muted-foreground mt-1">{t('systemPage.retain_desc')}</p>
+                                            </div>
+                                        </div>
 
                                         {/* Advanced RBE options */}
                                         <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
