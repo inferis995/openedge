@@ -663,7 +663,9 @@ func runAutoMigrations(db *sql.DB) error {
 			username    TEXT NOT NULL UNIQUE,
 			description TEXT NOT NULL DEFAULT '',
 			created_by  INT,
-			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			enabled     BOOL NOT NULL DEFAULT TRUE,
+			password_enc TEXT NOT NULL DEFAULT ''
 		)`); err != nil {
 		return fmt.Errorf("mqtt_external_clients migration: %w", err)
 	}
