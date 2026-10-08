@@ -50,21 +50,23 @@ type dynsecCmd struct {
 	Commands []map[string]interface{} `json:"commands"`
 }
 
+type dynsecEntry struct {
+	Command         string `json:"command"`
+	CorrelationData string `json:"correlationData,omitempty"`
+	Error           string `json:"error,omitempty"`
+	Data            struct {
+		Clients []struct {
+			Username string `json:"username"`
+			Disabled bool   `json:"disabled"`
+			Roles    []struct {
+				Rolename string `json:"rolename"`
+			} `json:"roles"`
+		} `json:"clients"`
+	} `json:"data,omitempty"`
+}
+
 type dynsecResponse struct {
-	Responses []struct {
-		Command         string `json:"command"`
-		CorrelationData string `json:"correlationData,omitempty"`
-		Error           string `json:"error,omitempty"`
-		Data            struct {
-			Clients []struct {
-				Username string `json:"username"`
-				Disabled bool   `json:"disabled"`
-				Roles    []struct {
-					Rolename string `json:"rolename"`
-				} `json:"roles"`
-			} `json:"clients"`
-		} `json:"data,omitempty"`
-	} `json:"responses"`
+	Responses []dynsecEntry `json:"responses"`
 }
 
 // NewDynsecClient wraps an existing connected MQTT client with dynamic-security

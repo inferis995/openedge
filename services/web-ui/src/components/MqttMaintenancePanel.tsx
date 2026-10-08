@@ -8,7 +8,6 @@ import { EmptyState } from '@/components/ui/empty-state';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { mqttMaintenanceApi } from '@/api/mqttClients';
 import { organizationsApi } from '@/api/organizations';
-import { showApiError } from '@/lib/api-error-handler';
 
 /**
  * Global-admin maintenance over every organization's external MQTT logins,
