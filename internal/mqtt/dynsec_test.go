@@ -74,11 +74,10 @@ func TestRepliesAreMatchedToTheirExchange(t *testing.T) {
 
 	deliver := func(correlation string) bool {
 		resp := dynsecResponse{}
-		resp.Responses = append(resp.Responses, struct {
-			Command         string `json:"command"`
-			CorrelationData string `json:"correlationData,omitempty"`
-			Error           string `json:"error,omitempty"`
-		}{Command: "createClient", CorrelationData: correlation})
+		var entry dynsecEntry
+		entry.Command = "createClient"
+		entry.CorrelationData = correlation
+		resp.Responses = append(resp.Responses, entry)
 
 		d.mu.Lock()
 		target, want := d.responseCh, d.correlationID

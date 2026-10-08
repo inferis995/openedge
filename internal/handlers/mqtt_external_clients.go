@@ -42,6 +42,10 @@ type MQTTExternalClient struct {
 	Username    string    `json:"username"`
 	Description string    `json:"description"`
 	CreatedAt   time.Time `json:"created_at"`
+	Enabled     bool      `json:"enabled"`
+	// OnBroker is false when the broker no longer knows this identity
+	// (deleted out-of-band): the registry row is then stale, not authoritative.
+	OnBroker bool `json:"on_broker"`
 }
 
 func (h *MQTTExternalClientsHandler) org(c *gin.Context) (int, bool) {
@@ -60,23 +64,122 @@ func (h *MQTTExternalClientsHandler) List(c *gin.Context) {
 		return
 	}
 	rows, err := h.db.QueryContext(c.Request.Context(), `
-		SELECT id, username, description, created_at FROM mqtt_external_clients
+		SELECT id, username, description, created_at, COALESCE(enabled, TRUE) FROM mqtt_external_clients
 		WHERE org_id = $1 ORDER BY created_at`, orgID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list MQTT logins"})
 		return
 	}
 	defer func() { _ = rows.Close() }()
+	onBroker := map[string]bool{}
+	if h.dynsec != nil {
+		if clients, derr := h.dynsec.ListBrokerClients(); derr == nil {
+			for _, bc := range clients {
+				onBroker[bc.Username] = true
+			}
+		}
+	}
 	out := []MQTTExternalClient{}
 	for rows.Next() {
 		var m MQTTExternalClient
-		if err := rows.Scan(&m.ID, &m.Username, &m.Description, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.Username, &m.Description, &m.CreatedAt, &m.Enabled); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list MQTT logins"})
 			return
 		}
+		m.OnBroker = onBroker[m.Username]
 		out = append(out, m)
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// Rotate handles POST /api/organizations/:id/mqtt-clients/:clientId/rotate.
+// A new password, shown once — rotation without changing the username, so the
+// external system keeps its configuration and only the secret changes.
+func (h *MQTTExternalClientsHandler) Rotate(c *gin.Context) {
+	orgID, ok := h.org(c)
+	if !ok {
+		return
+	}
+	id, err := strconv.Atoi(c.Param("clientId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid login id"})
+		return
+	}
+	ctx := c.Request.Context()
+	var username string
+	err = h.db.QueryRowContext(ctx,
+		`SELECT username FROM mqtt_external_clients WHERE id = $1 AND org_id = $2`, id, orgID).Scan(&username)
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "login not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read the login"})
+		return
+	}
+	if h.dynsec == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "the broker's dynamic security is not available"})
+		return
+	}
+	password, err := mqtt.GeneratePassword()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate a password"})
+		return
+	}
+	if err := h.dynsec.SetExternalPassword(username, password); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "the broker did not accept the new password"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": id, "username": username, "password": password,
+		"note": "Copy the password now — it is never shown again."})
+}
+
+// SetEnabled handles POST /api/organizations/:id/mqtt-clients/:clientId/enabled.
+// Disabling cuts access immediately and keeps the identity (and its audit
+// trail); the login can be re-enabled without touching the external system.
+func (h *MQTTExternalClientsHandler) SetEnabled(c *gin.Context) {
+	orgID, ok := h.org(c)
+	if !ok {
+		return
+	}
+	id, err := strconv.Atoi(c.Param("clientId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid login id"})
+		return
+	}
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "enabled is required"})
+		return
+	}
+	ctx := c.Request.Context()
+	var username string
+	err = h.db.QueryRowContext(ctx,
+		`SELECT username FROM mqtt_external_clients WHERE id = $1 AND org_id = $2`, id, orgID).Scan(&username)
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "login not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read the login"})
+		return
+	}
+	if h.dynsec == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "the broker's dynamic security is not available"})
+		return
+	}
+	if err := h.dynsec.SetClientEnabled(username, req.Enabled); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "the broker did not accept the change"})
+		return
+	}
+	if _, err := h.db.ExecContext(ctx,
+		`UPDATE mqtt_external_clients SET enabled = $1 WHERE id = $2`, req.Enabled, id); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "the broker changed it but the registry write failed"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"id": id, "enabled": req.Enabled})
 }
 
 // externalUsername is org-{id}-ext-{what it is for}-{random}: recognizable in
@@ -183,6 +286,80 @@ func (h *MQTTExternalClientsHandler) Create(c *gin.Context) {
 		"broker_port": port,
 		"broker_tls":  mqtt.SchemeForPort(port) == "ssl",
 	})
+}
+
+// MaintainedClient is one registry row with its organization, for the
+// global-admin maintenance view across tenants.
+type MaintainedClient struct {
+	MQTTExternalClient
+	OrgID   int    `json:"org_id"`
+	OrgName string `json:"org_name"`
+}
+
+// ListAll handles GET /api/system/mqtt/external-clients?org_id=N — the whole
+// registry (or one org), global admin only. Same rows as the per-org list,
+// with the organization attached.
+func (h *MQTTExternalClientsHandler) ListAll(c *gin.Context) {
+	orgID, _ := strconv.Atoi(c.Query("org_id"))
+	query := `SELECT m.id, m.username, m.description, m.created_at, COALESCE(m.enabled, TRUE),
+	                 m.org_id, o.name
+	          FROM mqtt_external_clients m JOIN organizations o ON o.id = m.org_id`
+	var rows *sql.Rows
+	var err error
+	if orgID > 0 {
+		query += ` WHERE m.org_id = $1 ORDER BY m.created_at`
+		rows, err = h.db.QueryContext(c.Request.Context(), query, orgID)
+	} else {
+		query += ` ORDER BY m.org_id, m.created_at`
+		rows, err = h.db.QueryContext(c.Request.Context(), query)
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list MQTT logins"})
+		return
+	}
+	defer func() { _ = rows.Close() }()
+	onBroker := map[string]bool{}
+	if h.dynsec != nil {
+		if clients, derr := h.dynsec.ListBrokerClients(); derr == nil {
+			for _, bc := range clients {
+				onBroker[bc.Username] = true
+			}
+		}
+	}
+	items := []MaintainedClient{}
+	for rows.Next() {
+		var m MaintainedClient
+		if err := rows.Scan(&m.ID, &m.Username, &m.Description, &m.CreatedAt, &m.Enabled, &m.OrgID, &m.OrgName); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list MQTT logins"})
+			return
+		}
+		m.OnBroker = onBroker[m.Username]
+		items = append(items, m)
+	}
+	if items == nil {
+		items = []MaintainedClient{}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items)})
+}
+
+// BrokerList handles GET /api/system/mqtt/broker-clients — every identity the
+// broker knows (drivers, UI viewers, external systems), read-only. The admin
+// reconciles the broker against the registry here: anything on the broker
+// with no registry row was created out-of-band.
+func (h *MQTTExternalClientsHandler) BrokerList(c *gin.Context) {
+	if h.dynsec == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "the broker's dynamic security is not available"})
+		return
+	}
+	clients, err := h.dynsec.ListBrokerClients()
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": fmt.Sprintf("broker query failed: %v", err)})
+		return
+	}
+	if clients == nil {
+		clients = []mqtt.BrokerClient{}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": clients, "total": len(clients)})
 }
 
 // Delete handles DELETE /api/organizations/:id/mqtt-clients/:clientId. The

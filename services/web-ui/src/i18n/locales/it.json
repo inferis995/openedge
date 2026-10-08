@@ -28,7 +28,10 @@
     "gateway": "Gateway",
     "select_organization": "Scegli l'organizzazione",
     "select_site": "Scegli il sito",
-    "select_area": "Scegli l'area"
+    "select_area": "Scegli l'area",
+    "refresh": "Aggiorna",
+    "hide": "Nascondi",
+    "show": "Mostra"
   },
   "nav": {
     "dashboard": "Dashboard",

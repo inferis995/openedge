@@ -5,6 +5,19 @@ export interface MqttExternalClient {
     username: string;
     description: string;
     created_at: string;
+    enabled: boolean;
+    on_broker: boolean;
+}
+
+export interface MaintainedMqttClient extends MqttExternalClient {
+    org_id: number;
+    org_name: string;
+}
+
+export interface BrokerMqttClient {
+    username: string;
+    disabled: boolean;
+    roles: string[];
 }
 
 export const mqttClientsApi = {
@@ -21,5 +34,26 @@ export const mqttClientsApi = {
     },
     remove: async (orgId: number, id: number): Promise<void> => {
         await api.delete(`/organizations/${orgId}/mqtt-clients/${id}`);
+    },
+    /** New password, shown once. The username does not change. */
+    rotate: async (orgId: number, id: number): Promise<{ username: string; password: string }> => {
+        const { data } = await api.post(`/organizations/${orgId}/mqtt-clients/${id}/rotate`);
+        return data;
+    },
+    setEnabled: async (orgId: number, id: number, enabled: boolean): Promise<void> => {
+        await api.post(`/organizations/${orgId}/mqtt-clients/${id}/enabled`, { enabled });
+    },
+};
+
+export const mqttMaintenanceApi = {
+    /** Whole registry across organizations (global admin). */
+    listAll: async (orgId?: number): Promise<{ items: MaintainedMqttClient[]; total: number }> => {
+        const { data } = await api.get('/system/mqtt/external-clients', orgId ? { params: { org_id: orgId } } : undefined);
+        return data;
+    },
+    /** Every identity the broker knows, read-only (global admin). */
+    brokerClients: async (): Promise<{ items: BrokerMqttClient[]; total: number }> => {
+        const { data } = await api.get('/system/mqtt/broker-clients');
+        return data;
     },
 };

@@ -549,5 +549,8 @@
     "notes": "Note di rilascio",
     "sha": "Checksum SHA256",
     "approve": "Approva l'aggiornamento"
-  }
+  },
+  "refresh": "Aggiorna",
+  "hide": "Nascondi",
+  "show": "Mostra"
 }

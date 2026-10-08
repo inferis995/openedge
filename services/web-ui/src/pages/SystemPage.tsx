@@ -30,6 +30,7 @@ import i18n from '@/i18n';
 import apiClient from '@/api/client';
 import { showApiError } from '@/lib/api-error-handler';
 import MqttConnectGuide from '@/components/system/MqttConnectGuide';
+import MqttMaintenancePanel from '@/components/MqttMaintenancePanel';
 import MqttProbeButton from '@/components/system/MqttProbeButton';
 import { useSearchParams } from 'react-router-dom';
 import { startLoad } from '@/lib/startLoad';
@@ -1105,6 +1106,7 @@ const SystemPage = () => {
                                 )}
                             </CardContent>
                         </Card>
+                        {isGlobalAdmin() && <MqttMaintenancePanel />}
                     </TabsContent>
 
                     <TabsContent value="backup" className="space-y-6 mt-4">
