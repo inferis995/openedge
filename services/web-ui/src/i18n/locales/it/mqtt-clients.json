@@ -25,7 +25,17 @@
     "status": "Stato",
     "active": "Attivo",
     "disabled": "Disabilitato",
-    "stale": "Non sul broker"
+    "stale": "Non sul broker",
+    "password_opt": "Password a scelta (facoltativa)",
+    "password_opt_ph": "Vuota = generata",
+    "password_custom_ph": "Minimo 12 caratteri",
+    "show": "Mostra password",
+    "show_title": "Mostra la password?",
+    "show_desc": "La visualizzazione viene registrata. Non copiarla in chat o email non protette.",
+    "rotate_title": "Cambia password — {name}",
+    "rotate_desc": "Vale subito sul broker: aggiorna anche il sistema esterno.",
+    "rotate_generate": "Genera una nuova password",
+    "rotate_custom": "Imposta la mia password"
   },
   "mqttMaintenance": {
     "registry_title": "Login MQTT esterni — tutte le organizzazioni",

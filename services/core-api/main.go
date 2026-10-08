@@ -695,6 +695,7 @@ func main() {
 			// Global-admin maintenance over every org's external MQTT logins,
 			// plus the read-only broker reconciliation view.
 			system.GET("/mqtt/external-clients", middleware.RequireGlobalAdmin(), mqttClientsHandler.ListAll)
+			system.GET("/mqtt/external-clients/:id/password", middleware.RequireGlobalAdmin(), mqttClientsHandler.RevealGlobal)
 			system.GET("/mqtt/broker-clients", middleware.RequireGlobalAdmin(), mqttClientsHandler.BrokerList)
 			system.GET("/metrics", systemHandler.GetMetrics)
 			// Fire a synthetic alarm to every configured notification channel.
@@ -1067,6 +1068,7 @@ func main() {
 		orgMQTT := api.Group("/organizations/:id/mqtt-clients")
 		orgMQTT.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin), middleware.RequireOrgParam("id"))
 		{
+			orgMQTT.GET("/:clientId/password", mqttClientsHandler.Reveal)
 			orgMQTT.GET("", mqttClientsHandler.List)
 			orgMQTT.POST("", mqttClientsHandler.Create)
 			orgMQTT.POST("/:clientId/rotate", mqttClientsHandler.Rotate)

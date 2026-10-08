@@ -25,7 +25,17 @@
     "status": "Status",
     "active": "Active",
     "disabled": "Disabled",
-    "stale": "Not on broker"
+    "stale": "Not on broker",
+    "password_opt": "Custom password (optional)",
+    "password_opt_ph": "Empty = generated",
+    "password_custom_ph": "Minimum 12 characters",
+    "show": "Show password",
+    "show_title": "Show the password?",
+    "show_desc": "Viewing is logged. Do not paste it into unprotected chat or email.",
+    "rotate_title": "Change password — {name}",
+    "rotate_desc": "Applies on the broker immediately: update the external system too.",
+    "rotate_generate": "Generate a new password",
+    "rotate_custom": "Set my own password"
   },
   "mqttMaintenance": {
     "registry_title": "External MQTT logins — all organizations",

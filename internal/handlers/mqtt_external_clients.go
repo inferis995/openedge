@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/ralph/industrial-edge-middleware/internal/crypto"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 	"github.com/ralph/industrial-edge-middleware/internal/mqtt"
 	"github.com/ralph/industrial-edge-middleware/internal/naming"
@@ -93,7 +95,8 @@ func (h *MQTTExternalClientsHandler) List(c *gin.Context) {
 }
 
 // Rotate handles POST /api/organizations/:id/mqtt-clients/:clientId/rotate.
-// A new password, shown once — rotation without changing the username, so the
+// A new password — generated, or operator-chosen (12+ chars) via
+// {"password": "..."} — shown once. The username never changes, so the
 // external system keeps its configuration and only the secret changes.
 func (h *MQTTExternalClientsHandler) Rotate(c *gin.Context) {
 	orgID, ok := h.org(c)
@@ -103,6 +106,14 @@ func (h *MQTTExternalClientsHandler) Rotate(c *gin.Context) {
 	id, err := strconv.Atoi(c.Param("clientId"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid login id"})
+		return
+	}
+	var opt struct {
+		Password string `json:"password"`
+	}
+	_ = c.ShouldBindJSON(&opt)
+	if checkErr := checkCustomPassword(opt.Password); checkErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": checkErr.Error()})
 		return
 	}
 	ctx := c.Request.Context()
@@ -121,13 +132,21 @@ func (h *MQTTExternalClientsHandler) Rotate(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "the broker's dynamic security is not available"})
 		return
 	}
-	password, err := mqtt.GeneratePassword()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate a password"})
-		return
+	password := strings.TrimSpace(opt.Password)
+	if password == "" {
+		var genErr error
+		password, genErr = mqtt.GeneratePassword()
+		if genErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate a password"})
+			return
+		}
 	}
 	if err := h.dynsec.SetExternalPassword(username, password); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "the broker did not accept the new password"})
+		return
+	}
+	if err := h.storePassword(ctx, id, password); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "the broker changed it but storing the secret failed"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"id": id, "username": username, "password": password,
@@ -216,9 +235,15 @@ func (h *MQTTExternalClientsHandler) Create(c *gin.Context) {
 	}
 	var req struct {
 		Description string `json:"description" binding:"required,max=100"`
+		// Optional operator-chosen secret (12+ chars); empty = generated.
+		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "description required (what this login is for, max 100 characters)"})
+		return
+	}
+	if err := checkCustomPassword(req.Password); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	if h.dynsec == nil {
@@ -236,10 +261,14 @@ func (h *MQTTExternalClientsHandler) Create(c *gin.Context) {
 	if err != nil {
 		sites = nil // wider Sparkplug grant; narrowed on the next site change, as for the UI login
 	}
-	password, err := mqtt.GeneratePassword()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate a password"})
-		return
+	password := strings.TrimSpace(req.Password)
+	if password == "" {
+		var genErr error
+		password, genErr = mqtt.GeneratePassword()
+		if genErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate a password"})
+			return
+		}
 	}
 	username := externalUsername(orgID, req.Description)
 
@@ -264,6 +293,12 @@ func (h *MQTTExternalClientsHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save the login"})
 		return
 	}
+	if err := h.storePassword(ctx, m.ID, password); err != nil {
+		_ = h.dynsec.DeleteExternalReader(username)
+		_, _ = h.db.ExecContext(ctx, `DELETE FROM mqtt_external_clients WHERE id = $1`, m.ID)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to store the secret"})
+		return
+	}
 	// Where to connect, as the boxes are told (MQTT_PUBLIC_HOST/PORT). Without
 	// a configured public host the address the user reached this API on is a
 	// better guess than "localhost".
@@ -286,6 +321,127 @@ func (h *MQTTExternalClientsHandler) Create(c *gin.Context) {
 		"broker_port": port,
 		"broker_tls":  mqtt.SchemeForPort(port) == "ssl",
 	})
+}
+
+// checkCustomPassword accepts an operator-chosen secret, or "" for
+// "generate one for me". Stored secrets must be strong enough to survive
+// offline guessing: 12+ characters, no other rules — passphrases welcome.
+func checkCustomPassword(pw string) error {
+	if pw == "" {
+		return nil
+	}
+	if len([]rune(strings.TrimSpace(pw))) < 12 {
+		return fmt.Errorf("a chosen password needs at least 12 characters")
+	}
+	return nil
+}
+
+// storePassword encrypts the secret for later reveal by an admin. The broker
+// only ever sees the plaintext once, at set time; what rests here is opaque
+// without the platform key.
+func (h *MQTTExternalClientsHandler) storePassword(ctx context.Context, id int, password string) error {
+	enc, err := crypto.Encrypt(password)
+	if err != nil {
+		return err
+	}
+	_, err = h.db.ExecContext(ctx,
+		`UPDATE mqtt_external_clients SET password_enc = $1 WHERE id = $2`, enc, id)
+	return err
+}
+
+// auditReveal records who looked at a secret, without the secret itself.
+// Passwords are never written to any log.
+func (h *MQTTExternalClientsHandler) auditReveal(c *gin.Context, orgID int, username string) {
+	var uid *int
+	if id, ok := middleware.GetUserID(c); ok {
+		uid = &id
+	}
+	var actor string
+	if uid != nil {
+		_ = h.db.QueryRowContext(c.Request.Context(),
+			`SELECT username FROM users WHERE id = $1`, *uid).Scan(&actor)
+	}
+	_, _ = h.db.ExecContext(c.Request.Context(),
+		`INSERT INTO audit_logs (user_id, username, action, ip_address, user_agent, details, success)
+		 VALUES ($1, $2, 'mqtt.password.reveal', $3, $4, $5, TRUE)`,
+		uid, actor, c.ClientIP(), c.Request.UserAgent(),
+		fmt.Sprintf(`{"org_id":%d,"mqtt_username":%q}`, orgID, username))
+}
+
+// RevealGlobal is the global-admin variant of Reveal: the login id is global,
+// no organization scoping. Wired on the system router only.
+func (h *MQTTExternalClientsHandler) RevealGlobal(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid login id"})
+		return
+	}
+	ctx := c.Request.Context()
+	var username, enc string
+	var rowOrg int
+	err = h.db.QueryRowContext(ctx,
+		`SELECT username, COALESCE(password_enc,''), org_id FROM mqtt_external_clients WHERE id = $1`,
+		id).Scan(&username, &enc, &rowOrg)
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "login not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read the login"})
+		return
+	}
+	if enc == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "no stored password for this login — rotate it once to set one"})
+		return
+	}
+	password, err := crypto.Decrypt(enc)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decrypt the password"})
+		return
+	}
+	h.auditReveal(c, rowOrg, username)
+	c.JSON(http.StatusOK, gin.H{"id": id, "username": username, "password": password, "org_id": rowOrg})
+}
+
+// Reveal handles GET /api/organizations/:id/mqtt-clients/:clientId/password
+// — the org-scoped variant. Shows the current secret once more — audited,
+// never logged.
+func (h *MQTTExternalClientsHandler) Reveal(c *gin.Context) {
+	orgID, ok := h.org(c)
+	if !ok {
+		return
+	}
+	id, err := strconv.Atoi(c.Param("clientId"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid login id"})
+		return
+	}
+	ctx := c.Request.Context()
+	var username, enc string
+	err = h.db.QueryRowContext(ctx,
+		`SELECT username, COALESCE(password_enc,'') FROM mqtt_external_clients WHERE id = $1 AND org_id = $2`,
+		id, orgID).Scan(&username, &enc)
+	if errors.Is(err, sql.ErrNoRows) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "login not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read the login"})
+		return
+	}
+	if enc == "" {
+		// Created before secrets were stored: only rotation can give a
+		// showable password from here on.
+		c.JSON(http.StatusNotFound, gin.H{"error": "no stored password for this login — rotate it once to set one"})
+		return
+	}
+	password, err := crypto.Decrypt(enc)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to decrypt the password"})
+		return
+	}
+	h.auditReveal(c, orgID, username)
+	c.JSON(http.StatusOK, gin.H{"id": id, "username": username, "password": password})
 }
 
 // MaintainedClient is one registry row with its organization, for the
