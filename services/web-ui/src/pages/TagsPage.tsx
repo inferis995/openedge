@@ -1518,7 +1518,6 @@ const TagsPage = () => {
                                                                     {status === 'good' ? tr('tagsPage.quality_good') : status === 'unknown' ? tr('tagsPage.quality_unknown') : tr('tagsPage.quality_bad')}
                                                                 </Badge>
                                                             )}
-                                                            </div>
                                                             {/* Timestamp: for a stale tag this is the last real
                                                                 message, not a fresh reading. */}
                                                             {currentValue?.timestamp && (
