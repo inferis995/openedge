@@ -122,8 +122,8 @@ func (h *I3XHandler) currentValueFromRedis(tagID int) *i3x.PropertyValue {
 		return nil
 	}
 	var gwID int
-	if err := h.db.QueryRow(`SELECT gateway_id FROM tags WHERE id = $1`, tagID).Scan(&gwID); err == nil {
-		ApplyStaleAging(h.db, gwID, &shadow)
+	if err := h.db.QueryRowContext(c.Request.Context(), `SELECT gateway_id FROM tags WHERE id = $1`, tagID).Scan(&gwID); err == nil {
+		ApplyStaleAging(c.Request.Context(), h.db, gwID, &shadow)
 	}
 	ts := time.Unix(0, shadow.Ts*int64(time.Millisecond))
 	if shadow.Ts == 0 {

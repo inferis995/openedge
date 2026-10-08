@@ -619,9 +619,9 @@ func (h *SystemHandler) RepublishRetained(c *gin.Context) {
 	var err error
 	if req.OrgID > 0 {
 		query += ` WHERE o.id = $1`
-		rows, err = h.db.Query(query, req.OrgID)
+		rows, err = h.db.QueryContext(c.Request.Context(), query, req.OrgID)
 	} else {
-		rows, err = h.db.Query(query)
+		rows, err = h.db.QueryContext(c.Request.Context(), query)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list tags"})
@@ -649,11 +649,11 @@ func (h *SystemHandler) RepublishRetained(c *gin.Context) {
 			continue
 		}
 		var shadow TagShadowResponse
-		if err := json.Unmarshal([]byte(raw), &shadow); err != nil || shadow.Value == nil {
+		if uerr := json.Unmarshal([]byte(raw), &shadow); uerr != nil || shadow.Value == nil {
 			skipped++
 			continue
 		}
-		ApplyStaleAging(h.db, gwID, &shadow)
+		ApplyStaleAging(c.Request.Context(), h.db, gwID, &shadow)
 		payload := models.TagPayload{
 			TagID:     tagID,
 			OrgID:     orgID,
