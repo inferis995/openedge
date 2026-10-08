@@ -44,7 +44,8 @@ import {
 } from '@/components/ui/tabs';
 import { TagAlarmsTab } from '@/components/tags/TagAlarmsTab';
 
-import { Plus, Trash2, Edit2, Database, Upload, Download, ArrowUp, ArrowDown, CheckSquare, Square, X, Bell, BellRing, Pencil } from 'lucide-react';
+import { Plus, Trash2, Edit2, Database, Upload, Download, ArrowUp, ArrowDown, CheckSquare, Square, X, Bell, BellRing, Pencil, History } from 'lucide-react';
+import TagHistoryChart from '@/components/TagHistoryChart';
 import { CreateTagDto, OpcUaNode } from '@/types';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
@@ -116,6 +117,8 @@ const TagsPage = () => {
 
     const [isOpen, setIsOpen] = useState(false);
     const [writeDialogTag, setWriteDialogTag] = useState<{ id: number; alias: string; dataType: string; currentValue: unknown } | null>(null);
+    // Tag whose history the operator opened with the clock button (shared chart).
+    const [historyTag, setHistoryTag] = useState<{ id: number; alias: string } | null>(null);
     const [writeValue, setWriteValue] = useState<string>('');
     const [writeLoading, setWriteLoading] = useState(false);
 
@@ -1510,19 +1513,40 @@ const TagsPage = () => {
                                                                 </Badge>
                                                             )}
 
-                                                            {/* Timestamp tooltip */}
+                                                            {/* Timestamp: for a stale tag this is the last real
+                                                                message, not a fresh reading — say so explicitly. */}
                                                             {currentValue?.timestamp && (
-                                                                <span
-                                                                    className={`text-xs ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
-                                                                    title={tr('tagsPage.last_update', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })}
-                                                                >
-                                                                    {/* Date and time: a logger's value can be hours or days old. */}
-                                                                    {new Date(currentValue.timestamp).toLocaleString(i18n.language, { hour12: false, day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                                <span className="flex flex-col leading-tight">
+                                                                    <span
+                                                                        className={`text-xs ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
+                                                                        title={status === 'bad'
+                                                                            ? tr('tagsPage.last_message_title', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })
+                                                                            : tr('tagsPage.last_update', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })}
+                                                                    >
+                                                                        {/* Date and time: a logger's value can be hours or days old. */}
+                                                                        {new Date(currentValue.timestamp).toLocaleString(i18n.language, { hour12: false, day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                                    </span>
+                                                                    {status === 'bad' && (
+                                                                        <span className="text-[10px] text-red-500/80">
+                                                                            {tr('tagsPage.offline_since')}
+                                                                        </span>
+                                                                    )}
                                                                 </span>
                                                             )}
                                                         </>
                                                     );
                                                 })()}
+                                                {/* History button: same samples-and-range chart as I3X and the map. */}
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-9 sm:h-6 w-9 sm:w-6 shrink-0"
+                                                    title={tr('tagsPage.view_history')}
+                                                    aria-label={tr('tagsPage.view_history')}
+                                                    onClick={() => setHistoryTag({ id: tag.id, alias: tag.alias || tag.code || `#${tag.id}` })}
+                                                >
+                                                    <History size={13} />
+                                                </Button>
                                                 {/* Write button */}
                                                 {isAdmin() && (
                                                     <Button
@@ -1745,6 +1769,17 @@ const TagsPage = () => {
                             {writeLoading ? tr('tagsPage.writing') : tr('tagsPage.write')}
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            {/* Shared history chart for the clock button: same view as I3X and the map. */}
+            <Dialog open={historyTag !== null} onOpenChange={(open) => { if (!open) setHistoryTag(null); }}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>{historyTag?.alias}</DialogTitle>
+                    </DialogHeader>
+                    {historyTag && (
+                        <TagHistoryChart tagId={historyTag.id} tagName={historyTag.alias} height={220} />
+                    )}
                 </DialogContent>
             </Dialog>
         </div >
