@@ -637,22 +637,27 @@ func (h *SystemHandler) RepublishRetained(c *gin.Context) {
 		if err := rows.Scan(&tagID, &alias, &orgID, &orgName, &siteName, &areaName, &gwName, &gwID); err != nil {
 			continue
 		}
-		// Last known value: the tag_shadow the UI reads (nil Redis -> skip,
-		// never invent a value).
-		if h.redisClient == nil {
+		// Last known value: the last REAL sample in history (value NOT NULL).
+		// tag_shadow is not trusted here — it can hold a placeholder zero
+		// written by an earlier backfill over an offline stretch, while the
+		// sweep's offline markers are NULL by design. History is the source
+		// of truth; a tag with no real sample yet is skipped, never invented.
+		var hval sql.NullString
+		var htime time.Time
+		herr := h.db.QueryRowContext(c.Request.Context(),
+			`SELECT value::text, time FROM tag_history
+			 WHERE tag_id = $1 AND value IS NOT NULL
+			 ORDER BY time DESC LIMIT 1`, tagID).Scan(&hval, &htime)
+		if herr != nil || !hval.Valid {
 			skipped++
 			continue
 		}
-		raw, err := h.redisClient.Get(fmt.Sprintf("tag_shadow:%d", tagID))
-		if err != nil {
-			skipped++
-			continue
+		var v interface{}
+		if uerr := json.Unmarshal([]byte(hval.String), &v); uerr != nil {
+			v = hval.String
 		}
-		var shadow TagShadowResponse
-		if uerr := json.Unmarshal([]byte(raw), &shadow); uerr != nil || shadow.Value == nil {
-			skipped++
-			continue
-		}
+		shadow := TagShadowResponse{TagID: tagID, Value: v,
+			Ts: htime.UnixMilli(), Quality: 0, Source: "history"}
 		ApplyStaleAging(c.Request.Context(), h.db, gwID, &shadow)
 		payload := models.TagPayload{
 			TagID:     tagID,

@@ -17,7 +17,8 @@ import type { Tag, Gateway, Area } from '@/types';
 import { gatewaysApi } from '@/api/gateways';
 import { areasApi } from '@/api/areas';
 import { parseCoords, formatCoord, searchPlace, type PlaceResult } from '@/lib/coords';
-import { Battery, Cpu, Loader2, MapPin, Search } from 'lucide-react';
+import { Battery, Cpu, History, Loader2, MapPin, Search } from 'lucide-react';
+import TagHistoryChart from '@/components/TagHistoryChart';
 
 // Stile Carto Dark Matter GL: vettoriale, gratuito, senza API key.
 // Carto Dark Matter in versione raster: le tile PNG si vedono ovunque
@@ -1020,6 +1021,8 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
     const { t } = useTranslation();
     const [now, setNow] = useState(() => Date.now());
     useEffect(() => { const id = setInterval(() => setNow(Date.now()), 5000); return () => clearInterval(id); }, []);
+    // Same samples-and-range history as I3X and the Tags table, inside the popup.
+    const [showHistory, setShowHistory] = useState(false);
     const ago = live.ts > 0 ? Math.max(0, Math.round((now - live.ts) / 1000)) : null;
     return (
         <div className="space-y-2 text-sm">
@@ -1037,6 +1040,9 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
             <div className="text-[11px] text-muted-foreground">
                 {ago !== null ? t('map.updated_ago', { s: ago }) : t('map.never_updated')}
             </div>
+            {live.quality !== 0 && (
+                <div className="text-[11px] text-red-500">{t('map.offline_no_new_data')}</div>
+            )}
             <div className="flex gap-2 pt-1">
                 <button
                     type="button"
@@ -1048,11 +1054,24 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
                 <button
                     type="button"
                     className="px-2 py-1 rounded border border-white/20 text-xs hover:bg-white/10"
+                    onClick={() => setShowHistory((v) => !v)}
+                >
+                    <History size={12} className="inline mr-1 -mt-0.5" />
+                    {t('map.history')}
+                </button>
+                <button
+                    type="button"
+                    className="px-2 py-1 rounded border border-white/20 text-xs hover:bg-white/10"
                     onClick={onClose}
                 >
                     {t('common.close')}
                 </button>
             </div>
+            {showHistory && (
+                <div className="pt-2 min-w-[280px]">
+                    <TagHistoryChart tagId={tag.id} tagName={tag.alias || tag.code || `#${tag.id}`} height={120} />
+                </div>
+            )}
         </div>
     );
 }

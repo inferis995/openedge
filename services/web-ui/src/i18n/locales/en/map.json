@@ -27,6 +27,8 @@
     "updated_ago": "Updated {{s}}s ago",
     "never_updated": "Never updated",
     "pick_gateway": "Go to gateway…",
-    "all_areas": "All areas"
+    "all_areas": "All areas",
+    "history": "History",
+    "offline_no_new_data": "Offline — no new data since the message above"
   }
 }
