@@ -25,6 +25,7 @@ export interface BackupAuditEntry {
 
 export interface GlobalSettings {
     publish_mode: string;
+    retain_last_values?: string;
     rbe_heartbeat_seconds: string;
     rbe_deadband_percent: string;
     write_command_max_age_seconds?: string;
