@@ -105,7 +105,6 @@ func (d *DynsecClient) onResponse(_ string, payload []byte) {
 		case ch <- resp:
 		default:
 		}
-	}
 }
 
 // ensureSubscribed (re)subscribes the control response topic. The subscription
