@@ -22,7 +22,7 @@ import { historyApi } from '@/api/history';
 import { startLoad } from '@/lib/startLoad';
 import i18n from '@/i18n';
 
-export const TAG_HISTORY_RANGES = [
+const TAG_HISTORY_RANGES = [
     { label: '1h', value: 1 },
     { label: '6h', value: 6 },
     { label: '24h', value: 24 },
@@ -77,8 +77,10 @@ export default function TagHistoryChart({
         }
     }, [tagId, range]);
 
+    // Loading starts true on mount and on every range/tag change (the
+    // select handler sets it); the fetch clears it. Nothing is set inside
+    // the effect itself.
     useEffect(() => {
-        setLoading(true);
         startLoad(fetchHistory);
     }, [fetchHistory]);
 
