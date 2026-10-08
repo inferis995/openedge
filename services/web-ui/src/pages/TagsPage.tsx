@@ -1398,7 +1398,7 @@ const TagsPage = () => {
                             tagsList.map((tag) => {
                                 const currentValue = currentValues.get(tag.id);
                                 return (
-                                    <TableRow key={tag.id} className={`${selectedTagIds.includes(tag.id) ? 'bg-muted/50' : 'hover:bg-muted/30'}`}>
+                                    <TableRow key={tag.id} className={`${selectedTagIds.includes(tag.id) ? 'bg-muted/50' : 'hover:bg-muted/30'} [&>td]:py-3`}>
                                         {isAdmin() && (
                                             <TableCell>
                                                 <div className="flex items-center gap-1">
@@ -1460,7 +1460,7 @@ const TagsPage = () => {
                                             <Badge variant="secondary" className="text-xs">{tag.data_type}</Badge>
                                         </TableCell>
                                         <TableCell>
-                                            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                                            <div className="flex flex-col gap-1">
                                                 {/* Value display with distinct styling */}
                                                 {(() => {
                                                     const deviceName = gatewayMap.get(tag.gateway_id)?.name;
@@ -1470,16 +1470,17 @@ const TagsPage = () => {
 
                                                     return (
                                                         <>
+                                                            <div className="flex items-center gap-2">
                                                             {/* Quality dot */}
                                                             {currentValue && (
                                                                 <span className={[
-                                                                    'inline-block w-2 h-2 rounded-full shrink-0',
+                                                                    'inline-block w-2.5 h-2.5 rounded-full shrink-0',
                                                                     currentValue.quality === 0 ? 'bg-green-500' :
                                                                     currentValue.quality === 1 ? 'bg-yellow-500' : 'bg-red-500'
                                                                 ].join(' ')} />
                                                             )}
                                                             <div className={`
-                                                                font-mono font-medium px-2 py-1 rounded border min-w-[80px] text-center
+                                                                font-mono font-semibold text-sm px-3 py-1.5 rounded-md border min-w-[92px] text-center
                                                                 ${statusClasses.bg} ${statusClasses.border} ${statusClasses.text}
                                                             `}>
                                                                 {currentValue ? (
@@ -1512,23 +1513,24 @@ const TagsPage = () => {
                                                                     {status === 'good' ? tr('tagsPage.quality_good') : status === 'unknown' ? tr('tagsPage.quality_unknown') : tr('tagsPage.quality_bad')}
                                                                 </Badge>
                                                             )}
+                                                            </div>
 
-                                                            {/* Timestamp: for a stale tag this is the last real
-                                                                message, not a fresh reading — say so explicitly. */}
+                                                            {/* Timestamp on its own line: for a stale tag this is
+                                                                the last real message, not a fresh reading. */}
                                                             {currentValue?.timestamp && (
-                                                                <span className="flex flex-col leading-tight">
+                                                                <span className="flex items-center gap-1.5 leading-tight pl-4">
                                                                     <span
-                                                                        className={`text-xs ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
+                                                                        className={`text-[11px] ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
                                                                         title={status === 'bad'
                                                                             ? tr('tagsPage.last_message_title', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })
                                                                             : tr('tagsPage.last_update', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })}
                                                                     >
                                                                         {/* Date and time: a logger's value can be hours or days old. */}
-                                                                        {new Date(currentValue.timestamp).toLocaleString(i18n.language, { hour12: false, day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                                                        {new Date(currentValue.timestamp).toLocaleString(i18n.language, { hour12: false, day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
                                                                     </span>
                                                                     {status === 'bad' && (
                                                                         <span className="text-[10px] text-red-500/80">
-                                                                            {tr('tagsPage.offline_since')}
+                                                                            · {tr('tagsPage.offline_since')}
                                                                         </span>
                                                                     )}
                                                                 </span>
@@ -1537,6 +1539,7 @@ const TagsPage = () => {
                                                     );
                                                 })()}
                                                 {/* History button: same samples-and-range chart as I3X and the map. */}
+                                                <div className="flex items-center gap-1 pl-4">
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
@@ -1566,6 +1569,7 @@ const TagsPage = () => {
                                                         <Pencil size={13} />
                                                     </Button>
                                                 )}
+                                                </div>
                                             </div>
                                         </TableCell>
                                         <TableCell className="hidden lg:table-cell">
