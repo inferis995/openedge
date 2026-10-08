@@ -55,6 +55,15 @@ type dynsecResponse struct {
 		Command         string `json:"command"`
 		CorrelationData string `json:"correlationData,omitempty"`
 		Error           string `json:"error,omitempty"`
+		Data            struct {
+			Clients []struct {
+				Username string `json:"username"`
+				Disabled bool   `json:"disabled"`
+				Roles    []struct {
+					Rolename string `json:"rolename"`
+				} `json:"roles"`
+			} `json:"clients"`
+		} `json:"data,omitempty"`
 	} `json:"responses"`
 }
 
@@ -675,4 +684,89 @@ func (d *DynsecClient) DeleteExternalReader(username string) error {
 	return d.send([]map[string]interface{}{
 		{"command": "deleteClient", "username": username},
 	}, newCorrID())
+}
+
+// SetExternalPassword rotates one external system's password without
+// touching its roles: rotation never widens or narrows access.
+func (d *DynsecClient) SetExternalPassword(username, password string) error {
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
+	return d.send([]map[string]interface{}{
+		{"command": "setClientPassword", "username": username, "password": password},
+	}, newCorrID())
+}
+
+// SetClientEnabled flips a client without deleting it: disabling keeps the
+// identity (and an audit trail of it) while cutting access immediately.
+func (d *DynsecClient) SetClientEnabled(username string, enabled bool) error {
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
+	cmd := "disableClient"
+	if enabled {
+		cmd = "enableClient"
+	}
+	return d.send([]map[string]interface{}{
+		{"command": cmd, "username": username},
+	}, newCorrID())
+}
+
+// BrokerClient is one identity the broker knows about, for the maintenance
+// panel: what exists, not what we think exists.
+type BrokerClient struct {
+	Username string `json:"username"`
+	Disabled bool   `json:"disabled"`
+	Roles    []string `json:"roles"`
+}
+
+// ListBrokerClients returns every client known to the broker (drivers, UI
+// viewers, external systems). Read-only: the panel shows it so the admin can
+// reconcile the broker against the registry, never edits it from here.
+func (d *DynsecClient) ListBrokerClients() ([]BrokerClient, error) {
+	d.cmdMu.Lock()
+	defer d.cmdMu.Unlock()
+
+	ch := make(chan dynsecResponse, 1)
+	corr := newCorrID()
+	d.mu.Lock()
+	d.responseCh, d.correlationID = ch, corr
+	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		d.responseCh, d.correlationID = nil, ""
+		d.mu.Unlock()
+	}()
+
+	data, err := json.Marshal(dynsecCmd{Commands: []map[string]interface{}{
+		{"command": "listClients", "correlationData": corr},
+	}})
+	if err != nil {
+		return nil, err
+	}
+	if err := d.client.Publish("$CONTROL/dynamic-security/v1", data); err != nil {
+		return nil, fmt.Errorf("dynsec publish: %w", err)
+	}
+	select {
+	case resp := <-ch:
+		for _, r := range resp.Responses {
+			if r.Error != "" {
+				return nil, fmt.Errorf("dynsec %s: %s", r.Command, r.Error)
+			}
+		}
+		var out []BrokerClient
+		for _, r := range resp.Responses {
+			if len(r.Data.Clients) == 0 {
+				continue
+			}
+			for _, c := range r.Data.Clients {
+				bc := BrokerClient{Username: c.Username, Disabled: c.Disabled}
+				for _, rl := range c.Roles {
+					bc.Roles = append(bc.Roles, rl.Rolename)
+				}
+				out = append(out, bc)
+			}
+		}
+		return out, nil
+	case <-time.After(dynsecTimeout):
+		return nil, fmt.Errorf("dynsec listClients timed out")
+	}
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, KeyRound, Plus, Trash2 } from 'lucide-react';
+import { Copy, KeyRound, Pause, Play, Plus, RotateCw, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -42,6 +42,21 @@ export default function MqttClientsPanel({ orgId }: { orgId: number }) {
         onError: (e) => showApiError(e),
     });
 
+    const rotate = useMutation({
+        mutationFn: (id: number) => mqttClientsApi.rotate(orgId, id),
+        onSuccess: (r) => {
+            setFresh({ username: r.username, password: r.password, broker: '' });
+            void qc.invalidateQueries({ queryKey: ['mqtt-clients', orgId] });
+        },
+        onError: (e) => showApiError(e),
+    });
+
+    const toggle = useMutation({
+        mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) => mqttClientsApi.setEnabled(orgId, id, enabled),
+        onSuccess: () => void qc.invalidateQueries({ queryKey: ['mqtt-clients', orgId] }),
+        onError: (e) => showApiError(e),
+    });
+
     const remove = useMutation({
         mutationFn: (id: number) => mqttClientsApi.remove(orgId, id),
         onSuccess: () => void qc.invalidateQueries({ queryKey: ['mqtt-clients', orgId] }),
@@ -79,7 +94,7 @@ export default function MqttClientsPanel({ orgId }: { orgId: number }) {
                 <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 space-y-2 text-sm">
                     <p className="font-medium">{t('mqttClients.once')}</p>
                     {[
-                        [t('mqttClients.broker'), fresh.broker],
+                        ...(fresh.broker ? [[t('mqttClients.broker'), fresh.broker]] : []),
                         [t('mqttClients.username'), fresh.username],
                         [t('mqttClients.password'), fresh.password],
                         [t('mqttClients.topics'), 'data/#   ·   spBv1.0/#'],
@@ -105,7 +120,8 @@ export default function MqttClientsPanel({ orgId }: { orgId: number }) {
                             <TableHead>{t('mqttClients.what_for')}</TableHead>
                             <TableHead>{t('mqttClients.username')}</TableHead>
                             <TableHead>{t('common.created_at')}</TableHead>
-                            <TableHead className="w-12" />
+                            <TableHead>{t('mqttClients.status')}</TableHead>
+                            <TableHead className="w-28" />
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -115,6 +131,34 @@ export default function MqttClientsPanel({ orgId }: { orgId: number }) {
                                 <TableCell className="font-mono text-xs">{c.username}</TableCell>
                                 <TableCell className="text-xs text-muted-foreground">{new Date(c.created_at).toLocaleDateString(i18n.language)}</TableCell>
                                 <TableCell>
+                                    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${!c.on_broker ? 'bg-red-500/10 text-red-600' : c.enabled ? 'bg-green-500/10 text-green-600' : 'bg-slate-500/10 text-slate-500'}`}>
+                                        {!c.on_broker ? t('mqttClients.stale') : c.enabled ? t('mqttClients.active') : t('mqttClients.disabled')}
+                                    </span>
+                                </TableCell>
+                                <TableCell>
+                                    <div className="flex items-center gap-1">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8"
+                                        aria-label={t('mqttClients.rotate')}
+                                        title={t('mqttClients.rotate')}
+                                        disabled={rotate.isPending}
+                                        onClick={() => rotate.mutate(c.id)}
+                                    >
+                                        <RotateCw size={14} />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8"
+                                        aria-label={c.enabled ? t('mqttClients.disable') : t('mqttClients.enable')}
+                                        title={c.enabled ? t('mqttClients.disable') : t('mqttClients.enable')}
+                                        disabled={toggle.isPending}
+                                        onClick={() => toggle.mutate({ id: c.id, enabled: !c.enabled })}
+                                    >
+                                        {c.enabled ? <Pause size={14} /> : <Play size={14} />}
+                                    </Button>
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -131,6 +175,7 @@ export default function MqttClientsPanel({ orgId }: { orgId: number }) {
                                     >
                                         <Trash2 size={14} />
                                     </Button>
+                                    </div>
                                 </TableCell>
                             </TableRow>
                         ))}

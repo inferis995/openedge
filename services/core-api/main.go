@@ -399,6 +399,7 @@ func main() {
 	historyHandler.InitializeRetentionPolicy()
 
 	systemHandler := handlers.NewSystemHandler(database, mqttClient, settingsMgr, historyHandler)
+	mqttClientsHandler := handlers.NewMQTTExternalClientsHandler(database, dynsecClient)
 	// Typed-nil guard: a nil *redis.Client inside the interface would pass
 	// the nil check and panic on first Get — attach only when connected.
 	if redisClient != nil {
@@ -690,6 +691,11 @@ func main() {
 			// Tries a broker the settings page is about to save.
 			system.POST("/mqtt/test", middleware.RequireGlobalAdmin(), systemHandler.TestMQTTBroker)
 			system.POST("/mqtt/republish-retained", middleware.RequireGlobalAdmin(), systemHandler.RepublishRetained)
+
+			// Global-admin maintenance over every org's external MQTT logins,
+			// plus the read-only broker reconciliation view.
+			system.GET("/mqtt/external-clients", middleware.RequireGlobalAdmin(), mqttClientsHandler.ListAll)
+			system.GET("/mqtt/broker-clients", middleware.RequireGlobalAdmin(), mqttClientsHandler.BrokerList)
 			system.GET("/metrics", systemHandler.GetMetrics)
 			// Fire a synthetic alarm to every configured notification channel.
 			// Operator-facing "is my SMTP / Telegram setup actually working?"
@@ -1058,12 +1064,13 @@ func main() {
 
 		// MQTT logins for an organization's external systems (SCADA, Node-RED,
 		// MES): read-only on the broker, one per system, revocable.
-		mqttClientsHandler := handlers.NewMQTTExternalClientsHandler(database, dynsecClient)
 		orgMQTT := api.Group("/organizations/:id/mqtt-clients")
 		orgMQTT.Use(middleware.RequireAuth, middleware.RequireRole(models.RoleAdmin), middleware.RequireOrgParam("id"))
 		{
 			orgMQTT.GET("", mqttClientsHandler.List)
 			orgMQTT.POST("", mqttClientsHandler.Create)
+			orgMQTT.POST("/:clientId/rotate", mqttClientsHandler.Rotate)
+			orgMQTT.POST("/:clientId/enabled", mqttClientsHandler.SetEnabled)
 			orgMQTT.DELETE("/:clientId", mqttClientsHandler.Delete)
 		}
 

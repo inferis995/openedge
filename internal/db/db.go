@@ -176,6 +176,15 @@ func runAutoMigrations(db *sql.DB) error {
 		('oee_target_pieces_per_hour', '0',   'Rate target di produzione (pezzi/ora) — usato per il calcolo Performance.'),
 		('retain_last_values', 'true', 'Quando true, i driver pubblicano i dati legacy con flag retained: un iscritto tardivo (app esterna, tab Ultimi valori) legge subito l ultimo valore noto. Il payload porta il timestamp, quindi si capisce quanto e vecchio.')
 	ON CONFLICT (key) DO NOTHING;`
+	// External MQTT logins registry (see mqtt_external_clients.go): the table
+	// predates the maintenance panel, which only adds columns.
+	for _, alter := range []string{
+		`ALTER TABLE mqtt_external_clients ADD COLUMN IF NOT EXISTS enabled BOOL NOT NULL DEFAULT TRUE`,
+	} {
+		if _, err := db.Exec(alter); err != nil {
+			log.Printf("Warning: failed to migrate mqtt_external_clients: %v", err)
+		}
+	}
 	if _, err := db.Exec(notifSeed); err != nil {
 		log.Printf("Warning: failed to seed notification settings: %v", err)
 	}
