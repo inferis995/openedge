@@ -180,6 +180,7 @@ func runAutoMigrations(db *sql.DB) error {
 	// predates the maintenance panel, which only adds columns.
 	for _, alter := range []string{
 		`ALTER TABLE mqtt_external_clients ADD COLUMN IF NOT EXISTS enabled BOOL NOT NULL DEFAULT TRUE`,
+		`ALTER TABLE mqtt_external_clients ADD COLUMN IF NOT EXISTS password_enc TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.ExecContext(context.Background(), alter); err != nil {
 			log.Printf("Warning: failed to migrate mqtt_external_clients: %v", err)

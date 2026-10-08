@@ -7,6 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { EmptyState } from '@/components/ui/empty-state';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { mqttMaintenanceApi } from '@/api/mqttClients';
+import { Button } from '@/components/ui/button';
+import { Eye } from 'lucide-react';
 import { organizationsApi } from '@/api/organizations';
 
 /**
@@ -21,6 +23,9 @@ export default function MqttMaintenancePanel() {
     const qc = useQueryClient();
     const [orgFilter, setOrgFilter] = useState<string>('all');
     const [showBroker, setShowBroker] = useState(false);
+    // Revealed secret display: cleared as soon as the admin acknowledges it.
+    const [revealed, setRevealed] = useState<{ username: string; password: string } | null>(null);
+    const [revealing, setRevealing] = useState(false);
 
     const { data: orgs = [] } = useQuery({
         queryKey: ['organizations'],
@@ -82,6 +87,12 @@ export default function MqttMaintenancePanel() {
                         </div>
                     </div>
                 </CardHeader>
+                {revealed && (
+                    <div className="mx-6 mt-4 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 text-sm flex items-center gap-2">
+                        <code className="font-mono text-xs break-all flex-1">{revealed.username}: {revealed.password}</code>
+                        <Button size="sm" variant="outline" onClick={() => setRevealed(null)}>{t('mqttClients.saved_it')}</Button>
+                    </div>
+                )}
                 <CardContent className="pt-4">
                     {regLoading ? (
                         <p className="text-sm text-muted-foreground py-4 text-center">{t('common.loading')}</p>
@@ -95,6 +106,7 @@ export default function MqttMaintenancePanel() {
                                     <TableHead>{t('mqttClients.what_for')}</TableHead>
                                     <TableHead>{t('mqttClients.username')}</TableHead>
                                     <TableHead>{t('mqttClients.status')}</TableHead>
+                                    <TableHead className="w-12" />
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -107,6 +119,29 @@ export default function MqttMaintenancePanel() {
                                             <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[11px] font-medium ${!c.on_broker ? 'bg-red-500/10 text-red-600' : c.enabled ? 'bg-green-500/10 text-green-600' : 'bg-slate-500/10 text-slate-500'}`}>
                                                 {!c.on_broker ? t('mqttClients.stale') : c.enabled ? t('mqttClients.active') : t('mqttClients.disabled')}
                                             </span>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8"
+                                                aria-label={t('mqttClients.show')}
+                                                title={t('mqttClients.show_title')}
+                                                disabled={revealing}
+                                                onClick={async () => {
+                                                    setRevealing(true);
+                                                    try {
+                                                        const r = await mqttMaintenanceApi.revealPassword(c.id);
+                                                        setRevealed({ username: r.username, password: r.password });
+                                                    } catch {
+                                                        /* api-error toast handled globally */
+                                                    } finally {
+                                                        setRevealing(false);
+                                                    }
+                                                }}
+                                            >
+                                                <Eye size={14} />
+                                            </Button>
                                         </TableCell>
                                     </TableRow>
                                 ))}

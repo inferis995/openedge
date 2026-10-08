@@ -26,18 +26,23 @@ export const mqttClientsApi = {
         return data;
     },
     /** The password is in this response only; it is not stored anywhere. */
-    create: async (orgId: number, description: string): Promise<MqttExternalClient & {
+    create: async (orgId: number, description: string, password?: string): Promise<MqttExternalClient & {
         password: string; broker_host: string; broker_port: number; broker_tls: boolean;
     }> => {
-        const { data } = await api.post(`/organizations/${orgId}/mqtt-clients`, { description });
+        const { data } = await api.post(`/organizations/${orgId}/mqtt-clients`, { description, password: password || undefined });
+        return data;
+    },
+    /** Re-show the current secret (audited server-side, never logged). */
+    reveal: async (orgId: number, id: number): Promise<{ username: string; password: string }> => {
+        const { data } = await api.get(`/organizations/${orgId}/mqtt-clients/${id}/password`);
         return data;
     },
     remove: async (orgId: number, id: number): Promise<void> => {
         await api.delete(`/organizations/${orgId}/mqtt-clients/${id}`);
     },
     /** New password, shown once. The username does not change. */
-    rotate: async (orgId: number, id: number): Promise<{ username: string; password: string }> => {
-        const { data } = await api.post(`/organizations/${orgId}/mqtt-clients/${id}/rotate`);
+    rotate: async (orgId: number, id: number, password?: string): Promise<{ username: string; password: string }> => {
+        const { data } = await api.post(`/organizations/${orgId}/mqtt-clients/${id}/rotate`, { password: password || undefined });
         return data;
     },
     setEnabled: async (orgId: number, id: number, enabled: boolean): Promise<void> => {
@@ -49,6 +54,11 @@ export const mqttMaintenanceApi = {
     /** Whole registry across organizations (global admin). */
     listAll: async (orgId?: number): Promise<{ items: MaintainedMqttClient[]; total: number }> => {
         const { data } = await api.get('/system/mqtt/external-clients', orgId ? { params: { org_id: orgId } } : undefined);
+        return data;
+    },
+    /** Re-show any login's secret (global admin, audited). */
+    revealPassword: async (id: number): Promise<{ username: string; password: string; org_id: number }> => {
+        const { data } = await api.get(`/system/mqtt/external-clients/${id}/password`);
         return data;
     },
     /** Every identity the broker knows, read-only (global admin). */

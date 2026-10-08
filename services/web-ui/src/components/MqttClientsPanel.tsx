@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Copy, KeyRound, Pause, Play, Plus, RotateCw, Trash2 } from 'lucide-react';
+import { Copy, Eye, KeyRound, Pause, Play, Plus, RotateCw, Trash2 } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,7 +22,13 @@ export default function MqttClientsPanel({ orgId }: { orgId: number }) {
     const { t, i18n } = useTranslation();
     const qc = useQueryClient();
     const [description, setDescription] = useState('');
+    // Optional operator-chosen secret (12+ chars); empty = the system generates one.
+    const [customPw, setCustomPw] = useState('');
     const [fresh, setFresh] = useState<{ username: string; password: string; broker: string } | null>(null);
+    // Rotation target: null = dialog closed. mode 'generate' or 'custom'.
+    const [rotateTarget, setRotateTarget] = useState<{ id: number; description: string } | null>(null);
+    const [rotateMode, setRotateMode] = useState<'generate' | 'custom'>('generate');
+    const [rotatePw, setRotatePw] = useState('');
 
     const { data: clients = [] } = useQuery({
         queryKey: ['mqtt-clients', orgId],
@@ -29,7 +36,7 @@ export default function MqttClientsPanel({ orgId }: { orgId: number }) {
     });
 
     const create = useMutation({
-        mutationFn: () => mqttClientsApi.create(orgId, description.trim()),
+        mutationFn: () => mqttClientsApi.create(orgId, description.trim(), customPw.trim() || undefined),
         onSuccess: (c) => {
             setFresh({
                 username: c.username,
@@ -37,16 +44,28 @@ export default function MqttClientsPanel({ orgId }: { orgId: number }) {
                 broker: `${c.broker_tls ? 'mqtts' : 'mqtt'}://${c.broker_host}:${c.broker_port}`,
             });
             setDescription('');
+            setCustomPw('');
             void qc.invalidateQueries({ queryKey: ['mqtt-clients', orgId] });
         },
         onError: (e) => showApiError(e),
     });
 
     const rotate = useMutation({
-        mutationFn: (id: number) => mqttClientsApi.rotate(orgId, id),
+        mutationFn: ({ id, password }: { id: number; password?: string }) => mqttClientsApi.rotate(orgId, id, password),
         onSuccess: (r) => {
             setFresh({ username: r.username, password: r.password, broker: '' });
+            setRotateTarget(null);
+            setRotatePw('');
+            setRotateMode('generate');
             void qc.invalidateQueries({ queryKey: ['mqtt-clients', orgId] });
+        },
+        onError: (e) => showApiError(e),
+    });
+
+    const reveal = useMutation({
+        mutationFn: (id: number) => mqttClientsApi.reveal(orgId, id),
+        onSuccess: (r) => {
+            setFresh({ username: r.username, password: r.password, broker: '' });
         },
         onError: (e) => showApiError(e),
     });
@@ -83,6 +102,17 @@ export default function MqttClientsPanel({ orgId }: { orgId: number }) {
                         maxLength={100}
                         onChange={(e) => setDescription(e.target.value)}
                         placeholder={t('mqttClients.what_for_ph')}
+                    />
+                </div>
+                <div className="sm:w-52 space-y-1">
+                    <Label htmlFor="mqtt-client-pw" className="text-xs">{t('mqttClients.password_opt')}</Label>
+                    <Input
+                        id="mqtt-client-pw"
+                        type="password"
+                        autoComplete="new-password"
+                        value={customPw}
+                        onChange={(e) => setCustomPw(e.target.value)}
+                        placeholder={t('mqttClients.password_opt_ph')}
                     />
                 </div>
                 <Button className="gap-2" onClick={() => create.mutate()} disabled={!description.trim() || create.isPending}>
@@ -141,10 +171,26 @@ export default function MqttClientsPanel({ orgId }: { orgId: number }) {
                                         variant="ghost"
                                         size="icon"
                                         className="h-8 w-8"
+                                        aria-label={t('mqttClients.show')}
+                                        title={t('mqttClients.show_title')}
+                                        disabled={reveal.isPending}
+                                        onClick={async () => {
+                                            if (await confirmAction({
+                                                title: t('mqttClients.show_title'),
+                                                description: t('mqttClients.show_desc'),
+                                                confirmLabel: t('mqttClients.show'),
+                                            })) reveal.mutate(c.id);
+                                        }}
+                                    >
+                                        <Eye size={14} />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8"
                                         aria-label={t('mqttClients.rotate')}
                                         title={t('mqttClients.rotate')}
-                                        disabled={rotate.isPending}
-                                        onClick={() => rotate.mutate(c.id)}
+                                        onClick={() => { setRotateTarget({ id: c.id, description: c.description }); setRotateMode('generate'); setRotatePw(''); }}
                                     >
                                         <RotateCw size={14} />
                                     </Button>
@@ -182,6 +228,43 @@ export default function MqttClientsPanel({ orgId }: { orgId: number }) {
                     </TableBody>
                 </Table>
             )}
+
+            <Dialog open={rotateTarget !== null} onOpenChange={(open) => { if (!open) setRotateTarget(null); }}>
+                <DialogContent className="max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>{t('mqttClients.rotate_title', { name: rotateTarget?.description ?? '' })}</DialogTitle>
+                        <DialogDescription>{t('mqttClients.rotate_desc')}</DialogDescription>
+                    </DialogHeader>
+                    <div className="grid gap-2 py-2">
+                        <label className="flex items-center gap-2 text-sm">
+                            <input type="radio" name="rotmode" checked={rotateMode === 'generate'} onChange={() => setRotateMode('generate')} />
+                            {t('mqttClients.rotate_generate')}
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                            <input type="radio" name="rotmode" checked={rotateMode === 'custom'} onChange={() => setRotateMode('custom')} />
+                            {t('mqttClients.rotate_custom')}
+                        </label>
+                        {rotateMode === 'custom' && (
+                            <Input
+                                type="password"
+                                autoComplete="new-password"
+                                value={rotatePw}
+                                onChange={(e) => setRotatePw(e.target.value)}
+                                placeholder={t('mqttClients.password_custom_ph')}
+                            />
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setRotateTarget(null)}>{t('common.cancel')}</Button>
+                        <Button
+                            disabled={rotate.isPending || (rotateMode === 'custom' && rotatePw.trim().length < 12)}
+                            onClick={() => rotateTarget && rotate.mutate({ id: rotateTarget.id, password: rotateMode === 'custom' ? rotatePw.trim() : undefined })}
+                        >
+                            {t('mqttClients.rotate')}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
