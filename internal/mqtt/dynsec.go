@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"log"
 
 	"github.com/ralph/industrial-edge-middleware/internal/naming"
 )
@@ -74,7 +75,14 @@ type dynsecResponse struct {
 func NewDynsecClient(c *Client) *DynsecClient {
 	d := &DynsecClient{client: c}
 
-	_ = c.Subscribe("$CONTROL/dynamic-security/v1/response", func(_ string, payload []byte) {
+	if err := d.ensureSubscribed(); err != nil {
+		log.Printf("[MQTT] dynsec response subscription failed at startup: %v (retried before every exchange)", err)
+	}
+	return d
+}
+
+// onResponse delivers a broker control reply to the waiting exchange, if any.
+func (d *DynsecClient) onResponse(_ string, payload []byte) {
 		var resp dynsecResponse
 		if json.Unmarshal(payload, &resp) != nil {
 			return
@@ -98,7 +106,15 @@ func NewDynsecClient(c *Client) *DynsecClient {
 		default:
 		}
 	})
-	return d
+}
+
+// ensureSubscribed (re)subscribes the control response topic. The subscription
+// has been observed missing on long-lived clients — a failed startup subscribe
+// or a reconnect that dropped it — which turns every exchange into a timeout
+// while the broker itself answers in milliseconds. Re-subscribing is idempotent,
+// so every exchange starts by guaranteeing the reply path is live.
+func (d *DynsecClient) ensureSubscribed() error {
+	return d.client.Subscribe("$CONTROL/dynamic-security/v1/response", d.onResponse)
 }
 
 // dynsecTimeout bounds one command/response exchange with the broker.
@@ -132,6 +148,9 @@ func (d *DynsecClient) send(commands []map[string]interface{}, correlationID str
 		return err
 	}
 
+	if err := d.ensureSubscribed(); err != nil {
+		return fmt.Errorf("dynsec response subscription: %w", err)
+	}
 	if err := d.client.Publish("$CONTROL/dynamic-security/v1", data); err != nil {
 		return fmt.Errorf("dynsec publish: %w", err)
 	}
@@ -743,6 +762,9 @@ func (d *DynsecClient) ListBrokerClients() ([]BrokerClient, error) {
 	}})
 	if err != nil {
 		return nil, err
+	}
+	if err := d.ensureSubscribed(); err != nil {
+		return nil, fmt.Errorf("dynsec response subscription: %w", err)
 	}
 	if err := d.client.Publish("$CONTROL/dynamic-security/v1", data); err != nil {
 		return nil, fmt.Errorf("dynsec publish: %w", err)
