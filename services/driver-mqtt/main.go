@@ -65,6 +65,11 @@ type Driver struct {
 	// topic can be scoped by organization instead of being readable and
 	// writable by every tenant.
 	orgID        int
+	// retainLegacy mirrors global_settings.retain_last_values, read on
+	// every config (re)load: legacy data topics go out retained so late
+	// subscribers immediately see the freshest known value.
+	retainLegacy  bool
+	retainMu      sync.RWMutex
 	database     *sql.DB
 	mqttClient   *mqtt.Client // Internal broker (system) — used to publish bridged data
 	sourceClient *mqtt.Client // Optional EXTERNAL broker — used to subscribe to PLC topics.
@@ -487,6 +492,10 @@ func (d *Driver) initSparkplugClientLocked(orgName, siteName, areaName, gatewayN
 		d.sparkplugClient.SetConnected(true)
 	}
 
+	// The retain toggle is global, not per gateway: refresh it with the
+	// config so flipping it in System needs no driver restart.
+	d.refreshRetainSetting()
+
 	// Create or update dual publisher
 	d.dualPublisher = sparkplug.NewDualPublisher(
 		d.sparkplugClient,
@@ -497,7 +506,37 @@ func (d *Driver) initSparkplugClientLocked(orgName, siteName, areaName, gatewayN
 		orgID,
 	)
 
+	d.dualPublisher.SetRetainLegacy(d.getRetainLegacy())
+
 	log.Printf("[DRIVER-MQTT] Sparkplug B client initialized: group=%s, node=%s", groupID, edgeNodeID)
+}
+
+// refreshRetainSetting reloads global_settings.retain_last_values (default
+// true: a late subscriber must see the freshest known value). Missing key
+// or DB hiccup keeps the previous value — never silently flip to false.
+func (d *Driver) refreshRetainSetting() {
+	var v string
+	if err := d.database.QueryRow(`SELECT value FROM global_settings WHERE key = 'retain_last_values'`).Scan(&v); err != nil {
+		return
+	}
+	retain := true
+	if v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			retain = b
+		}
+	}
+	d.retainMu.Lock()
+	d.retainLegacy = retain
+	d.retainMu.Unlock()
+	if d.dualPublisher != nil {
+		d.dualPublisher.SetRetainLegacy(retain)
+	}
+}
+
+func (d *Driver) getRetainLegacy() bool {
+	d.retainMu.RLock()
+	defer d.retainMu.RUnlock()
+	return d.retainLegacy
 }
 
 // scalingFor returns the engineering-unit conversion configured for a tag.
@@ -551,7 +590,7 @@ func (d *Driver) publishDual(tagID int, alias string, value interface{}, dataTyp
 				TagID: tagID, OrgID: cfg.OrgID, Value: value,
 				Timestamp: timestamp, Quality: quality, EUScaled: sc.Enabled,
 			})
-			if err := d.mqttClient.PublishWithQoS(topic, string(payload), 1, false); err != nil {
+			if err := d.mqttClient.PublishWithQoS(topic, string(payload), 1, d.getRetainLegacy()); err != nil {
 				log.Printf("[DRIVER-MQTT] Publish error for %s on %s: %v", alias, topic, err)
 			}
 		}

@@ -38,6 +38,7 @@ func NewManager(db *sql.DB) *Manager {
 		log.Printf("[SETTINGS] Failed to load initial settings: %v, using defaults", err)
 		m.config = &models.GlobalSettings{
 			PublishMode:         models.PublishModeDual,
+			RetainLastValues:    true,
 			RBEHeartbeatSeconds: 60,
 			RBEDeadbandPercent:  0.5,
 		}
@@ -68,6 +69,7 @@ func (m *Manager) Load() error {
 
 	config := &models.GlobalSettings{
 		PublishMode:         models.PublishMode(settings["publish_mode"]),
+		RetainLastValues:    parseBool(settings["retain_last_values"], true),
 		RBEHeartbeatSeconds: parseInt(settings["rbe_heartbeat_seconds"], 60),
 		RBEDeadbandPercent:  parseFloat(settings["rbe_deadband_percent"], 0.5),
 
@@ -92,6 +94,7 @@ func (m *Manager) Get() *models.GlobalSettings {
 	if m.config == nil {
 		return &models.GlobalSettings{
 			PublishMode:         models.PublishModeDual,
+			RetainLastValues:    true,
 			RBEHeartbeatSeconds: 60,
 			RBEDeadbandPercent:  0.5,
 		}
@@ -250,6 +253,17 @@ func valuesEqual(a, b interface{}, deadbandPercent float64) bool {
 	default:
 		return a == b
 	}
+}
+
+func parseBool(s string, def bool) bool {
+	if s == "" {
+		return def
+	}
+	b, err := strconv.ParseBool(s)
+	if err != nil {
+		return def
+	}
+	return b
 }
 
 func parseInt(s string, def int) int {

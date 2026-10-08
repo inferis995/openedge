@@ -173,7 +173,8 @@ func runAutoMigrations(db *sql.DB) error {
 		('oee_run_time_tag',           '0',   'tag_id del segnale "macchina in marcia" (BOOL/0-1). 0 = fallback su uptime allarmi.'),
 		('oee_produced_tag',           '0',   'tag_id del contatore pezzi prodotti (monotono crescente). 0 = fallback su quality samples.'),
 		('oee_good_tag',               '0',   'tag_id del contatore pezzi buoni (monotono crescente). 0 = fallback.'),
-		('oee_target_pieces_per_hour', '0',   'Rate target di produzione (pezzi/ora) — usato per il calcolo Performance.')
+		('oee_target_pieces_per_hour', '0',   'Rate target di produzione (pezzi/ora) — usato per il calcolo Performance.'),
+		('retain_last_values', 'true', 'Quando true, i driver pubblicano i dati legacy con flag retained: un iscritto tardivo (app esterna, tab Ultimi valori) legge subito l ultimo valore noto. Il payload porta il timestamp, quindi si capisce quanto e vecchio.')
 	ON CONFLICT (key) DO NOTHING;`
 	if _, err := db.Exec(notifSeed); err != nil {
 		log.Printf("Warning: failed to seed notification settings: %v", err)

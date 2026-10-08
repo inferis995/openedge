@@ -25,6 +25,7 @@ export interface BackupAuditEntry {
 
 export interface GlobalSettings {
     publish_mode: string;
+    retain_last_values?: string;
     rbe_heartbeat_seconds: string;
     rbe_deadband_percent: string;
     write_command_max_age_seconds?: string;
@@ -107,6 +108,7 @@ export interface GlobalSettings {
 
 export interface UpdateSettingsRequest {
     publish_mode?: string;
+    retain_last_values?: boolean;
     rbe_heartbeat_seconds?: number;
     rbe_deadband_percent?: number;
     // Per quanti secondi un comando di scrittura verso un PLC resta valido.
