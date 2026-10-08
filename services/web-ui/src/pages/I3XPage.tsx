@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
@@ -35,20 +34,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-    AreaChart,
-    Area,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    ResponsiveContainer,
-} from 'recharts';
-import {
     i3xApi,
     I3XEquipment,
     I3XProperty,
     I3XAlarm,
-    I3XHistoryPoint,
 } from '@/api/i3x';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { toast } from 'sonner';
@@ -239,14 +228,6 @@ function EquipmentTree({
     );
 }
 
-// ─── Property History Chart ──────────────────────────────────────────────────
-
-const RANGE_OPTIONS = [
-    { label: '1h',  value: 1 },
-    { label: '6h',  value: 6 },
-    { label: '24h', value: 24 },
-    { label: '7d',  value: 168 },
-];
 
 // Property history, rendered with the shared HistoryPanel: byte-for-byte the
 // same chrome as the Tags table and the Map popup (header, samples, ranges,

@@ -112,8 +112,8 @@ func (h *MQTTExternalClientsHandler) Rotate(c *gin.Context) {
 		Password string `json:"password"`
 	}
 	_ = c.ShouldBindJSON(&opt)
-	if err := checkCustomPassword(opt.Password); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if checkErr := checkCustomPassword(opt.Password); checkErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": checkErr.Error()})
 		return
 	}
 	ctx := c.Request.Context()
