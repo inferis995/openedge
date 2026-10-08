@@ -903,15 +903,16 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                 .gw-pin-editing { box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.6); }
                 @keyframes gw-pulse { from { transform: rotate(-45deg) scale(1); } to { transform: rotate(-45deg) scale(1.15); } }
                 .map-popup .maplibregl-popup-content {
-                    background: rgba(10, 10, 10, 0.95);
-                    color: #e5e7eb;
-                    border: 1px solid rgba(255, 255, 255, 0.12);
+                    background: hsl(var(--card));
+                    color: hsl(var(--card-foreground));
+                    border: 1px solid hsl(var(--border));
                     border-radius: 6px;
                     padding: 12px;
                     min-width: 240px;
-                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+                    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
                 }
-                .map-popup .maplibregl-popup-tip { border-top-color: rgba(10, 10, 10, 0.95) !important; }
+                .map-popup .maplibregl-popup-tip { border-top-color: hsl(var(--card)) !important; }
+                .map-popup .maplibregl-popup-close-button { color: hsl(var(--muted-foreground)); }
             `}</style>
         </div>
     );
@@ -990,7 +991,7 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpen
                 {canEdit && (
                     <button
                         type="button"
-                        className="px-2 py-1 rounded border border-white/20 text-xs hover:bg-white/10"
+                        className="px-2 py-1 rounded border border-border text-xs hover:bg-muted"
                         onClick={() => { onPlace(); onClose(); }}
                     >
                         <MapPin size={12} className="inline mr-1 -mt-0.5" />
@@ -999,7 +1000,7 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpen
                 )}
                 <button
                     type="button"
-                    className="px-2 py-1 rounded border border-white/20 text-xs hover:bg-white/10"
+                    className="px-2 py-1 rounded border border-border text-xs hover:bg-muted"
                     onClick={onClose}
                 >
                     {t('common.close')}
@@ -1053,7 +1054,7 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
                 </button>
                 <button
                     type="button"
-                    className="px-2 py-1 rounded border border-white/20 text-xs hover:bg-white/10"
+                    className="px-2 py-1 rounded border border-border text-xs hover:bg-muted"
                     onClick={() => setShowHistory((v) => !v)}
                 >
                     <History size={12} className="inline mr-1 -mt-0.5" />
@@ -1061,7 +1062,7 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
                 </button>
                 <button
                     type="button"
-                    className="px-2 py-1 rounded border border-white/20 text-xs hover:bg-white/10"
+                    className="px-2 py-1 rounded border border-border text-xs hover:bg-muted"
                     onClick={onClose}
                 >
                     {t('common.close')}
@@ -1118,7 +1119,7 @@ function GatewayListDialog({ gateway, tagsById, tagLive, onClose, onOpenTrend }:
                                 </span>
                                 <button
                                     type="button"
-                                    className="px-2 py-0.5 rounded border border-white/20 text-[10px] hover:bg-white/10"
+                                    className="px-2 py-0.5 rounded border border-border text-[10px] hover:bg-muted"
                                     onClick={() => { onOpenTrend(gateway.id, tg.id); onClose(); }}
                                 >
                                     {t('map.open_trend')}
@@ -1133,7 +1134,7 @@ function GatewayListDialog({ gateway, tagsById, tagLive, onClose, onOpenTrend }:
                 <div className="px-4 py-3 border-t border-white/10 text-right">
                     <button
                         type="button"
-                        className="px-3 py-1 rounded border border-white/20 text-xs hover:bg-white/10"
+                        className="px-3 py-1 rounded border border-border text-xs hover:bg-muted"
                         onClick={onClose}
                     >
                         {t('common.close')}
