@@ -754,6 +754,9 @@ behaviour, not a bug to work around.
 | Fleet | `fleet status` · `fleet restart` · `fleet update` |
 | Analytics | `aiops summary` · `aiops anomalies` · `aiops digest` |
 | Diagnostics | `health` · `diagnostics` |
+| Settings | `settings retain` · `settings publish-mode` · `settings write-max-age` |
+| GIS | `gateways position` · `areas boundary` |
+| Modules | `orgs modules` |
 | MCP | `mcp` — see below |
 
 Every path the CLI calls is checked against the routes the server actually
@@ -807,18 +810,31 @@ Origin check can be driven by any page the user happens to have open.
 
 ### The skills
 
-Two skill files that teach an agent this platform's vocabulary — its topic
+Two skills that teach an agent this platform's vocabulary — its topic
 layout, its multi-tenant rules, the order operations must happen in. Already in
-the repo:
+the repo in directory form (auto-discovered by Claude Code **and** OpenCode,
+no content duplicated):
 
 ```
-.claude/skills/openedge.md        # monitor and control
-.claude/skills/openedge-ops.md    # deploy and operate
+.claude/skills/openedge/SKILL.md        # monitor and control
+.claude/skills/openedge-ops/SKILL.md    # deploy and operate
 ```
 
 Claude Code picks up `.claude/skills/` automatically when the repository is
-open. For another agent, point it at the files or copy them into its own skills
-directory.
+open. To install them as a plugin from anywhere:
+
+```bash
+plugin marketplace add inferis995/openedge
+plugin install openedge@openedge
+```
+
+OpenCode auto-discovers the same directories when the repo is open. For global
+use, copy the directories into its skills folder:
+
+```bash
+cp -r .claude/skills/openedge ~/.config/opencode/skills/
+cp -r .claude/skills/openedge-ops ~/.config/opencode/skills/
+```
 
 #### `openedge` — monitor and control
 
