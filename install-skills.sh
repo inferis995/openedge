@@ -11,6 +11,16 @@
 # Questo script serve per averle globali, fuori dal repo.
 set -euo pipefail
 
+cat << 'EOF'
+  ___                    _____    _
+ / _ \ _ __   ___ _ __ | ____|__| | __ _  ___
+| | | | '_ \ / _ \ '_ \|  _| / _` |/ _` |/ _ \
+| |_| | |_) |  __/ | | | |__| (_| | (_| |  __/
+ \___/| .__/ \___|_| |_|_____\__,_|\__, |\___|
+      |_|                          |___/
+      INDUSTRIAL IOT PLATFORM
+EOF
+
 SKILLS="openedge openedge-ops"
 SRC_DIR="$(cd "$(dirname "$0")/.claude/skills" && pwd)"
 DO_CLAUDE=1
