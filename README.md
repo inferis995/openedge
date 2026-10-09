@@ -147,6 +147,7 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 ## Table of Contents
 
 - [Quick Start (Local Dev)](#quick-start-local-dev)
+- [Repository Layout](#repository-layout)
 - [Architecture](#architecture)
 - [Roles & Permissions](#roles--permissions)
 - [Configuration](#configuration)
@@ -170,6 +171,27 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 
 ---
 
+## Repository Layout
+
+```
+openedge/
+├── services/            # core-api (Go), web-ui (React), cli, drivers (mqtt/modbus/s7/opcua/lorawan)
+├── internal/            # backend condiviso: handlers, db, mqtt, inventory, notifications
+├── docs/                # guide operative + docs/examples/ (template sinottici HTML)
+├── deploy/              # manifest di deploy (vedi anche docker-compose.*.yml in root)
+├── monitoring/          # Prometheus + Grafana + Alertmanager + Loki (profilo opzionale)
+├── mosquitto/ postgres/ caddy/  # configurazioni dei servizi
+├── scripts/             # backup/restore, preflight, audit gates
+├── windows/             # openedge.bat + guide Windows
+├── systemd/             # unit file per on-prem Linux
+├── migrations/          # migrazioni DB versionate
+├── .claude/skills/      # skill AI: openedge (monitor/control), openedge-ops (deploy)
+├── install-skills.sh    # installa le skill su Claude Code / OpenCode
+└── docker-compose.yml   # profilo base; .vps/.coolify/.ghcr/.serial per i target
+```
+
+---
+
 ## Quick Start (Local Dev)
 
 ### Prerequisites
@@ -183,7 +205,7 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 | Ubuntu / Debian | `sudo apt install make` |
 | RHEL / Fedora | `sudo dnf install make` |
 | Mac | `xcode-select --install` |
-| Windows | Use `openedge.bat` — no make needed |
+| Windows | Use `windows/openedge.bat` — no make needed |
 
 ### Start
 
@@ -444,7 +466,7 @@ make logs      # follow logs
 make clean     # stop + delete all data (irreversible)
 ```
 
-**Windows** — use `openedge.bat` (interactive menu, no make needed).
+**Windows** — use `windows/openedge.bat` (interactive menu, no make needed).
 
 ---
 

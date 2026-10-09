@@ -167,7 +167,7 @@ git clone https://github.com/inferis995/openedge.git C:\OpenEdge
 cd C:\OpenEdge
 
 # 2. Avvia (menu interattivo — no make richiesto)
-.\openedge.bat
+.\windows\openedge.bat
 # Seleziona "Start" dal menu
 
 # 3. Installa come Windows Service (auto-start al boot, prima del login)
