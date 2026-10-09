@@ -369,6 +369,71 @@ const TagsPage = () => {
     // same skeleton, so rows never visibly jump when data lands.
     const valuesReady = fetchedValues.size > 0 || realtimeValues.size > 0;
 
+    // One readout, two layouts: the desktop table cell and the mobile card
+    // share it, so a value can never look different between phone and PC.
+    const ValueReadout = ({ tag: t, currentValue: cv, wrap }: { tag: Tag; currentValue?: CurrentValue; wrap?: boolean }) => {
+        if (!valuesReady) {
+            return <div className="h-[26px] w-[130px] bg-muted animate-pulse rounded" />;
+        }
+        const deviceName = gatewayMap.get(t.gateway_id)?.name;
+        const deviceOnline = isDeviceOnline(deviceName);
+        const status = getDataStatus(cv?.quality, deviceOnline);
+        const statusClasses = getStatusClasses(status);
+        return (
+            <div className={`flex items-center gap-2 ${wrap ? 'flex-wrap' : ''}`}>
+                {cv && (
+                    <span className={[
+                        'inline-block w-2 h-2 rounded-full shrink-0',
+                        cv.quality === 0 ? 'bg-green-500' :
+                        cv.quality === 1 ? 'bg-yellow-500' : 'bg-red-500'
+                    ].join(' ')} />
+                )}
+                <div className={`
+                    font-mono font-medium text-[13px] tabular-nums px-2 py-1 rounded border min-w-[84px] text-center
+                    ${statusClasses.bg} ${statusClasses.border} ${statusClasses.text}
+                `}>
+                    {cv ? (
+                        typeof cv.value === 'boolean'
+                            ? (cv.value ? 'TRUE' : 'FALSE')
+                            : (cv.value !== null && cv.value !== undefined
+                                ? (typeof cv.value === 'number'
+                                    ? (t.scaling_enabled && t.eu_decimals != null
+                                        ? cv.value.toFixed(t.eu_decimals)
+                                        : (t.data_type === 'DINT' || t.data_type === 'INT'
+                                            ? Math.round(cv.value).toLocaleString(i18n.language)
+                                            : cv.value.toLocaleString(i18n.language, { maximumFractionDigits: 2 })))
+                                    : cv.value.toString())
+                                : '-')
+                    ) : '-'}
+                </div>
+                {t.scaling_enabled && t.eu_unit && (
+                    <span className="text-xs text-muted-foreground font-mono">{t.eu_unit}</span>
+                )}
+                {cv && (
+                    <Badge variant="outline" className={`text-[10px] h-5 px-1 ${status === 'good'
+                        ? 'text-green-500 border-green-500/30 bg-green-500/10'
+                        : status === 'unknown'
+                            ? 'text-muted-foreground border-border bg-muted'
+                            : 'text-red-500 border-red-500/30 bg-red-500/10'
+                        }`}>
+                        {status === 'good' ? tr('tagsPage.quality_good') : status === 'unknown' ? tr('tagsPage.quality_unknown') : tr('tagsPage.quality_bad')}
+                    </Badge>
+                )}
+                {cv?.timestamp && (
+                    <span
+                        className={`text-[11px] tabular-nums whitespace-nowrap ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
+                        title={status === 'bad'
+                            ? tr('tagsPage.last_message_title', { time: new Date(cv.timestamp).toLocaleString(i18n.language) })
+                            : tr('tagsPage.last_update', { time: new Date(cv.timestamp).toLocaleString(i18n.language) })}
+                    >
+                        {new Date(cv.timestamp).toLocaleString(i18n.language, { hour12: false, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        {status === 'bad' && <> · {tr('tagsPage.offline_since')}</>}
+                    </span>
+                )}
+            </div>
+        );
+    };
+
 
     const handleSave = async () => {
         try {
@@ -1355,8 +1420,8 @@ const TagsPage = () => {
                 )}
             </div>
 
-            <div className="clip-chamfer border bg-card">
-                <Table>
+            <div className="clip-chamfer border bg-card hidden md:block">
+                <Table className="table-fixed w-full">
                     <TableHeader>
                         <TableRow>
                             {isAdmin() && (
@@ -1376,14 +1441,14 @@ const TagsPage = () => {
                             <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort('alias')}>
                                 {tr('tagsPage.col_alias')} <SortIcon field="alias" current={sortField} dir={sortDir} />
                             </TableHead>
-                            <TableHead className="cursor-pointer select-none hover:bg-muted/50 hidden md:table-cell" onClick={() => handleSort('data_type')}>
+                            <TableHead className="cursor-pointer select-none hover:bg-muted/50 hidden md:table-cell w-[84px]" onClick={() => handleSort('data_type')}>
                                 {tr('tagsPage.col_type')} <SortIcon field="data_type" current={sortField} dir={sortDir} />
                             </TableHead>
-                            <TableHead>{tr('tagsPage.col_value')}</TableHead>
-                            <TableHead className="hidden lg:table-cell">{tr('tagsPage.col_history')}</TableHead>
-                            <TableHead>{tr('tagsPage.col_alarms')}</TableHead>
+                            <TableHead className="w-[300px]">{tr('tagsPage.col_value')}</TableHead>
+                            <TableHead className="hidden lg:table-cell w-[64px]">{tr('tagsPage.col_history')}</TableHead>
+                            <TableHead className="w-[104px]">{tr('tagsPage.col_alarms')}</TableHead>
 
-                            {isAdmin() && <TableHead className="text-right">{tr('common.actions')}</TableHead>}
+                            {isAdmin() && <TableHead className="text-right w-[92px]">{tr('common.actions')}</TableHead>}
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1445,15 +1510,15 @@ const TagsPage = () => {
                                         )}
 
                                         <TableCell className="font-medium font-mono text-xs hidden lg:table-cell">
-                                            <div className="flex items-center gap-2 max-w-[220px]">
+                                            <div className="flex items-center gap-2 max-w-[150px]">
                                                 <span className="truncate" title={tag.code}>{tag.code}</span>
                                             </div>
                                         </TableCell>
                                         <TableCell className="font-medium">
                                             <div className="flex items-center gap-2 min-w-0">
-                                                <span className="truncate max-w-[120px] sm:max-w-[180px] xl:max-w-[260px]" title={tag.alias || ''}>{tag.alias || '-'}</span>
+                                                <span className="block truncate min-w-0" title={tag.alias || ''}>{tag.alias || '-'}</span>
                                                 {activeAlarms[tag.id] && (
-                                                    <Badge variant="destructive" className="shrink-0 whitespace-nowrap tracking-normal px-2 py-0.5 flex gap-1 items-center animate-pulse">
+                                                    <Badge variant="destructive" className="shrink-0 whitespace-nowrap tracking-normal px-1.5 py-0 hidden sm:flex gap-1 items-center animate-pulse text-[11px]">
                                                         <Bell size={10} /> {tr('tagsPage.alarm_badge')}
                                                     </Badge>
                                                 )}
@@ -1463,77 +1528,8 @@ const TagsPage = () => {
                                             <Badge variant="secondary" className="text-xs">{tag.data_type}</Badge>
                                         </TableCell>
                                         <TableCell>
-                                            {!valuesReady ? (
-                                                <div className="h-[26px] w-[130px] bg-muted animate-pulse rounded" />
-                                            ) : (
                                             <div className="flex items-center gap-2">
-                                                {/* Value display with distinct styling */}
-                                                {(() => {
-                                                    const deviceName = gatewayMap.get(tag.gateway_id)?.name;
-                                                    const deviceOnline = isDeviceOnline(deviceName);
-                                                    const status = getDataStatus(currentValue?.quality, deviceOnline);
-                                                    const statusClasses = getStatusClasses(status);
-
-                                                    return (
-                                                        <>
-                                                            {/* Quality dot */}
-                                                            {currentValue && (
-                                                                <span className={[
-                                                                    'inline-block w-2 h-2 rounded-full shrink-0',
-                                                                    currentValue.quality === 0 ? 'bg-green-500' :
-                                                                    currentValue.quality === 1 ? 'bg-yellow-500' : 'bg-red-500'
-                                                                ].join(' ')} />
-                                                            )}
-                                                            <div className={`
-                                                                font-mono font-medium text-[13px] tabular-nums px-2 py-1 rounded border min-w-[84px] text-center
-                                                                ${statusClasses.bg} ${statusClasses.border} ${statusClasses.text}
-                                                            `}>
-                                                                {currentValue ? (
-                                                                    typeof currentValue.value === 'boolean'
-                                                                        ? (currentValue.value ? 'TRUE' : 'FALSE')
-                                                                        : (currentValue.value !== null && currentValue.value !== undefined
-                                                                            ? (typeof currentValue.value === 'number'
-                                                                                ? (tag.scaling_enabled && tag.eu_decimals != null
-                                                                                    ? currentValue.value.toFixed(tag.eu_decimals)
-                                                                                    : (tag.data_type === 'DINT' || tag.data_type === 'INT'
-                                                                                        ? Math.round(currentValue.value).toLocaleString(i18n.language)
-                                                                                        : currentValue.value.toLocaleString(i18n.language, { maximumFractionDigits: 2 })))
-                                                                                : currentValue.value.toString())
-                                                                            : '-')
-                                                                ) : '-'}
-                                                            </div>
-                                                            {/* EU unit badge */}
-                                                            {tag.scaling_enabled && tag.eu_unit && (
-                                                                <span className="text-xs text-muted-foreground font-mono">{tag.eu_unit}</span>
-                                                            )}
-
-                                                            {/* Quality indicator */}
-                                                            {currentValue && (
-                                                                <Badge variant="outline" className={`text-[10px] h-5 px-1 ${status === 'good'
-                                                                    ? 'text-green-500 border-green-500/30 bg-green-500/10'
-                                                                    : status === 'unknown'
-                                                                        ? 'text-muted-foreground border-border bg-muted'
-                                                                        : 'text-red-500 border-red-500/30 bg-red-500/10'
-                                                                    }`}>
-                                                                    {status === 'good' ? tr('tagsPage.quality_good') : status === 'unknown' ? tr('tagsPage.quality_unknown') : tr('tagsPage.quality_bad')}
-                                                                </Badge>
-                                                            )}
-                                                            {/* Timestamp: for a stale tag this is the last real
-                                                                message, not a fresh reading. */}
-                                                            {currentValue?.timestamp && (
-                                                                <span
-                                                                    className={`text-[11px] tabular-nums whitespace-nowrap ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
-                                                                    title={status === 'bad'
-                                                                        ? tr('tagsPage.last_message_title', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })
-                                                                        : tr('tagsPage.last_update', { time: new Date(currentValue.timestamp).toLocaleString(i18n.language) })}
-                                                                >
-                                                                    {new Date(currentValue.timestamp).toLocaleString(i18n.language, { hour12: false, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                                                                    {status === 'bad' && <> · {tr('tagsPage.offline_since')}</>}
-                                                                </span>
-                                                            )}
-                                                        </>
-                                                    );
-                                                })()}
+                                            <ValueReadout tag={tag} currentValue={currentValue} />
                                                 {/* History button: same samples-and-range chart as I3X and the map. */}
                                                 <div className="flex items-center gap-1">
                                                 <Button
@@ -1567,7 +1563,6 @@ const TagsPage = () => {
                                                 )}
                                                 </div>
                                             </div>
-                                            )}
                                         </TableCell>
                                         <TableCell className="hidden lg:table-cell">
                                             {tag.historize ? (
@@ -1588,12 +1583,12 @@ const TagsPage = () => {
                                             {alarmDefsCount[tag.id] ? (
                                                 <div className="flex items-center gap-1">
                                                     {activeAlarms[tag.id] ? (
-                                                        <Badge variant="destructive" className="whitespace-nowrap tracking-normal px-2 py-0.5 gap-1 items-center animate-pulse text-xs">
+                                                        <Badge variant="destructive" className="whitespace-nowrap tracking-normal px-1.5 py-0 gap-1 items-center animate-pulse text-[11px]">
                                                             <BellRing size={10} />
                                                             {tr('tagsPage.alarm_active', { count: alarmDefsCount[tag.id] })}
                                                         </Badge>
                                                     ) : (
-                                                        <Badge variant="secondary" className="whitespace-nowrap tracking-normal px-2 py-0.5 gap-1 items-center text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                                        <Badge variant="secondary" className="whitespace-nowrap tracking-normal px-1.5 py-0 gap-1 items-center text-[11px] bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                                                             <Bell size={10} />
                                                             {tr('tagsPage.alarm_count', { count: alarmDefsCount[tag.id] })}
                                                         </Badge>
@@ -1634,6 +1629,103 @@ const TagsPage = () => {
                         )}
                     </TableBody>
                 </Table>
+            </div>
+
+            {/* Mobile cards: the table cannot fit a phone, so narrow screens
+                get one card per tag with the same readout and actions. */}
+            <div className="md:hidden flex flex-col gap-2">
+                {tagsList.length === 0 ? (
+                    <div className="clip-chamfer border bg-card p-4">
+                        <EmptyState
+                            icon={TagsIcon}
+                            title={tr('empty.tags_title')}
+                            description={selectedGatewayId && selectedGatewayId !== 'all' ? tr('empty.tags_desc') : tr('empty.tags_pick_gateway')}
+                        />
+                    </div>
+                ) : (
+                    tagsList.map((tag) => {
+                        const currentValue = currentValues.get(tag.id);
+                        return (
+                            <div
+                                key={tag.id}
+                                className={`clip-chamfer border bg-card p-3 flex flex-col gap-2 ${selectedTagIds.includes(tag.id) ? 'ring-1 ring-primary/40' : ''}`}
+                            >
+                                <div className="flex items-center gap-2 min-w-0">
+                                    {isAdmin() && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="p-0 h-9 w-9 shrink-0"
+                                            onClick={(e) => { e.stopPropagation(); toggleSelect(tag.id); }}
+                                            aria-label={tr('tagsPage.select_tag')}
+                                        >
+                                            {selectedTagIds.includes(tag.id) ? (
+                                                <CheckSquare size={16} className="text-[#4a5500] dark:text-[#c8e600]" />
+                                            ) : (
+                                                <Square size={16} className="text-slate-300" />
+                                            )}
+                                        </Button>
+                                    )}
+                                    <span className="font-medium truncate min-w-0 flex-1" title={tag.alias || ''}>{tag.alias || '-'}</span>
+                                    {alarmDefsCount[tag.id] ? (
+                                        activeAlarms[tag.id] ? (
+                                            <Badge variant="destructive" className="shrink-0 whitespace-nowrap px-1.5 py-0 gap-1 items-center animate-pulse text-[11px]">
+                                                <BellRing size={10} />
+                                                {tr('tagsPage.alarm_active', { count: alarmDefsCount[tag.id] })}
+                                            </Badge>
+                                        ) : (
+                                            <Badge variant="secondary" className="shrink-0 whitespace-nowrap px-1.5 py-0 gap-1 items-center text-[11px] bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                                <Bell size={10} />
+                                                {tr('tagsPage.alarm_count', { count: alarmDefsCount[tag.id] })}
+                                            </Badge>
+                                        )
+                                    ) : null}
+                                </div>
+                                <ValueReadout tag={tag} currentValue={currentValue} wrap />
+                                <div className="flex items-center gap-2 text-[11px] text-muted-foreground min-w-0">
+                                    <span className="font-mono truncate">{tag.code}</span>
+                                    <span className="shrink-0">·</span>
+                                    <span className="shrink-0">{tag.data_type}</span>
+                                    <span className="shrink-0">·</span>
+                                    {tag.historize ? (
+                                        <span className="text-green-600 shrink-0">{tr('tagsPage.history_on_plain')}</span>
+                                    ) : (
+                                        <span className="shrink-0">{tr('tagsPage.history_off')}</span>
+                                    )}
+                                    <span className="flex-1" />
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-9 w-9 shrink-0"
+                                        title={tr('tagsPage.view_history')}
+                                        aria-label={tr('tagsPage.view_history')}
+                                        onClick={() => setHistoryTag({ id: tag.id, alias: tag.alias || tag.code || `#${tag.id}` })}
+                                    >
+                                        <History size={15} />
+                                    </Button>
+                                    {isAdmin() && (
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-9 w-9 shrink-0"
+                                            title={tr('tagsPage.write_value')}
+                                            aria-label={tr('tagsPage.write_value')}
+                                            onClick={() => {
+                                                const cv = currentValues.get(tag.id);
+                                                setWriteValue(tag.data_type === 'BOOL'
+                                                    ? (cv?.value === true ? 'false' : 'true')
+                                                    : (cv?.value != null ? String(cv.value) : '0'));
+                                                setWriteDialogTag({ id: tag.id, alias: tag.alias || '', dataType: tag.data_type, currentValue: cv?.value });
+                                            }}
+                                        >
+                                            <Pencil size={15} />
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })
+                )}
             </div>
 
             {/* OPC UA Browse Dialog */}
