@@ -521,8 +521,10 @@ export function UPlotChart({
                 show: pen.visible,
                 scale: scaleKey(pen),
                 ...(pen.step ? { paths: uPlot.paths.stepped?.({ align: 1 }) } : {}),
-                // undefined (no sample here) joins; null (bad / outage) breaks.
-                spanGaps: false,
+                // Offline markers are state, not measurements: the line joins
+                // the real samples on both sides instead of cutting at every
+                // silence. (uPlot: gaps join only when spanned.)
+                spanGaps: true,
                 // Markers when the points are far apart — a logger reporting
                 // every few hours has one or two samples in the window, and a
                 // single sample drew nothing at all.
@@ -547,7 +549,7 @@ export function UPlotChart({
                 width: 1,
                 show: pen.visible,
                 points: { show: false },
-                spanGaps: false,
+                spanGaps: true,
             } as uPlot.Series))),
         ];
         const n = pens.length;
