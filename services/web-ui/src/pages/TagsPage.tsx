@@ -427,7 +427,7 @@ const TagsPage = () => {
                             : tr('tagsPage.last_update', { time: new Date(cv.timestamp).toLocaleString(i18n.language) })}
                     >
                         {new Date(cv.timestamp).toLocaleString(i18n.language, { hour12: false, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                        {status === 'bad' && <> · {tr('tagsPage.offline_since')}</>}
+                        {status === 'bad' && <> · {tr('tagsPage.offline_short')}</>}
                     </span>
                 )}
             </div>
