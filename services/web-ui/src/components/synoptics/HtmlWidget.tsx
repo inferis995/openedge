@@ -117,6 +117,9 @@ export default function HtmlWidget({
         return vals;
     }, [bindings, tsProp, liveMap]);
 
+    const valuesRef = useRef(values);
+    valuesRef.current = values;
+
     useEffect(() => {
         frameRef.current?.contentWindow?.postMessage({ type: 'oe-values', values }, '*');
     }, [values, srcDoc]);
@@ -132,8 +135,7 @@ export default function HtmlWidget({
         window.addEventListener('message', onMsg);
         return () => window.removeEventListener('message', onMsg);
     }, []);
-    const valuesRef = useRef(values);
-    valuesRef.current = values;
+
 
     if (!srcDoc) {
         return (
