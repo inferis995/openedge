@@ -21,7 +21,7 @@ export default function TvSynopticsPage() {
         return () => clearInterval(id);
     }, [pins.length]);
 
-    useEffect(() => { setIdx(0); }, [pins.join(',')]);
+    const safeIdx = pins.length === 0 ? 0 : idx % pins.length;
 
     if (pins.length === 0) {
         return (
@@ -33,7 +33,7 @@ export default function TvSynopticsPage() {
         );
     }
 
-    const current = pins[Math.min(idx, pins.length - 1)];
+    const current = pins[safeIdx];
 
     return (
         <div className="min-h-screen bg-black text-white flex flex-col">
@@ -41,7 +41,7 @@ export default function TvSynopticsPage() {
                 <Link to="/" className="flex items-center gap-1 text-xs hover:text-white">
                     <ArrowLeft size={14} /> {t('tvSynoptics.exit')}
                 </Link>
-                <span className="text-xs tabular-nums">{idx + 1} / {pins.length}</span>
+                <span className="text-xs tabular-nums">{safeIdx + 1} / {pins.length}</span>
             </div>
             <div className="flex-1 flex items-center justify-center px-4 pb-4 min-h-0">
                 <PinnedSynopticCard
@@ -56,7 +56,7 @@ export default function TvSynopticsPage() {
                     <button
                         type="button"
                         className="p-2 rounded-full border border-slate-700 hover:bg-slate-800"
-                        onClick={() => setIdx((idx - 1 + pins.length) % pins.length)}
+                        onClick={() => setIdx((safeIdx - 1 + pins.length) % pins.length)}
                         aria-label="prev"
                     >
                         <ChevronLeft size={18} />
@@ -75,7 +75,7 @@ export default function TvSynopticsPage() {
                     <button
                         type="button"
                         className="p-2 rounded-full border border-slate-700 hover:bg-slate-800"
-                        onClick={() => setIdx((idx + 1) % pins.length)}
+                        onClick={() => setIdx((safeIdx + 1) % pins.length)}
                         aria-label="next"
                     >
                         <ChevronRight size={18} />
