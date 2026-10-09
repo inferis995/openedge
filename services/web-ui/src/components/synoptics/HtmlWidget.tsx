@@ -130,7 +130,7 @@ export default function HtmlWidget({
     useEffect(() => {
         const onMsg = (e: MessageEvent) => {
             if (e.data?.type !== 'oe-ready') return;
-            frameRef.current?.contentWindow?.postMessage({ type: 'oe-values', valuesRef.current }, '*');
+            frameRef.current?.contentWindow?.postMessage({ type: 'oe-values', values: valuesRef.current }, '*');
         };
         window.addEventListener('message', onMsg);
         return () => window.removeEventListener('message', onMsg);
@@ -152,7 +152,7 @@ export default function HtmlWidget({
             sandbox="allow-scripts"
             srcDoc={srcDoc}
             onLoad={() => {
-                frameRef.current?.contentWindow?.postMessage({ type: 'oe-values', valuesRef.current }, '*');
+                frameRef.current?.contentWindow?.postMessage({ type: 'oe-values', values: valuesRef.current }, '*');
             }}
         />
     );
