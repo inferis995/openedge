@@ -142,10 +142,10 @@ func (h *OrganizationsHandler) List(c *gin.Context) {
 	var err error
 
 	if middleware.IsGlobalAdmin(c) {
-		rows, err = h.db.Query("SELECT id, name, created_at, COALESCE(theme_color,'') FROM organizations ORDER BY id")
+		rows, err = h.db.QueryContext(c.Request.Context(), "SELECT id, name, created_at, COALESCE(theme_color,'') FROM organizations ORDER BY id")
 	} else {
 		orgID, _ := middleware.GetOrganizationID(c)
-		rows, err = h.db.Query("SELECT id, name, created_at, COALESCE(theme_color,'') FROM organizations WHERE id = $1", orgID)
+		rows, err = h.db.QueryContext(c.Request.Context(), "SELECT id, name, created_at, COALESCE(theme_color,'') FROM organizations WHERE id = $1", orgID)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query organizations"})
@@ -221,7 +221,10 @@ type UpdateOrganizationRequest struct {
 
 // validHexColor accepts #rgb and #rrggbb.
 func validHexColor(s string) bool {
-	if len(s) != 4 && len(s) != 7 || s[0] != '#' {
+	if len(s) != 4 && len(s) != 7 {
+		return false
+	}
+	if s[0] != '#' {
 		return false
 	}
 	for _, r := range s[1:] {
