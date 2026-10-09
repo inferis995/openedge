@@ -1370,17 +1370,17 @@ const TagsPage = () => {
                                     </Button>
                                 </TableHead>
                             )}
-                            <TableHead className="cursor-pointer select-none hover:bg-muted/50 hidden xl:table-cell" onClick={() => handleSort('code')}>
+                            <TableHead className="cursor-pointer select-none hover:bg-muted/50 hidden lg:table-cell" onClick={() => handleSort('code')}>
                                 {tr('tagsPage.col_code')} <SortIcon field="code" current={sortField} dir={sortDir} />
                             </TableHead>
                             <TableHead className="cursor-pointer select-none hover:bg-muted/50" onClick={() => handleSort('alias')}>
                                 {tr('tagsPage.col_alias')} <SortIcon field="alias" current={sortField} dir={sortDir} />
                             </TableHead>
-                            <TableHead className="cursor-pointer select-none hover:bg-muted/50 hidden xl:table-cell" onClick={() => handleSort('data_type')}>
+                            <TableHead className="cursor-pointer select-none hover:bg-muted/50 hidden md:table-cell" onClick={() => handleSort('data_type')}>
                                 {tr('tagsPage.col_type')} <SortIcon field="data_type" current={sortField} dir={sortDir} />
                             </TableHead>
                             <TableHead>{tr('tagsPage.col_value')}</TableHead>
-                            <TableHead className="hidden xl:table-cell">{tr('tagsPage.col_history')}</TableHead>
+                            <TableHead className="hidden lg:table-cell">{tr('tagsPage.col_history')}</TableHead>
                             <TableHead>{tr('tagsPage.col_alarms')}</TableHead>
 
                             {isAdmin() && <TableHead className="text-right">{tr('common.actions')}</TableHead>}
@@ -1444,8 +1444,8 @@ const TagsPage = () => {
                                             </TableCell>
                                         )}
 
-                                        <TableCell className="font-medium font-mono text-xs hidden xl:table-cell">
-                                            <div className="flex items-center gap-2 max-w-[220px]">
+                                        <TableCell className="font-medium font-mono text-xs hidden lg:table-cell">
+                                            <div className="flex items-center gap-2 max-w-[150px]">
                                                 <span className="truncate" title={tag.code}>{tag.code}</span>
                                             </div>
                                         </TableCell>
@@ -1453,13 +1453,13 @@ const TagsPage = () => {
                                             <div className="flex items-center gap-2 min-w-0">
                                                 <span className="truncate max-w-[120px] sm:max-w-[180px] xl:max-w-[260px]" title={tag.alias || ''}>{tag.alias || '-'}</span>
                                                 {activeAlarms[tag.id] && (
-                                                    <Badge variant="destructive" className="shrink-0 whitespace-nowrap tracking-normal px-2 py-0.5 flex gap-1 items-center animate-pulse">
+                                                    <Badge variant="destructive" className="shrink-0 whitespace-nowrap tracking-normal px-1.5 py-0 flex gap-1 items-center animate-pulse text-[11px]">
                                                         <Bell size={10} /> {tr('tagsPage.alarm_badge')}
                                                     </Badge>
                                                 )}
                                             </div>
                                         </TableCell>
-                                        <TableCell className="hidden xl:table-cell">
+                                        <TableCell className="hidden md:table-cell">
                                             <Badge variant="secondary" className="text-xs">{tag.data_type}</Badge>
                                         </TableCell>
                                         <TableCell>
@@ -1569,7 +1569,7 @@ const TagsPage = () => {
                                             </div>
                                             )}
                                         </TableCell>
-                                        <TableCell className="hidden xl:table-cell">
+                                        <TableCell className="hidden lg:table-cell">
                                             {tag.historize ? (
                                                 <div
                                                     className="flex items-center gap-1 text-xs text-green-600 whitespace-nowrap"
@@ -1588,12 +1588,12 @@ const TagsPage = () => {
                                             {alarmDefsCount[tag.id] ? (
                                                 <div className="flex items-center gap-1">
                                                     {activeAlarms[tag.id] ? (
-                                                        <Badge variant="destructive" className="whitespace-nowrap tracking-normal px-2 py-0.5 gap-1 items-center animate-pulse text-xs">
+                                                        <Badge variant="destructive" className="whitespace-nowrap tracking-normal px-1.5 py-0 gap-1 items-center animate-pulse text-[11px]">
                                                             <BellRing size={10} />
                                                             {tr('tagsPage.alarm_active', { count: alarmDefsCount[tag.id] })}
                                                         </Badge>
                                                     ) : (
-                                                        <Badge variant="secondary" className="whitespace-nowrap tracking-normal px-2 py-0.5 gap-1 items-center text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                                                        <Badge variant="secondary" className="whitespace-nowrap tracking-normal px-1.5 py-0 gap-1 items-center text-[11px] bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                                                             <Bell size={10} />
                                                             {tr('tagsPage.alarm_count', { count: alarmDefsCount[tag.id] })}
                                                         </Badge>
