@@ -889,6 +889,8 @@ Da qualsiasi terminale, senza clonare il repo:
 curl -sSL https://raw.githubusercontent.com/inferis995/openedge/master/install-skills.sh | bash
 ```
 
+![install-skills.sh in azione](docs/install-skills-terminal.png)
+
 ---
 
 ## Monitoring Stack
