@@ -1528,8 +1528,8 @@ const TagsPage = () => {
                                             <Badge variant="secondary" className="text-xs">{tag.data_type}</Badge>
                                         </TableCell>
                                         <TableCell>
-                                            <div className="flex items-center gap-2">
-                                            <ValueReadout tag={tag} currentValue={currentValue} />
+                                            <div className="flex items-center gap-2 flex-wrap min-w-0">
+                                            <ValueReadout tag={tag} currentValue={currentValue} wrap />
                                                 {/* History button: same samples-and-range chart as I3X and the map. */}
                                                 <div className="flex items-center gap-1">
                                                 <Button
