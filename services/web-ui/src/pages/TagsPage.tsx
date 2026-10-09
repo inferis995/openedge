@@ -1515,7 +1515,7 @@ const TagsPage = () => {
                                             </div>
                                         </TableCell>
                                         <TableCell className="font-medium">
-                                            <div className="flex items-center gap-2 min-w-0">
+                                            <div className="flex items-center gap-2 min-w-0 max-w-full overflow-hidden">
                                                 <span className="block truncate min-w-0" title={tag.alias || ''}>{tag.alias || '-'}</span>
                                                 {activeAlarms[tag.id] && (
                                                     <Badge variant="destructive" className="shrink-0 whitespace-nowrap tracking-normal px-1.5 py-0 hidden sm:flex gap-1 items-center animate-pulse text-[11px]">
@@ -1581,7 +1581,7 @@ const TagsPage = () => {
                                         </TableCell>
                                         <TableCell>
                                             {alarmDefsCount[tag.id] ? (
-                                                <div className="flex items-center gap-1">
+                                                <div className="flex items-center gap-1 max-w-full overflow-hidden">
                                                     {activeAlarms[tag.id] ? (
                                                         <Badge variant="destructive" className="whitespace-nowrap tracking-normal px-1.5 py-0 gap-1 items-center animate-pulse text-[11px]">
                                                             <BellRing size={10} />

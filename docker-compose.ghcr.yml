@@ -1,0 +1,23 @@
+# ── GHCR deploy overlay ─────────────────────────────────────────────────────
+# Use CI-built images instead of compiling on the VPS:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.vps.yml \
+#       -f docker-compose.ghcr.yml pull core-api web-ui
+#   docker compose -f docker-compose.yml -f docker-compose.vps.yml \
+#       -f docker-compose.ghcr.yml up -d core-api web-ui
+#
+# Images are published by CI on every master push
+# (ghcr.io/inferis995/openedge/{core-api,web-ui}:<sha> and :latest).
+# Drivers keep the local build (they change rarely and are per-gateway).
+#
+# First time on a host (public packages need no login):
+#   echo $GITHUB_TOKEN | docker login ghcr.io -u inferis995 --password-stdin
+
+services:
+  core-api:
+    build: !override null
+    image: ghcr.io/inferis995/openedge/core-api:${OPENEDGE_IMAGE_TAG:-latest}
+
+  web-ui:
+    build: !override null
+    image: ghcr.io/inferis995/openedge/web-ui:${OPENEDGE_IMAGE_TAG:-latest}
