@@ -1867,7 +1867,7 @@ const TagsPage = () => {
             </Dialog>
             {/* Shared history chart for the clock button: same view as I3X and the map. */}
             <Dialog open={historyTag !== null} onOpenChange={(open) => { if (!open) setHistoryTag(null); }}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="max-w-2xl w-[calc(100vw-2rem)]">
                     <DialogHeader>
                         <DialogTitle>{historyTag?.alias}</DialogTitle>
                     </DialogHeader>

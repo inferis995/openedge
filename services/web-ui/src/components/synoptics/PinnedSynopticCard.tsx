@@ -30,11 +30,13 @@ export function synopticTagIds(layout: SynopticWidget[] | undefined): Set<number
 export default function PinnedSynopticCard({
     synopticId,
     height = 220,
+    maxWidth,
     onOpen,
     showTitle = true,
 }: {
     synopticId: number;
     height?: number;
+    maxWidth?: number;
     onOpen?: () => void;
     showTitle?: boolean;
 }) {
@@ -84,7 +86,11 @@ export default function PinnedSynopticCard({
     }, [liveValues, shadows, tagIds]);
 
     if (!synoptic) return null;
-    const scale = Math.min(height / synoptic.canvas_h, 3);
+    const scale = Math.min(
+        height / synoptic.canvas_h,
+        maxWidth ? maxWidth / synoptic.canvas_w : 3,
+        3,
+    );
     const w = synoptic.canvas_w * scale;
 
     const liveOf = (tagId?: number | null): LiveValue | undefined =>
