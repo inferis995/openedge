@@ -115,7 +115,7 @@ export default function PinnedSynopticCard({
                             left: wdg.x, top: wdg.y, width: wdg.w, height: wdg.h,
                             transform: wdg.rotation ? `rotate(${wdg.rotation}deg)` : undefined,
                         }}>
-                            <SynopticWidgetView widget={wdg} live={liveOf(wdg.tagId)} liveMap={liveMap} />
+                            <SynopticWidgetView widget={wdg} live={liveOf(wdg.tagId)} liveMap={liveMap} preview={false} />
                         </div>
                     ))}
                 </div>
