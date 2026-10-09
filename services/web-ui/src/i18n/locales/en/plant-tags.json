@@ -341,6 +341,7 @@
     "export_txt": "PLC text (TIA Portal / Codesys)",
     "view_history": "View history",
     "last_message_title": "Last real message from the unit: {time}. Nothing received since.",
-    "offline_since": "Offline — no new data"
+    "offline_since": "Offline — no new data",
+    "select_tag": "Select tag"
   }
 }
