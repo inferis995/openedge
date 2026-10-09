@@ -59,8 +59,13 @@ function applyOrgAccent(themeColor: string | undefined, dark: boolean) {
     if (!themeColor) {
         root.style.removeProperty('--primary');
         root.style.removeProperty('--primary-foreground');
+        root.style.removeProperty('--accent');
         return;
     }
+    // Raw accent for brand spots (logo, animations): B/W resolved per theme.
+    const lum0 = luminance(themeColor);
+    const extreme = lum0 !== null && (lum0 < 0.08 || lum0 > 0.92);
+    root.style.setProperty('--accent', extreme ? (dark ? '#ffffff' : '#000000') : themeColor);
     const accent = accentForTheme(themeColor, dark);
     if (!accent) return;
     if (dark) {

@@ -156,7 +156,7 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
                 ) : (
                     <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap">
                         <img src="/avatar.png" alt="OpenEdge" className="h-10 sm:h-8 w-10 sm:w-8 rounded-lg object-cover" />
-                        <span className="text-lg font-black tracking-tight text-[#CCFF00]" style={{ WebkitTextStroke: '1px #000', paintOrder: 'stroke fill' }}>OpenEdge</span>
+                        <span className="text-lg font-black tracking-tight text-[var(--accent,#CCFF00)]" style={{ WebkitTextStroke: '1px #000', paintOrder: 'stroke fill' }}>OpenEdge</span>
                     </div>
                 )}
             </div>
