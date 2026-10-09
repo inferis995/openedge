@@ -252,8 +252,8 @@ layer(base);
     --muted: 0 0% 94%;
     --muted-foreground: 0 0% 40%;
     
-    --accent: 0 0% 2%;
-    --accent-foreground: 67 100% 50%;
+    --accent: 0 0% 90%;
+    --accent-foreground: 0 0% 2%;
     
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
