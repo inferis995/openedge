@@ -110,7 +110,7 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-5 w-5 shrink-0"
+                            className="h-5 w-5 shrink-0 hover:bg-muted hover:text-foreground"
                             onClick={() => onToggleVisibility(pen.tagId)}
                             title={pen.visible ? t('historian.hide_pen') : t('historian.show_pen')}
                         >
@@ -139,11 +139,12 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
                                 { label: t('historian.stat_max'), value: pen.stats.max },
                                 { label: t('historian.stat_avg'), value: pen.stats.avg },
                             ].map(({ label, value }, i) => (
-                                <div key={label} className="text-center">
-                                    <div className="text-[9px] text-muted-foreground uppercase tracking-wide">{label}</div>
+                                <div key={label} className="text-center min-w-0">
+                                    <div className="text-[9px] text-muted-foreground uppercase tracking-wide truncate">{label}</div>
                                     <div
-                                        className={i === 0 ? 'text-lg font-mono font-bold leading-tight' : 'text-[11px] font-mono font-medium'}
+                                        className={i === 0 ? 'text-lg font-mono font-bold leading-tight tabular-nums truncate' : 'text-[11px] font-mono font-medium tabular-nums truncate'}
                                         style={i === 0 ? { color: pen.visible ? pen.color : undefined } : undefined}
+                                        title={fmt(value)}
                                     >{fmt(value)}</div>
                                 </div>
                             ))}
