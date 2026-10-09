@@ -39,6 +39,17 @@ Regole:
 3. Per ogni property scegli il tag; per `ts` scegli **⏱ Timestamp automatico**.
 4. Salva: in vista i valori arrivano live via socket come gli altri widget.
 
+## Template di esempio
+
+`docs/examples/monitor_2p.html` — pagina AVEVA a due pressioni + batteria
+(quelle delle 22 PRV). Properties: `pressione1`, `pressione2`, `batteria`,
+`ts`. Provala così:
+
+```bash
+openedge synoptics import-html --name "Prova PRV" --file docs/examples/monitor_2p.html \
+  --bind pressione1=310 --bind pressione2=311 --bind batteria=312 --ts-prop ts
+```
+
 ## Dashboard e TV
 
 - Spillo 📌 dalla lista sinottici o dalla vista: la pagina appare in
