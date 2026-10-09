@@ -61,6 +61,7 @@ func init() {
 	rootCmd.AddCommand(healthCmd)
 	rootCmd.AddCommand(diagnosticsCmd)
 	rootCmd.AddCommand(mcpCmd)
+	rootCmd.AddCommand(synopticsCmd)
 }
 
 // GetClient returns an API client built from config file → env vars → CLI flags.
