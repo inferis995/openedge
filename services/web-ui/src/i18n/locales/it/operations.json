@@ -136,7 +136,17 @@
     "unit_placeholder": "es. °C, bar, %",
     "send_backward": "Porta dietro",
     "bring_forward": "Porta avanti",
-    "unsaved_confirm": "Ci sono modifiche non salvate a questo sinottico. Uscire e perderle?"
+    "unsaved_confirm": "Ci sono modifiche non salvate a questo sinottico. Uscire e perderle?",
+    "html_source": "Pagina HTML",
+    "html_import": "Importa file .html",
+    "html_loaded": "Caricata ({{kb}} KB)",
+    "html_empty": "Nessuna pagina caricata",
+    "html_props": "Custom properties → tag",
+    "html_new_prop": "Nuova property (Invio)",
+    "html_ts": "Timestamp automatico",
+    "html_ts_hint": "Timestamp = ora dell’ultimo campione, senza tag.",
+    "pin": "Pin in dashboard",
+    "unpin": "Togli dalla dashboard"
   },
   "synopticsPage": {
     "loading": "Caricamento sinottici…",
@@ -193,7 +203,8 @@
     "type_heater": "Resistenza",
     "type_silo": "Silo",
     "state_unknown": "Stato del tag sconosciuto: comando disattivato finché non arriva un valore valido.",
-    "out_of_range": "Fuori intervallo ({{min}} … {{max}})"
+    "out_of_range": "Fuori intervallo ({{min}} … {{max}})",
+    "type_html": "Pagina HTML"
   },
   "dashboardPage": {
     "dur_dh": "{{d}}g {{h}}h",
@@ -265,7 +276,9 @@
     "maintenance_active": "Manutenzione in corso: {{title}}",
     "maintenance_muted": "Le notifiche email e Telegram sono sospese fino al {{until}}",
     "n_active_one": "{{count}} allarme attivo",
-    "n_active_other": "{{count}} allarmi attivi"
+    "n_active_other": "{{count}} allarmi attivi",
+    "pinned": "Sinottici pinnati",
+    "tv_mode": "Modalità TV"
   },
   "alarmsPage": {
     "load_failed": "Impossibile caricare gli allarmi",
@@ -374,5 +387,10 @@
     "no_runs": "Nessun caricamento finora.",
     "system_user": "sistema",
     "run_summary": "{{ok}} OK, {{failed}} falliti"
+  },
+  "tvSynoptics": {
+    "empty": "Nessun sinottico pinnato",
+    "go_pin": "Vai ai sinottici e pinna le pagine",
+    "exit": "Esci"
   }
 }

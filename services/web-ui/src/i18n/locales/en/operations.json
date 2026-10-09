@@ -136,7 +136,17 @@
     "unit_placeholder": "e.g. °C, bar, %",
     "send_backward": "Send backward",
     "bring_forward": "Bring forward",
-    "unsaved_confirm": "This synoptic has unsaved changes. Leave and lose them?"
+    "unsaved_confirm": "This synoptic has unsaved changes. Leave and lose them?",
+    "html_source": "HTML page",
+    "html_import": "Import .html file",
+    "html_loaded": "Loaded ({{kb}} KB)",
+    "html_empty": "No page loaded",
+    "html_props": "Custom properties → tags",
+    "html_new_prop": "New property (Enter)",
+    "html_ts": "Automatic timestamp",
+    "html_ts_hint": "Timestamp = newest sample time, no tag needed.",
+    "pin": "Pin to dashboard",
+    "unpin": "Unpin from dashboard"
   },
   "synopticsPage": {
     "loading": "Loading synoptics…",
@@ -193,7 +203,8 @@
     "type_heater": "Heater",
     "type_silo": "Silo",
     "state_unknown": "Tag state unknown: command disabled until a valid value arrives.",
-    "out_of_range": "Out of range ({{min}} … {{max}})"
+    "out_of_range": "Out of range ({{min}} … {{max}})",
+    "type_html": "HTML page"
   },
   "dashboardPage": {
     "dur_dh": "{{d}}d {{h}}h",
@@ -265,7 +276,9 @@
     "maintenance_active": "Maintenance in progress: {{title}}",
     "maintenance_muted": "Email and Telegram notifications are muted until {{until}}",
     "n_active_one": "{{count}} active alarm",
-    "n_active_other": "{{count}} active alarms"
+    "n_active_other": "{{count}} active alarms",
+    "pinned": "Pinned synoptics",
+    "tv_mode": "TV mode"
   },
   "alarmsPage": {
     "load_failed": "Could not load alarms",
@@ -374,5 +387,10 @@
     "no_runs": "No loads yet.",
     "system_user": "system",
     "run_summary": "{{ok}} OK, {{failed}} failed"
+  },
+  "tvSynoptics": {
+    "empty": "No pinned synoptics",
+    "go_pin": "Go to synoptics and pin pages",
+    "exit": "Exit"
   }
 }

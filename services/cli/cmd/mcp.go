@@ -524,6 +524,21 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 			}),
 		},
 		{
+			Name: "import_html_widget",
+			Description: "Create a synoptic page showing one imported HTML widget full-canvas. " +
+				"The page declares custom properties with <meta name=\"oe-props\" content=\"a, b, ts\"> " +
+				"(or cwidget.on('...') calls); bind each to a tag id. The ts prop needs no tag: " +
+				"the platform feeds the newest sample time automatically.",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"name":        propStr("Page name"),
+				"html_source": propStr("Full HTML source of the widget page"),
+				"bindings": propAny("Array of {prop, tag_id}; tag_id null leaves the prop unbound"),
+				"ts_prop":     propStr("Prop fed with the newest sample time (optional)"),
+				"width":       propInt("Canvas width (optional, default 1280)"),
+				"height":      propInt("Canvas height (optional, default 720)"),
+			}, []string{"name", "html_source"}),
+		},
+		{
 			Name:        "create_area",
 			Description: "Create an area inside a site",
 			InputSchema: jsonSchemaRequired(map[string]interface{}{
@@ -945,6 +960,47 @@ func (s *mcpServer) executeTool(name string, args map[string]interface{}) (strin
 			return "", fmt.Errorf("name and site_id are required")
 		}
 		return s.toolPost("/api/areas", map[string]interface{}{"name": name, "site_id": siteID})
+
+	case "import_html_widget":
+		name := strArg(args, "name")
+		source := strArg(args, "html_source")
+		if name == "" || source == "" {
+			return "", fmt.Errorf("name and html_source are required")
+		}
+		width := intArg(args, "width")
+		if width <= 0 {
+			width = 1280
+		}
+		height := intArg(args, "height")
+		if height <= 0 {
+			height = 720
+		}
+		var bindings interface{}
+		if b, ok := args["bindings"]; ok && b != nil {
+			bindings = b
+		} else {
+			bindings = []interface{}{}
+		}
+		return s.toolPost("/api/synoptics", map[string]interface{}{
+			"name":             name,
+			"background_color": "#0f172a",
+			"canvas_w":         width,
+			"canvas_h":         height,
+			"layout": []map[string]interface{}{
+				{
+					"id":    "html-widget",
+					"type":  "html",
+					"x":     0, "y": 0,
+					"w":     width, "h": height,
+					"label": name,
+					"config": map[string]interface{}{
+						"htmlSource": source,
+						"bindings":   bindings,
+						"tsProp":     strArg(args, "ts_prop"),
+					},
+				},
+			},
+		})
 
 	case "create_gateway":
 		name := strArg(args, "name")

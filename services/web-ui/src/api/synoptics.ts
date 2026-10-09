@@ -22,7 +22,8 @@ export type SynopticWidgetType =
     | 'button'      // write command button (start/stop/toggle)
     | 'image'       // static image background
     | 'clock'       // real-time clock display
-    | 'setpoint';   // numeric setpoint input with write
+    | 'setpoint'    // numeric setpoint input with write
+    | 'html';       // custom HTML page (imported widget) with tag-bound props
 
 export interface SynopticWidget {
     id: string;
@@ -69,6 +70,11 @@ export interface SynopticWidget {
         noDataText?: string;
         bgColor?: string;
         tagSecondary?: number;
+
+        // HTML widget extras
+        htmlSource?: string;     // full page pasted/imported by the editor
+        bindings?: Array<{ prop: string; tagId: number | null }>;
+        tsProp?: string;         // prop fed automatically with the newest sample time (unix s)
 
         // Indicator extras
         indicatorShape?: string;  // 'circle' | 'square' | 'diamond'

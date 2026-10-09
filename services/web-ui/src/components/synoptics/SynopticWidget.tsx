@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useId } from 'react';
 import { SynopticWidget } from '@/api/synoptics';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
+import HtmlWidget from './HtmlWidget';
 
 export interface LiveValue {
     value: unknown;
@@ -714,6 +715,8 @@ function ImageWidget({ cfg }: { cfg: SynopticWidget['config'] }) {
 interface WidgetProps {
     widget: SynopticWidget;
     live?: LiveValue;
+    /** All live values on the canvas, for multi-tag widgets (html). */
+    liveMap?: Map<number, LiveValue>;
     onWrite?: (value: number) => Promise<void>;
     inAlarm?: boolean;
     liveSecondary?: LiveValue;
@@ -730,7 +733,7 @@ interface WidgetProps {
 
 // Widgets whose drawing already says what the reading is worth, or that show
 // no reading at all.
-const SHOWS_OWN_QUALITY = new Set(['value', 'setpoint', 'label', 'clock', 'image', 'pipe', 'button']);
+const SHOWS_OWN_QUALITY = new Set(['value', 'setpoint', 'label', 'clock', 'image', 'pipe', 'button', 'html']);
 
 export function SynopticWidgetView(props: WidgetProps) {
     const { t } = useTranslation();
@@ -756,7 +759,7 @@ export function SynopticWidgetView(props: WidgetProps) {
     );
 }
 
-function WidgetBody({ widget, live, onWrite, inAlarm, liveSecondary, onNavigate, preview }: WidgetProps & { preview: boolean }) {
+function WidgetBody({ widget, live, liveMap, onWrite, inAlarm, liveSecondary, onNavigate, preview }: WidgetProps & { preview: boolean }) {
     const { t, i18n } = useTranslation();
     const cfg = widget.config || {};
     const n = num(live?.value);
@@ -1019,6 +1022,18 @@ function WidgetBody({ widget, live, onWrite, inAlarm, liveSecondary, onNavigate,
             return <SetpointWidget widget={widget} live={live} preview={preview} onWrite={onWrite} />;
         case 'image':
             return <ImageWidget cfg={cfg} />;
+        case 'html': {
+            const bindings = (cfg.bindings as Array<{ prop: string; tagId: number | null }> | undefined) ?? [];
+            return (
+                <HtmlWidget
+                    htmlSource={cfg.htmlSource as string | undefined}
+                    bindings={bindings}
+                    tsProp={cfg.tsProp as string | undefined}
+                    liveMap={preview ? undefined : liveMap}
+                    title={widget.label || undefined}
+                />
+            );
+        }
         default:
             return null;
     }

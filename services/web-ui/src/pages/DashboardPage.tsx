@@ -1,9 +1,10 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import {
     Activity, AlertTriangle, Bell, BellOff, ChefHat, CheckCircle2, Clock, Cpu,
     Database, FileText, Gauge, LogIn, Mail, MessageCircle, Pencil, Radio, ShieldAlert,
-    TrendingDown, TrendingUp, UserCircle, Users, Wifi, Wrench, XCircle, ArrowUpRight, Rocket,
+    TrendingDown, TrendingUp, UserCircle, Users, Wifi, Wrench, XCircle, ArrowUpRight, Rocket, Tv,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -15,7 +16,10 @@ import {
     ActivityEvent, AlarmSummary, KPIWidget,
     OEESnapshot, OEEHistoryPoint, OEEOverview, OEEProfileSnapshot, type OEESource } from '@/api/dashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import PinnedSynopticCard from '@/components/synoptics/PinnedSynopticCard';
+import { usePinnedSynoptics } from '@/hooks/usePinnedSynoptics';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
 
@@ -797,6 +801,42 @@ const useDashboard = () => {
     });
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Pinned synoptics — pages pinned from /synoptics, live, click to enlarge,
+// TV button rotates them full-screen like the OEE kiosk.
+// ─────────────────────────────────────────────────────────────────────────────
+const PinnedSection = () => {
+    const { t } = useTranslation();
+    const navigate = useNavigate();
+    const { pins } = usePinnedSynoptics();
+    const [openId, setOpenId] = useState<number | null>(null);
+
+    if (pins.length === 0) return null;
+    return (
+        <div className="space-y-2">
+            <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold">{t('dashboardPage.pinned')}</h3>
+                <Button variant="ghost" size="sm" className="gap-1 h-8 text-xs" onClick={() => navigate('/tv/synoptics')}>
+                    <Tv size={14} /> {t('dashboardPage.tv_mode')}
+                </Button>
+            </div>
+            <div className="flex gap-3 overflow-x-auto pb-1">
+                {pins.map(id => (
+                    <PinnedSynopticCard key={id} synopticId={id} height={200} onOpen={() => setOpenId(id)} />
+                ))}
+            </div>
+            <Dialog open={openId !== null} onOpenChange={(o) => { if (!o) setOpenId(null); }}>
+                <DialogContent className="max-w-6xl w-[96vw]">
+                    <DialogTitle className="sr-only">{t('dashboardPage.pinned')}</DialogTitle>
+                    {openId !== null && (
+                        <PinnedSynopticCard synopticId={openId} height={520} showTitle={false} />
+                    )}
+                </DialogContent>
+            </Dialog>
+        </div>
+    );
+};
+
 const DashboardPage = () => {
     const { t } = useTranslation();
     const { data, isLoading, isError } = useDashboard();
@@ -839,6 +879,8 @@ const DashboardPage = () => {
             )}
 
             <StatusBar data={data} />
+
+            <PinnedSection />
 
             {/* Banner manutenzione in corso — sopra ai KPI così è
                 impossibile non vederla: spiega anche perché le notifiche

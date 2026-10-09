@@ -5,15 +5,17 @@ import {
     Lock, Unlock, AlignLeft, AlignCenterHorizontal, AlignRight,
     AlignStartVertical, AlignCenterVertical, AlignEndVertical,
     AlignHorizontalDistributeCenter, AlignVerticalDistributeCenter,
-    Maximize2, LayoutTemplate, List as ListIcon,
+    Maximize2, LayoutTemplate, List as ListIcon, Upload, X, Pin, PinOff,
 } from 'lucide-react';
 import { synopticsApi, Synoptic, SynopticWidget } from '@/api/synoptics';
 import { tagsApi } from '@/api/tags';
 import { alarmsApi } from '@/api/alarms';
 import { i3xApi } from '@/api/i3x';
 import { TagWithHierarchy } from '@/types/trend';
+import { sanitizeImportedHtml, extractProps } from '@/components/synoptics/HtmlWidget';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useNavigationStore } from '@/stores/useNavigationStore';
+import { usePinnedSynoptics } from '@/hooks/usePinnedSynoptics';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,11 +41,13 @@ function TagCombobox({
     value,
     onChange,
     areaId,
+    extraOptions,
 }: {
     tags: TagWithHierarchy[];
     value: string;
     onChange: (val: string) => void;
     areaId?: number | null;
+    extraOptions?: Array<{ value: string; label: string }>;
 }) {
     const { t: tr } = useTranslation();
     const [filter, setFilter] = useState('');
@@ -82,6 +86,9 @@ function TagCombobox({
                 onChange={e => onChange(e.target.value)}
             >
                 <option value="none">{tr('synopticEditor.no_tag')}</option>
+                {(extraOptions ?? []).map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
                 {groups.map((g, gi) => g.label ? (
                     <optgroup key={gi} label={g.label}>
                         {g.items.map(t => (
@@ -154,6 +161,9 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
     const [widgets, setWidgets] = useState<SynopticWidget[]>([]);
     const [tags, setTags] = useState<TagWithHierarchy[]>([]);
     const [synopticList, setSynopticList] = useState<Array<{id: number; name: string}>>([]);
+    const { isPinned: isPinnedFn, toggle: togglePinFn } = usePinnedSynoptics();
+    const isPinned = synoptic ? isPinnedFn(synoptic.id) : false;
+    const togglePin = (id: number) => togglePinFn(id);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -256,6 +266,12 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
             for (const key of ['tagSecondary', 'tagFlow', 'tagPosition', 'tagBinding'] as const) {
                 const v = cfg[key];
                 if (typeof v === 'number') ids.add(v);
+            }
+            // html widgets bind several tags through custom properties.
+            if (w.type === 'html' && Array.isArray(cfg.bindings)) {
+                for (const b of cfg.bindings as Array<{ tagId?: unknown }>) {
+                    if (typeof b?.tagId === 'number') ids.add(b.tagId);
+                }
             }
         }
         return ids;
@@ -447,6 +463,18 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         const quality = wsConnected ? v.quality : Math.max(v.quality, 1);
         return { value: v.value, quality, timestamp: v.timestamp };
     }, [liveValues, shadowValues, mode, wsConnected]);
+
+    // Multi-tag live map for html widgets: every bound id resolved through
+    // the same quality/frozen-socket rules as single-tag widgets.
+    const liveMap = useMemo(() => {
+        if (isEdit) return undefined;
+        const m = new Map<number, LiveValue>();
+        for (const id of canvasTagIds) {
+            const v = tagValue(id);
+            if (v) m.set(id, v);
+        }
+        return m;
+    }, [isEdit, canvasTagIds, tagValue]);
 
     // onWrite: called by button widgets in view mode to write a value to a tag
     // via the i3X interface (PUT /api/i3x/v1/properties/tag-{id}/value).
@@ -831,6 +859,11 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                 {mobileList ? tr('synopticEditor.show_diagram') : tr('synopticEditor.show_values')}
                             </Button>
                             <Button variant="outline" size="icon" className="h-10 sm:h-8 w-10 sm:w-8"
+                                title={tr(isPinned ? 'synopticEditor.unpin' : 'synopticEditor.pin')}
+                                onClick={() => togglePin(synoptic.id)}>
+                                {isPinned ? <PinOff size={14} className="text-primary" /> : <Pin size={14} />}
+                            </Button>
+                            <Button variant="outline" size="icon" className="h-10 sm:h-8 w-10 sm:w-8"
                                 title={tr('synopticEditor.fullscreen')}
                                 onClick={() => {
                                     if (!document.fullscreenElement) {
@@ -952,6 +985,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                         button could not be selected or dragged. */}
                                     <div className="w-full h-full" style={isEdit ? { pointerEvents: 'none' } : undefined}>
                                     <SynopticWidgetView widget={w} live={tagValue(w.tagId)} preview={isEdit}
+                                        liveMap={liveMap}
                                         liveSecondary={tagValue(
                                             (w.config?.tagSecondary as number | null | undefined) ??
                                             (w.config?.tagFlow as number | null | undefined) ??
@@ -1150,6 +1184,105 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                                             onChange={v => handleTagBind(selected.id, v)}
                                             areaId={synoptic?.area_id ?? null}
                                         />
+                                    </div>
+                                )}
+
+                                {selected.type === 'html' && (
+                                    <div className="grid gap-2 rounded-md border border-border p-2">
+                                        <Label className="text-xs">{tr('synopticEditor.html_source')}</Label>
+                                        <label className="inline-flex items-center justify-center gap-2 h-10 sm:h-8 px-3 rounded-md border border-border text-xs cursor-pointer hover:bg-muted">
+                                            <Upload size={13} />
+                                            {tr('synopticEditor.html_import')}
+                                            <input
+                                                type="file"
+                                                accept=".html,.htm,text/html"
+                                                className="hidden"
+                                                onChange={async (e) => {
+                                                    const f = e.target.files?.[0];
+                                                    e.target.value = '';
+                                                    if (!f) return;
+                                                    const raw = await f.text();
+                                                    const clean = sanitizeImportedHtml(raw);
+                                                    const found = extractProps(clean);
+                                                    const prev = (selected.config?.bindings as Array<{ prop: string; tagId: number | null }> | undefined) ?? [];
+                                                    const prevMap = new Map(prev.map(b => [b.prop, b.tagId]));
+                                                    const bindings = found.map(prop => ({ prop, tagId: prevMap.get(prop) ?? null }));
+                                                    for (const b of prev) {
+                                                        if (!bindings.some(x => x.prop === b.prop)) bindings.push(b);
+                                                    }
+                                                    patchConfig(selected.id, {
+                                                        htmlSource: clean,
+                                                        bindings,
+                                                        tsProp: found.includes('ts') ? 'ts' : (selected.config?.tsProp ?? ''),
+                                                    });
+                                                }}
+                                            />
+                                        </label>
+                                        {selected.config?.htmlSource ? (
+                                            <span className="text-[11px] text-muted-foreground tabular-nums">
+                                                {tr('synopticEditor.html_loaded', { kb: Math.round(String(selected.config.htmlSource).length / 1024) })}
+                                            </span>
+                                        ) : (
+                                            <span className="text-[11px] text-muted-foreground">{tr('synopticEditor.html_empty')}</span>
+                                        )}
+                                        <Label className="text-xs pt-1">{tr('synopticEditor.html_props')}</Label>
+                                        <div className="grid gap-2">
+                                            {((selected.config?.bindings as Array<{ prop: string; tagId: number | null }> | undefined) ?? []).map((b) => (
+                                                <div key={b.prop} className="grid gap-1 rounded border border-border p-1.5">
+                                                    <div className="flex items-center justify-between gap-1">
+                                                        <span className="text-xs font-mono font-medium truncate" title={b.prop}>{b.prop}</span>
+                                                        <button
+                                                            type="button"
+                                                            className="p-1 text-muted-foreground hover:text-destructive"
+                                                            title={tr('common.delete')}
+                                                            onClick={() => patchConfig(selected.id, {
+                                                                bindings: ((selected.config?.bindings as Array<{ prop: string; tagId: number | null }>) ?? [])
+                                                                    .filter(x => x.prop !== b.prop),
+                                                                ...(selected.config?.tsProp === b.prop ? { tsProp: '' } : {}),
+                                                            })}
+                                                        >
+                                                            <X size={12} />
+                                                        </button>
+                                                    </div>
+                                                    <TagCombobox
+                                                        tags={tags}
+                                                        value={selected.config?.tsProp === b.prop ? '__ts' : (b.tagId != null ? String(b.tagId) : 'none')}
+                                                        extraOptions={[{ value: '__ts', label: `⏱ ${tr('synopticEditor.html_ts')}` }]}
+                                                        onChange={v => {
+                                                            if (v === '__ts') {
+                                                                patchConfig(selected.id, { tsProp: b.prop });
+                                                            } else {
+                                                                const next = ((selected.config?.bindings as Array<{ prop: string; tagId: number | null }>) ?? [])
+                                                                    .map(x => x.prop === b.prop ? { ...x, tagId: v === 'none' ? null : Number(v) } : x);
+                                                                patchConfig(selected.id, {
+                                                                    bindings: next,
+                                                                    ...(selected.config?.tsProp === b.prop ? { tsProp: '' } : {}),
+                                                                });
+                                                            }
+                                                        }}
+                                                        areaId={synoptic?.area_id ?? null}
+                                                    />
+                                                    {selected.config?.tsProp === b.prop && (
+                                                        <span className="text-[10px] text-muted-foreground">⏱ {tr('synopticEditor.html_ts')}</span>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <Input
+                                            className="h-10 sm:h-8 text-xs"
+                                            placeholder={tr('synopticEditor.html_new_prop')}
+                                            onKeyDown={e => {
+                                                if (e.key !== 'Enter') return;
+                                                const name = (e.target as HTMLInputElement).value.trim();
+                                                if (!name) return;
+                                                const cur = ((selected.config?.bindings as Array<{ prop: string; tagId: number | null }>) ?? []);
+                                                if (!cur.some(x => x.prop === name)) {
+                                                    patchConfig(selected.id, { bindings: [...cur, { prop: name, tagId: null }] });
+                                                }
+                                                (e.target as HTMLInputElement).value = '';
+                                            }}
+                                        />
+                                        <span className="text-[10px] text-muted-foreground">{tr('synopticEditor.html_ts_hint')}</span>
                                     </div>
                                 )}
 
