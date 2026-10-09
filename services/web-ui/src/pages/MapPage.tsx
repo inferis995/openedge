@@ -1088,7 +1088,7 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
                 </button>
             </div>
             {showHistory && (
-                <div className="pt-2 min-w-[280px]">
+                <div className="pt-2 w-[280px] max-w-[72vw] overflow-hidden">
                     <TagHistoryChart tagId={tag.id} tagName={tag.alias || tag.code || `#${tag.id}`} height={120} />
                 </div>
             )}
