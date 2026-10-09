@@ -67,7 +67,7 @@ export default function PinnedSynopticCard({
             setShadows(m);
         }).catch(() => { /* live only */ });
         return () => { ignore = true; };
-    }, [synopticId]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [synopticId, tagIds]);
 
     const liveMap = useMemo(() => {
         const m = new Map<number, LiveValue>();
