@@ -10,6 +10,7 @@ import (
 	"time"
 	"log"
 
+	"github.com/ralph/industrial-edge-middleware/internal/logging"
 	"github.com/ralph/industrial-edge-middleware/internal/naming"
 )
 
@@ -92,7 +93,8 @@ func NewDynsecClient(c *Client) *DynsecClient {
 // onResponse delivers a broker control reply to the waiting exchange, if any.
 func (d *DynsecClient) onResponse(_ string, payload []byte) {
 		var resp dynsecResponse
-		if json.Unmarshal(payload, &resp) != nil {
+		if err := json.Unmarshal(payload, &resp); err != nil {
+			logging.Debugf("[MQTT] dynsec reply not decoded (%v): %s", err, string(payload))
 			return
 		}
 		d.mu.Lock()
@@ -768,7 +770,7 @@ func (d *DynsecClient) ListBrokerClients() ([]BrokerClient, error) {
 	}()
 
 	data, err := json.Marshal(dynsecCmd{Commands: []map[string]interface{}{
-		{"command": "listClients", "correlationData": corr},
+		{"command": "listClients", "verbose": true, "correlationData": corr},
 	}})
 	if err != nil {
 		return nil, err
