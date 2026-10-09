@@ -64,7 +64,7 @@ export function extractProps(source: string): string[] {
     const out = new Set<string>();
     const meta = source.match(/<meta[^>]+name=["']oe-props["'][^>]*content=["']([^"']*)["']/i);
     const comment = !meta && source.match(/<!--\s*oe-props\s*:\s*([^-]*)-->/i);
-    const declared = meta?.[1] ?? comment?.[1];
+    const declared = (meta && meta[1]) || (comment && comment[1]) || '';
     if (declared) {
         for (const name of declared.split(',')) {
             const n = name.trim();

@@ -524,11 +524,6 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 			}),
 		},
 		{
-			Name:        "list_synoptics",
-			Description: "List synoptic (SCADA mimic) pages in the current organization",
-			InputSchema: jsonSchema(map[string]interface{}{}),
-		},
-		{
 			Name: "import_html_widget",
 			Description: "Create a synoptic page showing one imported HTML widget full-canvas. " +
 				"The page declares custom properties with <meta name=\"oe-props\" content=\"a, b, ts\"> " +
@@ -965,9 +960,6 @@ func (s *mcpServer) executeTool(name string, args map[string]interface{}) (strin
 			return "", fmt.Errorf("name and site_id are required")
 		}
 		return s.toolPost("/api/areas", map[string]interface{}{"name": name, "site_id": siteID})
-
-	case "list_synoptics":
-		return s.toolGet("/api/synoptics")
 
 	case "import_html_widget":
 		name := strArg(args, "name")
