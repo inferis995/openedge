@@ -415,7 +415,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                     data: threeStateData,
                     lineStyle: { width: 3, color: s.color },
                     step: 'end' as const,
-                    connectNulls: false,
+                    connectNulls: true,
                 };
             }
 
@@ -424,7 +424,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                     ...base,
                     barMaxWidth: 8,
                     itemStyle: { color: s.color, opacity: 0.8 },
-                    connectNulls: false,
+                    connectNulls: true,
                 };
             }
 
@@ -435,7 +435,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                     ...base,
                     lineStyle,
                     areaStyle: { color: s.color, opacity: s.areaOpacity ?? 0.15 },
-                    connectNulls: false,
+                    connectNulls: true,
                 };
             }
 
@@ -444,7 +444,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                     ...base,
                     lineStyle,
                     step: 'end' as const,
-                    connectNulls: false,
+                    connectNulls: true,
                 };
             }
 
@@ -452,7 +452,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
             return {
                 ...base,
                 lineStyle,
-                connectNulls: false,
+                connectNulls: true,
             };
         });
 

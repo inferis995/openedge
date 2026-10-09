@@ -60,7 +60,9 @@ export function HistoryPanel({
 
     const load = useCallback(async () => {
         try {
-            setPoints(await fetchData(range));
+            // Offline markers (null values) are state, not measurements: they
+            // must not split the line between two real samples.
+            setPoints((await fetchData(range)).filter((pt) => pt.v !== null));
         } catch {
             setPoints([]);
         } finally {
