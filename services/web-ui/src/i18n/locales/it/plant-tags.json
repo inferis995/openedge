@@ -341,6 +341,6 @@
     "export_txt": "Testo PLC (TIA Portal / Codesys)",
     "view_history": "Vedi storico",
     "last_message_title": "Ultimo messaggio reale della centralina: {time}. Il sistema da allora non ha ricevuto niente.",
-    "offline_since": "offline — nessun dato nuovo"
+    "offline_since": "Offline — nessun dato nuovo"
   }
 }
