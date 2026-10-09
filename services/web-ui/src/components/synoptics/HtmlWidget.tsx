@@ -117,9 +117,25 @@ export default function HtmlWidget({
         return vals;
     }, [bindings, tsProp, liveMap]);
 
+    const valuesRef = useRef(values);
+    useEffect(() => { valuesRef.current = values; });
+
     useEffect(() => {
         frameRef.current?.contentWindow?.postMessage({ type: 'oe-values', values }, '*');
     }, [values, srcDoc]);
+
+    // The frame drops messages posted before it finishes loading (and the
+    // bridge announces itself with oe-ready): resend on both, so values
+    // already held are never lost on first open.
+    useEffect(() => {
+        const onMsg = (e: MessageEvent) => {
+            if (e.data?.type !== 'oe-ready') return;
+            frameRef.current?.contentWindow?.postMessage({ type: 'oe-values', values: valuesRef.current }, '*');
+        };
+        window.addEventListener('message', onMsg);
+        return () => window.removeEventListener('message', onMsg);
+    }, []);
+
 
     if (!srcDoc) {
         return (
@@ -135,6 +151,9 @@ export default function HtmlWidget({
             className="w-full h-full rounded-md border-0 bg-white"
             sandbox="allow-scripts"
             srcDoc={srcDoc}
+            onLoad={() => {
+                frameRef.current?.contentWindow?.postMessage({ type: 'oe-values', values: valuesRef.current }, '*');
+            }}
         />
     );
 }
