@@ -371,7 +371,7 @@ const TagsPage = () => {
 
     // One readout, two layouts: the desktop table cell and the mobile card
     // share it, so a value can never look different between phone and PC.
-    const ValueReadout = ({ tag: t, currentValue: cv, wrap }: { tag: Tag; currentValue?: CurrentValue; wrap?: boolean }) => {
+    const ValueReadout = ({ tag: t, currentValue: cv }: { tag: Tag; currentValue?: CurrentValue }) => {
         if (!valuesReady) {
             return <div className="h-[26px] w-[130px] bg-muted animate-pulse rounded" />;
         }
@@ -380,7 +380,8 @@ const TagsPage = () => {
         const status = getDataStatus(cv?.quality, deviceOnline);
         const statusClasses = getStatusClasses(status);
         return (
-            <div className={`flex items-center gap-2 ${wrap ? 'flex-wrap' : ''}`}>
+            <div className="flex flex-col gap-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
                 {cv && (
                     <span className={[
                         'inline-block w-2 h-2 rounded-full shrink-0',
@@ -419,12 +420,10 @@ const TagsPage = () => {
                         {status === 'good' ? tr('tagsPage.quality_good') : status === 'unknown' ? tr('tagsPage.quality_unknown') : tr('tagsPage.quality_bad')}
                     </Badge>
                 )}
+            </div>
                 {cv?.timestamp && (
                     <span
-                        className={`text-[11px] tabular-nums whitespace-nowrap ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
-                        title={status === 'bad'
-                            ? tr('tagsPage.last_message_title', { time: new Date(cv.timestamp).toLocaleString(i18n.language) })
-                            : tr('tagsPage.last_update', { time: new Date(cv.timestamp).toLocaleString(i18n.language) })}
+                        className={`text-[11px] tabular-nums leading-tight ${status === 'bad' ? 'text-red-500 font-medium' : 'text-muted-foreground'}`}
                     >
                         {new Date(cv.timestamp).toLocaleString(i18n.language, { hour12: false, day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
                         {status === 'bad' && <> · {tr('tagsPage.offline_since')}</>}
@@ -1528,7 +1527,7 @@ const TagsPage = () => {
                                             <Badge variant="secondary" className="text-xs">{tag.data_type}</Badge>
                                         </TableCell>
                                         <TableCell>
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-2 flex-wrap min-w-0">
                                             <ValueReadout tag={tag} currentValue={currentValue} />
                                                 {/* History button: same samples-and-range chart as I3X and the map. */}
                                                 <div className="flex items-center gap-1">
@@ -1681,7 +1680,7 @@ const TagsPage = () => {
                                         )
                                     ) : null}
                                 </div>
-                                <ValueReadout tag={tag} currentValue={currentValue} wrap />
+                                <ValueReadout tag={tag} currentValue={currentValue} />
                                 <div className="flex items-center gap-2 text-[11px] text-muted-foreground min-w-0">
                                     <span className="font-mono truncate">{tag.code}</span>
                                     <span className="shrink-0">·</span>

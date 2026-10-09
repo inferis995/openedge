@@ -342,6 +342,7 @@
     "view_history": "Vedi storico",
     "last_message_title": "Ultimo messaggio reale della centralina: {time}. Il sistema da allora non ha ricevuto niente.",
     "offline_since": "Offline — nessun dato nuovo",
-    "select_tag": "Seleziona tag"
+    "select_tag": "Seleziona tag",
+    "offline_short": "Offline"
   }
 }

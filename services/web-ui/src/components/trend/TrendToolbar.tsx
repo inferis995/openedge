@@ -73,7 +73,7 @@ export const TrendToolbar: React.FC<TrendToolbarProps> = ({
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="h-9 sm:h-7 w-9 sm:w-7"
+                        className="h-9 sm:h-7 w-9 sm:w-7 hover:bg-muted hover:text-foreground"
                         onClick={toggleSidebar}
                         title={t('trend.toggle_tags')}
                         aria-label={t('trend.toggle_tags')}
