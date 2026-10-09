@@ -3,11 +3,11 @@
 // The sidebar, the breadcrumb in the header and the quick search (Ctrl+K) all
 // read it. They used to keep their own: the sidebar had 29 items in one flat
 // list with labels half in Italian and half in English, and the breadcrumb
-// spelled a page by capitalising its URL ("Udt", "Oee-profiles").
+// spelled a page by capitalising its URL ("Oee-profiles").
 import type { LucideIcon } from 'lucide-react';
 import {
-    Activity, Bell, Boxes, Building2, ChefHat, ClipboardList, Clock, Cpu, Factory,
-    FileText, Gauge, History, LayoutDashboard, LayoutTemplate, Layers, Lock, Map, MapPin,
+    Activity, Bell, Building2, ChefHat, ClipboardList, Clock, Cpu, Factory,
+    FileText, Gauge, History, LayoutDashboard, LayoutTemplate, Lock, Map, MapPin,
     Network, PackageOpen, Plug, Radio, Rocket, Server, Settings, Shield, Tags, Target,
     TrendingUp, Users, Wrench,
 } from 'lucide-react';
