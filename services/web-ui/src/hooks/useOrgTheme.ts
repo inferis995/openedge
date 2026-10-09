@@ -24,7 +24,7 @@ function hexToHsl(hex: string): [number, number, number] | null {
     if (max === min) return [0, 0, l * 100];
     const d = max - min;
     const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    let hh = 0;
+    let hh: number;
     if (max === r) hh = ((g - b) / d + (g < b ? 6 : 0)) / 6;
     else if (max === g) hh = ((b - r) / d + 2) / 6;
     else hh = ((r - g) / d + 4) / 6;
