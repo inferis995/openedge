@@ -118,7 +118,7 @@ export default function HtmlWidget({
     }, [bindings, tsProp, liveMap]);
 
     const valuesRef = useRef(values);
-    valuesRef.current = values;
+    useEffect(() => { valuesRef.current = values; });
 
     useEffect(() => {
         frameRef.current?.contentWindow?.postMessage({ type: 'oe-values', values }, '*');
