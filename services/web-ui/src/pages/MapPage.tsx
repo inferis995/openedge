@@ -435,20 +435,20 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
         }
     }, [editGwId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const saveGatewayPos = async (lat: number, lon: number) => {
-        if (!editGw) return;
+    const saveGatewayPos = async (id: number, lat: number, lon: number) => {
         setSavingPos(true);
         try {
-            await gatewaysApi.update(editGw.id, { latitude: lat, longitude: lon });
+            await gatewaysApi.update(id, { latitude: lat, longitude: lon });
         } finally {
             setSavingPos(false);
         }
     };
 
     const handleSavePosFields = async () => {
+        if (!editGw) return;
         const parsed = parseCoords(`${editLat}, ${editLon}`);
         if (!parsed) return;
-        await saveGatewayPos(parsed.latitude, parsed.longitude);
+        await saveGatewayPos(editGw.id, parsed.latitude, parsed.longitude);
     };
 
     // Drag di un marker (solo admin): aggiorna i campi del pannello e salva.
@@ -457,7 +457,9 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
         setEditGwId(gw.id);
         setEditLat(formatCoord(e.lngLat.lat));
         setEditLon(formatCoord(e.lngLat.lng));
-        void saveGatewayPos(e.lngLat.lat, e.lngLat.lng);
+        // The id travels as an argument: editGwId has not updated yet here,
+        // so reading it inside the save silently skipped every drag.
+        void saveGatewayPos(gw.id, e.lngLat.lat, e.lngLat.lng);
     };
 
     if (isLoadingGateways) {
