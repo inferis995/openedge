@@ -517,25 +517,33 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build core-api image
-        uses: docker/build-push-action@v7
+        uses: Wandalen/wretry.action@v3
         with:
-          context: .
-          file: services/core-api/Dockerfile
-          push: ${{ github.ref == 'refs/heads/master' }}
-          tags: |
-            ghcr.io/inferis995/openedge/core-api:${{ github.sha }}
-            ghcr.io/inferis995/openedge/core-api:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          attempt_limit: 4
+          attempt_delay: 120000
+          action: docker/build-push-action@v7
+          with: |
+            context: .
+            file: services/core-api/Dockerfile
+            push: ${{ github.ref == 'refs/heads/master' }}
+            tags: |
+              ghcr.io/inferis995/openedge/core-api:${{ github.sha }}
+              ghcr.io/inferis995/openedge/core-api:latest
+            cache-from: type=gha
+            cache-to: type=gha,mode=max
 
       - name: Build web-ui image
-        uses: docker/build-push-action@v7
+        uses: Wandalen/wretry.action@v3
         with:
-          context: .
-          file: services/web-ui/Dockerfile
-          push: ${{ github.ref == 'refs/heads/master' }}
-          tags: |
-            ghcr.io/inferis995/openedge/web-ui:${{ github.sha }}
-            ghcr.io/inferis995/openedge/web-ui:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          attempt_limit: 4
+          attempt_delay: 120000
+          action: docker/build-push-action@v7
+          with: |
+            context: .
+            file: services/web-ui/Dockerfile
+            push: ${{ github.ref == 'refs/heads/master' }}
+            tags: |
+              ghcr.io/inferis995/openedge/web-ui:${{ github.sha }}
+              ghcr.io/inferis995/openedge/web-ui:latest
+            cache-from: type=gha
+            cache-to: type=gha,mode=max
