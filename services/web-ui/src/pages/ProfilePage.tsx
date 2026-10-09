@@ -59,13 +59,13 @@ export default function ProfilePage() {
     const [disablePw, setDisablePw] = useState('');
 
     useEffect(() => {
-        apiClient.get('/auth/me/mfa/status').then((r: { data: { mfa_enabled: boolean } }) => setMfaEnabled(r.data.mfa_enabled)).catch(() => {});
+        apiClient.get('/auth/mfa/status').then((r: { data: { mfa_enabled: boolean } }) => setMfaEnabled(r.data.mfa_enabled)).catch(() => {});
     }, []);
 
     const startSetup = async () => {
         setMfaMsg('');
         try {
-            const r = await apiClient.post('/auth/me/mfa/setup');
+            const r = await apiClient.post('/auth/mfa/setup');
             setMfaSetup(r.data);
         } catch (e) {
             // Used to reject unhandled: the button did nothing, silently.
@@ -75,7 +75,7 @@ export default function ProfilePage() {
 
     const enableMFA = async () => {
         try {
-            await apiClient.post('/auth/me/mfa/enable', { code: mfaCode });
+            await apiClient.post('/auth/mfa/enable', { code: mfaCode });
             setMfaEnabled(true);
             setMfaSetup(null);
             setMfaCode('');
@@ -87,7 +87,7 @@ export default function ProfilePage() {
 
     const disableMFA = async () => {
         try {
-            await apiClient.delete('/auth/me/mfa/disable', { data: { password: disablePw } });
+            await apiClient.delete('/auth/mfa/disable', { data: { password: disablePw } });
             setMfaEnabled(false);
             setDisablePw('');
             setMfaMsg('profilePage.mfa_disabled_ok');
