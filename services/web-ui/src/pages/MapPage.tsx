@@ -563,7 +563,8 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                         }
                     }}
                 >
-                    <NavigationControl position="top-right" visualizePitch />
+                    <div className="hidden sm:block"><NavigationControl position="top-right" visualizePitch /></div>
+                    <div className="sm:hidden"><NavigationControl position="bottom-right" visualizePitch /></div>
 
                     <Source id="areas" type="geojson" data={geojsonAreas}>
                         <Layer {...fillLayer} />
@@ -966,7 +967,7 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpen
                                 <li key={tg.id} className="flex justify-between gap-3 text-xs">
                                     <span className="truncate text-muted-foreground">{tg.alias || tg.code || `#${tg.id}`}</span>
                                     <span className="font-mono">
-                                        {!live || live.value === null ? '—' : String(live.value)}
+                                        {!live || live.value === null ? '—' : (typeof live.value === 'number' ? String(Math.round(live.value * 100) / 100) : String(live.value))}
                                         {tg.eu_unit && live?.value != null ? ` ${tg.eu_unit}` : ''}
                                     </span>
                                 </li>
