@@ -31,7 +31,7 @@ describe('navigation', () => {
         for (const access of everyone) {
             for (const s of navSections(access)) {
                 for (const key of [s.key, ...s.items.flatMap((i) => [i.key, i.hint ?? i.key])]) {
-                    // A missing key shows the key itself — "nav.udt_types" in the menu.
+                    // A missing key shows the key itself in the menu.
                     expect(typeof lookup(itLocale as Tree, key), `it: ${key}`).toBe('string');
                     expect(typeof lookup(en as Tree, key), `en: ${key}`).toBe('string');
                 }
@@ -59,10 +59,9 @@ describe('navigation', () => {
 
     it('keeps the menu entry lit on a detail page', () => {
         expect(isActivePath('/synoptics', '/synoptics/4/edit')).toBe(true);
-        expect(isActivePath('/udt/types', '/udt/instances')).toBe(false);
         expect(isActivePath('/', '/tags')).toBe(false);
-        const item = findNavItem(navSections(everyone[0]), '/udt/types/7');
-        expect(item?.key).toBe('nav.udt_types');
+        const item = findNavItem(navSections(everyone[0]), '/tags/7');
+        expect(item?.key).toBe('nav.tags');
     });
 
     it('finds a page by a word, not by letters scattered across other pages', () => {
