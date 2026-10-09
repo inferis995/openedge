@@ -396,10 +396,8 @@ jobs:
           set_env ENCRYPTION_KEY "ci-vps-encryption-key-32bytes-ok"
           set_env OPENEDGE_INITIAL_ADMIN_PASSWORD "$VPS_ADMIN_PASSWORD"
           # CI runners can have as few as 2 CPUs: cap the compose limits.
-          set_env POSTGRES_CPUS "1.0"
-          set_env REDIS_CPUS "0.5"
-          set_env MOSQUITTO_CPUS "0.5"
-          set_env CORE_API_CPUS "1.0"
+          # Appended (not set_env): .env.cloud.example carries no CPU keys.
+          printf '%s\n' 'POSTGRES_CPUS=1.0' 'REDIS_CPUS=0.5' 'MOSQUITTO_CPUS=0.5' 'CORE_API_CPUS=1.0' >> .env
 
       - name: Preflight
         # The gate `make vps-up` runs before it starts anything. Running it here
