@@ -14,7 +14,7 @@ go 1.26.0
 // The pin is what makes the floor a floor. govulncheck reports against
 // whatever toolchain runs it, so GO_VERSION in .github/workflows/*.yml must
 // match this line.
-toolchain go1.27.1
+toolchain go1.27.2
 
 require (
 	github.com/docker/docker v28.5.2+incompatible
@@ -129,7 +129,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/arch v0.29.0 // indirect
 	golang.org/x/mod v0.41.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
