@@ -121,3 +121,4 @@ release-*/openedge-*.zip
 # and was tracked — so every `tsc` run showed up as a dirty working tree and got
 # swept into unrelated commits.
 *.tsbuildinfo
+.hermes/
