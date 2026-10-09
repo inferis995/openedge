@@ -134,7 +134,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-9 sm:h-6 w-9 sm:w-6"
+                                    className="h-9 sm:h-6 w-9 sm:w-6 hover:bg-muted hover:text-foreground"
                                     title={isVisible ? t('trend.hide_series') : t('trend.show_series')}
                                     onClick={() => onUpdate(s.tagId, { visible: !isVisible })}
                                 >
@@ -143,7 +143,7 @@ const SeriesSettingsPanel: React.FC<SeriesSettingsPanelProps> = ({
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-9 sm:h-6 w-9 sm:w-6 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                    className="h-9 sm:h-6 w-9 sm:w-6 text-red-500 hover:text-red-600 hover:bg-red-500/10"
                                     title={t('trend.remove_from_chart')}
                                     onClick={() => onRemoveTag(s.tagId)}
                                 >

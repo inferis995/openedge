@@ -734,7 +734,7 @@ export default function TrendPage() {
                 {/* Row 1: title + actions */}
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div className="flex items-center gap-2">
-                        <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7"
+                        <Button variant="ghost" size="icon" className="h-9 sm:h-7 w-9 sm:w-7 hover:bg-muted hover:text-foreground"
                             onClick={() => { setSidebarOpen(o => !o); if (!isWide) setPenPanelOpen(false); }}
                             title={tr('trendPage.toggle_tags')} aria-label={tr('trendPage.toggle_tags')}>
                             <PanelLeft className={`w-4 h-4 ${sidebarOpen ? 'text-primary' : 'text-muted-foreground'}`} />
