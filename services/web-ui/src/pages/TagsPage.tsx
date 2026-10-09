@@ -1453,7 +1453,7 @@ const TagsPage = () => {
                                             <div className="flex items-center gap-2 min-w-0">
                                                 <span className="truncate max-w-[120px] sm:max-w-[180px] xl:max-w-[260px]" title={tag.alias || ''}>{tag.alias || '-'}</span>
                                                 {activeAlarms[tag.id] && (
-                                                    <Badge variant="destructive" className="shrink-0 whitespace-nowrap tracking-normal px-1.5 py-0 flex gap-1 items-center animate-pulse text-[11px]">
+                                                    <Badge variant="destructive" className="shrink-0 whitespace-nowrap tracking-normal px-1.5 py-0 hidden sm:flex gap-1 items-center animate-pulse text-[11px]">
                                                         <Bell size={10} /> {tr('tagsPage.alarm_badge')}
                                                     </Badge>
                                                 )}
