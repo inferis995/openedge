@@ -528,7 +528,7 @@
     "paused": "Flusso in pausa…",
     "waiting": "In attesa di messaggi…",
     "view_live": "Live",
-    "view_last": "Ultimi valori ({count})",
+    "view_last": "Ultimi valori ({{count}})",
     "last_title": "Ultimi valori noti",
     "last_desc": "{count} topic con ultimo valore (retained + live): quello che legge un’app esterna all’iscrizione."
   },

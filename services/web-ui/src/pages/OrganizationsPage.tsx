@@ -191,8 +191,8 @@ const OrganizationsPage = () => {
                             key={org.id}
                             className="group rounded-lg border bg-card hover:border-primary/40 transition-colors"
                         >
-                            {/* Main row */}
-                            <div className="flex items-center gap-4 p-4">
+                            {/* Main row: stacked on mobile so actions never cover the metadata */}
+                            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-4">
                                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                                     <Building2 size={20} className="text-primary" />
                                 </div>
@@ -211,7 +211,7 @@ const OrganizationsPage = () => {
                                 </div>
 
                                 {/* Actions */}
-                                <div className="flex items-center gap-1.5 shrink-0">
+                                <div className="flex flex-wrap items-center gap-1.5 shrink-0 sm:justify-end">
                                     {isAdmin() && (
                                         <>
                                             {/* Infrastructure (edge, keys, invites) */}

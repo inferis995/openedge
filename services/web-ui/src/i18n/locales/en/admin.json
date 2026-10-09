@@ -528,7 +528,7 @@
     "paused": "Stream paused…",
     "waiting": "Waiting for messages…",
     "view_live": "Live",
-    "view_last": "Last values ({count})",
+    "view_last": "Last values ({{count}})",
     "last_title": "Last known values",
     "last_desc": "{count} topics with last value (retained + live): what an external app reads on subscribe."
   },
