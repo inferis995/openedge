@@ -65,7 +65,7 @@ const Header = ({ onMenuClick }: HeaderProps) => {
     }, [connectMqtt]);
 
     // Home › section › page › detail, in the user's language. It used to
-    // capitalise the URL: "Udt › Types › 4", "Oee-profiles".
+    // capitalise the URL: "Oee-profiles".
     const getBreadcrumbs = () => {
         const path = location.pathname;
         const sections = navSections({
