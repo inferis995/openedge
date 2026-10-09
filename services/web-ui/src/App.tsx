@@ -29,6 +29,7 @@ import MaintenancePage from '@/pages/MaintenancePage';
 import CustomKPIsPage from '@/pages/CustomKPIsPage';
 import OEEProfilesPage from '@/pages/OEEProfilesPage';
 import OEEKioskPage from '@/pages/OEEKioskPage';
+import TvSynopticsPage from '@/pages/TvSynopticsPage';
 import I3XPage from '@/pages/I3XPage';
 import SynopticsPage from '@/pages/SynopticsPage';
 import UDTTypesPage from '@/pages/UDTTypesPage';
@@ -147,6 +148,7 @@ function App() {
                 sotto RequireAuth ma fuori dal LayoutWrapper. */}
             <Route element={<RequireAuth />}>
                 <Route path="/tv/oee" element={<OEEKioskPage />} />
+                <Route path="/tv/synoptics" element={<TvSynopticsPage />} />
             </Route>
 
             <Route element={<RequireAuth />}>

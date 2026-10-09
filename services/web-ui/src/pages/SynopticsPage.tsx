@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    Plus, Trash2, Pencil, Monitor, LayoutTemplate, Factory, MapPin,
+    Plus, Trash2, Pencil, Monitor, LayoutTemplate, Factory, MapPin, Pin, PinOff,
     ChevronRight, ChevronDown, FolderOpen, Folder,
 } from 'lucide-react';
 import { synopticsApi, Synoptic } from '@/api/synoptics';
@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { SynopticWidgetView } from '@/components/synoptics/SynopticWidget';
+import { usePinnedSynoptics } from '@/hooks/usePinnedSynoptics';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
 import { useTranslation } from 'react-i18next';
@@ -88,6 +89,7 @@ const SynopticsPage = () => {
     const [items, setItems] = useState<Synoptic[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
+    const { pins: pinnedIds, toggle: togglePin } = usePinnedSynoptics();
     const [scope, setScope] = useState<NodeScope>({ kind: 'all' });
 
     // Create dialog
@@ -287,6 +289,9 @@ const SynopticsPage = () => {
                                             <p className="text-xs text-muted-foreground truncate">{s.description || t('synopticsPage.widget_count', { count: (s.layout || []).length })}</p>
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0">
+                                            <Button variant="ghost" size="icon" className="h-10 sm:h-8 w-10 sm:w-8" title={t(pinnedIds.includes(s.id) ? 'synopticEditor.unpin' : 'synopticEditor.pin')} onClick={(e) => { e.stopPropagation(); togglePin(s.id); }}>
+                                                {pinnedIds.includes(s.id) ? <PinOff size={16} className="text-primary" /> : <Pin size={16} />}
+                                            </Button>
                                             <Button variant="ghost" size="icon" className="h-10 sm:h-8 w-10 sm:w-8" title={t('synopticsPage.view')} onClick={(e) => { e.stopPropagation(); navigate(`/synoptics/${s.id}`); }}>
                                                 <Monitor size={16} />
                                             </Button>

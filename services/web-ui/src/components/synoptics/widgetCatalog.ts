@@ -27,6 +27,7 @@ export const WIDGET_CATALOG: WidgetCatalogEntry[] = [
     { type: 'heater',     label: 'synopticWidget.type_heater',     needsTag: true,  defaultW: 80,  defaultH: 70 },
     { type: 'silo',       label: 'synopticWidget.type_silo',       needsTag: true,  defaultW: 80,  defaultH: 120 },
     { type: 'button',   label: 'synopticWidget.type_button',   needsTag: true,  defaultW: 90,  defaultH: 44 },
+    { type: 'html',     label: 'synopticWidget.type_html',     needsTag: false, defaultW: 480, defaultH: 300 },
     { type: 'setpoint', label: 'synopticWidget.type_setpoint', needsTag: true,  defaultW: 110, defaultH: 70 },
     { type: 'pipe',     label: 'synopticWidget.type_pipe',     needsTag: false, defaultW: 120, defaultH: 14 },
     { type: 'label',    label: 'synopticWidget.type_label',    needsTag: false, defaultW: 100, defaultH: 30 },
