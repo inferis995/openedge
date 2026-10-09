@@ -1,6 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { synopticsApi, type SynopticWidget } from '@/api/synoptics';
+import { tagsApi } from '@/api/tags';
 import { SynopticWidgetView, type LiveValue } from './SynopticWidget';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useNavigationStore } from '@/stores/useNavigationStore';
@@ -50,8 +51,27 @@ export default function PinnedSynopticCard({
         tagIds.size > 0 ? tagIds : undefined,
     );
 
+    // Initial snapshot: the socket only pushes new samples, so without this
+    // a pinned card showed "—" until the next transmission. Last-known
+    // values fill in immediately; live updates override afterwards.
+    const [shadows, setShadows] = useState<Map<number, LiveValue>>(new Map());
+    useEffect(() => {
+        if (tagIds.size === 0) return;
+        let ignore = false;
+        tagsApi.getShadowBatch().then(list => {
+            if (ignore) return;
+            const m = new Map<number, LiveValue>();
+            for (const s of list) {
+                m.set(s.tag_id, { value: s.value, quality: s.quality, timestamp: s.ts });
+            }
+            setShadows(m);
+        }).catch(() => { /* live only */ });
+        return () => { ignore = true; };
+    }, [synopticId]); // eslint-disable-line react-hooks/exhaustive-deps
+
     const liveMap = useMemo(() => {
         const m = new Map<number, LiveValue>();
+        for (const [id, v] of shadows) m.set(id, v);
         for (const [id, v] of liveValues) {
             m.set(id, { value: v.value, quality: v.quality, timestamp: v.timestamp });
         }
@@ -61,7 +81,7 @@ export default function PinnedSynopticCard({
             if (!m.has(id)) m.set(id, { value: null, quality: 2 });
         }
         return m;
-    }, [liveValues, tagIds]);
+    }, [liveValues, shadows, tagIds]);
 
     if (!synoptic) return null;
     const scale = Math.min(height / synoptic.canvas_h, 3);
