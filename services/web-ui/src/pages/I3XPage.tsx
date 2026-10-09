@@ -485,7 +485,7 @@ export default function I3XPage() {
             return m;
         }, new Map<string, typeof alarms[number]>())
         .values()];
-    const activeAlarmCount = openAlarms.filter(a => a.status === 'Active').length;
+    const activeAlarmCount = openAlarms.length;
     const ackedAlarmCount = openAlarms.filter(a => a.status === 'Acknowledged').length;
     const equipmentCount   = allEquipment.filter(e => e.type === 'Equipment').length;
 
