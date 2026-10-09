@@ -130,7 +130,6 @@ func (h *TagsHandler) TagImportTemplate(c *gin.Context) {
 // existingTag is what the import compares a row with.
 type existingTag struct {
 	id        int
-	udt       bool
 	sheetTag  tagsheet.Tag
 	hasJSONPt bool
 }
@@ -139,8 +138,7 @@ func (h *TagsHandler) loadSheetTags(ctx context.Context, gatewayID int) ([]strin
 	rows, err := h.db.QueryContext(ctx, `
 		SELECT id, code, alias, data_type, COALESCE(historize, false), COALESCE(historize_deadband, 0),
 		       eu_unit, eu_decimals, scaling_enabled, scaling_raw_min, scaling_raw_max,
-		       scaling_eu_min, scaling_eu_max, scaling_clamp, invert, json_path,
-		       udt_instance_id IS NOT NULL
+		       scaling_eu_min, scaling_eu_max, scaling_clamp, invert, json_path
 		FROM tags WHERE gateway_id = $1
 		ORDER BY sort_order, id`, gatewayID)
 	if err != nil {
@@ -156,7 +154,7 @@ func (h *TagsHandler) loadSheetTags(ctx context.Context, gatewayID int) ([]strin
 		t := &e.sheetTag
 		if err := rows.Scan(&e.id, &t.Address, &t.Alias, &t.DataType, &t.Historize, &t.Deadband,
 			&t.Unit, &t.Decimals, &t.Scaling, &t.RawMin, &t.RawMax, &t.EuMin, &t.EuMax,
-			&t.Clamp, &t.Invert, &jp, &e.udt); err != nil {
+			&t.Clamp, &t.Invert, &jp); err != nil {
 			return nil, nil, err
 		}
 		t.JSONPath, e.hasJSONPt = jp.String, jp.Valid
@@ -353,11 +351,6 @@ func planSheet(sheet *tagsheet.Sheet, existing map[string]existingTag) SheetImpo
 		case ambiguous:
 			r.Action = "invalid"
 			r.Problems = append(r.Problems, tagsheet.Problem{Line: row.Line, Field: tagsheet.FJSONPath, Code: "ambiguous_address"})
-		case found && e.udt:
-			// A tag that belongs to a UDT instance is generated from the type;
-			// editing it here would be undone, or would break the instance.
-			r.Action = "invalid"
-			r.Problems = append(r.Problems, tagsheet.Problem{Line: row.Line, Field: tagsheet.FAddress, Code: "udt_managed"})
 		case !found:
 			r.Action = "create"
 		default:

@@ -27,7 +27,6 @@ var apiCmd = &cobra.Command{
 configuration and prints the JSON response. For what no command covers yet.
 
   openedge api GET /api/sites
-  openedge api POST /api/udt/types '{"name":"Motore","members":[...]}'
   openedge api PUT /api/organizations/3/mfa-required '{"mfa_required":true}'`,
 	Args: cobra.RangeArgs(2, 3),
 	Run:  runAPI,

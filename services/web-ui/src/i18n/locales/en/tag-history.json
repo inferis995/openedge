@@ -1,6 +1,6 @@
 {
   "tagHistory": {
-    "samples": "{count} samples",
+    "samples": "{{count}} samples",
     "empty": "No samples in this range"
   }
 }

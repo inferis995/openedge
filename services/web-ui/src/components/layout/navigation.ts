@@ -3,11 +3,11 @@
 // The sidebar, the breadcrumb in the header and the quick search (Ctrl+K) all
 // read it. They used to keep their own: the sidebar had 29 items in one flat
 // list with labels half in Italian and half in English, and the breadcrumb
-// spelled a page by capitalising its URL ("Udt", "Oee-profiles").
+// spelled a page by capitalising its URL ("Oee-profiles").
 import type { LucideIcon } from 'lucide-react';
 import {
-    Activity, Bell, Boxes, Building2, ChefHat, ClipboardList, Clock, Cpu, Factory,
-    FileText, Gauge, History, LayoutDashboard, LayoutTemplate, Layers, Lock, Map, MapPin,
+    Activity, Bell, Building2, ChefHat, ClipboardList, Clock, Cpu, Factory,
+    FileText, Gauge, History, LayoutDashboard, LayoutTemplate, Lock, Map, MapPin,
     Network, PackageOpen, Plug, Radio, Rocket, Server, Settings, Shield, Tags, Target,
     TrendingUp, Users, Wrench,
 } from 'lucide-react';
@@ -46,7 +46,6 @@ const pathModuleEntries: [string, string][] = [
     ['/map', 'map'],
     ['/tags', 'tags'],
     ['/inventory', 'inventory'],
-    ['/udt', 'udt'],
     ['/synoptics', 'synoptics'],
     ['/alarms', 'alarms'],
     ['/recipes', 'recipes'],
@@ -109,8 +108,6 @@ export function navSections(access: NavAccess, enabledModules?: Set<string> | nu
                 { key: 'nav.map', path: '/map', icon: Map, hint: 'nav.hint.map' },
                 { key: 'nav.tags', path: '/tags', icon: Tags, hint: 'nav.hint.tags' },
                 { key: 'nav.inventory', path: '/inventory', icon: ClipboardList, hint: 'nav.hint.inventory' },
-                { key: 'nav.udt_types', path: '/udt/types', icon: Boxes, hint: 'nav.hint.udt_types' },
-                { key: 'nav.udt_instances', path: '/udt/instances', icon: Layers, hint: 'nav.hint.udt_instances' },
             ],
         },
         {
@@ -178,7 +175,6 @@ export function navSections(access: NavAccess, enabledModules?: Set<string> | nu
  * Whether a menu entry is where the user is.
  *
  * An exact match left the menu blank on every detail page — /synoptics/4,
- * /udt/types/2 — so the user could not see which part of the application they
  * were in. The dashboard is the exception: every path starts with "/".
  */
 export function isActivePath(itemPath: string, pathname: string): boolean {
@@ -212,7 +208,6 @@ const fold = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').t
  * Ranks a page against what the user typed in the quick search.
  *
  * cmdk's own score accepts letters scattered anywhere, so "turni" put
- * "Tipi (UDT)" first (T-ipi U-DT … R-iutilizzabili …). Here every word typed
  * has to appear whole in the label or its explanation, and a hit in the label
  * outranks one in the explanation. Accents are ignored: "attivita" finds
  * "attività".

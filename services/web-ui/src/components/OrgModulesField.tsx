@@ -10,7 +10,6 @@ import { orgModulesKey } from '@/hooks/useOrgModules';
 /** Module keys use URL style (connected-apps); nav labels use underscores. */
 const moduleNavKey: Record<string, string> = {
     oee: 'oee_profiles',
-    udt: 'udt_types',
     'connected-apps': 'connected_apps',
 };
 

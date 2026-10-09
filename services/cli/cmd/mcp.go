@@ -565,8 +565,7 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 		},
 		{
 			Name: "create_tag",
-			Description: "Create a single tag on a gateway. Prefer a UDT instance when several tags " +
-				"share a shape — a type is edited once and every instance follows.",
+			Description: "Create a single tag on a gateway.",
 			InputSchema: jsonSchemaRequired(map[string]interface{}{
 				"gateway_id":      propInt("Gateway ID"),
 				"code":            propStr("Device address, e.g. 40001 for Modbus or DB10.DBX0.0 for S7"),
@@ -597,81 +596,6 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 				"alarms": propAny("Array of {alarm_type: high|low, threshold, severity, message, " +
 					"deadband, delay_seconds, enabled}"),
 			}, []string{"tag_id", "alarms"}),
-		},
-
-		// ── User-defined types ──────────────────────────────────────────────
-
-		{
-			Name:        "list_udt_types",
-			Description: "List user-defined types in the current organization",
-			InputSchema: jsonSchema(map[string]interface{}{}),
-		},
-		{
-			Name:        "get_udt_type",
-			Description: "Get one type with its members and their alarms",
-			InputSchema: jsonSchemaRequired(map[string]interface{}{
-				"type_id": propInt("Type ID"),
-			}, []string{"type_id"}),
-		},
-		{
-			Name: "create_udt_type",
-			Description: "Define a reusable type. Members carry an address_suffix appended to each " +
-				"instance's base address, so the same type works on Modbus (suffix \"+2\") and " +
-				"S7 (suffix \".DBX0.1\"). Scaling and alarms are declared once here and apply " +
-				"to every instance.",
-			InputSchema: jsonSchemaRequired(map[string]interface{}{
-				"name":        propStr("Type name, e.g. Motor"),
-				"description": propStr("What this type models"),
-				"members": propAny("Array of {name, address_suffix, data_type, historize, " +
-					"scaling_enabled, scaling_raw_min, scaling_raw_max, scaling_eu_min, " +
-					"scaling_eu_max, eu_unit, alarms:[{alarm_type, threshold, severity, message}]}"),
-			}, []string{"name", "members"}),
-		},
-		{
-			Name: "update_udt_type",
-			Description: "Replace a type's members and reconcile every instance. Send the members " +
-				"whole. Removing a member deletes that tag on every instance AND everything the " +
-				"historian recorded for it, so the call is refused unless confirm_data_loss is " +
-				"true — the refusal reports how many tags and rows are at stake.",
-			InputSchema: jsonSchemaRequired(map[string]interface{}{
-				"type_id":           propInt("Type ID"),
-				"name":              propStr("Type name"),
-				"description":       propStr("What this type models"),
-				"members":           propAny("The complete member list, as in create_udt_type"),
-				"confirm_data_loss": propBool("Required to remove a member that instances carry"),
-			}, []string{"type_id", "name", "members"}),
-		},
-		{
-			Name:        "delete_udt_type",
-			Description: "Delete a type. Refused while instances still use it.",
-			InputSchema: jsonSchemaRequired(map[string]interface{}{
-				"type_id": propInt("Type ID"),
-			}, []string{"type_id"}),
-		},
-		{
-			Name:        "list_udt_instances",
-			Description: "List instances, optionally filtered by type",
-			InputSchema: jsonSchema(map[string]interface{}{
-				"type_id": propInt("Filter by type ID (optional)"),
-			}),
-		},
-		{
-			Name: "create_udt_instance",
-			Description: "Stamp a type onto a gateway at a base address and generate its tags. " +
-				"Each tag's address becomes base_address + the member's address_suffix.",
-			InputSchema: jsonSchemaRequired(map[string]interface{}{
-				"type_id":      propInt("Type ID"),
-				"gateway_id":   propInt("Gateway ID"),
-				"name":         propStr("Instance name, e.g. Pump_01 — it prefixes every generated tag"),
-				"base_address": propStr("Address the member suffixes are appended to, e.g. 40001 or DB10"),
-			}, []string{"type_id", "gateway_id", "name"}),
-		},
-		{
-			Name:        "delete_udt_instance",
-			Description: "Delete an instance and its generated tags, including their history",
-			InputSchema: jsonSchemaRequired(map[string]interface{}{
-				"instance_id": propInt("Instance ID"),
-			}, []string{"instance_id"}),
 		},
 
 		// ── Synoptics (SCADA mimic pages) ───────────────────────────────────
@@ -1060,73 +984,6 @@ func (s *mcpServer) executeTool(name string, args map[string]interface{}) (strin
 			return "", fmt.Errorf("tag_id and alarms are required")
 		}
 		return s.toolPut(fmt.Sprintf("/api/tags/%d/alarms", tagID), alarms)
-
-	// ── User-defined types ──────────────────────────────────────────────────
-
-	case "list_udt_types":
-		return s.toolGet("/api/udt/types")
-
-	case "get_udt_type":
-		typeID := intArg(args, "type_id")
-		if typeID == 0 {
-			return "", fmt.Errorf("type_id is required")
-		}
-		return s.toolGet(fmt.Sprintf("/api/udt/types/%d", typeID))
-
-	case "create_udt_type":
-		name := strArg(args, "name")
-		members, ok := args["members"]
-		if name == "" || !ok {
-			return "", fmt.Errorf("name and members are required")
-		}
-		return s.toolPost("/api/udt/types", map[string]interface{}{
-			"name": name, "description": strArg(args, "description"), "members": members,
-		})
-
-	case "update_udt_type":
-		typeID := intArg(args, "type_id")
-		name := strArg(args, "name")
-		members, ok := args["members"]
-		if typeID == 0 || name == "" || !ok {
-			return "", fmt.Errorf("type_id, name and members are required")
-		}
-		return s.toolPut(fmt.Sprintf("/api/udt/types/%d", typeID), map[string]interface{}{
-			"name": name, "description": strArg(args, "description"), "members": members,
-			"confirm_data_loss": boolArg(args, "confirm_data_loss"),
-		})
-
-	case "delete_udt_type":
-		typeID := intArg(args, "type_id")
-		if typeID == 0 {
-			return "", fmt.Errorf("type_id is required")
-		}
-		return s.toolDelete(fmt.Sprintf("/api/udt/types/%d", typeID))
-
-	case "list_udt_instances":
-		path := "/api/udt/instances"
-		if typeID := intArg(args, "type_id"); typeID > 0 {
-			path += "?type_id=" + strconv.Itoa(typeID)
-		}
-		return s.toolGet(path)
-
-	case "create_udt_instance":
-		typeID := intArg(args, "type_id")
-		gwID := intArg(args, "gateway_id")
-		name := strArg(args, "name")
-		if typeID == 0 || gwID == 0 || name == "" {
-			return "", fmt.Errorf("type_id, gateway_id and name are required")
-		}
-		return s.toolPost("/api/udt/instances", map[string]interface{}{
-			"type_id": typeID, "gateway_id": gwID, "name": name,
-			"base_address": strArg(args, "base_address"),
-		})
-
-	case "delete_udt_instance":
-		instID := intArg(args, "instance_id")
-		if instID == 0 {
-			return "", fmt.Errorf("instance_id is required")
-		}
-		return s.toolDelete(fmt.Sprintf("/api/udt/instances/%d", instID))
 
 	// ── Synoptics ───────────────────────────────────────────────────────────
 

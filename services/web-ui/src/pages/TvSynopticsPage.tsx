@@ -48,6 +48,7 @@ export default function TvSynopticsPage() {
                     key={current}
                     synopticId={current}
                     height={Math.max(300, window.innerHeight - 120)}
+                    maxWidth={Math.max(280, window.innerWidth - 32)}
                     showTitle={false}
                 />
             </div>

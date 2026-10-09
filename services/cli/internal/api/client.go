@@ -325,8 +325,8 @@ func VerifyMFA(baseURL, mfaToken, code string, insecure bool) (LoginResponse, er
 
 // RawDelete executes a DELETE and returns the raw bytes.
 //
-// Present because the MCP server can now remove things — a tag, a UDT
-// instance, a mimic page — and an agent that can create without being able to
+// Present because the MCP server can now remove things — a tag,
+// a mimic page — and an agent that can create without being able to
 // delete leaves a plant model that only ever grows.
 func (c *Client) RawDelete(path string) ([]byte, error) {
 	req, err := http.NewRequest("DELETE", c.baseURL+path, nil)
