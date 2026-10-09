@@ -883,6 +883,12 @@ da sole. Per averle globali (fuori dal repo):
 ./install-skills.sh --opencode-only  # solo ~/.config/opencode/skills
 ```
 
+Da qualsiasi terminale, senza clonare il repo:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/inferis995/openedge/master/install-skills.sh | bash
+```
+
 ---
 
 ## Monitoring Stack
