@@ -415,7 +415,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                     data: threeStateData,
                     lineStyle: { width: 3, color: s.color },
                     step: 'end' as const,
-                    connectNulls: true,
+                    connectNulls: false,
                 };
             }
 
@@ -424,7 +424,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                     ...base,
                     barMaxWidth: 8,
                     itemStyle: { color: s.color, opacity: 0.8 },
-                    connectNulls: true,
+                    connectNulls: false,
                 };
             }
 
