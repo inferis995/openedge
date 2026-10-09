@@ -73,7 +73,7 @@ const OrganizationsPage = () => {
 
     // Edit dialog
     const [isEditOpen, setIsEditOpen] = useState(false);
-    const [editingOrg, setEditingOrg] = useState<{ id: number; name: string } | null>(null);
+    const [editingOrg, setEditingOrg] = useState<{ id: number; name: string; theme_color?: string } | null>(null);
 
     // Infrastructure dialog
     const [infraOrg, setInfraOrg] = useState<Organization | null>(null);
@@ -87,7 +87,7 @@ const OrganizationsPage = () => {
 
     const handleUpdate = async () => {
         if (!editingOrg) return;
-        await update({ id: editingOrg.id, data: { name: editingOrg.name } });
+        await update({ id: editingOrg.id, data: { name: editingOrg.name, theme_color: editingOrg.theme_color || '' } });
         setIsEditOpen(false);
         setEditingOrg(null);
     };
@@ -232,7 +232,7 @@ const OrganizationsPage = () => {
                                                 className="h-10 sm:h-8 w-10 sm:w-8 text-muted-foreground hover:text-foreground"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setEditingOrg({ id: org.id, name: org.name });
+                                                    setEditingOrg({ id: org.id, name: org.name, theme_color: org.theme_color || '' });
                                                     setIsEditOpen(true);
                                                 }}
                                             >
@@ -286,6 +286,27 @@ const OrganizationsPage = () => {
                                 onKeyDown={(e) => e.key === 'Enter' && handleUpdate()}
                                 autoFocus
                             />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="edit-color">{t('organizationsPage.accent_title')}</Label>
+                            <div className="flex items-center gap-2">
+                                <Input
+                                    id="edit-color"
+                                    type="color"
+                                    className="h-9 w-14 cursor-pointer p-1"
+                                    value={editingOrg?.theme_color || '#e0ff00'}
+                                    onChange={(e) =>
+                                        setEditingOrg((prev) => prev ? { ...prev, theme_color: e.target.value } : null)
+                                    }
+                                />
+                                <span className="text-xs text-muted-foreground font-mono">{editingOrg?.theme_color || t('organizationsPage.accent_default')}</span>
+                                {editingOrg?.theme_color && (
+                                    <Button variant="ghost" size="sm" onClick={() => setEditingOrg((prev) => prev ? { ...prev, theme_color: '' } : null)}>
+                                        {t('organizationsPage.accent_reset')}
+                                    </Button>
+                                )}
+                            </div>
+                            <p className="text-[11px] text-muted-foreground">{t('organizationsPage.accent_help')}</p>
                         </div>
                         {editingOrg && <OrgLogoField orgId={editingOrg.id} />}
                         {editingOrg && <OrgModulesField orgId={editingOrg.id} />}

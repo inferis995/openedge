@@ -54,6 +54,7 @@ import { useTrendStore } from '@/stores/useTrendStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { organizationsApi } from '@/api/organizations';
 import { useSparkplugListener } from '@/hooks/useSparkplugListener';
+import { useOrgTheme } from '@/hooks/useOrgTheme';
 import { Loader2 } from 'lucide-react';
 
 const LayoutWrapper = () => {
@@ -86,6 +87,9 @@ function App() {
 
     // Global Sparkplug B listener - tracks device online/offline status across all pages
     useSparkplugListener();
+
+    // Per-organization accent color (yellow default, B/W auto-inverts).
+    useOrgTheme();
 
     // Reset trend store when organization changes
     useEffect(() => {

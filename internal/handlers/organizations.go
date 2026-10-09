@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
@@ -141,10 +142,10 @@ func (h *OrganizationsHandler) List(c *gin.Context) {
 	var err error
 
 	if middleware.IsGlobalAdmin(c) {
-		rows, err = h.db.Query("SELECT id, name, created_at FROM organizations ORDER BY id")
+		rows, err = h.db.Query("SELECT id, name, created_at, COALESCE(theme_color,'') FROM organizations ORDER BY id")
 	} else {
 		orgID, _ := middleware.GetOrganizationID(c)
-		rows, err = h.db.Query("SELECT id, name, created_at FROM organizations WHERE id = $1", orgID)
+		rows, err = h.db.Query("SELECT id, name, created_at, COALESCE(theme_color,'') FROM organizations WHERE id = $1", orgID)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query organizations"})
@@ -155,7 +156,7 @@ func (h *OrganizationsHandler) List(c *gin.Context) {
 	var orgs []models.Organization
 	for rows.Next() {
 		var org models.Organization
-		if err := rows.Scan(&org.ID, &org.Name, &org.CreatedAt); err != nil {
+		if err := rows.Scan(&org.ID, &org.Name, &org.CreatedAt, &org.ThemeColor); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan organization"})
 			return
 		}
@@ -196,7 +197,7 @@ func (h *OrganizationsHandler) Get(c *gin.Context) {
 
 	var org models.Organization
 	err := h.db.QueryRow(
-		"SELECT id, name, created_at FROM organizations WHERE id = $1",
+		"SELECT id, name, created_at, COALESCE(theme_color,'') FROM organizations WHERE id = $1",
 		id,
 	).Scan(&org.ID, &org.Name, &org.CreatedAt)
 
@@ -214,7 +215,21 @@ func (h *OrganizationsHandler) Get(c *gin.Context) {
 
 // UpdateOrganizationRequest represents the request body for updating an organization
 type UpdateOrganizationRequest struct {
-	Name string `json:"name" binding:"required"`
+	Name       string  `json:"name" binding:"required"`
+	ThemeColor *string `json:"theme_color"`
+}
+
+// validHexColor accepts #rgb and #rrggbb.
+func validHexColor(s string) bool {
+	if len(s) != 4 && len(s) != 7 || s[0] != '#' {
+		return false
+	}
+	for _, r := range s[1:] {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+			return false
+		}
+	}
+	return true
 }
 
 // Update handles PUT /api/organizations/{id}
@@ -250,11 +265,22 @@ func (h *OrganizationsHandler) Update(c *gin.Context) {
 		return
 	}
 
+	themeColor := ""
+	if req.ThemeColor != nil {
+		themeColor = strings.TrimSpace(*req.ThemeColor)
+		if themeColor != "" && !validHexColor(themeColor) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "theme_color must be #rgb or #rrggbb"})
+			return
+		}
+	}
+
 	var org models.Organization
 	err := h.db.QueryRow(
-		"UPDATE organizations SET name = $1 WHERE id = $2 RETURNING id, name, created_at",
-		req.Name, id,
-	).Scan(&org.ID, &org.Name, &org.CreatedAt)
+		`UPDATE organizations SET name = $1,
+		 theme_color = CASE WHEN $3 THEN NULLIF($4,'') ELSE theme_color END
+		 WHERE id = $2 RETURNING id, name, created_at, COALESCE(theme_color,'')`,
+		req.Name, id, req.ThemeColor != nil, themeColor,
+	).Scan(&org.ID, &org.Name, &org.CreatedAt, &org.ThemeColor)
 
 	if err != nil {
 		if err == sql.ErrNoRows {

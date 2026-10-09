@@ -2,6 +2,7 @@ export interface Organization {
     id: number;
     name: string;
     created_at: string;
+    theme_color?: string;
 }
 
 export interface Site {
@@ -72,6 +73,7 @@ export interface Tag {
 // DTOs
 export interface CreateOrganizationDto {
     name: string;
+    theme_color?: string;
 }
 
 export interface CreateSiteDto {
