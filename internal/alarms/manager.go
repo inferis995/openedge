@@ -650,9 +650,10 @@ func (m *Manager) seriesStep(tagID int, alias string, tracks map[int]*activeAlar
 			// so pull it back out of the queue instead of orphaning an
 			// ACTIVE row that could never clear.
 			kept := m.pendingIO[:0]
-			for _, io := range m.pendingIO {
-				if io.tagID != tagID || io.def.ID != def.ID || io.ref != track.Event {
-					kept = append(kept, io)
+			for i := range m.pendingIO {
+				queued := &m.pendingIO[i]
+				if queued.tagID != tagID || queued.def.ID != def.ID || queued.ref != track.Event {
+					kept = append(kept, *queued)
 				}
 			}
 			for i := len(kept); i < len(m.pendingIO); i++ {
@@ -861,8 +862,8 @@ func (s *sqlStore) InsertActive(tagID int, def models.AlarmDefinition, val float
 	// Rollback is a no-op after a successful commit.
 	defer tx.Rollback() //nolint:errcheck
 
-	if _, err := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext('alarm-open'), $1, $2)`, tagID, def.ID); err != nil {
-		return 0, fmt.Errorf("failed to lock alarm open slot: %w", err)
+	if _, lockErr := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext('alarm-open'), $1, $2)`, tagID, def.ID); lockErr != nil {
+		return 0, fmt.Errorf("failed to lock alarm open slot: %w", lockErr)
 	}
 
 	var eventID int
@@ -878,8 +879,8 @@ func (s *sqlStore) InsertActive(tagID int, def models.AlarmDefinition, val float
 
 	switch {
 	case err == nil:
-		if err := tx.Commit(); err != nil {
-			return 0, fmt.Errorf("failed to commit alarm event: %w", err)
+		if commitErr := tx.Commit(); commitErr != nil {
+			return 0, fmt.Errorf("failed to commit alarm event: %w", commitErr)
 		}
 		return eventID, nil
 
@@ -895,8 +896,8 @@ func (s *sqlStore) InsertActive(tagID int, def models.AlarmDefinition, val float
 		if err != nil {
 			return 0, fmt.Errorf("open alarm event not found for tag %d def %d: %w", tagID, def.ID, err)
 		}
-		if err := tx.Commit(); err != nil {
-			return 0, fmt.Errorf("failed to commit alarm adopt: %w", err)
+		if commitErr := tx.Commit(); commitErr != nil {
+			return 0, fmt.Errorf("failed to commit alarm adopt: %w", commitErr)
 		}
 		return eventID, nil
 
