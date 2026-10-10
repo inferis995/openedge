@@ -370,7 +370,7 @@ func RecordDailySnapshot(db *sql.DB, oee *OEEHandler, now time.Time) error {
 	rows, err := db.QueryContext(ctx, `
 		SELECT
 			profile_id, org_id,
-			AVG(oee), AVG(availability), AVG(performance), AVG(quality),
+			AVG(oee)::float8, AVG(availability)::float8, AVG(performance)::float8, AVG(quality)::float8,
 			SUM(planned_min), SUM(downtime_min),
 			SUM(pieces_produced), SUM(pieces_good)
 		FROM oee_history

@@ -448,13 +448,18 @@ func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (f
 	// lowered every other company's availability. The legacy snapshot
 	// (OrgID 0) is the platform administrator's and still reads them all.
 	var downSec float64
+	// ::float8: SUM(EXTRACT(EPOCH ...)) is NUMERIC, and the lib/pq driver
+	// hands NUMERIC to database/sql as []byte — scanning that into a
+	// float64 fails, the error was ignored, downtime read 0 forever and
+	// every profile showed 100% availability. Casting in SQL fixes it at
+	// the source.
 	_ = h.db.QueryRow(`
 		SELECT COALESCE(SUM(
 			EXTRACT(EPOCH FROM (
 				LEAST(COALESCE(ae.clear_time, NOW()), $2) -
 				GREATEST(ae.trigger_time, $1)
 			))
-		), 0)
+		), 0)::float8
 		FROM alarm_events ae
 		JOIN tags t ON t.id = ae.tag_id
 		JOIN gateways g ON g.id = t.gateway_id
@@ -480,9 +485,17 @@ func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (f
 		pptMin = h.computePPT(start, end, cfg)
 	}
 	if pptMin <= 0 {
-		// Nessun tempo pianificato di produzione → Availability = 100%
-		// (non c'è "expected production" da fallire).
-		return 100, "fallback", 0
+		// No planned production time in this window (weekend with Mon–Fri
+		// shifts, no shifts at all). Returning 100% here hid every real
+		// stoppage — whole weekends read 100/100 with critical alarms open.
+		// Fall back to wall clock: the window itself is the denominator, so
+		// downtime still lowers availability instead of vanishing.
+		pptMin = float64(cfg.WindowMin)
+	}
+	if downMin > pptMin {
+		// Overlapping critical alarms each contribute their own span; the
+		// line cannot be down twice at once, so cap at the window itself.
+		downMin = pptMin
 	}
 	availability := (1 - downMin/pptMin) * 100
 	if availability < 0 {
