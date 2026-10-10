@@ -147,6 +147,7 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 ## Table of Contents
 
 - [Quick Start (Local Dev)](#quick-start-local-dev)
+- [Repository Layout](#repository-layout)
 - [Architecture](#architecture)
 - [Roles & Permissions](#roles--permissions)
 - [Configuration](#configuration)
@@ -170,6 +171,27 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 
 ---
 
+## Repository Layout
+
+```
+openedge/
+├── services/            # core-api (Go), web-ui (React), cli, drivers (mqtt/modbus/s7/opcua/lorawan)
+├── internal/            # backend condiviso: handlers, db, mqtt, inventory, notifications
+├── docs/                # guide operative + docs/examples/ (template sinottici HTML)
+├── deploy/              # manifest di deploy (vedi anche docker-compose.*.yml in root)
+├── monitoring/          # Prometheus + Grafana + Alertmanager + Loki (profilo opzionale)
+├── mosquitto/ postgres/ caddy/  # configurazioni dei servizi
+├── scripts/             # backup/restore, preflight, audit gates
+├── windows/             # openedge.bat + guide Windows
+├── systemd/             # unit file per on-prem Linux
+├── migrations/          # migrazioni DB versionate
+├── .claude/skills/      # skill AI: openedge (monitor/control), openedge-ops (deploy)
+├── install-skills.sh    # installa le skill su Claude Code / OpenCode
+└── docker-compose.yml   # profilo base; .vps/.coolify/.ghcr/.serial per i target
+```
+
+---
+
 ## Quick Start (Local Dev)
 
 ### Prerequisites
@@ -183,7 +205,7 @@ Each customer organization is fully isolated: siloed data, siloed MQTT credentia
 | Ubuntu / Debian | `sudo apt install make` |
 | RHEL / Fedora | `sudo dnf install make` |
 | Mac | `xcode-select --install` |
-| Windows | Use `openedge.bat` — no make needed |
+| Windows | Use `windows/openedge.bat` — no make needed |
 
 ### Start
 
@@ -444,7 +466,7 @@ make logs      # follow logs
 make clean     # stop + delete all data (irreversible)
 ```
 
-**Windows** — use `openedge.bat` (interactive menu, no make needed).
+**Windows** — use `windows/openedge.bat` (interactive menu, no make needed).
 
 ---
 
@@ -857,7 +879,7 @@ The one to start with on a fresh machine. It **asks before it acts** — which
 deployment mode, which operating system, whether you want HTTPS, which
 hostname, whether to enable monitoring — and only then runs anything. It covers
 self-hosted Linux and Windows, VPS with Traefik, Coolify, and the edge profile,
-plus organization and user administration, plant modelling with UDT, backups,
+plus organization and user administration, plant modelling, backups,
 OTA updates and troubleshooting.
 
 ```
@@ -871,6 +893,25 @@ OTA updates and troubleshooting.
 
 The two are complementary and safe to install together: `openedge` answers
 questions about a running plant, `openedge-ops` changes the system it runs on.
+
+#### Installazione skill (`install-skills.sh`)
+
+Quando il repo è aperto, Claude Code e OpenCode scoprono già `.claude/skills/`
+da sole. Per averle globali (fuori dal repo):
+
+```bash
+./install-skills.sh                  # Claude Code + OpenCode
+./install-skills.sh --claude-only    # solo ~/.claude/skills
+./install-skills.sh --opencode-only  # solo ~/.config/opencode/skills
+```
+
+Da qualsiasi terminale, senza clonare il repo:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/inferis995/openedge/master/install-skills.sh | bash
+```
+
+![install-skills.sh in azione](docs/install-skills-terminal.png)
 
 ---
 

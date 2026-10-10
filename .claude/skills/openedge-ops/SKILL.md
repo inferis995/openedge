@@ -1,8 +1,8 @@
 ---
 name: openedge-ops
-description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), on-prem multi-tenant dietro VPN Tailscale, VPS con Traefik, Coolify, edge profile. Commissioning da CLI (org, siti, aree, gateway, import tag da foglio, decoder MQTT, utenti). Data logger MQTT con payload binari (preset MiDo, storico nel pacchetto). Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), modellazione impianto con UDT (tipi riusabili con propagazione alle istanze), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security, MFA TOTP con recovery codes e mfa_required per org.
+description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), on-prem multi-tenant dietro VPN Tailscale, VPS con Traefik, Coolify, edge profile. Commissioning da CLI (org, siti, aree, gateway, import tag da foglio, decoder MQTT, utenti). Data logger MQTT con payload binari (preset MiDo, storico nel pacchetto). Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security, MFA TOTP con recovery codes e mfa_required per org.
 version: 9.0.0
-tags: [industrial, iot, udt, commissioning, tailscale, vpn, mqtt-decoder, mido, data-logger, tag-import, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan, mfa, totp, 2fa, recovery-codes]
+tags: [industrial, iot, commissioning, tailscale, vpn, mqtt-decoder, mido, data-logger, tag-import, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan, mfa, totp, 2fa, recovery-codes]
 requires: [docker, curl, git]
 ---
 
@@ -167,7 +167,7 @@ git clone https://github.com/inferis995/openedge.git C:\OpenEdge
 cd C:\OpenEdge
 
 # 2. Avvia (menu interattivo — no make richiesto)
-.\openedge.bat
+.\windows\openedge.bat
 # Seleziona "Start" dal menu
 
 # 3. Installa come Windows Service (auto-start al boot, prima del login)
@@ -702,62 +702,6 @@ curl -X PUT https://app.tuazienda.com/api/system/settings \
 curl -X POST https://app.tuazienda.com/api/system/notifications/test \
   -H "Authorization: Bearer $TOKEN"
 ```
-
----
-
-## Modellazione impianto: UDT prima dei tag
-
-Quando devi mettere in servizio piu' apparecchiature dello stesso genere —
-dieci pompe, venti valvole, otto inverter — **non creare i tag uno per uno**.
-Definisci un tipo e istanzialo. La differenza si vede alla prima modifica: con
-i tag piatti spostare una soglia su cinquanta motori sono cinquanta modifiche,
-e quella dimenticata la scopri da un allarme che non scatta.
-
-```bash
-# 1. Il tipo, una volta sola
-openedge api POST /api/udt/types '{
-  "name":"Motore",
-  "members":[
-    {"name":"Run","address_suffix":"+0","data_type":"BOOL","historize":true},
-    {"name":"Fault","address_suffix":"+1","data_type":"BOOL","historize":true,
-     "alarms":[{"alarm_type":"high","threshold":1,"severity":"critical",
-                "message":"guasto motore","enabled":true}]},
-    {"name":"Speed","address_suffix":"+2","data_type":"REAL","historize":true,
-     "scaling_enabled":true,"scaling_raw_min":0,"scaling_raw_max":27648,
-     "scaling_eu_min":0,"scaling_eu_max":1500,"eu_unit":"rpm"}]}'
-
-# 2. Un'istanza per apparecchiatura
-openedge api POST /api/udt/instances \
-  '{"type_id":7,"gateway_id":3,"name":"Pompa01","base_address":"40001"}'
-```
-
-Il `base_address` dell'istanza piu' l'`address_suffix` del membro danno
-l'indirizzo del tag. Lo stesso tipo funziona su Modbus (`40001` + `+2`) e su S7
-(`DB10` + `.DBX0.1`): il suffisso porta il separatore che serve al linguaggio di
-indirizzamento, cosi' il tipo non deve sapere su quale protocollo finira'.
-
-### In fase di commissioning
-
-Se il cliente ha uno schema di indirizzamento regolare — Pompa01 a 40001,
-Pompa02 a 40011, e cosi' via — istanziare dieci pompe e' un ciclo. Verifica
-sempre l'indirizzo generato del **primo** tag sul PLC reale prima di crearne
-altri nove: un errore nel `base_address` si moltiplica per dieci in silenzio.
-
-### Dalla UI
-
-Menu **Tipi (UDT)** e **Istanze**. Stessa semantica dell'API: l'editor del tipo
-salva tutti i membri insieme e riporta la riconciliazione, e la rimozione di un
-membro apre la finestra che quantifica la perdita.
-
-### La cosa da non fare in automatico
-
-Rimuovere un membro da un tipo cancella quel tag su **ogni** istanza e con esso
-**tutto lo storico** (`tag_history` ha `ON DELETE CASCADE`). L'API rifiuta con
-`409` e dice quanti tag e quante righe sono in gioco.
-
-**Non reinviare con `confirm_data_loss: true` per conto tuo.** Riporta il numero
-all'operatore e aspetta. Quel rifiuto e' l'unica cosa che separa una modifica di
-configurazione da una perdita di dati irreversibile.
 
 ---
 

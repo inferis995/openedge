@@ -83,7 +83,8 @@ type mcpInitResult struct {
 }
 
 type mcpCapabilities struct {
-	Tools map[string]interface{} `json:"tools"`
+	Tools   map[string]interface{} `json:"tools"`
+	Prompts map[string]interface{} `json:"prompts,omitempty"`
 }
 
 type mcpServerInfo struct {
@@ -92,9 +93,43 @@ type mcpServerInfo struct {
 }
 
 type mcpTool struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	InputSchema interface{} `json:"inputSchema"`
+	Name        string              `json:"name"`
+	Description string              `json:"description"`
+	InputSchema interface{}         `json:"inputSchema"`
+	Annotations *mcpToolAnnotations `json:"annotations,omitempty"`
+}
+
+// mcpToolAnnotations follows the MCP tool-annotations schema: hints a client
+// uses to decide whether a call needs confirmation. Everything here touches a
+// live plant through the API, so openWorldHint is always true.
+type mcpToolAnnotations struct {
+	Title           string `json:"title,omitempty"`
+	ReadOnlyHint    *bool  `json:"readOnlyHint,omitempty"`
+	DestructiveHint *bool  `json:"destructiveHint,omitempty"`
+	IdempotentHint  *bool  `json:"idempotentHint,omitempty"`
+	OpenWorldHint   *bool  `json:"openWorldHint,omitempty"`
+}
+
+// annotateTool derives hints from the tool verb. Reads are safe to run freely;
+// deletes, writes to the plant, restarts and downlinks change the world and
+// must be confirmed. Creates/updates are world-changing but not destructive.
+func annotateTool(name string) *mcpToolAnnotations {
+	t := true
+	a := &mcpToolAnnotations{OpenWorldHint: &t}
+	verb := name
+	if j := strings.Index(name, "_"); j > 0 {
+		verb = name[:j]
+	}
+	switch verb {
+	case "list", "get", "check", "detect":
+		a.ReadOnlyHint = &t
+		a.IdempotentHint = &t
+	case "delete", "write", "fleet", "send":
+		f := false
+		a.DestructiveHint = &t
+		a.IdempotentHint = &f
+	}
+	return a
 }
 
 type mcpToolsListResult struct {
@@ -319,6 +354,10 @@ func (s *mcpServer) handle(req *jsonRPCRequest) *jsonRPCResponse {
 		return s.handleToolsList(req)
 	case "tools/call":
 		return s.handleToolsCall(req)
+	case "prompts/list":
+		return s.handlePromptsList(req)
+	case "prompts/get":
+		return s.handlePromptsGet(req)
 	case "ping":
 		return s.okResponse(req.ID, map[string]interface{}{})
 	default:
@@ -330,7 +369,11 @@ func (s *mcpServer) handle(req *jsonRPCRequest) *jsonRPCResponse {
 // supportedProtocolVersions lists the MCP revisions this server speaks, newest
 // first. The HTTP transport was introduced in 2025-03-26, so a server that only
 // ever answered "2024-11-05" would tell a modern client to expect stdio.
-var supportedProtocolVersions = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
+// supportedProtocolVersions lists the MCP revisions this server speaks, newest
+// first. 2026-07-28 is stateless (no initialize handshake, no sessions) and
+// supports full JSON Schema 2020-12 in tool schemas; this server never gated
+// calls on the handshake, so it already behaves statelessly.
+var supportedProtocolVersions = []string{"2026-07-28", "2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
 
 // negotiateProtocol echoes the client's requested revision when we speak it,
 // and otherwise names the newest one we do — which is what the client needs in
@@ -355,11 +398,12 @@ func (s *mcpServer) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 	return s.okResponse(req.ID, mcpInitResult{
 		ProtocolVersion: negotiateProtocol(req.Params),
 		Capabilities: mcpCapabilities{
-			Tools: map[string]interface{}{},
+			Tools:   map[string]interface{}{},
+			Prompts: map[string]interface{}{},
 		},
 		ServerInfo: mcpServerInfo{
 			Name:    "openedge",
-			Version: "1.0.0",
+			Version: "1.1.0",
 		},
 	})
 }
@@ -651,7 +695,106 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 		},
 	}
 
+	for i := range tools {
+		tools[i].Annotations = annotateTool(tools[i].Name)
+	}
 	return s.okResponse(req.ID, mcpToolsListResult{Tools: tools})
+}
+
+// ---- Prompts --------------------------------------------------------------
+
+// mcpPrompt describes one guided workflow: the text tells the agent which
+// tools to call in which order. Arguments are filled in from prompts/get.
+type mcpPrompt struct {
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Arguments   []mcpPromptArg     `json:"arguments,omitempty"`
+}
+
+type mcpPromptArg struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Required    bool   `json:"required"`
+}
+
+func openedgePrompts() []mcpPrompt {
+	return []mcpPrompt{
+		{
+			Name:        "daily-digest",
+			Description: "Riepilogo 24h di un'organizzazione: salute, allarmi attivi, digest",
+			Arguments: []mcpPromptArg{
+				{Name: "org_id", Description: "Organization ID", Required: true},
+			},
+		},
+		{
+			Name:        "offline-triage",
+			Description: "Trova le centraline mute e capisci da quando non mandano dati",
+			Arguments: []mcpPromptArg{
+				{Name: "org_id", Description: "Organization ID", Required: true},
+			},
+		},
+		{
+			Name:        "commission-gateway",
+			Description: "Checklist di messa in servizio: gateway, tag, allarmi, verifica",
+			Arguments: []mcpPromptArg{
+				{Name: "gateway_id", Description: "Gateway ID just created", Required: true},
+			},
+		},
+	}
+}
+
+func (s *mcpServer) handlePromptsList(req *jsonRPCRequest) *jsonRPCResponse {
+	return s.okResponse(req.ID, map[string]interface{}{"prompts": openedgePrompts()})
+}
+
+func (s *mcpServer) handlePromptsGet(req *jsonRPCRequest) *jsonRPCResponse {
+	var params struct {
+		Name      string                 `json:"name"`
+		Arguments map[string]interface{} `json:"arguments"`
+	}
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return s.errResponse(req.ID, -32602, "invalid params: "+err.Error())
+	}
+	arg := func(k string) string {
+		if params.Arguments == nil {
+			return ""
+		}
+		v, _ := params.Arguments[k].(string)
+		if v == "" {
+			if f, ok := params.Arguments[k].(float64); ok {
+				return strconv.Itoa(int(f))
+			}
+		}
+		return v
+	}
+	var text string
+	switch params.Name {
+	case "daily-digest":
+		org := arg("org_id")
+		text = "Scrivi il riepilogo delle ultime 24h per l'organization " + org + ": " +
+			"1) check_health, 2) list_active_alarms, 3) get_alarm_digest. " +
+			"Rispondi in italiano, prima la salute, poi i critici, poi il resto. " +
+			"Un valore stale non va mai presentato come buono."
+	case "offline-triage":
+		org := arg("org_id")
+		text = "Trova le centraline mute dell'organization " + org + ": " +
+			"1) get_fleet_status per lo stato, 2) per ogni gateway offline get_tag_shadows " +
+			"e get_tag_history per datare l'ultimo dato reale. " +
+			"Distingui 'mai contattato' da 'muto da una data': il secondo va in campo."
+	case "commission-gateway":
+		gw := arg("gateway_id")
+		text = "Metti in servizio il gateway " + gw + " in ordine: " +
+			"1) list_tags per verificare i tag, 2) get_tag_value su ognuno per il primo " +
+			"dato reale, 3) set_tag_alarms con le soglie del cliente, " +
+			"4) check_health finale. Fermati e riporta se un tag non ha mai mandato dati."
+	default:
+		return s.errResponse(req.ID, -32602, "unknown prompt: "+params.Name)
+	}
+	return s.okResponse(req.ID, map[string]interface{}{
+		"messages": []map[string]interface{}{
+			{"role": "user", "content": map[string]interface{}{"type": "text", "text": text}},
+		},
+	})
 }
 
 func (s *mcpServer) handleToolsCall(req *jsonRPCRequest) *jsonRPCResponse {

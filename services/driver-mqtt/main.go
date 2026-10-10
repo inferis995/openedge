@@ -278,6 +278,7 @@ func main() {
 	// frozen/comm_loss keep counting real silence (they watch arrivals, and
 	// this synthesizes none).
 	go driver.reevaluateLoop(context.Background(), 5*time.Minute)
+	log.Printf("[DRIVER-MQTT] Threshold re-sweep started (every 5m) for gateway %d", gatewayID)
 
 	// Start the main loop
 	go driver.run()
@@ -1564,9 +1565,11 @@ func (d *Driver) reevaluateOnce() {
 		 ) h ON true
 		 WHERE t.gateway_id = $1`, d.gatewayID)
 	if err != nil {
+		log.Printf("[DRIVER-MQTT] Re-sweep query failed for gateway %d: %v", d.gatewayID, err)
 		return
 	}
 	defer func() { _ = rows.Close() }()
+	n := 0
 	for rows.Next() {
 		var id int
 		var alias string
@@ -1576,7 +1579,9 @@ func (d *Driver) reevaluateOnce() {
 			continue
 		}
 		d.alarmManager.EvaluateThresholdsAt(id, alias, value, 192, ts)
+		n++
 	}
+	log.Printf("[DRIVER-MQTT] Re-sweep evaluated %d tags for gateway %d", n, d.gatewayID)
 }
 
 // run is the main loop that handles config reloads and periodic health checks

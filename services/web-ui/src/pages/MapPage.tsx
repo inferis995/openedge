@@ -6,6 +6,7 @@ import { Map as MapGL, Marker, Popup, NavigationControl, Source, Layer, type Map
 import type { MapGeoJSONFeature } from 'maplibre-gl';
 import type { LineLayerSpecification, FillLayerSpecification, StyleSpecification } from 'maplibre-gl';
 import { useNavigationStore } from '@/stores/useNavigationStore';
+import { formatLiveValue, agoParts } from '@/lib/format';
 import { useThemeStore } from '@/stores/useThemeStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useGateways } from '@/hooks/useGateways';
@@ -624,7 +625,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                                                 key={tag.id}
                                                 type="button"
                                                 className="gw-pill"
-                                                title={`${tag.alias || tag.code} = ${live.value === null ? '—' : String(live.value)}`}
+                                                title={`${tag.alias || tag.code} = ${formatLiveValue(live.value, tag.eu_decimals)}`}
                                                 onClick={(ev) => {
                                                     ev.stopPropagation();
                                                     setSelectedGwId(null);
@@ -637,7 +638,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                                                 />
                                                 <span className="gw-pill-name">{shortName(tag)}</span>
                                                 <span className="gw-pill-value font-mono">
-                                                    {live.value === null ? '—' : String(live.value)}
+                                                    {formatLiveValue(live.value, tag.eu_decimals)}
                                                     {tag.eu_unit ? <span className="gw-pill-unit"> {tag.eu_unit}</span> : null}
                                                 </span>
                                                 <span className="gw-pill-arrow">{trendArrow(live.history)}</span>
@@ -973,7 +974,7 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpen
                                 <li key={tg.id} className="flex justify-between gap-3 text-xs">
                                     <span className="truncate text-muted-foreground">{tg.alias || tg.code || `#${tg.id}`}</span>
                                     <span className="font-mono">
-                                        {!live || live.value === null ? '—' : (typeof live.value === 'number' ? String(Math.round(live.value * 100) / 100) : String(live.value))}
+                                        {formatLiveValue(live?.value, tg.eu_decimals)}
                                         {tg.eu_unit && live?.value != null ? ` ${tg.eu_unit}` : ''}
                                     </span>
                                 </li>
@@ -1034,12 +1035,21 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
     // Same samples-and-range history as I3X and the Tags table, inside the popup.
     const [showHistory, setShowHistory] = useState(false);
     const ago = live.ts > 0 ? Math.max(0, Math.round((now - live.ts) / 1000)) : null;
+    const agoText = (() => {
+        if (ago === null) return t('map.never_updated');
+        const { n, unit } = agoParts(ago);
+        if (unit === 'now') return t('map.updated_now');
+        if (unit === 's') return t('map.updated_ago', { s: n });
+        if (unit === 'm') return t('map.updated_min_ago', { n });
+        if (unit === 'h') return t('map.updated_h_ago', { n });
+        return t('map.updated_d_ago', { n });
+    })();
     return (
         <div className="space-y-2 text-sm">
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{t('map.tag_detail')}</div>
             <strong className="block truncate">{tag.alias || tag.code || `#${tag.id}`}</strong>
             <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-mono">{live.value === null ? '—' : String(live.value)}</span>
+                <span className="text-2xl font-mono">{formatLiveValue(live.value, tag.eu_decimals)}</span>
                 {tag.eu_unit && <span className="text-xs text-muted-foreground">{tag.eu_unit}</span>}
                 <span
                     className="w-2 h-2 rounded-full self-center ml-1"
@@ -1048,7 +1058,7 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
                 />
             </div>
             <div className="text-[11px] text-muted-foreground">
-                {ago !== null ? t('map.updated_ago', { s: ago }) : t('map.never_updated')}
+                {agoText}
             </div>
             {live.quality !== 0 && (
                 <div className="text-[11px] text-red-500">{t('map.offline_no_new_data')}</div>
@@ -1078,7 +1088,7 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
                 </button>
             </div>
             {showHistory && (
-                <div className="pt-2 min-w-[280px]">
+                <div className="pt-2 w-[280px] max-w-[72vw] overflow-hidden">
                     <TagHistoryChart tagId={tag.id} tagName={tag.alias || tag.code || `#${tag.id}`} height={120} />
                 </div>
             )}
@@ -1123,7 +1133,7 @@ function GatewayListDialog({ gateway, tagsById, tagLive, onClose, onOpenTrend }:
                                 />
                                 <span className="truncate flex-1">{tg.alias || tg.code || `#${tg.id}`}</span>
                                 <span className="font-mono text-xs">
-                                    {!live || live.value === null ? '—' : String(live.value)}
+                                    {formatLiveValue(live?.value, tg.eu_decimals)}
                                     {tg.eu_unit && live?.value != null ? ` ${tg.eu_unit}` : ''}
                                 </span>
                                 <button

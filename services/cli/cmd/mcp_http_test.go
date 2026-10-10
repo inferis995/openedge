@@ -113,12 +113,14 @@ func TestMCPHTTPInitializeNegotiatesProtocol(t *testing.T) {
 	h := newTestMCP(t, newFakeCore(t), "")
 
 	cases := []struct{ asked, want string }{
+		{"2026-07-28", "2026-07-28"},
+		{"2025-11-25", "2025-11-25"},
 		{"2025-06-18", "2025-06-18"},
 		{"2025-03-26", "2025-03-26"},
 		{"2024-11-05", "2024-11-05"},
 		// An unknown revision gets the newest one we speak, so the client can
 		// decide for itself whether to continue.
-		{"1999-01-01", "2025-06-18"},
+		{"1999-01-01", "2026-07-28"},
 	}
 	for _, tc := range cases {
 		body := fmt.Sprintf(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":%q}}`, tc.asked)
@@ -431,5 +433,50 @@ func TestMCPHTTPUnknownToolIsAnErrorNotACrash(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "unknown tool") {
 		t.Fatalf("expected the reply to name the problem, got %q", rec.Body.String())
+	}
+}
+
+func TestMCPToolsCarryAnnotations(t *testing.T) {
+	h := newTestMCP(t, newFakeCore(t), "")
+
+	rec := post(t, h, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, withToken("tok"))
+
+	var out struct {
+		Result mcpToolsListResult `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	byName := map[string]mcpTool{}
+	for _, tool := range out.Result.Tools {
+		byName[tool.Name] = tool
+	}
+	rd, ok := byName["list_tags"]
+	if !ok || rd.Annotations == nil || rd.Annotations.ReadOnlyHint == nil || !*rd.Annotations.ReadOnlyHint {
+		t.Fatalf("list_tags should be annotated read-only")
+	}
+	del, ok := byName["delete_tag"]
+	if !ok || del.Annotations == nil || del.Annotations.DestructiveHint == nil || !*del.Annotations.DestructiveHint {
+		t.Fatalf("delete_tag should be annotated destructive")
+	}
+	wr, ok := byName["write_tag_value"]
+	if !ok || wr.Annotations == nil || wr.Annotations.DestructiveHint == nil || !*wr.Annotations.DestructiveHint {
+		t.Fatalf("write_tag_value should be annotated destructive")
+	}
+}
+
+func TestMCPPromptsListAndGet(t *testing.T) {
+	h := newTestMCP(t, newFakeCore(t), "")
+
+	rec := post(t, h, `{"jsonrpc":"2.0","id":1,"method":"prompts/list"}`, withToken("tok"))
+	if !strings.Contains(rec.Body.String(), "daily-digest") {
+		t.Fatalf("prompts/list should offer daily-digest, got %q", rec.Body.String())
+	}
+
+	rec = post(t, h,
+		`{"jsonrpc":"2.0","id":2,"method":"prompts/get","params":{"name":"daily-digest","arguments":{"org_id":2}}}`,
+		withToken("tok"))
+	if !strings.Contains(rec.Body.String(), "check_health") {
+		t.Fatalf("daily-digest should guide through check_health, got %q", rec.Body.String())
 	}
 }

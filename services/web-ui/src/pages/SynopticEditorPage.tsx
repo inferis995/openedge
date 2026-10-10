@@ -476,6 +476,36 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
         return m;
     }, [isEdit, canvasTagIds, tagValue]);
 
+    // Phone readings list: native widgets carry tagId, html widgets carry
+    // their tags in config.bindings — both become rows here.
+    const readingRows = useMemo(() => {
+        const rows: Array<{ key: string; tagId: number; label: string; unit: string; dec: number }> = [];
+        for (const w of widgets) {
+            if (w.type === 'html') {
+                const bindings = (w.config?.bindings as Array<{ prop: string; tagId: number | null }> | undefined) ?? [];
+                for (const b of bindings) {
+                    if (b.tagId == null) continue;
+                    rows.push({
+                        key: `${w.id}:${b.prop}`,
+                        tagId: b.tagId,
+                        label: w.label ? `${w.label} · ${b.prop}` : (tags.find(t => t.id === b.tagId)?.alias || `Tag ${b.tagId} · ${b.prop}`),
+                        unit: '',
+                        dec: 2,
+                    });
+                }
+            } else if (w.tagId != null) {
+                rows.push({
+                    key: w.id,
+                    tagId: w.tagId,
+                    label: w.label || tags.find(t => t.id === w.tagId)?.alias || `Tag ${w.tagId}`,
+                    unit: (w.config?.unit as string | undefined) ?? '',
+                    dec: (w.config?.decimals as number | undefined) ?? 1,
+                });
+            }
+        }
+        return rows;
+    }, [widgets, tags]);
+
     // onWrite: called by button widgets in view mode to write a value to a tag
     // via the i3X interface (PUT /api/i3x/v1/properties/tag-{id}/value).
     // Applies reverse EU scaling when the tag has scaling enabled.
@@ -910,27 +940,29 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
 
                 {/* The same page as a list of readings, for a phone. Only the
                     widgets bound to a tag appear: pipes, labels and decoration
-                    carry no value and would be noise in a list. */}
+                    carry no value and would be noise in a list. Html widgets
+                    expose their tags through bindings, so each bound prop gets
+                    its own row (otherwise an all-html page showed "empty"). */}
                 {!isEdit && mobileList && (
                     <div className="sm:hidden space-y-2">
-                        {widgets.filter(w => w.tagId).length === 0 && (
+                        {readingRows.length === 0 && (
                             <p className="text-sm text-muted-foreground py-8 text-center">
                                 {tr('synopticEditor.list_empty')}
                             </p>
                         )}
-                        {widgets.filter(w => w.tagId).map(w => {
-                            const live = tagValue(w.tagId);
-                            const unit = w.config?.unit ?? '';
-                            const dec = w.config?.decimals ?? 1;
+                        {readingRows.map(r => {
+                            const live = tagValue(r.tagId);
+                            const unit = r.unit;
+                            const dec = r.dec;
                             const v = live?.value;
                             const text = v === undefined || v === null
                                 ? '—'
                                 : typeof v === 'number' ? v.toFixed(dec) : String(v);
                             return (
-                                <div key={w.id}
+                                <div key={r.key}
                                     className="flex items-center justify-between gap-3 rounded-lg border bg-card px-3 py-3">
                                     <span className="text-sm text-muted-foreground truncate">
-                                        {w.label || tags.find(t => t.id === w.tagId)?.alias || `Tag ${w.tagId}`}
+                                        {r.label}
                                     </span>
                                     <span className={cn('text-lg font-semibold tabular-nums shrink-0',
                                         live?.quality === 0 ? '' : 'text-muted-foreground')}>

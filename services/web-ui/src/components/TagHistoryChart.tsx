@@ -12,13 +12,6 @@ import {
 import { History, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from '@/components/ui/select';
 import { historyApi } from '@/api/history';
 import { startLoad } from '@/lib/startLoad';
 import i18n from '@/i18n';
@@ -95,23 +88,28 @@ export function HistoryPanel({
                         {t('tagHistory.samples', { count: samples })}
                     </Badge>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
-                    <Select value={String(range)} onValueChange={(v) => changeRange(Number(v))}>
-                        <SelectTrigger className="h-9 sm:h-7 text-xs w-20">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {TAG_HISTORY_RANGES.map((o) => (
-                                <SelectItem key={o.value} value={String(o.value)} className="text-xs">
-                                    {o.label}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex items-center rounded-md border border-border p-0.5 gap-0.5" role="group" aria-label="range">
+                        {TAG_HISTORY_RANGES.map((o) => (
+                            <button
+                                key={o.value}
+                                type="button"
+                                disabled={loading}
+                                onClick={() => changeRange(o.value)}
+                                className={`px-1.5 py-1 rounded text-[11px] font-mono leading-none transition-colors ${
+                                    range === o.value
+                                        ? 'bg-primary text-primary-foreground font-semibold'
+                                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                                }`}
+                            >
+                                {o.label}
+                            </button>
+                        ))}
+                    </div>
                     <Button
                         variant="ghost"
                         size="icon"
-                        className="h-9 sm:h-7 w-9 sm:w-7"
+                        className="h-7 w-7 hover:bg-muted hover:text-foreground"
                         onClick={() => { setLoading(true); void load(); }}
                         disabled={loading}
                     >

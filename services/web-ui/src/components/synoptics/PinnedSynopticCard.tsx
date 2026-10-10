@@ -33,12 +33,16 @@ export default function PinnedSynopticCard({
     maxWidth,
     onOpen,
     showTitle = true,
+    fitContent = false,
 }: {
     synopticId: number;
     height?: number;
     maxWidth?: number;
     onOpen?: () => void;
     showTitle?: boolean;
+    // fitContent: shrink the frame to the scaled canvas instead of keeping
+    // the full height (avoids a big empty band under wide/short mimics).
+    fitContent?: boolean;
 }) {
     const { selectedOrgId } = useNavigationStore();
     const { data: synoptic } = useQuery({
@@ -92,6 +96,7 @@ export default function PinnedSynopticCard({
         3,
     );
     const w = synoptic.canvas_w * scale;
+    const h = fitContent ? Math.min(height, synoptic.canvas_h * scale) : height;
 
     const liveOf = (tagId?: number | null): LiveValue | undefined =>
         tagId == null ? undefined : liveMap.get(tagId);
@@ -109,7 +114,7 @@ export default function PinnedSynopticCard({
             )}
             <div
                 className="relative overflow-hidden rounded-md border group-hover:border-primary/60 transition-colors"
-                style={{ width: w, height, background: synoptic.background_color }}
+                style={{ width: w, height: h, background: synoptic.background_color }}
             >
                 <div style={{
                     width: synoptic.canvas_w, height: synoptic.canvas_h,
