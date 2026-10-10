@@ -1,8 +1,8 @@
 ---
 name: openedge
-description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, OEE via REST + i3X. Multi-tenant SaaS. UDT (tipi definiti dall'utente) con propagazione alle istanze. CLI (openedge) con MCP server mode: 39 tool, l'agente costruisce l'impianto oltre a leggerlo. LoRaWAN auto-discovery + tag import + downlink. Tag Shadows (digital twin). Fleet OTA. SSO/OIDC. RBAC granulare. Slack/Teams/PagerDuty. InfluxDB connector. Usa openedge-ops per deploy/configurazione.
+description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, OEE via REST + i3X. Multi-tenant SaaS. CLI (openedge) con MCP server mode: 39 tool, l'agente costruisce l'impianto oltre a leggerlo. LoRaWAN auto-discovery + tag import + downlink. Tag Shadows (digital twin). Fleet OTA. SSO/OIDC. RBAC granulare. Slack/Teams/PagerDuty. InfluxDB connector. Usa openedge-ops per deploy/configurazione.
 version: 7.0.0
-tags: [industrial, iot, udt, provisioning, alarms, historian, timeseries, scada, i3x, cesmii, monitoring, multi-tenant, saas, oee, webhooks, security, nis2, infrastructure, health, ota, fleet, lorawan, shadows, sso, oidc, rbac, cli, mcp, influxdb, slack, teams, pagerduty]
+tags: [industrial, iot, provisioning, alarms, historian, timeseries, scada, i3x, cesmii, monitoring, multi-tenant, saas, oee, webhooks, security, nis2, infrastructure, health, ota, fleet, lorawan, shadows, sso, oidc, rbac, cli, mcp, influxdb, slack, teams, pagerduty]
 ---
 
 # OpenEdge — Skill di monitoraggio e controllo
@@ -788,130 +788,6 @@ PUT /api/users/{user_id}/permissions
 
 ---
 
-## 19b. UDT — tipi definiti dall'utente
-
-I tag sono piatti: gateway, indirizzo, alias, tipo di dato. Cinquanta motori
-uguali significano cinquanta volte N tag inseriti a mano, e spostare una soglia
-di allarme significa cinquanta modifiche — di cui una viene dimenticata, e la si
-scopre da un allarme che non scatta.
-
-Un **tipo** dichiara la forma una volta sola. Ogni **istanza** viene generata da
-lui e **resta legata**: modifichi il tipo e tutte le istanze seguono.
-
-### Il modello
-
-- Un **membro** e' un tag futuro. Porta `address_suffix`, che viene **accodato**
-  al `base_address` dell'istanza. E' cosi' che lo stesso tipo funziona su Modbus
-  (base `40001`, suffisso `+2`) e su S7 (base `DB10`, suffisso `.DBX0.1`) senza
-  che il tipo sappia su quale protocollo finira'.
-- Scalatura, storicizzazione e allarmi si dichiarano **sul membro**, quindi
-  «alta pressione a 8 bar» esiste una volta per ogni motore che mai esistera'.
-- Il tag generato si chiama `{istanza}_{membro}`, cosi' un allarme dice da quale
-  macchina arriva senza aprire nulla.
-
-### Creare un tipo
-
-```bash
-curl -X POST "$BASE/api/udt/types" -H "$AUTH" -H "$ORG" -d '{
-  "name": "Motore",
-  "description": "Motore asincrono con inverter",
-  "members": [
-    {"name":"Run","address_suffix":"+0","data_type":"BOOL","historize":true},
-    {"name":"Fault","address_suffix":"+1","data_type":"BOOL","historize":true,
-     "alarms":[{"alarm_type":"high","threshold":1,"severity":"critical",
-                "message":"guasto motore","enabled":true}]},
-    {"name":"Speed","address_suffix":"+2","data_type":"REAL","historize":true,
-     "scaling_enabled":true,"scaling_raw_min":0,"scaling_raw_max":27648,
-     "scaling_eu_min":0,"scaling_eu_max":1500,"eu_unit":"rpm"}
-  ]}'
-```
-
-I nomi dei membri accettano lettere, cifre, `-` e `_`. Non e' pignoleria: il nome
-finisce nell'alias del tag e quindi in un topic MQTT, e un nome con spazi o
-slash produce stringhe diverse ai due lati della slugificazione — che e'
-esattamente il modo in cui un tag smette di essere storicizzato senza che
-nessuno se ne accorga.
-
-### Istanziare
-
-```bash
-curl -X POST "$BASE/api/udt/instances" -H "$AUTH" -H "$ORG" -d '{
-  "type_id": 7, "gateway_id": 3, "name": "Pompa01", "base_address": "40001"}'
-# -> {"id": 12, "tags_created": 3}
-```
-
-Genera `Pompa01_Run` a `40001+0`, `Pompa01_Fault` a `40001+1`,
-`Pompa01_Speed` a `40001+2`, con la scalatura e l'allarme del tipo.
-
-### Modificare un tipo: la propagazione
-
-`PUT /api/udt/types/{id}` prende la lista **completa** dei membri — un tipo e'
-una forma, e applicarla un membro alla volta farebbe passare le istanze per
-stati che nessuno ha chiesto (un motore momentaneamente senza il bit di guasto e'
-un motore il cui allarme momentaneamente non puo' scattare).
-
-La risposta dice cosa ha toccato:
-
-```json
-{"status":"updated","reconciled":{"tags_created":3,"tags_updated":9,"tags_deleted":0}}
-```
-
-I membri sono confrontati **per nome**, non per id: e' il nome che un tecnico
-usa quando riscrive la forma. Un tag esistente viene riscritto sul posto, non
-sostituito, cosi' lo storico resta attaccato all'apparecchiatura.
-
-### ATTENZIONE — rimuovere un membro cancella lo storico
-
-`tag_history` ha `ON DELETE CASCADE` sul tag. Togliere un membro da un tipo
-elimina quel tag su **ogni** istanza e con esso **ogni valore mai registrato**.
-
-Per questo la chiamata viene **rifiutata** con `409` se non passi
-`confirm_data_loss: true`, e il rifiuto dice quanto costa:
-
-```json
-{"error":"removing Speed would delete 50 tag(s) across the instances of this type,
- and with them every value ever recorded for those tags (1200000 recorded rows).
- Re-send with confirm_data_loss=true if that is intended.",
- "impact":{"members":["Speed"],"tags":50,"history_rows":1200000}}
-```
-
-**Come agente: non reinviare automaticamente con `confirm_data_loss`.** Riporta
-il numero all'utente e fatti dire di procedere. Quel rifiuto e' l'unica cosa che
-separa una modifica da un incidente.
-
-### Eliminare
-
-- `DELETE /api/udt/instances/{id}` — rimuove l'apparecchiatura e i suoi tag
-  (storico compreso). Non chiede conferma: eliminare una macchina con nome e' un
-  atto esplicito.
-- `DELETE /api/udt/types/{id}` — rifiutato con `409` finche' esistono istanze.
-
-### Dalla UI
-
-- **Tipi (UDT)** — elenco dei tipi con il numero di istanze che ne dipendono.
-  Creare un tipo chiede solo il nome e porta subito all'editor: un tipo con un
-  membro segnaposto non e' finito, e lasciare l'utente sull'elenco farebbe
-  credere il contrario.
-- **Tipi → apri un tipo** — editor dei membri: nome, suffisso, tipo di dato,
-  storicizzazione, scalatura e allarmi. Il salvataggio riporta quanti tag ha
-  creato, aggiornato ed eliminato.
-- **Istanze** — elenco e creazione. La creazione dice quanti tag ha generato,
-  cosi' un indirizzo base sbagliato si vede alla prima istanza e non alla decima.
-
-La rimozione di un membro apre una finestra che ripete i numeri calcolati
-dall'API — quali membri, quanti tag, quante righe di storico — invece di
-chiedere «sei sicuro?». A «sei sicuro?» rispondono tutti di si'; a «questo
-cancella 1.243.902 righe» no.
-
-### Permessi
-
-Scrivere tipi e istanze richiede `can_write_tags` (gli admin passano sempre).
-Chi puo' comandare un'uscita puo' gia' cambiare cosa sono i tag, e un permesso
-separato suggerirebbe una separazione che non esiste. Le letture sono aperte a
-chiunque sia autenticato nell'organizzazione.
-
----
-
 ## 20. OpenEdge CLI
 
 Il CLI `openedge` è il modo più diretto per interagire con la piattaforma da terminale o da script.
@@ -1052,18 +928,6 @@ l'interfaccia.
 | `create_tag` | POST /api/tags |
 | `delete_tag` | DELETE /api/tags/{id} |
 | `set_tag_alarms` | PUT /api/tags/{id}/alarms |
-
-**UDT** — tipi definiti dall'utente:
-
-| Tool MCP | Equivalente REST |
-|----------|-----------------|
-| `list_udt_types` / `get_udt_type` | GET /api/udt/types[/{id}] |
-| `create_udt_type` | POST /api/udt/types |
-| `update_udt_type` | PUT /api/udt/types/{id} |
-| `delete_udt_type` | DELETE /api/udt/types/{id} |
-| `list_udt_instances` | GET /api/udt/instances |
-| `create_udt_instance` | POST /api/udt/instances |
-| `delete_udt_instance` | DELETE /api/udt/instances/{id} |
 
 **Sinottici** — pagine SCADA:
 

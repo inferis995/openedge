@@ -857,7 +857,7 @@ The one to start with on a fresh machine. It **asks before it acts** — which
 deployment mode, which operating system, whether you want HTTPS, which
 hostname, whether to enable monitoring — and only then runs anything. It covers
 self-hosted Linux and Windows, VPS with Traefik, Coolify, and the edge profile,
-plus organization and user administration, plant modelling with UDT, backups,
+plus organization and user administration, plant modelling, backups,
 OTA updates and troubleshooting.
 
 ```
@@ -871,6 +871,25 @@ OTA updates and troubleshooting.
 
 The two are complementary and safe to install together: `openedge` answers
 questions about a running plant, `openedge-ops` changes the system it runs on.
+
+#### Installazione skill (`install-skills.sh`)
+
+Quando il repo è aperto, Claude Code e OpenCode scoprono già `.claude/skills/`
+da sole. Per averle globali (fuori dal repo):
+
+```bash
+./install-skills.sh                  # Claude Code + OpenCode
+./install-skills.sh --claude-only    # solo ~/.claude/skills
+./install-skills.sh --opencode-only  # solo ~/.config/opencode/skills
+```
+
+Da qualsiasi terminale, senza clonare il repo:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/inferis995/openedge/master/install-skills.sh | bash
+```
+
+![install-skills.sh in azione](docs/install-skills-terminal.png)
 
 ---
 
