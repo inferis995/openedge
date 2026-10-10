@@ -103,3 +103,18 @@ func TestTheEndOfAKnownAlarmIsNotified(t *testing.T) {
 		t.Errorf("notifications %+v, want ACTIVE then CLEARED", *got)
 	}
 }
+
+// A batch whose points share one timestamp cannot produce a real occurrence:
+// fired and cleared on the same sample is a replay artifact (one point
+// re-evaluated after every restart), and writing it stacked the duplicate
+// zero-duration CLEARED rows. It is dropped with no row and no notification.
+func TestAZeroDurationReplayOccurrenceIsDropped(t *testing.T) {
+	m, store, got := seriesManager(t, 0)
+	m.EvaluateTagSeries(7, "AN1", []Point{{60.0, at(15)}, {10.0, at(15)}}, 192)
+	if n := len(store.EventLog()); n != 0 {
+		t.Fatalf("%d alarm rows for a zero-duration replay occurrence, want 0", n)
+	}
+	if len(*got) != 0 {
+		t.Errorf("%d notifications for a dropped replay artifact", len(*got))
+	}
+}

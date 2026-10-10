@@ -640,6 +640,29 @@ func (m *Manager) seriesStep(tagID int, alias string, tracks map[int]*activeAlar
 		return
 	}
 	if isCleared(*def, v) {
+		if !at.After(track.FiredAt) {
+			// Zero-duration occurrence: fired and cleared on the same sample.
+			// A real process cannot violate and recover in zero time — this
+			// is a batch-replay artifact (one point re-evaluated after every
+			// restart), and writing it stacked the duplicate CLEARED rows.
+			// Drop it silently; the track is gone either way. The ACTIVE
+			// queued a moment ago for this same track has not drained yet,
+			// so pull it back out of the queue instead of orphaning an
+			// ACTIVE row that could never clear.
+			kept := m.pendingIO[:0]
+			for i := range m.pendingIO {
+				queued := &m.pendingIO[i]
+				if queued.tagID != tagID || queued.def.ID != def.ID || queued.ref != track.Event {
+					kept = append(kept, *queued)
+				}
+			}
+			for i := len(kept); i < len(m.pendingIO); i++ {
+				m.pendingIO[i] = alarmIO{}
+			}
+			m.pendingIO = kept
+			delete(tracks, def.ID)
+			return
+		}
 		m.queueIO(alarmIO{
 			tagID: tagID, alias: alias, def: *def, value: v,
 			status: "CLEARED", ref: track.Event, triggeredAt: track.FiredAt, clearedAt: at,
@@ -824,8 +847,27 @@ func (s *sqlStore) InsertActive(tagID int, def models.AlarmDefinition, val float
 	ctx, cancel := context.WithTimeout(context.Background(), alarmDBTimeout)
 	defer cancel()
 
+	// One open row per (tag, definition), across ALL processes: several
+	// drivers (mqtt/redis/modbus/opcua) plus batch replays can probe the
+	// same alarm at once, and WHERE NOT EXISTS is not atomic across
+	// connections — both inserts passed the check and stacked a duplicate
+	// open row (the "25 rows for 16 alarms" the operator saw). The table is
+	// a TimescaleDB hypertable, so no unique index can cover this; instead
+	// the insert takes a transaction-scoped advisory lock on the (tag, def)
+	// key, serializing every opener of this alarm on every connection.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("failed to begin alarm insert tx: %w", err)
+	}
+	// Rollback is a no-op after a successful commit.
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, lockErr := tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext('alarm-open'), $1, $2)`, tagID, def.ID); lockErr != nil {
+		return 0, fmt.Errorf("failed to lock alarm open slot: %w", lockErr)
+	}
+
 	var eventID int
-	err := s.db.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		INSERT INTO alarm_events (tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time)
 		SELECT $1, $2, 'ACTIVE', $3, $4, $5, $6, $7
 		WHERE NOT EXISTS (
@@ -837,22 +879,25 @@ func (s *sqlStore) InsertActive(tagID int, def models.AlarmDefinition, val float
 
 	switch {
 	case err == nil:
+		if commitErr := tx.Commit(); commitErr != nil {
+			return 0, fmt.Errorf("failed to commit alarm event: %w", commitErr)
+		}
 		return eventID, nil
 
 	case errors.Is(err, sql.ErrNoRows):
 		// Nothing inserted: an open row for this tag+definition is already
 		// there — ACTIVE or ACKNOWLEDGED (an acknowledged alarm is still
 		// open). Adopt the latest instead of stacking a duplicate.
-		lookupCtx, lookupCancel := context.WithTimeout(context.Background(), alarmDBTimeout)
-		defer lookupCancel()
-
-		err = s.db.QueryRowContext(lookupCtx, `
+		err = tx.QueryRowContext(ctx, `
 			SELECT id FROM alarm_events
 			WHERE tag_id = $1 AND definition_id = $2 AND status IN ('ACTIVE','ACKNOWLEDGED') AND clear_time IS NULL
 			ORDER BY trigger_time DESC LIMIT 1
 		`, tagID, def.ID).Scan(&eventID)
 		if err != nil {
 			return 0, fmt.Errorf("open alarm event not found for tag %d def %d: %w", tagID, def.ID, err)
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			return 0, fmt.Errorf("failed to commit alarm adopt: %w", commitErr)
 		}
 		return eventID, nil
 
@@ -869,9 +914,23 @@ func (s *sqlStore) InsertCleared(tagID int, def models.AlarmDefinition, val floa
 	var eventID int
 	err := s.db.QueryRowContext(ctx, `
 		INSERT INTO alarm_events (tag_id, definition_id, status, alarm_type, severity, message, value_at_trigger, trigger_time, clear_time)
-		VALUES ($1, $2, 'CLEARED', $3, $4, $5, $6, $7, $8)
+		SELECT $1, $2, 'CLEARED', $3, $4, $5, $6, $7, $8
+		WHERE NOT EXISTS (
+			SELECT 1 FROM alarm_events
+			WHERE tag_id = $1 AND definition_id = $2 AND trigger_time = $7 AND clear_time IS NOT NULL
+		)
 		RETURNING id
 	`, tagID, def.ID, def.AlarmType, def.Severity, def.Message, val, triggerTime, clearTime).Scan(&eventID)
+	if errors.Is(err, sql.ErrNoRows) {
+		// This exact occurrence was already recorded (a batch replay of the
+		// same history re-fires the same trigger_time). Return the existing
+		// row instead of stacking a duplicate CLEARED row.
+		err = s.db.QueryRowContext(ctx, `
+			SELECT id FROM alarm_events
+			WHERE tag_id = $1 AND definition_id = $2 AND trigger_time = $3 AND clear_time IS NOT NULL
+			ORDER BY id DESC LIMIT 1
+		`, tagID, def.ID, triggerTime).Scan(&eventID)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to insert cleared alarm event: %w", err)
 	}
