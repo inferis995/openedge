@@ -42,23 +42,20 @@ function luminance(hex: string): number | null {
     return 0.2126 * f(0) + 0.7152 * f(2) + 0.0722 * f(4);
 }
 
-export function accentForTheme(themeColor: string, dark: boolean): string | null {
-    const lum = luminance(themeColor);
-    if (lum === null) return null;
-    let hex = themeColor;
-    if (lum < 0.08 || lum > 0.92) {
-        // Near-black or near-white: flip so it reads on the background.
-        hex = dark ? '#ffffff' : '#000000';
-    }
-    const hsl = hexToHsl(hex);
-    return hsl ? `${hsl[0]} ${hsl[1]}% ${hsl[2]}%` : null;
+// contrastFg returns the readable text color (black or white) for any
+// background hex. Single rule, both themes, no special cases.
+function contrastFg(bgHex: string): string {
+    const lum = luminance(bgHex);
+    return lum !== null && lum > 0.4 ? '0 0% 2%' : '0 0% 100%';
 }
 
 function applyOrgAccent(themeColor: string | undefined, dark: boolean) {
     const root = document.documentElement;
+    // Always reset first: a theme switch must never inherit the other
+    // theme's background (stale pink button in the light theme).
+    root.style.removeProperty('--primary');
+    root.style.removeProperty('--primary-foreground');
     if (!themeColor) {
-        root.style.removeProperty('--primary');
-        root.style.removeProperty('--primary-foreground');
         root.style.removeProperty('--accent');
         return;
     }
@@ -66,18 +63,18 @@ function applyOrgAccent(themeColor: string | undefined, dark: boolean) {
     const lum0 = luminance(themeColor);
     const extreme = lum0 !== null && (lum0 < 0.08 || lum0 > 0.92);
     root.style.setProperty('--accent', extreme ? (dark ? '#ffffff' : '#000000') : themeColor);
-    const accent = accentForTheme(themeColor, dark);
-    if (!accent) return;
-    if (dark) {
-        // Lime button background → org color; text contrasts with it.
-        root.style.setProperty('--primary', accent);
-        const lum = luminance(themeColor);
-        const light = lum !== null && (lum < 0.08 || lum > 0.92 ? true : lum > 0.4);
-        root.style.setProperty('--primary-foreground', light ? '0 0% 2%' : '0 0% 100%');
-    } else {
-        // Black buttons stay; the lime text on them becomes the org color.
-        root.style.setProperty('--primary-foreground', accent);
+    // Primary buttons take the accent as background IN BOTH themes, with
+    // contrasting text — same treatment, reads everywhere. The only flip:
+    // white cannot be a background in the light theme (invisible button),
+    // black cannot be one in the dark theme — those fall back to default.
+    let bgHex = themeColor;
+    if (extreme) {
+        bgHex = dark ? '#ffffff' : '#000000';
     }
+    const hsl = hexToHsl(bgHex);
+    if (!hsl) return;
+    root.style.setProperty('--primary', `${hsl[0]} ${hsl[1]}% ${hsl[2]}%`);
+    root.style.setProperty('--primary-foreground', contrastFg(bgHex));
 }
 
 export function useOrgTheme() {

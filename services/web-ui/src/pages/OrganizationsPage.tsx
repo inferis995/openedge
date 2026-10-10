@@ -289,6 +289,20 @@ const OrganizationsPage = () => {
                         </div>
                         <div className="space-y-1.5">
                             <Label htmlFor="edit-color">{t('organizationsPage.accent_title')}</Label>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                {['#e0ff00', '#ff7a00', '#2f81f7', '#22c55e', '#000000', '#ffffff'].map((c) => (
+                                    <button
+                                        key={c}
+                                        type="button"
+                                        title={c}
+                                        className={`h-7 w-7 rounded-full border-2 ${editingOrg?.theme_color?.toLowerCase() === c ? 'border-foreground scale-110' : 'border-muted'}`}
+                                        style={{ backgroundColor: c }}
+                                        onClick={() =>
+                                            setEditingOrg((prev) => prev ? { ...prev, theme_color: c } : null)
+                                        }
+                                    />
+                                ))}
+                            </div>
                             <div className="flex items-center gap-2">
                                 <Input
                                     id="edit-color"
