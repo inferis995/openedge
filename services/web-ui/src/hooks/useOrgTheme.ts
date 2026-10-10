@@ -75,8 +75,16 @@ function applyOrgAccent(themeColor: string | undefined, dark: boolean) {
         const light = lum !== null && (lum < 0.08 || lum > 0.92 ? true : lum > 0.4);
         root.style.setProperty('--primary-foreground', light ? '0 0% 2%' : '0 0% 100%');
     } else {
-        // Black buttons stay; the lime text on them becomes the org color.
-        root.style.setProperty('--primary-foreground', accent);
+        // Light theme: buttons stay black and the accent is text ON black.
+        // White stays white (readable); only near-black flips to white,
+        // because black-on-black is the one combination that cannot read.
+        const lum = luminance(themeColor);
+        if (lum !== null && lum < 0.08) {
+            root.style.setProperty('--primary-foreground', '0 0% 100%');
+        } else {
+            const hsl = hexToHsl(themeColor);
+            if (hsl) root.style.setProperty('--primary-foreground', `${hsl[0]} ${hsl[1]}% ${hsl[2]}%`);
+        }
     }
 }
 

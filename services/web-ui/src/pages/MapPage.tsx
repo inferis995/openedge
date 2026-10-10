@@ -6,6 +6,7 @@ import { Map as MapGL, Marker, Popup, NavigationControl, Source, Layer, type Map
 import type { MapGeoJSONFeature } from 'maplibre-gl';
 import type { LineLayerSpecification, FillLayerSpecification, StyleSpecification } from 'maplibre-gl';
 import { useNavigationStore } from '@/stores/useNavigationStore';
+import { useThemeStore } from '@/stores/useThemeStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useGateways } from '@/hooks/useGateways';
 import { useAreas } from '@/hooks/useAreas';
@@ -20,24 +21,26 @@ import { parseCoords, formatCoord, searchPlace, type PlaceResult } from '@/lib/c
 import { Battery, Cpu, History, Loader2, MapPin, Search } from 'lucide-react';
 import TagHistoryChart from '@/components/TagHistoryChart';
 
-// Stile Carto Dark Matter GL: vettoriale, gratuito, senza API key.
-// Carto Dark Matter in versione raster: le tile PNG si vedono ovunque
-// (mobile incluso), dove il vettoriale GL resta nero senza WebGL.
-const MAP_STYLE_URL: StyleSpecification = {
-    version: 8,
-    sources: {
-        cartodark: {
-            type: 'raster',
-            tiles: [
-                'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-            ],
-            tileSize: 256,
-            maxzoom: 16,
-            attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
+// Basemap Esri in versione raster: le tile PNG si vedono ovunque
+// (mobile incluso). Chiara col tema chiaro, scura col tema scuro.
+function basemapStyle(dark: boolean): StyleSpecification {
+    const base = dark ? 'World_Dark_Gray_Base' : 'World_Light_Gray_Base';
+    return {
+        version: 8,
+        sources: {
+            cartobase: {
+                type: 'raster',
+                tiles: [
+                    `https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/${base}/MapServer/tile/{z}/{y}/{x}`,
+                ],
+                tileSize: 256,
+                maxzoom: 16,
+                attribution: '© Esri, HERE, Garmin, © OpenStreetMap contributors',
+            },
         },
-    },
-    layers: [{ id: 'basemap', type: 'raster', source: 'cartodark' }],
-};
+        layers: [{ id: 'basemap', type: 'raster', source: 'cartobase' }],
+    };
+}
 // Centro iniziale: Calabria.
 const CALABRIA_CENTER: [number, number] = [16.6, 39.3];
 // Oltre questo zoom il gateway apre la vista dettaglio con le pill dei tag.
@@ -271,6 +274,9 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     // La mappa parte già dove ci sono i gateway dell'utente, non su un centro
     // geografico fisso: il centro del bounding box (lo zoom lo fa fitBounds
     // al load, con i dati definitivi).
+    const theme = useThemeStore((s) => s.theme);
+    const mapStyle = useMemo(() => basemapStyle(theme === 'dark'), [theme]);
+
     const initialView = useMemo(
         () => ({ longitude: CALABRIA_CENTER[0], latitude: CALABRIA_CENTER[1], zoom: 9 }),
         [],
@@ -545,7 +551,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                 <MapGL
                     ref={mapRef}
                     initialViewState={initialView}
-                    mapStyle={MAP_STYLE_URL}
+                    mapStyle={mapStyle}
                     style={{ width: '100%', height: 'calc(100vh - 260px)', minHeight: 420 }}
                     attributionControl={{ compact: true }}
                     onClick={handleMapClick}
