@@ -77,35 +77,62 @@ function applyOrgAccent(themeColor: string | undefined, dark: boolean) {
     root.style.setProperty('--primary-foreground', contrastFg(bgHex));
 }
 
+const THEME_CACHE_KEY = 'oe-org-themes-v1';
+
+function cachedTheme(orgId: number): string | undefined {
+    try {
+        const all = JSON.parse(localStorage.getItem(THEME_CACHE_KEY) || '{}');
+        const v = all[String(orgId)];
+        return typeof v === 'string' && v ? v : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function storeTheme(orgId: number, color: string | undefined) {
+    try {
+        const all = JSON.parse(localStorage.getItem(THEME_CACHE_KEY) || '{}');
+        if (color) all[String(orgId)] = color;
+        else delete all[String(orgId)];
+        localStorage.setItem(THEME_CACHE_KEY, JSON.stringify(all));
+    } catch {
+        /* storage unavailable: API remains the source of truth */
+    }
+}
+
+export function refreshOrgAccent(orgId: number, dark: boolean) {
+    return organizationsApi
+        .get(orgId)
+        .then((org) => {
+            storeTheme(orgId, org.theme_color);
+            applyOrgAccent(org.theme_color, dark);
+        })
+        .catch(() => {
+            applyOrgAccent(cachedTheme(orgId), dark);
+        });
+}
+
 export function useOrgTheme() {
     const selectedOrgId = useNavigationStore((s) => s.selectedOrgId);
     const theme = useThemeStore((s) => s.theme);
+    const dark = theme === 'dark';
 
     useEffect(() => {
         if (!selectedOrgId) {
             applyOrgAccent(undefined, false);
             return;
         }
-        let ignore = false;
-        organizationsApi
-            .get(selectedOrgId)
-            .then((org) => {
-                if (!ignore) applyOrgAccent(org.theme_color, theme === 'dark');
-            })
-            .catch(() => {
-                if (!ignore) applyOrgAccent(undefined, false);
-            });
-        return () => {
-            ignore = true;
-        };
+        // Instant: cached color first (no flash), API confirms right after.
+        applyOrgAccent(cachedTheme(selectedOrgId), dark);
+        refreshOrgAccent(selectedOrgId, dark);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedOrgId]);
 
     // Re-apply when the light/dark theme flips (B/W inversion depends on it).
     useEffect(() => {
         if (!selectedOrgId) return;
-        organizationsApi
-            .get(selectedOrgId)
-            .then((org) => applyOrgAccent(org.theme_color, theme === 'dark'))
-            .catch(() => {});
-    }, [theme]); // eslint-disable-line react-hooks/exhaustive-deps
+        applyOrgAccent(cachedTheme(selectedOrgId), dark);
+        refreshOrgAccent(selectedOrgId, dark);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [theme]);
 }

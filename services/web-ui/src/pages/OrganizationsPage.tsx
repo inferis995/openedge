@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useOrganizations } from '@/hooks/useOrganizations';
+import { refreshOrgAccent } from '@/hooks/useOrgTheme';
+import { useThemeStore } from '@/stores/useThemeStore';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useQuery } from '@tanstack/react-query';
@@ -88,6 +90,8 @@ const OrganizationsPage = () => {
     const handleUpdate = async () => {
         if (!editingOrg) return;
         await update({ id: editingOrg.id, data: { name: editingOrg.name, theme_color: editingOrg.theme_color || '' } });
+        // New color applies instantly everywhere (and lands in the cache).
+        refreshOrgAccent(editingOrg.id, useThemeStore.getState().theme === 'dark');
         setIsEditOpen(false);
         setEditingOrg(null);
     };
