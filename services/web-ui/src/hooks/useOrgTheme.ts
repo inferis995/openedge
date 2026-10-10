@@ -54,6 +54,13 @@ export function accentForTheme(themeColor: string, dark: boolean): string | null
     return hsl ? `${hsl[0]} ${hsl[1]}% ${hsl[2]}%` : null;
 }
 
+// contrastFg returns the readable text color (black or white) for any
+// background hex. Single rule, both themes, no special cases.
+function contrastFg(bgHex: string): string {
+    const lum = luminance(bgHex);
+    return lum !== null && lum > 0.4 ? '0 0% 2%' : '0 0% 100%';
+}
+
 function applyOrgAccent(themeColor: string | undefined, dark: boolean) {
     const root = document.documentElement;
     if (!themeColor) {
@@ -70,10 +77,13 @@ function applyOrgAccent(themeColor: string | undefined, dark: boolean) {
     if (!accent) return;
     if (dark) {
         // Lime button background → org color; text contrasts with it.
+        // The foreground is computed on the RESOLVED background (after the
+        // B/W flip), so black and white both land readable.
         root.style.setProperty('--primary', accent);
-        const lum = luminance(themeColor);
-        const light = lum !== null && (lum < 0.08 || lum > 0.92 ? true : lum > 0.4);
-        root.style.setProperty('--primary-foreground', light ? '0 0% 2%' : '0 0% 100%');
+        const lum0 = luminance(themeColor);
+        const extreme = lum0 !== null && (lum0 < 0.08 || lum0 > 0.92);
+        const bgHex = extreme ? '#ffffff' : themeColor;
+        root.style.setProperty('--primary-foreground', contrastFg(bgHex));
     } else {
         // Light theme: buttons stay black and the accent is text ON black.
         // White stays white (readable); only near-black flips to white,
