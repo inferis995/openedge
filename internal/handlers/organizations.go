@@ -199,7 +199,7 @@ func (h *OrganizationsHandler) Get(c *gin.Context) {
 	err := h.db.QueryRow(
 		"SELECT id, name, created_at, COALESCE(theme_color,'') FROM organizations WHERE id = $1",
 		id,
-	).Scan(&org.ID, &org.Name, &org.CreatedAt)
+	).Scan(&org.ID, &org.Name, &org.CreatedAt, &org.ThemeColor)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
