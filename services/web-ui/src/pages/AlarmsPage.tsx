@@ -67,7 +67,21 @@ export default function AlarmsPage() {
                 alarmsApi.getActiveAlarms(),
                 alarmsApi.getAlarmHistory(500),
             ]);
-            setActiveAlarms(active || []);
+            // One row per open alarm: the backend guarantees a single open
+            // row per tag+definition now, but rows written before that fix
+            // (or while a restart raced) can still double up. Collapse by
+            // tag+definition, latest first — the same picture the I3X page
+            // shows, so the two counts can never disagree again.
+            const seen = new Set<string>();
+            const deduped: AlarmEvent[] = [];
+            for (const e of [...(active || [])].sort((a, b) =>
+                new Date(b.trigger_time).getTime() - new Date(a.trigger_time).getTime())) {
+                const k = `${e.tag_id}|${e.definition_id}`;
+                if (seen.has(k)) continue;
+                seen.add(k);
+                deduped.push(e);
+            }
+            setActiveAlarms(deduped);
             setHistory(hist || []);
             setSelectedIds(new Set());
         } catch {
