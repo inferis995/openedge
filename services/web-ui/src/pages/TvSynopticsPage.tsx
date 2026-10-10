@@ -50,6 +50,7 @@ export default function TvSynopticsPage() {
                     height={Math.max(300, window.innerHeight - 120)}
                     maxWidth={Math.max(280, window.innerWidth - 32)}
                     showTitle={false}
+                    fitContent
                 />
             </div>
             {pins.length > 1 && (
