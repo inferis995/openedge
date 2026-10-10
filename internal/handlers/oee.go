@@ -442,69 +442,35 @@ func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (f
 		}
 	}
 
-	// Downtime is the time the line's critical alarms were open: the
-	// profile's gateway, else its area, else its organization. It used to be
-	// every critical alarm on the platform, so one company's stopped press
-	// lowered every other company's availability. The legacy snapshot
-	// (OrgID 0) is the platform administrator's and still reads them all.
-	var downSec float64
-	// ::float8: SUM(EXTRACT(EPOCH ...)) is NUMERIC, and the lib/pq driver
-	// hands NUMERIC to database/sql as []byte — scanning that into a
-	// float64 fails, the error was ignored, downtime read 0 forever and
-	// every profile showed 100% availability. Casting in SQL fixes it at
-	// the source.
+	// Value-driven: the share of in-window readings inside each tag's
+	// learned band (tag_bands, re-learned every startup from 30 days of
+	// history). A reading out of band means that point was not producing —
+	// pressure collapsed, flow gone — regardless of whether any alarm rule
+	// fired. Alarms deliberately play no role here: they are the messenger,
+	// not the process.
+	var total, inBand int
 	_ = h.db.QueryRow(`
-		SELECT COALESCE(SUM(
-			EXTRACT(EPOCH FROM (
-				LEAST(COALESCE(ae.clear_time, NOW()), $2) -
-				GREATEST(ae.trigger_time, $1)
-			))
-		), 0)::float8
-		FROM alarm_events ae
-		JOIN tags t ON t.id = ae.tag_id
+		SELECT COUNT(*),
+			COUNT(*) FILTER (WHERE h.value BETWEEN b.band_low AND b.band_high)
+		FROM tag_history h
+		JOIN tags t ON t.id = h.tag_id
+		JOIN tag_bands b ON b.tag_id = h.tag_id
 		JOIN gateways g ON g.id = t.gateway_id
 		JOIN areas a ON a.id = g.area_id
 		JOIN sites s ON s.id = a.site_id
-		WHERE LOWER(ae.severity) = 'critical'
-		  AND ae.trigger_time < $2
-		  AND COALESCE(ae.clear_time, NOW()) > $1
+		WHERE h.time > $1 AND h.time <= $2
 		  AND ($3 = 0 OR s.org_id = $3)
 		  AND ($4 = 0 OR a.id = $4)
 		  AND ($5 = 0 OR g.id = $5)`,
 		start, end, cfg.OrgID, cfg.AreaID, cfg.GatewayID,
-	).Scan(&downSec)
-
-	if downSec < 0 {
-		downSec = 0
+	).Scan(&total, &inBand)
+	if total == 0 {
+		// Nothing reported in this window: no evidence either way.
+		return 100, "no-data", 0
 	}
-	downMin := downSec / 60
-
-	// Denominatore: PPT se respect_shifts/maintenance, altrimenti wall clock.
-	pptMin := float64(cfg.WindowMin)
-	if cfg.RespectShifts || cfg.RespectMaintenance {
-		pptMin = h.computePPT(start, end, cfg)
-	}
-	if pptMin <= 0 {
-		// No planned production time in this window (weekend with Mon–Fri
-		// shifts, no shifts at all). Returning 100% here hid every real
-		// stoppage — whole weekends read 100/100 with critical alarms open.
-		// Fall back to wall clock: the window itself is the denominator, so
-		// downtime still lowers availability instead of vanishing.
-		pptMin = float64(cfg.WindowMin)
-	}
-	if downMin > pptMin {
-		// Overlapping critical alarms each contribute their own span; the
-		// line cannot be down twice at once, so cap at the window itself.
-		downMin = pptMin
-	}
-	availability := (1 - downMin/pptMin) * 100
-	if availability < 0 {
-		availability = 0
-	}
-	if availability > 100 {
-		availability = 100
-	}
-	return availability, "fallback", downMin
+	availability := float64(inBand) / float64(total) * 100
+	downMin := float64(total-inBand) / float64(total) * end.Sub(start).Minutes()
+	return availability, "values", downMin
 }
 
 // computePerformance — tag-driven se cfg.ProducedTagID > 0 && cfg.TargetPPH > 0.

@@ -1362,6 +1362,7 @@ func runAutoMigrations(db *sql.DB) error {
 
 	// Migration: at most one open alarm_events row per (tag_id, definition_id).
 	ensureSingleOpenAlarmEvent(db)
+	ensureTagBands(db)
 
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil
@@ -1813,4 +1814,51 @@ func intMinDB(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// ensureTagBands learns the "normal" value band of every tag from its own
+// history: min/max of the last 30 days widened by a margin. OEE availability
+// is judged against these bands (value inside = running), so thresholds
+// follow each sensor — a 2-bar line and a 9-bar line each get their own —
+// instead of one global number that fits nobody. Re-learned on every
+// startup: cheap aggregate, always follows recent reality.
+func ensureTagBands(db *sql.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	if _, err := db.ExecContext(ctx, `
+		CREATE TABLE IF NOT EXISTS tag_bands (
+			tag_id INTEGER PRIMARY KEY REFERENCES tags(id) ON DELETE CASCADE,
+			band_low DOUBLE PRECISION NOT NULL,
+			band_high DOUBLE PRECISION NOT NULL,
+			samples BIGINT NOT NULL DEFAULT 0,
+			learned_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		log.Printf("[DB] tag_bands table: %v", err)
+		return
+	}
+
+	res, err := db.ExecContext(ctx, `
+		INSERT INTO tag_bands (tag_id, band_low, band_high, samples, learned_at)
+		SELECT t.id,
+			MIN(h.value) - GREATEST((MAX(h.value) - MIN(h.value)) * 0.15, ABS(AVG(h.value)) * 0.05, 0.05),
+			MAX(h.value) + GREATEST((MAX(h.value) - MIN(h.value)) * 0.15, ABS(AVG(h.value)) * 0.05, 0.05),
+			COUNT(*), NOW()
+		FROM tags t
+		JOIN tag_history h ON h.tag_id = t.id
+		WHERE h.time > NOW() - INTERVAL '30 days'
+		GROUP BY t.id
+		HAVING COUNT(*) >= 5
+		ON CONFLICT (tag_id) DO UPDATE SET
+			band_low = EXCLUDED.band_low,
+			band_high = EXCLUDED.band_high,
+			samples = EXCLUDED.samples,
+			learned_at = NOW()`)
+	if err != nil {
+		log.Printf("[DB] tag_bands learn: %v", err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n > 0 {
+		log.Printf("[DB] tag_bands: learned bands for %d tags", n)
+	}
 }
