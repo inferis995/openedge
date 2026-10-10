@@ -32,7 +32,7 @@ var rootCmd = &cobra.Command{
 	Use:   "openedge",
 	Short: "OpenEdge CLI — Industrial IoT Platform",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println(banner)
+		fmt.Print(banner)
 		_ = cmd.Help()
 	},
 	Long: `OpenEdge CLI provides command-line access to the OpenEdge Industrial IoT Platform.
