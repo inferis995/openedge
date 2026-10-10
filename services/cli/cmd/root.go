@@ -19,20 +19,20 @@ var (
 )
 
 // banner is shown when the CLI is launched without a subcommand.
-const banner = `
-  ___                    _____    _
- / _ \ _ __   ___ _ __ | ____|__| | __ _  ___
-| | | | '_ \ / _ \ '_ \|  _| / _` |/ _` |/ _ \
-| |_| | |_) |  __/ | | | |__| (_| | (_| |  __/
- \___/| .__/ \___|_| |_|_____\__,_|\__, |\___|
-      |_|                          |___/
-      INDUSTRIAL IOT PLATFORM`
+const banner = "\n" +
+	"  ___                    _____    _\n" +
+	" / _ \\ _ __   ___ _ __ | ____|__| | __ _  ___\n" +
+	"| | | | '_ \\ / _ \\ '_ \\|  _| / _` |/ _` |/ _ \\\n" +
+	"| |_| | |_) |  __/ | | | |__| (_| | (_| |  __/\n" +
+	" \\___/| .__/ \\___|_| |_|_____\\__,_|\\__, |\\___|\n" +
+	"      |_|                          |___/\n" +
+	"      INDUSTRIAL IOT PLATFORM\n"
 
 var rootCmd = &cobra.Command{
 	Use:   "openedge",
 	Short: "OpenEdge CLI — Industrial IoT Platform",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println(banner)
+		fmt.Print(banner)
 		_ = cmd.Help()
 	},
 	Long: `OpenEdge CLI provides command-line access to the OpenEdge Industrial IoT Platform.
