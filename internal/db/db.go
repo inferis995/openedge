@@ -1363,6 +1363,9 @@ func runAutoMigrations(db *sql.DB) error {
 	// Migration: at most one open alarm_events row per (tag_id, definition_id).
 	ensureSingleOpenAlarmEvent(db)
 	ensureTagBands(db)
+	if _, err := db.Exec(`ALTER TABLE oee_profiles ADD COLUMN IF NOT EXISTS availability_mode TEXT NOT NULL DEFAULT 'values'`); err != nil {
+		log.Printf("[DB] oee_profiles.availability_mode: %v", err)
+	}
 
 	log.Println("[DB] Auto-migrations completed successfully")
 	return nil

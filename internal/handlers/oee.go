@@ -67,6 +67,9 @@ type oeeConfig struct {
 	// as its downtime when no run-time tag is configured. 0 = not set.
 	AreaID    int
 	GatewayID int
+	// AvailabilityMode selects the downtime source: "values" (default,
+	// learned per-tag bands) or "alarms" (open time of critical alarms).
+	AvailabilityMode string
 }
 
 // sourceNone marks a factor that is not measured: no tag is configured for
@@ -429,6 +432,56 @@ func (h *OEEHandler) computeSnapshotAt(end time.Time, cfg oeeConfig) OEESnapshot
 // window ma il Planned Production Time (vedi computePPT): si esclude il
 // tempo fuori turno e le finestre di manutenzione. Una linea che non
 // lavora di domenica non viene così penalizzata.
+// computeAvailabilityFromAlarms — the pre-values downtime source, kept for
+// profiles that explicitly choose availability_mode='alarms': open time of
+// the profile's critical alarms over the window (overlaps capped, weekends
+// fall back to wall clock instead of forcing 100%).
+func (h *OEEHandler) computeAvailabilityFromAlarms(start, end time.Time, cfg oeeConfig) (float64, string, float64) {
+	var downSec float64
+	_ = h.db.QueryRow(`
+		SELECT COALESCE(SUM(
+			EXTRACT(EPOCH FROM (
+				LEAST(COALESCE(ae.clear_time, NOW()), $2) -
+				GREATEST(ae.trigger_time, $1)
+			))
+		), 0)::float8
+		FROM alarm_events ae
+		JOIN tags t ON t.id = ae.tag_id
+		JOIN gateways g ON g.id = t.gateway_id
+		JOIN areas a ON a.id = g.area_id
+		JOIN sites s ON s.id = a.site_id
+		WHERE LOWER(ae.severity) = 'critical'
+		  AND ae.trigger_time < $2
+		  AND COALESCE(ae.clear_time, NOW()) > $1
+		  AND ($3 = 0 OR s.org_id = $3)
+		  AND ($4 = 0 OR a.id = $4)
+		  AND ($5 = 0 OR g.id = $5)`,
+		start, end, cfg.OrgID, cfg.AreaID, cfg.GatewayID,
+	).Scan(&downSec)
+	if downSec < 0 {
+		downSec = 0
+	}
+	downMin := downSec / 60
+	pptMin := float64(cfg.WindowMin)
+	if cfg.RespectShifts || cfg.RespectMaintenance {
+		pptMin = h.computePPT(start, end, cfg)
+	}
+	if pptMin <= 0 {
+		pptMin = float64(cfg.WindowMin)
+	}
+	if downMin > pptMin {
+		downMin = pptMin
+	}
+	availability := (1 - downMin/pptMin) * 100
+	if availability < 0 {
+		availability = 0
+	}
+	if availability > 100 {
+		availability = 100
+	}
+	return availability, "alarms", downMin
+}
+
 func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (float64, string, float64) {
 	if cfg.RunTimeTagID > 0 {
 		var total, running int
@@ -442,12 +495,15 @@ func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (f
 		}
 	}
 
-	// Value-driven: the share of in-window readings inside each tag's
-	// learned band (tag_bands, re-learned every startup from 30 days of
-	// history). A reading out of band means that point was not producing —
-	// pressure collapsed, flow gone — regardless of whether any alarm rule
-	// fired. Alarms deliberately play no role here: they are the messenger,
-	// not the process.
+	if cfg.AvailabilityMode == "alarms" {
+		return h.computeAvailabilityFromAlarms(start, end, cfg)
+	}
+
+	// Value-driven (default): the share of in-window readings inside each
+	// tag's learned band (tag_bands, re-learned every startup from 30 days
+	// of history). A reading out of band means that point was not producing
+	// — pressure collapsed, flow gone — regardless of whether any alarm
+	// rule fired.
 	var total, inBand int
 	_ = h.db.QueryRow(`
 		SELECT COUNT(*),
@@ -564,6 +620,7 @@ type OEEProfile struct {
 	Enabled             bool    `json:"enabled"`
 	RespectShifts       bool    `json:"respect_shifts"`
 	RespectMaintenance  bool    `json:"respect_maintenance"`
+	AvailabilityMode    string  `json:"availability_mode"`
 }
 
 func (p OEEProfile) config() oeeConfig {
@@ -590,6 +647,7 @@ func (p OEEProfile) config() oeeConfig {
 	if p.GoodTagID != nil {
 		cfg.GoodTagID = *p.GoodTagID
 	}
+	cfg.AvailabilityMode = p.AvailabilityMode
 	return cfg
 }
 
@@ -626,7 +684,8 @@ func (h *OEEHandler) loadEnabledProfilesFor(org *int) []OEEProfile {
 			p.gateway_id, p.run_time_tag_id, p.produced_tag_id, p.good_tag_id,
 			p.target_pieces_per_hour, p.window_minutes, p.target_oee,
 			p.display_order, p.enabled,
-			COALESCE(p.respect_shifts, true), COALESCE(p.respect_maintenance, true)
+			COALESCE(p.respect_shifts, true), COALESCE(p.respect_maintenance, true),
+			COALESCE(p.availability_mode, 'values')
 		FROM oee_profiles p
 		LEFT JOIN areas a ON a.id = p.area_id
 		WHERE p.enabled = true AND ($1::int IS NULL OR p.org_id = $1)
@@ -645,6 +704,7 @@ func (h *OEEHandler) loadEnabledProfilesFor(org *int) []OEEProfile {
 			&p.TargetPiecesPerHour, &p.WindowMinutes, &p.TargetOEE,
 			&p.DisplayOrder, &p.Enabled,
 			&p.RespectShifts, &p.RespectMaintenance,
+			&p.AvailabilityMode,
 		); err == nil {
 			out = append(out, p)
 		}
@@ -664,7 +724,8 @@ func (h *OEEHandler) loadProfile(id int, orgFilter *int) (OEEProfile, error) {
 			p.gateway_id, p.run_time_tag_id, p.produced_tag_id, p.good_tag_id,
 			p.target_pieces_per_hour, p.window_minutes, p.target_oee,
 			p.display_order, p.enabled,
-			COALESCE(p.respect_shifts, true), COALESCE(p.respect_maintenance, true)
+			COALESCE(p.respect_shifts, true), COALESCE(p.respect_maintenance, true),
+			COALESCE(p.availability_mode, 'values')
 		FROM oee_profiles p
 		LEFT JOIN areas a ON a.id = p.area_id
 		WHERE p.id = $1 AND ($2::int IS NULL OR p.org_id = $2)`, id, orgFilter,
@@ -675,6 +736,7 @@ func (h *OEEHandler) loadProfile(id int, orgFilter *int) (OEEProfile, error) {
 		&p.TargetPiecesPerHour, &p.WindowMinutes, &p.TargetOEE,
 		&p.DisplayOrder, &p.Enabled,
 		&p.RespectShifts, &p.RespectMaintenance,
+			&p.AvailabilityMode,
 	)
 	return p, err
 }
@@ -690,7 +752,8 @@ func (h *OEEHandler) ListProfiles(c *gin.Context) {
 			p.gateway_id, p.run_time_tag_id, p.produced_tag_id, p.good_tag_id,
 			p.target_pieces_per_hour, p.window_minutes, p.target_oee,
 			p.display_order, p.enabled,
-			COALESCE(p.respect_shifts, true), COALESCE(p.respect_maintenance, true)
+			COALESCE(p.respect_shifts, true), COALESCE(p.respect_maintenance, true),
+			COALESCE(p.availability_mode, 'values')
 		FROM oee_profiles p
 		LEFT JOIN areas a ON a.id = p.area_id
 		WHERE ($1::int IS NULL OR p.org_id = $1)
@@ -710,6 +773,7 @@ func (h *OEEHandler) ListProfiles(c *gin.Context) {
 			&p.TargetPiecesPerHour, &p.WindowMinutes, &p.TargetOEE,
 			&p.DisplayOrder, &p.Enabled,
 			&p.RespectShifts, &p.RespectMaintenance,
+			&p.AvailabilityMode,
 		); err == nil {
 			out = append(out, p)
 		}
@@ -733,6 +797,7 @@ type ProfileRequest struct {
 	Enabled             *bool   `json:"enabled,omitempty"`
 	RespectShifts       *bool   `json:"respect_shifts,omitempty"`
 	RespectMaintenance  *bool   `json:"respect_maintenance,omitempty"`
+	AvailabilityMode    string  `json:"availability_mode,omitempty"`
 }
 
 // CreateProfile POST /api/oee/profiles — admin only.
@@ -770,19 +835,25 @@ func (h *OEEHandler) CreateProfile(c *gin.Context) {
 		respectMaint = *req.RespectMaintenance
 	}
 
+	availMode := req.AvailabilityMode
+	if availMode != "alarms" {
+		availMode = "values"
+	}
+
 	var id int
 	err := h.db.QueryRow(`
 		INSERT INTO oee_profiles (
 			org_id, name, description, area_id, gateway_id,
 			run_time_tag_id, produced_tag_id, good_tag_id,
 			target_pieces_per_hour, window_minutes, target_oee,
-			display_order, enabled, respect_shifts, respect_maintenance
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+			display_order, enabled, respect_shifts, respect_maintenance,
+			availability_mode
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		RETURNING id`,
 		orgID, req.Name, req.Description, req.AreaID, req.GatewayID,
 		req.RunTimeTagID, req.ProducedTagID, req.GoodTagID,
 		req.TargetPiecesPerHour, req.WindowMinutes, req.TargetOEE,
-		req.DisplayOrder, enabled, respectShifts, respectMaint,
+		req.DisplayOrder, enabled, respectShifts, respectMaint, availMode,
 	).Scan(&id)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -826,6 +897,10 @@ func (h *OEEHandler) UpdateProfile(c *gin.Context) {
 	if req.RespectMaintenance != nil {
 		respectMaint = *req.RespectMaintenance
 	}
+	availMode := req.AvailabilityMode
+	if availMode != "alarms" {
+		availMode = "values"
+	}
 	// Il predicato org_id fa sì che un profilo di un altro tenant non venga
 	// toccato: 0 righe aggiornate → 404, nessuna modifica cross-org.
 	orgFilter := middleware.GetOrgFilterForQuery(c)
@@ -845,12 +920,13 @@ func (h *OEEHandler) UpdateProfile(c *gin.Context) {
 			target_pieces_per_hour=$9, window_minutes=$10, target_oee=$11,
 			display_order=$12, enabled=$13,
 			respect_shifts=$14, respect_maintenance=$15,
+			availability_mode=$16,
 			updated_at=NOW()
-		WHERE id=$1 AND ($16::int IS NULL OR org_id=$16)`,
+		WHERE id=$1 AND ($17::int IS NULL OR org_id=$17)`,
 		id, req.Name, req.Description, req.AreaID, req.GatewayID,
 		req.RunTimeTagID, req.ProducedTagID, req.GoodTagID,
 		req.TargetPiecesPerHour, req.WindowMinutes, req.TargetOEE,
-		req.DisplayOrder, enabled, respectShifts, respectMaint, orgFilter,
+		req.DisplayOrder, enabled, respectShifts, respectMaint, availMode, orgFilter,
 	)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
