@@ -485,9 +485,17 @@ func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (f
 		pptMin = h.computePPT(start, end, cfg)
 	}
 	if pptMin <= 0 {
-		// Nessun tempo pianificato di produzione → Availability = 100%
-		// (non c'è "expected production" da fallire).
-		return 100, "fallback", 0
+		// No planned production time in this window (weekend with Mon–Fri
+		// shifts, no shifts at all). Returning 100% here hid every real
+		// stoppage — whole weekends read 100/100 with critical alarms open.
+		// Fall back to wall clock: the window itself is the denominator, so
+		// downtime still lowers availability instead of vanishing.
+		pptMin = float64(cfg.WindowMin)
+	}
+	if downMin > pptMin {
+		// Overlapping critical alarms each contribute their own span; the
+		// line cannot be down twice at once, so cap at the window itself.
+		downMin = pptMin
 	}
 	availability := (1 - downMin/pptMin) * 100
 	if availability < 0 {
