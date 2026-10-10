@@ -407,7 +407,7 @@ func (h *OEEHandler) computeSnapshotAt(end time.Time, cfg oeeConfig) OEESnapshot
 	start := end.Add(-time.Duration(cfg.WindowMin) * time.Minute)
 
 	out.Availability, out.AvailabilitySource, out.CriticalDowntimeMin =
-		h.computeAvailability(start, end, cfg)
+		h.computeAvailability(c.Request.Context(), start, end, &cfg)
 	out.Performance, out.PerformanceSource, out.PiecesProduced, out.TargetPiecesPerHour =
 		h.computePerformance(start, end, cfg)
 	out.Quality, out.QualitySource, out.PiecesGood =
@@ -436,9 +436,9 @@ func (h *OEEHandler) computeSnapshotAt(end time.Time, cfg oeeConfig) OEESnapshot
 // profiles that explicitly choose availability_mode='alarms': open time of
 // the profile's critical alarms over the window (overlaps capped, weekends
 // fall back to wall clock instead of forcing 100%).
-func (h *OEEHandler) computeAvailabilityFromAlarms(start, end time.Time, cfg oeeConfig) (float64, string, float64) {
+func (h *OEEHandler) computeAvailabilityFromAlarms(ctx context.Context, start, end time.Time, cfg *oeeConfig) (float64, string, float64) {
 	var downSec float64
-	_ = h.db.QueryRow(`
+	_ = h.db.QueryRowContext(ctx, `
 		SELECT COALESCE(SUM(
 			EXTRACT(EPOCH FROM (
 				LEAST(COALESCE(ae.clear_time, NOW()), $2) -
@@ -464,7 +464,7 @@ func (h *OEEHandler) computeAvailabilityFromAlarms(start, end time.Time, cfg oee
 	downMin := downSec / 60
 	pptMin := float64(cfg.WindowMin)
 	if cfg.RespectShifts || cfg.RespectMaintenance {
-		pptMin = h.computePPT(start, end, cfg)
+		pptMin = h.computePPT(start, end, *cfg)
 	}
 	if pptMin <= 0 {
 		pptMin = float64(cfg.WindowMin)
@@ -482,10 +482,10 @@ func (h *OEEHandler) computeAvailabilityFromAlarms(start, end time.Time, cfg oee
 	return availability, "alarms", downMin
 }
 
-func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (float64, string, float64) {
+func (h *OEEHandler) computeAvailability(ctx context.Context, start, end time.Time, cfg *oeeConfig) (float64, string, float64) {
 	if cfg.RunTimeTagID > 0 {
 		var total, running int
-		_ = h.db.QueryRow(`
+		_ = h.db.QueryRowContext(ctx, `
 			SELECT COUNT(*), COUNT(*) FILTER (WHERE value > 0)
 			FROM tag_history WHERE tag_id = $1 AND time > $2 AND time <= $3`,
 			cfg.RunTimeTagID, start, end,
@@ -496,7 +496,7 @@ func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (f
 	}
 
 	if cfg.AvailabilityMode == "alarms" {
-		return h.computeAvailabilityFromAlarms(start, end, cfg)
+		return h.computeAvailabilityFromAlarms(ctx, start, end, cfg)
 	}
 
 	// Value-driven (default): the share of in-window readings inside each
@@ -505,7 +505,7 @@ func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (f
 	// — pressure collapsed, flow gone — regardless of whether any alarm
 	// rule fired.
 	var total, inBand int
-	_ = h.db.QueryRow(`
+	_ = h.db.QueryRowContext(ctx, `
 		SELECT COUNT(*),
 			COUNT(*) FILTER (WHERE h.value BETWEEN b.band_low AND b.band_high)
 		FROM tag_history h
