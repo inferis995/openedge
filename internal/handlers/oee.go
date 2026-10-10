@@ -448,13 +448,18 @@ func (h *OEEHandler) computeAvailability(start, end time.Time, cfg oeeConfig) (f
 	// lowered every other company's availability. The legacy snapshot
 	// (OrgID 0) is the platform administrator's and still reads them all.
 	var downSec float64
+	// ::float8: SUM(EXTRACT(EPOCH ...)) is NUMERIC, and the lib/pq driver
+	// hands NUMERIC to database/sql as []byte — scanning that into a
+	// float64 fails, the error was ignored, downtime read 0 forever and
+	// every profile showed 100% availability. Casting in SQL fixes it at
+	// the source.
 	_ = h.db.QueryRow(`
 		SELECT COALESCE(SUM(
 			EXTRACT(EPOCH FROM (
 				LEAST(COALESCE(ae.clear_time, NOW()), $2) -
 				GREATEST(ae.trigger_time, $1)
 			))
-		), 0)
+		), 0)::float8
 		FROM alarm_events ae
 		JOIN tags t ON t.id = ae.tag_id
 		JOIN gateways g ON g.id = t.gateway_id
