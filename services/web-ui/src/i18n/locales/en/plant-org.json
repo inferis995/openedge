@@ -279,7 +279,11 @@
     "logo_hint": "PNG, JPEG or WebP, up to 512 KB. The organization's users see it at the top of the menu.",
     "modules": "Visible pages",
     "modules_saved": "Pages updated",
-    "modules_failed": "Failed to save pages"
+    "modules_failed": "Failed to save pages",
+    "accent_title": "Accent color",
+    "accent_default": "default yellow",
+    "accent_reset": "Reset",
+    "accent_help": "Replaces the yellow. Black and white flip automatically with the light/dark theme."
   },
   "infrastructurePage": {
     "subtitle": "All gateways, where they are and whether they are reachable",

@@ -279,7 +279,11 @@
     "logo_hint": "PNG, JPEG o WebP, fino a 512 KB. Gli utenti dell'organizzazione lo vedono in alto nel menu.",
     "modules": "Pagine visibili",
     "modules_saved": "Pagine aggiornate",
-    "modules_failed": "Salvataggio pagine fallito"
+    "modules_failed": "Salvataggio pagine fallito",
+    "accent_title": "Colore accento",
+    "accent_default": "giallo default",
+    "accent_reset": "Ripristina",
+    "accent_help": "Sostituisce il giallo. Nero e bianco si invertono da soli col tema chiaro/scuro."
   },
   "infrastructurePage": {
     "subtitle": "Tutti i gateway, dove si trovano e se sono raggiungibili",

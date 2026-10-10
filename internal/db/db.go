@@ -940,6 +940,12 @@ func runAutoMigrations(db *sql.DB) error {
 		}
 	}
 
+	// Per-organization accent color (theme_color): empty = product default.
+	if _, err := db.ExecContext(context.Background(),
+		`ALTER TABLE organizations ADD COLUMN IF NOT EXISTS theme_color TEXT DEFAULT ''`); err != nil {
+		log.Printf("Warning: org theme_color migration: %v", err)
+	}
+
 	// Migration: OAuth 2.1 authorization server.
 	//
 	// This is what lets a remote client — an MCP client, a connector — obtain a

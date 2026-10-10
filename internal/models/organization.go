@@ -7,9 +7,10 @@ import (
 
 // Organization represents the top level of the organizational hierarchy
 type Organization struct {
-	ID        int       `json:"id" db:"id"`
-	Name      string    `json:"name" db:"name"`
-	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	ID         int       `json:"id" db:"id"`
+	Name       string    `json:"name" db:"name"`
+	CreatedAt  time.Time `json:"created_at" db:"created_at"`
+	ThemeColor string    `json:"theme_color,omitempty" db:"theme_color"`
 }
 
 // Site represents a location belonging to an organization
