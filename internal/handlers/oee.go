@@ -408,11 +408,11 @@ func (h *OEEHandler) computeSnapshotAt(ctx context.Context, end time.Time, cfg *
 	start := end.Add(-time.Duration(cfg.WindowMin) * time.Minute)
 
 	out.Availability, out.AvailabilitySource, out.CriticalDowntimeMin =
-		h.computeAvailability(ctx, start, end, &cfg)
+		h.computeAvailability(ctx, start, end, cfg)
 	out.Performance, out.PerformanceSource, out.PiecesProduced, out.TargetPiecesPerHour =
-		h.computePerformance(start, end, cfg)
+		h.computePerformance(start, end, *cfg)
 	out.Quality, out.QualitySource, out.PiecesGood =
-		h.computeQuality(start, end, out.PiecesProduced, cfg)
+		h.computeQuality(start, end, out.PiecesProduced, *cfg)
 
 	a := clamp01(out.Availability / 100)
 	p := clamp01(out.Performance / 100)
