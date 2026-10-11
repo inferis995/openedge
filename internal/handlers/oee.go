@@ -138,7 +138,7 @@ func (h *OEEHandler) overviewFor(ctx context.Context, org *int) OEEOverview {
 			return OEEOverview{Mode: "legacy"}
 		}
 		cfg := h.legacyConfig()
-		snap := h.computeSnapshotAt(ctx, time.Now().UTC(), cfg)
+		snap := h.computeSnapshotAt(ctx, time.Now().UTC(), &cfg)
 		return OEEOverview{Mode: "legacy", Legacy: &snap}
 	}
 
@@ -147,7 +147,8 @@ func (h *OEEHandler) overviewFor(ctx context.Context, org *int) OEEOverview {
 	rollupSum := struct{ a, p, q, oee float64 }{}
 	count := 0
 	for _, p := range profiles {
-		snap := h.computeSnapshotAt(ctx, now, p.config())
+		pcfg := p.config()
+		snap := h.computeSnapshotAt(ctx, now, &pcfg)
 		out.Profiles = append(out.Profiles, OEEProfileSnapshot{
 			ProfileID:   p.ID,
 			Name:        p.Name,
@@ -354,13 +355,13 @@ func (h *OEEHandler) History(c *gin.Context) {
 			}
 			cfg := h.legacyConfig()
 			cfg.WindowMin = 24 * 60
-			oeeVal = h.computeSnapshotAt(c.Request.Context(), end, cfg).OEE
+			oeeVal = h.computeSnapshotAt(c.Request.Context(), end, &cfg).OEE
 		} else {
 			sum := 0.0
 			for _, p := range profiles {
 				cfg := p.config()
 				cfg.WindowMin = 24 * 60
-				sum += h.computeSnapshotAt(c.Request.Context(), end, cfg).OEE
+				sum += h.computeSnapshotAt(c.Request.Context(), end, &cfg).OEE
 			}
 			oeeVal = sum / float64(len(profiles))
 		}
@@ -394,7 +395,7 @@ func (h *OEEHandler) ProfileHistory(c *gin.Context) {
 		}
 		cfg := p.config()
 		cfg.WindowMin = 24 * 60
-		out = append(out, OEEHistoryPoint{Bucket: d, OEE: h.computeSnapshotAt(c.Request.Context(), end, cfg).OEE})
+		out = append(out, OEEHistoryPoint{Bucket: d, OEE: h.computeSnapshotAt(c.Request.Context(), end, &cfg).OEE})
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -402,7 +403,7 @@ func (h *OEEHandler) ProfileHistory(c *gin.Context) {
 // computeSnapshotAt è il calcolo del singolo OEE: chiamato da snapshot,
 // rollup, history, ovunque. Tutto pesca da `cfg` — niente più letture
 // scattered di global_settings.
-func (h *OEEHandler) computeSnapshotAt(ctx context.Context, end time.Time, cfg oeeConfig) OEESnapshot {
+func (h *OEEHandler) computeSnapshotAt(ctx context.Context, end time.Time, cfg *oeeConfig) OEESnapshot {
 	out := OEESnapshot{WindowMinutes: cfg.WindowMin}
 	start := end.Add(-time.Duration(cfg.WindowMin) * time.Minute)
 
@@ -1184,9 +1185,10 @@ func (h *OEEHandler) Hierarchy(c *gin.Context) {
 	}
 	pnodes := make([]profileNode, 0, len(profiles))
 	for _, p := range profiles {
+		pcfg := p.config()
 		pnodes = append(pnodes, profileNode{
 			profile: p,
-			snap:    h.computeSnapshotAt(c.Request.Context(), now, p.config()),
+			snap:    h.computeSnapshotAt(c.Request.Context(), now, &pcfg),
 		})
 	}
 

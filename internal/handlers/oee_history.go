@@ -329,7 +329,7 @@ func RecordHourlySnapshot(db *sql.DB, oee *OEEHandler, now time.Time) error {
 		org := soleOrganization(ctx, db)
 		cfg := oee.legacyConfig()
 		cfg.WindowMin = 60
-		snap := oee.computeSnapshotAt(ctx, bucketEnd, cfg)
+		snap := oee.computeSnapshotAt(ctx, bucketEnd, &cfg)
 		return upsertHistory(ctx, db, nil, org, bucketStart, "hour", &snap, findActiveShiftAt(ctx, db, org, midpoint))
 	}
 
@@ -341,7 +341,7 @@ func RecordHourlySnapshot(db *sql.DB, oee *OEEHandler, now time.Time) error {
 			p := &group.profiles[i]
 			cfg := p.config()
 			cfg.WindowMin = 60 // forziamo a 1h indipendentemente dal window del profilo
-			snap := oee.computeSnapshotAt(ctx, bucketEnd, cfg)
+			snap := oee.computeSnapshotAt(ctx, bucketEnd, &cfg)
 			if err := upsertHistory(ctx, db, &p.ID, &org, bucketStart, "hour", &snap, shiftID); err != nil {
 				return err
 			}
