@@ -188,7 +188,7 @@ func (h *DashboardHandler) Overview(c *gin.Context) {
 	resp.Shift = h.currentShift(c.Request.Context(), sc)
 	resp.Maintenance = h.currentMaintenance(sc)
 	if h.OEE != nil {
-		o := h.OEE.overviewFor(sc.orgPtr())
+		o := h.OEE.overviewFor(c.Request.Context(), sc.orgPtr())
 		resp.OEE = &o
 	}
 	c.JSON(http.StatusOK, resp)

@@ -217,6 +217,7 @@ const ProfileEditor = ({
     const [enabled, setEnabled]           = useState(true);
     const [respectShifts, setRespectShifts]           = useState(true);
     const [respectMaintenance, setRespectMaintenance] = useState(true);
+    const [availMode, setAvailMode]                   = useState('values');
     const [saving, setSaving]             = useState(false);
 
     const { data: filteredTags } = useQuery({
@@ -245,11 +246,12 @@ const ProfileEditor = ({
                 setEnabled(initial.enabled);
                 setRespectShifts(initial.respect_shifts ?? true);
                 setRespectMaintenance(initial.respect_maintenance ?? true);
+                setAvailMode(initial.availability_mode ?? 'values');
             } else {
                 setName(''); setDescription(''); setAreaId(null);
                 setRunId(null); setProdId(null); setGoodId(null);
                 setPph(0); setWindowMin(480); setTargetOEE(85); setEnabled(true);
-                setRespectShifts(true); setRespectMaintenance(true);
+                setRespectShifts(true); setRespectMaintenance(true); setAvailMode('values');
             }
         }
     }
@@ -275,6 +277,7 @@ const ProfileEditor = ({
                 enabled,
                 respect_shifts: respectShifts,
                 respect_maintenance: respectMaintenance,
+                availability_mode: availMode,
             };
             if (initial) {
                 await oeeApi.updateProfile(initial.id, payload);
@@ -373,6 +376,27 @@ const ProfileEditor = ({
                                 {tr('oeeProfiles.active_hint')}
                             </p>
                         </div>
+                    </div>
+
+                    {/* Fonte dei fermi: valori (bande apprese) o allarmi critici */}
+                    <div className="space-y-2 p-3 border border-dashed border-border rounded-md bg-muted/20">
+                        <Label>{tr('oeeProfiles.availability_mode')}</Label>
+                        <Select value={availMode} onValueChange={setAvailMode}>
+                            <SelectTrigger>
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="values">
+                                    {tr('oeeProfiles.availability_values')}
+                                </SelectItem>
+                                <SelectItem value="alarms">
+                                    {tr('oeeProfiles.availability_alarms')}
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <p className="text-[11px] text-muted-foreground">
+                            {tr(availMode === 'alarms' ? 'oeeProfiles.availability_alarms_hint' : 'oeeProfiles.availability_values_hint')}
+                        </p>
                     </div>
 
                     {/* Planned Production Time — toggles per Availability "vera"

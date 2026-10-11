@@ -186,6 +186,8 @@ export interface OEEProfile {
     // Time (window - pause turni - manutenzioni) invece di wall clock.
     respect_shifts: boolean;
     respect_maintenance: boolean;
+    // Fonte dei fermi: 'values' (bande apprese, default) o 'alarms'.
+    availability_mode: string;
 }
 
 export interface OEEProfileRequest {
@@ -203,6 +205,7 @@ export interface OEEProfileRequest {
     enabled: boolean;
     respect_shifts?: boolean;
     respect_maintenance?: boolean;
+    availability_mode?: string;
 }
 
 // Riga della matrice "OEE per turno × giorno".
