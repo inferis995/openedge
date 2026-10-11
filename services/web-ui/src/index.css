@@ -122,7 +122,7 @@ layer(base);
     0%,
     100% {
       clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-      background-color: var(--accent, #e0ff00);
+      background-color: var(--brand, #e0ff00);
     }
     50% {
       clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%, 0% 100%, 0% 0%);

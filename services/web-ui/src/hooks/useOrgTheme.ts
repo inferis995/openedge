@@ -1,5 +1,8 @@
 import { useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { organizationsApi } from '@/api/organizations';
+import { isPlatformPath } from '@/components/layout/navigation';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import { useThemeStore } from '@/stores/useThemeStore';
 
@@ -56,13 +59,16 @@ function applyOrgAccent(themeColor: string | undefined, dark: boolean) {
     root.style.removeProperty('--primary');
     root.style.removeProperty('--primary-foreground');
     if (!themeColor) {
-        root.style.removeProperty('--accent');
+        root.style.removeProperty('--brand');
         return;
     }
     // Raw accent for brand spots (logo, animations): B/W resolved per theme.
+    // Its own variable: --accent is an HSL triplet the theme reads as
+    // hsl(var(--accent)) for hover and selection, and a hex written there
+    // made every one of those backgrounds invalid — no hover at all.
     const lum0 = luminance(themeColor);
     const extreme = lum0 !== null && (lum0 < 0.08 || lum0 > 0.92);
-    root.style.setProperty('--accent', extreme ? (dark ? '#ffffff' : '#000000') : themeColor);
+    root.style.setProperty('--brand', extreme ? (dark ? '#ffffff' : '#000000') : themeColor);
     // Primary buttons take the accent as background IN BOTH themes, with
     // contrasting text — same treatment, reads everywhere. The only flip:
     // white cannot be a background in the light theme (invisible button),
@@ -100,39 +106,43 @@ function storeTheme(orgId: number, color: string | undefined) {
     }
 }
 
+// The organization whose colour should be on screen now (null: the
+// product's). An answer about any other — a slow response for the
+// organization the user just left — is dropped instead of painted.
+let wanted: number | null = null;
+
 export function refreshOrgAccent(orgId: number, dark: boolean) {
     return organizationsApi
         .get(orgId)
         .then((org) => {
             storeTheme(orgId, org.theme_color);
-            applyOrgAccent(org.theme_color, dark);
+            if (wanted === orgId) applyOrgAccent(org.theme_color, dark);
         })
         .catch(() => {
-            applyOrgAccent(cachedTheme(orgId), dark);
+            if (wanted === orgId) applyOrgAccent(cachedTheme(orgId), dark);
         });
 }
 
 export function useOrgTheme() {
     const selectedOrgId = useNavigationStore((s) => s.selectedOrgId);
     const theme = useThemeStore((s) => s.theme);
+    const isGlobalAdmin = useAuthStore((s) => s.user?.role === 'admin' && !s.user?.org_id);
+    const { pathname } = useLocation();
     const dark = theme === 'dark';
+    // A global admin always has an organization selected (the first one, if
+    // none was picked), so the selection alone does not mean "inside a
+    // tenant": on the platform's own pages they get the product's colours.
+    const orgId = selectedOrgId && !(isGlobalAdmin && isPlatformPath(pathname)) ? selectedOrgId : null;
 
     useEffect(() => {
-        if (!selectedOrgId) {
-            applyOrgAccent(undefined, false);
+        wanted = orgId;
+        if (!orgId) {
+            applyOrgAccent(undefined, dark);
             return;
         }
         // Instant: cached color first (no flash), API confirms right after.
-        applyOrgAccent(cachedTheme(selectedOrgId), dark);
-        refreshOrgAccent(selectedOrgId, dark);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [selectedOrgId]);
-
-    // Re-apply when the light/dark theme flips (B/W inversion depends on it).
-    useEffect(() => {
-        if (!selectedOrgId) return;
-        applyOrgAccent(cachedTheme(selectedOrgId), dark);
-        refreshOrgAccent(selectedOrgId, dark);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [theme]);
+        // Again on a light/dark switch: black and white invert with it.
+        applyOrgAccent(cachedTheme(orgId), dark);
+        refreshOrgAccent(orgId, dark);
+    }, [orgId, dark]);
 }

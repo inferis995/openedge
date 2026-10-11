@@ -61,6 +61,21 @@ const pathModuleEntries: [string, string][] = [
     ['/users', 'users'],
 ];
 
+/**
+ * The platform's own pages: what a global admin runs the whole installation
+ * from. They keep the product's colours whatever organization is selected —
+ * an organization's colour says "you are inside this tenant", and these pages
+ * are not inside any.
+ */
+const PLATFORM_PATHS = [
+    '/organizations', '/system', '/infrastructure', '/mqtt-monitor', '/diagnostics',
+    '/security', '/audit', '/fleet', '/releases', '/users',
+];
+
+export function isPlatformPath(path: string): boolean {
+    return PLATFORM_PATHS.some((p) => path === p || path.startsWith(p + '/'));
+}
+
 export function moduleForPath(path: string): string | null {
     // Detail pages (/synoptics/4, /tags/12) belong to their section.
     let best: string | null = null;
