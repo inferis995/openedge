@@ -676,7 +676,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                             offset={18}
                             closeOnClick={false}
                             onClose={() => setSelectedGwId(null)}
-                            maxWidth="320px"
+                            maxWidth="min(320px, calc(100vw - 2rem))"
                             className="map-popup"
                         >
                             <GatewayPopup
@@ -704,7 +704,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                             offset={96}
                             closeOnClick={false}
                             onClose={() => setOpenTagId(null)}
-                            maxWidth="300px"
+                            maxWidth="min(300px, calc(100vw - 2rem))"
                             className="map-popup"
                         >
                             <TagDetailPopup
