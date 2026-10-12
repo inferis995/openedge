@@ -51,7 +51,7 @@
     "maintenance": "Manutenzione",
     "oee_profiles": "Profili OEE",
     "i3x": "API i3X",
-    "system": "Sistema",
+    "system": "Impostazioni",
     "diagnostics": "Diagnostica",
     "users": "Utenti",
     "mqtt_monitor": "Monitor MQTT",
@@ -139,14 +139,25 @@
     "mqtt_failed": "Connessione ai dati in tempo reale non riuscita: ricarica la pagina."
   },
   "system": {
-    "title": "Pannello di sistema",
-    "subtitle": "Configurazione e gestione della piattaforma industriale",
+    "title": "Impostazioni",
+    "subtitle": "Connessioni, avvisi, dati e obiettivi della piattaforma",
     "status_ok": "Sistema operativo",
     "tab_mqtt": "MQTT",
     "tab_notifications": "Notifiche",
     "tab_backup": "Backup",
     "tab_kpi": "Target KPI",
-    "tab_general": "Generale"
+    "tab_general": "Generale",
+    "group_connections": "Connessioni",
+    "group_alerts": "Avvisi",
+    "group_data": "Dati",
+    "group_production": "Produzione",
+    "desc_mqtt": "Il broker su cui viaggiano i dati e come collegare altri sistemi.",
+    "desc_integrations": "Esportazione verso sistemi esterni, come InfluxDB.",
+    "desc_sso": "Accesso con l'account aziendale (Google, Microsoft).",
+    "desc_notifications": "Dove arrivano gli allarmi: email, Telegram, Slack, Teams, PagerDuty.",
+    "desc_backup": "Copie del database: quando si fanno, quante tenerne, come ripristinarle.",
+    "desc_database": "Spazio occupato, conservazione dello storico e manutenzione.",
+    "desc_kpi": "Gli obiettivi con cui la dashboard confronta la produzione."
   },
   "recipes": {
     "title": "Ricette",

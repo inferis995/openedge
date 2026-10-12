@@ -22,7 +22,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
     Download, AlertTriangle, CheckCircle, RefreshCw, Zap, ScrollText,
     ChevronDown, Settings2, Trash2, FileArchive,
-    HardDrive, Server, Network, Eye, EyeOff, User, Key, Shield, Plus, Copy
+    HardDrive, Server, Network, Eye, EyeOff, User, Key, Shield, Plus, Copy, Bell, Target
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { confirmAction } from '@/lib/confirm';
@@ -467,6 +467,29 @@ const SystemPage = () => {
         }
     };
 
+    const settingsSections: { key: string; items: { value: string; icon: typeof Server; label: string; desc: string }[] }[] = [
+        { key: 'system.group_connections', items: [
+            { value: 'mqtt', icon: Network, label: t('system.tab_mqtt'), desc: 'system.desc_mqtt' },
+            { value: 'integrations', icon: Zap, label: t('systemPage.tab_integrations'), desc: 'system.desc_integrations' },
+            ...(isGlobalAdmin() ? [{ value: 'sso', icon: Key, label: 'SSO / OIDC', desc: 'system.desc_sso' }] : []),
+        ] },
+        { key: 'system.group_alerts', items: [
+            { value: 'notifications', icon: Bell, label: t('system.tab_notifications'), desc: 'system.desc_notifications' },
+        ] },
+        { key: 'system.group_data', items: [
+            { value: 'backup', icon: FileArchive, label: t('system.tab_backup'), desc: 'system.desc_backup' },
+            { value: 'database', icon: HardDrive, label: t('systemPage.tab_database'), desc: 'system.desc_database' },
+        ] },
+        { key: 'system.group_production', items: [
+            { value: 'kpi', icon: Target, label: t('system.tab_kpi'), desc: 'system.desc_kpi' },
+        ] },
+    ];
+    const currentSection = settingsSections.flatMap((g) => g.items).find((i) => i.value === tab);
+    // On a phone the section list is one scrolling row: bring the open one into view.
+    useEffect(() => {
+        document.querySelector('nav [role="tab"][data-state="active"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+    }, [tab]);
+
     return (
         <div className="space-y-6">
             {/* Page header, as on every page */}
@@ -481,7 +504,7 @@ const SystemPage = () => {
                 </div>
             </div>
 
-            <div className="max-w-5xl space-y-6">
+            <div className="space-y-6">
 
                 {/* Alert message */}
                 {message && (
@@ -497,23 +520,39 @@ const SystemPage = () => {
                     </div>
                 )}
 
-                {/* Tabs: 4 aree funzionali (MQTT, Notifiche, Backup, Target KPI).
-                    Prima era una grid 2-colonne con backup duplicato in 4 punti —
-                    ora ogni tab è single-column, layout uniforme, niente duplicati. */}
-                <Tabs value={tab} onValueChange={setTab}>
-                    <TabsList className="flex-wrap h-auto">
-                        <TabsTrigger value="mqtt">{t('system.tab_mqtt')}</TabsTrigger>
-                        <TabsTrigger value="notifications">{t('system.tab_notifications')}</TabsTrigger>
-                        <TabsTrigger value="backup">{t('system.tab_backup')}</TabsTrigger>
-                        <TabsTrigger value="kpi">{t('system.tab_kpi')}</TabsTrigger>
-                        <TabsTrigger value="integrations">{t('systemPage.tab_integrations')}</TabsTrigger>
-                        <TabsTrigger value="database">{t('systemPage.tab_database')}</TabsTrigger>
-                        {isGlobalAdmin() && (
-                            <TabsTrigger value="sso">SSO / OIDC</TabsTrigger>
-                        )}
-                    </TabsList>
+                {/* A settings page: the sections listed on the left (grouped by
+                    what they are about), the open one on the right. On a phone
+                    the list is one row that scrolls. The section is in the
+                    address (?tab=…), so a link opens it. */}
+                <Tabs value={tab} onValueChange={setTab} orientation="vertical"
+                    className="grid gap-6 lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start">
+                    <nav className="min-w-0 lg:sticky lg:top-4" aria-label={t('system.title')}>
+                        <TabsList className="flex h-auto w-full flex-row items-stretch justify-start gap-1 overflow-x-auto rounded-none bg-transparent p-0 sm:justify-start lg:flex-col lg:overflow-visible [scrollbar-width:none]">
+                            {settingsSections.map((group) => (
+                                <div key={group.key} className="contents">
+                                    <p className="hidden px-3 pb-1 pt-3 text-xs font-medium text-muted-foreground first:pt-0 lg:block">{t(group.key)}</p>
+                                    {group.items.map(({ value, icon: Icon, label }) => (
+                                        <TabsTrigger key={value} value={value}
+                                            className="shrink-0 justify-start gap-2.5 rounded-lg border border-transparent px-3 py-2 text-sm font-medium text-muted-foreground shadow-none hover:bg-muted hover:text-foreground data-[state=active]:border-border data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs lg:w-full">
+                                            <Icon className="size-4 shrink-0" />
+                                            {label}
+                                        </TabsTrigger>
+                                    ))}
+                                </div>
+                            ))}
+                        </TabsList>
+                    </nav>
 
-                    <TabsContent value="mqtt" className="space-y-6 mt-4">
+                    <div className="min-w-0 max-w-4xl space-y-6">
+                    {/* The open section, named and described */}
+                    {currentSection && (
+                        <div className="border-b pb-4">
+                            <h2 className="text-lg font-semibold">{currentSection.label}</h2>
+                            <p className="text-sm text-muted-foreground">{t(currentSection.desc)}</p>
+                        </div>
+                    )}
+
+                    <TabsContent value="mqtt" className="space-y-6 mt-0">
                         <MqttConnectGuide
                             brokerMode={mqttBrokerMode === 'external' ? 'external' : 'internal'}
                             externalHost={mqttExternalHost}
@@ -523,8 +562,8 @@ const SystemPage = () => {
                         <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-                                        <Server className="h-4 w-4 text-primary" />
+                                    <div className="w-9 h-9 rounded-lg bg-muted border flex items-center justify-center shrink-0">
+                                        <Server className="h-4 w-4 text-foreground" />
                                     </div>
                                     <div>
                                         <CardTitle className="text-base text-foreground">{t('systemPage.broker_title')}</CardTitle>
@@ -863,8 +902,8 @@ const SystemPage = () => {
                         <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-                                        <RefreshCw className="h-4 w-4 text-primary" />
+                                    <div className="w-9 h-9 rounded-lg bg-muted border flex items-center justify-center shrink-0">
+                                        <RefreshCw className="h-4 w-4 text-foreground" />
                                     </div>
                                     <div>
                                         <CardTitle className="text-base text-foreground">{t('systemPage.publish_title')}</CardTitle>
@@ -1105,7 +1144,7 @@ const SystemPage = () => {
                         {isGlobalAdmin() && <MqttMaintenancePanel />}
                     </TabsContent>
 
-                    <TabsContent value="backup" className="space-y-6 mt-4">
+                    <TabsContent value="backup" className="space-y-6 mt-0">
                         {/* Backup panel — schedule, retention, age encryption.
                             Settings persist via flat-passthrough nei backup_*
                             di global_settings. Unica fonte di verità per la
@@ -1121,8 +1160,8 @@ const SystemPage = () => {
                     <Card className="border-border shadow-xs bg-card">
                         <CardHeader className="pb-4 border-b border-border">
                             <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-                                    <Download className="h-4 w-4 text-primary" />
+                                <div className="w-9 h-9 rounded-lg bg-muted border flex items-center justify-center shrink-0">
+                                    <Download className="h-4 w-4 text-foreground" />
                                 </div>
                                 <div>
                                     <CardTitle className="text-base text-foreground">{t('systemPage.manual_backup')}</CardTitle>
@@ -1149,8 +1188,8 @@ const SystemPage = () => {
                     <Card className="border-border shadow-xs bg-card">
                         <CardHeader className="pb-4 border-b border-border">
                             <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-                                    <HardDrive className="h-4 w-4 text-primary" />
+                                <div className="w-9 h-9 rounded-lg bg-muted border flex items-center justify-center shrink-0">
+                                    <HardDrive className="h-4 w-4 text-foreground" />
                                 </div>
                                 <div>
                                     <CardTitle className="text-base text-foreground">{t('systemPage.restore_title')}</CardTitle>
@@ -1263,7 +1302,7 @@ const SystemPage = () => {
                 )}
                     </TabsContent>
 
-                    <TabsContent value="notifications" className="mt-4">
+                    <TabsContent value="notifications" className="mt-0">
                         {/* Notifications panel — email + Telegram, severity
                             filter, rate limit, "send test" per-channel.
                             Self-contained: gestisce il proprio save/state. */}
@@ -1273,7 +1312,7 @@ const SystemPage = () => {
                         />
                     </TabsContent>
 
-                    <TabsContent value="kpi" className="mt-4">
+                    <TabsContent value="kpi" className="mt-0">
                         {/* Target sui KPI della dashboard. Vuoto = nessun
                             target → valore neutro. */}
                         <KPITargets
@@ -1282,17 +1321,17 @@ const SystemPage = () => {
                         />
                     </TabsContent>
 
-                    <TabsContent value="integrations" className="mt-4">
+                    <TabsContent value="integrations" className="mt-0">
                         <InfluxDBSettings initial={settings ?? undefined} onSaved={loadSettings} />
                     </TabsContent>
 
-                    <TabsContent value="database" className="space-y-6 mt-4">
+                    <TabsContent value="database" className="space-y-6 mt-0">
                         {/* DB Stats Card */}
                         <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-                                        <HardDrive className="h-4 w-4 text-primary" />
+                                    <div className="w-9 h-9 rounded-lg bg-muted border flex items-center justify-center shrink-0">
+                                        <HardDrive className="h-4 w-4 text-foreground" />
                                     </div>
                                     <div>
                                         <CardTitle className="text-base text-foreground">{t('systemPage.db_stats')}</CardTitle>
@@ -1443,12 +1482,12 @@ const SystemPage = () => {
                     </TabsContent>
 
                     {/* SSO / OIDC Tab */}
-                    <TabsContent value="sso" className="space-y-6 mt-4">
+                    <TabsContent value="sso" className="space-y-6 mt-0">
                         <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-                                        <Shield className="h-4 w-4 text-primary" />
+                                    <div className="w-9 h-9 rounded-lg bg-muted border flex items-center justify-center shrink-0">
+                                        <Shield className="h-4 w-4 text-foreground" />
                                     </div>
                                     <div className="flex-1">
                                         <CardTitle className="text-base text-foreground">{t('systemPage.sso_title')}</CardTitle>
@@ -1603,6 +1642,7 @@ const SystemPage = () => {
                             </CardContent>
                         </Card>
                     </TabsContent>
+                    </div>
                 </Tabs>
 
                 {/* Footer */}

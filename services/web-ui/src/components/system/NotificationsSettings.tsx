@@ -235,8 +235,8 @@ const NotificationsSettings = ({ initial, onSaved }: Props) => {
             <CardHeader className="pb-4 border-b border-border">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-                            <BellRing className="h-4 w-4 text-primary" />
+                        <div className="w-9 h-9 rounded-lg bg-muted border flex items-center justify-center shrink-0">
+                            <BellRing className="h-4 w-4 text-foreground" />
                         </div>
                         <div>
                             <CardTitle className="text-base text-foreground">{t('notificationsSettings.title')}</CardTitle>
