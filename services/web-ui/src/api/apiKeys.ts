@@ -17,7 +17,7 @@ export interface CreateApiKeyResponse extends ApiKey {
 export const apiKeysApi = {
     list: async (orgId: number): Promise<ApiKey[]> => {
         const response = await api.get(`/organizations/${orgId}/api-keys`);
-        return response.data;
+        return response.data ?? [];
     },
 
     create: async (orgId: number, name = 'default'): Promise<CreateApiKeyResponse> => {

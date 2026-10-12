@@ -37,7 +37,7 @@ export interface UpdateUserRequest {
 export const usersApi = {
     list: async (): Promise<User[]> => {
         const response = await api.get<User[]>('/users');
-        return response.data;
+        return response.data ?? [];
     },
 
     create: async (data: CreateUserRequest): Promise<User> => {

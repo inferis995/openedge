@@ -41,13 +41,13 @@ export const tagsApi = {
         if (gatewayId !== undefined && gatewayId !== null) params.gateway_id = gatewayId;
         else if (areaId !== undefined && areaId !== null) params.area_id = areaId;
         const response = await api.get('/tags', { params });
-        return response.data;
+        return response.data ?? [];
     },
 
     // Get all tags without filtering by gateway
     getAllTags: async (): Promise<Tag[]> => {
         const response = await api.get('/tags');
-        return response.data;
+        return response.data ?? [];
     },
 
     // Get tags with full hierarchy information for tag browser
@@ -59,7 +59,7 @@ export const tagsApi = {
     // Get all tags with hierarchy info (flat list with hierarchy fields)
     getAllWithHierarchy: async (): Promise<TagWithHierarchy[]> => {
         const response = await api.get('/tags/with-hierarchy');
-        return response.data;
+        return response.data ?? [];
     },
 
     create: async (data: CreateTagDto): Promise<Tag> => {
@@ -74,7 +74,7 @@ export const tagsApi = {
 
     getTagAlarms: async (tagId: number): Promise<TagAlarmRule[]> => {
         const response = await api.get(`/tags/${tagId}/alarms`);
-        return response.data;
+        return response.data ?? [];
     },
 
     saveTagAlarms: async (tagId: number, alarms: TagAlarmRule[]): Promise<void> => {
@@ -153,6 +153,6 @@ export const tagsApi = {
     // Batch shadows for all tags of a gateway, or of the whole organization.
     getShadowBatch: async (gatewayId?: number): Promise<{ tag_id: number; value: TagValue; quality: number; ts: number; source: string }[]> => {
         const response = await api.get('/tags/shadows', gatewayId ? { params: { gateway_id: gatewayId } } : undefined);
-        return response.data;
+        return response.data ?? [];
     },
 };

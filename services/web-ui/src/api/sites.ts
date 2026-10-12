@@ -4,7 +4,7 @@ import { Site, CreateSiteDto } from '@/types';
 export const sitesApi = {
     getAll: async (orgId?: number): Promise<Site[]> => {
         const response = await api.get('/sites', { params: { org_id: orgId } });
-        return response.data;
+        return response.data ?? [];
     },
 
     getByOrg: async (orgId: number): Promise<Site[]> => {

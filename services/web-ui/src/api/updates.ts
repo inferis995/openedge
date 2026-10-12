@@ -43,7 +43,7 @@ export interface FleetUpdateRow {
 
 export const updatesApi = {
     listReleases: (): Promise<EdgeRelease[]> =>
-        apiClient.get('/releases').then(r => r.data),
+        apiClient.get('/releases').then((r) => r.data ?? []),
     createRelease: (payload: {
         version: string;
         release_notes: string;
@@ -53,7 +53,7 @@ export const updatesApi = {
     }): Promise<{ id: number }> =>
         apiClient.post('/releases', payload).then(r => r.data),
     getFleetStatus: (): Promise<FleetUpdateRow[]> =>
-        apiClient.get('/releases/fleet').then(r => r.data),
+        apiClient.get('/releases/fleet').then((r) => r.data ?? []),
     getOrgUpdate: (orgId: number): Promise<OrgUpdateStatus> =>
         apiClient.get(`/organizations/${orgId}/update`).then(r => r.data),
     approveUpdate: (orgId: number, releaseId: number): Promise<void> =>

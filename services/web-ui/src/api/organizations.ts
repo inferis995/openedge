@@ -46,6 +46,10 @@ export const organizationsApi = {
         });
     },
 
+    setMFARequired: async (id: number, required: boolean): Promise<void> => {
+        await api.put(`/organizations/${id}/mfa-required`, { mfa_required: required });
+    },
+
     setLogo: async (id: number, file: File): Promise<void> => {
         const form = new FormData();
         form.append('file', file);
@@ -68,7 +72,7 @@ export const organizationsApi = {
 
     getAll: async (): Promise<Organization[]> => {
         const response = await api.get('/organizations');
-        return response.data;
+        return response.data ?? [];
     },
 
     get: async (id: number): Promise<Organization> => {
@@ -114,7 +118,7 @@ export const organizationsApi = {
 
     listSSOProviders: async (orgId: number): Promise<SSOProvider[]> => {
         const response = await api.get(`/organizations/${orgId}/sso-providers`);
-        return response.data;
+        return response.data ?? [];
     },
 
     upsertSSOProvider: async (orgId: number, data: SSOProviderInput): Promise<void> => {

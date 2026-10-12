@@ -49,7 +49,7 @@ export const historyApi = {
         const response = await api.get<HistoryResponse>('/history', { params });
         // Handle both old array format and new object format
         if (Array.isArray(response.data)) {
-            return response.data;
+            return response.data ?? [];
         }
         return response.data.data;
     },

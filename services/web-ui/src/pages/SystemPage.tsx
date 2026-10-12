@@ -183,7 +183,7 @@ const SystemPage = () => {
             const r = await fetch(`/api/organizations/${orgId}/sso-providers`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
-            if (r.ok) setSsoProviders(await r.json());
+            if (r.ok) setSsoProviders((await r.json()) ?? []);
         } catch { /* ignore */ }
         finally { setSsoLoading(false); }
     };
@@ -236,6 +236,7 @@ const SystemPage = () => {
     const loadSettings = async () => {
         try {
             const data = await systemApi.getSettings();
+            if (!data) return;
             setSettings(data);
             setPublishMode(data.publish_mode || 'dual');
             if (data.retain_last_values !== undefined) {

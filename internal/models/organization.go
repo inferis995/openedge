@@ -11,6 +11,8 @@ type Organization struct {
 	Name       string    `json:"name" db:"name"`
 	CreatedAt  time.Time `json:"created_at" db:"created_at"`
 	ThemeColor string    `json:"theme_color,omitempty" db:"theme_color"`
+	// MFARequired: every user of the organization must use two-step verification.
+	MFARequired bool `json:"mfa_required" db:"mfa_required"`
 }
 
 // Site represents a location belonging to an organization

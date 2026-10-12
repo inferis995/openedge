@@ -3,6 +3,8 @@ export interface Organization {
     name: string;
     created_at: string;
     theme_color?: string;
+    /** Every user must use two-step verification. */
+    mfa_required?: boolean;
 }
 
 export interface Site {

@@ -336,7 +336,7 @@ export const systemApi = {
     // List available backups
     listBackups: async (): Promise<BackupFileInfo[]> => {
         const response = await api.get('/system/backup/list');
-        return response.data;
+        return response.data ?? [];
     },
 
     // Download a specific backup file
@@ -359,13 +359,13 @@ export const systemApi = {
     // Backup catalog (rich list with sha256, size, storage info)
     getBackupCatalog: async (): Promise<BackupCatalogEntry[]> => {
         const response = await api.get('/system/backup/catalog');
-        return response.data;
+        return response.data ?? [];
     },
 
     // Audit log for all backup-related operations
     getBackupAudit: async (): Promise<BackupAuditEntry[]> => {
         const response = await api.get('/system/backup/audit');
-        return response.data;
+        return response.data ?? [];
     },
 };
 

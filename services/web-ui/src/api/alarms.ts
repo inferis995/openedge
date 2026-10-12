@@ -31,7 +31,7 @@ export interface AlarmEvent {
 export const alarmsApi = {
     getActiveAlarms: async (): Promise<AlarmEvent[]> => {
         const response = await api.get('/alarms/active');
-        return response.data;
+        return response.data ?? [];
     },
 
     // Fetch alarm counts for all tags in a gateway
@@ -48,7 +48,7 @@ export const alarmsApi = {
 
     getAlarmHistory: async (limit: number = 100): Promise<AlarmEvent[]> => {
         const response = await api.get(`/alarms/history?limit=${limit}`);
-        return response.data;
+        return response.data ?? [];
     },
 
     /** Events of these tags that overlap [start, end] (raised before its end, cleared after its start or not at all). */

@@ -270,7 +270,7 @@
     "create_first": "Crea la prima organizzazione",
     "created_on": "Creata il {{date}}",
     "enter": "Entra",
-    "rename_title": "Rinomina l'organizzazione",
+    "rename_title": "Modifica organizzazione",
     "logo": "Logo",
     "logo_none": "Nessun logo",
     "logo_upload": "Carica logo",
@@ -287,7 +287,11 @@
     "accent_title": "Colore accento",
     "accent_default": "giallo default",
     "accent_reset": "Ripristina",
-    "accent_help": "Sostituisce il giallo. Nero e bianco si invertono da soli col tema chiaro/scuro."
+    "accent_help": "Sostituisce il giallo. Nero e bianco si invertono da soli col tema chiaro/scuro.",
+    "mfa_required": "Verifica in due passaggi obbligatoria",
+    "mfa_required_hint": "Tutti gli utenti dell'organizzazione devono usarla. Chi non l'ha ancora la configura al prossimo accesso, guidato.",
+    "mfa_required_on": "Verifica in due passaggi ora obbligatoria",
+    "mfa_required_off": "Verifica in due passaggi non più obbligatoria"
   },
   "infrastructurePage": {
     "subtitle": "Tutti i gateway, dove si trovano e se sono raggiungibili",

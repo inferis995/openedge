@@ -52,7 +52,7 @@ export const WINDOW_PRESETS: { value: number; label: string }[] = [
 export const customKPIsApi = {
     list: async (): Promise<CustomKPI[]> => {
         const r = await api.get('/custom-kpis');
-        return r.data;
+        return r.data ?? [];
     },
     create: async (data: CreateCustomKPIDto): Promise<{ id: number }> => {
         const r = await api.post('/custom-kpis', data);

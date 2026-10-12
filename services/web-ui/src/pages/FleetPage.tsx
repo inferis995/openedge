@@ -28,7 +28,7 @@ const fleetApi = {
             headers: { Authorization: `Bearer ${token}` },
         });
         if (!r.ok) throw new Error('Failed to fetch fleet status');
-        return r.json();
+        return (await r.json()) ?? [];
     },
     async restartEdge(orgId: number): Promise<void> {
         const token = useAuthStore.getState().token;

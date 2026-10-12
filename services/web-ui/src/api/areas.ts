@@ -4,7 +4,7 @@ import { Area, CreateAreaDto } from '@/types';
 export const areasApi = {
     getAll: async (siteId?: number): Promise<Area[]> => {
         const response = await api.get('/areas', { params: { site_id: siteId } });
-        return response.data;
+        return response.data ?? [];
     },
 
     get: async (id: number): Promise<Area> => {

@@ -251,7 +251,7 @@ export const oeeApi = {
     },
     history: async (): Promise<OEEHistoryPoint[]> => {
         const r = await api.get('/oee/history');
-        return r.data;
+        return r.data ?? [];
     },
     testTag: async (tagId: number, role: 'running' | 'counter'): Promise<OEETagTestResult> => {
         const r = await api.get(`/oee/test-tag/${tagId}`, { params: { role } });
@@ -260,7 +260,7 @@ export const oeeApi = {
     // Profiles CRUD
     listProfiles: async (): Promise<OEEProfile[]> => {
         const r = await api.get('/oee/profiles');
-        return r.data;
+        return r.data ?? [];
     },
     createProfile: async (data: OEEProfileRequest): Promise<OEEProfile> => {
         const r = await api.post('/oee/profiles', data);
@@ -286,7 +286,7 @@ export const oeeApi = {
     },
     profileHistory: async (id: number): Promise<OEEHistoryPoint[]> => {
         const r = await api.get(`/oee/profiles/${id}/history`);
-        return r.data;
+        return r.data ?? [];
     },
     // Storico persistente (rollup orario/giornaliero salvato dal cron).
     // Per finestre lunghe (> 7g) usa questo, non profileHistory che
@@ -298,7 +298,7 @@ export const oeeApi = {
         bucket: 'hour' | 'day' | 'shift';
     }): Promise<OEEHistoryRow[]> => {
         const r = await api.get('/oee/history-v2', { params });
-        return r.data;
+        return r.data ?? [];
     },
     byShift: async (params: {
         profile_id?: number | null;
@@ -306,7 +306,7 @@ export const oeeApi = {
         to: string;
     }): Promise<OEEShiftRow[]> => {
         const r = await api.get('/oee/by-shift', { params });
-        return r.data;
+        return r.data ?? [];
     },
     // Loss tree (Six Big Losses) + Pareto cause + MTBF/MTTR.
     lossTree: async (params: {
@@ -324,7 +324,7 @@ export const oeeApi = {
     // Alert rules CRUD
     listAlertRules: async (): Promise<OEEAlertRule[]> => {
         const r = await api.get('/oee/alert-rules');
-        return r.data;
+        return r.data ?? [];
     },
     createAlertRule: async (data: OEEAlertRuleRequest): Promise<OEEAlertRule> => {
         const r = await api.post('/oee/alert-rules', data);

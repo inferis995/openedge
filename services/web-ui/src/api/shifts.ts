@@ -51,7 +51,7 @@ export const WEEKDAY_LABELS = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
 export const shiftsApi = {
     list: async (): Promise<Shift[]> => {
         const r = await api.get('/shifts');
-        return r.data;
+        return r.data ?? [];
     },
     current: async (): Promise<CurrentShiftResponse> => {
         const r = await api.get('/shifts/current');
@@ -69,7 +69,7 @@ export const shiftsApi = {
     },
     listAssignments: async (id: number): Promise<ShiftAssignment[]> => {
         const r = await api.get(`/shifts/${id}/assignments`);
-        return r.data;
+        return r.data ?? [];
     },
     createAssignment: async (id: number, data: CreateAssignmentDto): Promise<{ id: number }> => {
         const r = await api.post(`/shifts/${id}/assignments`, data);

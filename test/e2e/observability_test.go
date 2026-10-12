@@ -163,9 +163,8 @@ func TestMetricsLabelsUseRouteTemplates(t *testing.T) {
 
 // A value published by a driver must move the MQTT counter.
 //
-// This is the metric the NoFieldDataReceived alert is built on: if it stays at
-// zero while data flows, the alert fires on a healthy plant; if it never
-// exists, the alert never fires at all. Both failures are silent.
+// The message counter feeds the dashboards (traffic per topic family): a counter
+// stuck at zero while data flows would show a dead plant that is healthy.
 func TestPublishedValueIsCounted(t *testing.T) {
 	admin, _ := adminSession(t)
 	fx := newFixture(t, admin)
@@ -189,7 +188,7 @@ func TestPublishedValueIsCounted(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 	}
 	t.Fatal("published a value on the data topic but openedge_mqtt_messages_received_total " +
-		"did not move — the NoFieldDataReceived alert would fire on a healthy plant")
+		"did not move — the dashboards would show a healthy plant as silent")
 }
 
 // The broker-connection gauge must report the truth.
@@ -211,12 +210,8 @@ func TestBrokerConnectionGaugeIsTruthful(t *testing.T) {
 	}
 }
 
-// The tag gauge gates the NoFieldDataReceived alert.
-//
-// That rule is written as "no data AND tags configured", so a fresh install
-// does not page anybody. If openedge_tags_total is missing, the `and on()`
-// clause matches nothing and the alert can never fire — the gate silently
-// disables the rule it was meant to qualify.
+// The DB gauges are collected once a minute by core-api; the tag count is the
+// simplest proof the collector runs at all.
 func TestTagsGaugeIsExported(t *testing.T) {
 	admin, _ := adminSession(t)
 	newFixture(t, admin) // guarantees at least one tag exists
@@ -230,5 +225,26 @@ func TestTagsGaugeIsExported(t *testing.T) {
 		time.Sleep(2 * time.Second)
 	}
 	t.Fatal("openedge_tags_total never became positive despite a configured tag — " +
-		"NoFieldDataReceived is gated on it and would never fire")
+		"the database collector is not running")
+}
+
+// The gateway gauges drive AllGatewaysOffline and GatewaysOffline: missing,
+// the `>=` and `> 0` comparisons match nothing and neither alert can fire.
+func TestGatewayGaugesAreExported(t *testing.T) {
+	admin, _ := adminSession(t)
+	newFixture(t, admin) // a gateway exists (created disabled: the count may be 0)
+
+	deadline := time.Now().Add(90 * time.Second)
+	for time.Now().Before(deadline) {
+		scrape := scrapeMetrics(t)
+		_, ok1 := metricValue(t, scrape, "openedge_gateways_enabled")
+		_, ok2 := metricValue(t, scrape, "openedge_gateways_offline")
+		_, ok3 := metricValue(t, scrape, "openedge_backup_last_timestamp_seconds")
+		if ok1 && ok2 && ok3 {
+			return
+		}
+		time.Sleep(2 * time.Second)
+	}
+	t.Fatal("openedge_gateways_enabled/offline or openedge_backup_last_timestamp_seconds " +
+		"missing from /metrics — the gateway and backup alerts have nothing to read")
 }

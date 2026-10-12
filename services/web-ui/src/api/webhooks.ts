@@ -18,7 +18,7 @@ export interface Webhook {
 export const webhooksApi = {
     list: async (orgId: number): Promise<Webhook[]> => {
         const r = await api.get(`/organizations/${orgId}/webhooks`);
-        return r.data;
+        return r.data ?? [];
     },
 
     create: async (orgId: number, data: { url: string; events: WebhookEvent[] }): Promise<Webhook> => {

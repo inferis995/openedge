@@ -142,10 +142,10 @@ func (h *OrganizationsHandler) List(c *gin.Context) {
 	var err error
 
 	if middleware.IsGlobalAdmin(c) {
-		rows, err = h.db.QueryContext(c.Request.Context(), "SELECT id, name, created_at, COALESCE(theme_color,'') FROM organizations ORDER BY id")
+		rows, err = h.db.QueryContext(c.Request.Context(), "SELECT id, name, created_at, COALESCE(theme_color,''), COALESCE(mfa_required, false) FROM organizations ORDER BY id")
 	} else {
 		orgID, _ := middleware.GetOrganizationID(c)
-		rows, err = h.db.QueryContext(c.Request.Context(), "SELECT id, name, created_at, COALESCE(theme_color,'') FROM organizations WHERE id = $1", orgID)
+		rows, err = h.db.QueryContext(c.Request.Context(), "SELECT id, name, created_at, COALESCE(theme_color,''), COALESCE(mfa_required, false) FROM organizations WHERE id = $1", orgID)
 	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query organizations"})
@@ -153,10 +153,11 @@ func (h *OrganizationsHandler) List(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	var orgs []models.Organization
+	// Not nil: an empty list is [] in JSON, not null.
+	orgs := []models.Organization{}
 	for rows.Next() {
 		var org models.Organization
-		if err := rows.Scan(&org.ID, &org.Name, &org.CreatedAt, &org.ThemeColor); err != nil {
+		if err := rows.Scan(&org.ID, &org.Name, &org.CreatedAt, &org.ThemeColor, &org.MFARequired); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan organization"})
 			return
 		}
@@ -197,9 +198,9 @@ func (h *OrganizationsHandler) Get(c *gin.Context) {
 
 	var org models.Organization
 	err := h.db.QueryRow(
-		"SELECT id, name, created_at, COALESCE(theme_color,'') FROM organizations WHERE id = $1",
+		"SELECT id, name, created_at, COALESCE(theme_color,''), COALESCE(mfa_required, false) FROM organizations WHERE id = $1",
 		id,
-	).Scan(&org.ID, &org.Name, &org.CreatedAt, &org.ThemeColor)
+	).Scan(&org.ID, &org.Name, &org.CreatedAt, &org.ThemeColor, &org.MFARequired)
 
 	if err != nil {
 		if err == sql.ErrNoRows {

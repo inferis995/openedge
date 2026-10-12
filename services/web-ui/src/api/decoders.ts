@@ -21,7 +21,7 @@ export interface DecoderTestResult {
 export type PayloadEncoding = 'text' | 'hex' | 'base64';
 
 export const decodersApi = {
-    presets: async (): Promise<DecoderPreset[]> => (await apiClient.get('/decoders/presets')).data,
+    presets: async (): Promise<DecoderPreset[]> => (await apiClient.get('/decoders/presets')).data ?? [],
     /** Runs a decoder on one pasted message. Nothing is stored. */
     test: async (req: {
         preset?: string; script?: string; payload: string; payload_encoding: PayloadEncoding; topic: string;

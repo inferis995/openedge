@@ -83,6 +83,7 @@ func CollectDBMetrics(db *sql.DB) {
 			q.g.Set(n)
 		}
 	}
+	collectPlantMetrics(db)
 }
 
 // StartDBMetricsCollector runs CollectDBMetrics every minute in a goroutine.

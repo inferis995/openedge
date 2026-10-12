@@ -21,7 +21,7 @@ export interface CreateMaintenanceDto {
 export const maintenanceApi = {
     list: async (onlyActive = false): Promise<MaintenanceWindow[]> => {
         const r = await api.get('/maintenance', { params: onlyActive ? { active: 'true' } : {} });
-        return r.data;
+        return r.data ?? [];
     },
     create: async (data: CreateMaintenanceDto): Promise<{ id: number }> => {
         const r = await api.post('/maintenance', data);

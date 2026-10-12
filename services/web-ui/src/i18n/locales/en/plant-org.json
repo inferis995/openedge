@@ -270,7 +270,7 @@
     "create_first": "Create the first organization",
     "created_on": "Created {{date}}",
     "enter": "Enter",
-    "rename_title": "Rename organization",
+    "rename_title": "Edit organization",
     "logo": "Logo",
     "logo_none": "No logo",
     "logo_upload": "Upload logo",
@@ -287,7 +287,11 @@
     "accent_title": "Accent color",
     "accent_default": "default yellow",
     "accent_reset": "Reset",
-    "accent_help": "Replaces the yellow. Black and white flip automatically with the light/dark theme."
+    "accent_help": "Replaces the yellow. Black and white flip automatically with the light/dark theme.",
+    "mfa_required": "Two-step verification required",
+    "mfa_required_hint": "Every user of the organization must use it. Those without it set it up, guided, at their next sign-in.",
+    "mfa_required_on": "Two-step verification is now required",
+    "mfa_required_off": "Two-step verification is no longer required"
   },
   "infrastructurePage": {
     "subtitle": "All gateways, where they are and whether they are reachable",

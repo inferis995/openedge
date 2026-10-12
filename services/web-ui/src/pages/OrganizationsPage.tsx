@@ -25,6 +25,7 @@ import { useNavigate } from 'react-router-dom';
 import { organizationsApi } from '@/api/organizations';
 import OrgInfrastructureDialog from '@/components/OrgInfrastructureDialog';
 import { OrgLogoField } from '@/components/OrgLogoField';
+import { OrgMFAField } from '@/components/OrgMFAField';
 import { OrgModulesField } from '@/components/OrgModulesField';
 import { Organization } from '@/types';
 import { confirmAction } from '@/lib/confirm';
@@ -75,7 +76,7 @@ const OrganizationsPage = () => {
 
     // Edit dialog
     const [isEditOpen, setIsEditOpen] = useState(false);
-    const [editingOrg, setEditingOrg] = useState<{ id: number; name: string; theme_color?: string } | null>(null);
+    const [editingOrg, setEditingOrg] = useState<{ id: number; name: string; theme_color?: string; mfa_required?: boolean } | null>(null);
 
     // Infrastructure dialog
     const [infraOrg, setInfraOrg] = useState<Organization | null>(null);
@@ -236,7 +237,7 @@ const OrganizationsPage = () => {
                                                 className="h-10 sm:h-8 w-10 sm:w-8 text-muted-foreground hover:text-foreground"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setEditingOrg({ id: org.id, name: org.name, theme_color: org.theme_color || '' });
+                                                    setEditingOrg({ id: org.id, name: org.name, theme_color: org.theme_color || '', mfa_required: !!org.mfa_required });
                                                     setIsEditOpen(true);
                                                 }}
                                             >
@@ -327,6 +328,7 @@ const OrganizationsPage = () => {
                             <p className="text-[11px] text-muted-foreground">{t('organizationsPage.accent_help')}</p>
                         </div>
                         {editingOrg && <OrgLogoField orgId={editingOrg.id} />}
+                        {editingOrg && <OrgMFAField key={editingOrg.id} orgId={editingOrg.id} initial={!!editingOrg.mfa_required} />}
                         {editingOrg && <OrgModulesField orgId={editingOrg.id} />}
                     </div>
                     <DialogFooter>

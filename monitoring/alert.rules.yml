@@ -112,35 +112,57 @@ groups:
       # Gated on TagsTotal: a freshly installed system with nothing configured
       # yet is legitimately silent, and an alert that greets every new install
       # with a page is one that gets silenced before it is ever useful.
-      - alert: NoFieldDataReceived
+      # Judged gateway by gateway, by each one's own timeout. "No message for
+      # 20 minutes" was the rule here: an outage on a PLC polled every second,
+      # an ordinary afternoon for a data logger sending one frame every eight
+      # hours — on such a site it paged almost all the time, and an alert that
+      # always fires is one nobody reads. A gateway counts as offline when no
+      # data arrived within its stale_after_minutes (the dashboard's own rule)
+      # or its driver stopped sending heartbeats.
+      - alert: AllGatewaysOffline
         expr: |
-          sum(rate(openedge_mqtt_messages_received_total{prefix=~"data|spBv1.0"}[10m])) == 0
-          and on() openedge_tags_total > 0
+          openedge_gateways_offline >= openedge_gateways_enabled
+          and on() openedge_gateways_enabled > 0
         for: 10m
         labels:
           severity: critical
         annotations:
-          summary: "No field data received for 20 minutes"
+          summary: "Every gateway is offline"
           description: >-
-            {{ with query "openedge_tags_total" }}{{ . | first | value }}{{ end }} tags are
-            configured but no value has arrived from any driver. Historian and alarms are
-            blind: check the driver containers and the plant network before trusting any
-            dashboard reading as current.
+            None of the {{ with query "openedge_gateways_enabled" }}{{ . | first | value }}{{ end }}
+            enabled gateways is reporting within its timeout. Historian and alarms are blind:
+            check the driver containers, the broker and the plant network.
 
-      # Field data slowed sharply without stopping — a subset of drivers died,
-      # or a gateway dropped off. Absolute thresholds cannot express this,
-      # because every installation has a different normal.
-      - alert: FieldDataRateCollapsed
-        expr: |
-          sum(rate(openedge_mqtt_messages_received_total{prefix=~"data|spBv1.0"}[15m]))
-            < 0.2 * sum(rate(openedge_mqtt_messages_received_total{prefix=~"data|spBv1.0"}[15m] offset 1h))
-          and on() openedge_tags_total > 0
-        for: 15m
+      - alert: GatewaysOffline
+        expr: openedge_gateways_offline > 0
+        for: 30m
         labels:
           severity: warning
         annotations:
-          summary: "Field data rate fell below 20% of the previous hour"
-          description: "Part of the plant has stopped reporting. Check for a failed driver or an offline gateway."
+          summary: "{{ $value }} gateway(s) offline"
+          description: "Some gateways sent no data within their own timeout, or their driver stopped. The Gateways page lists which."
+
+      # ── Backups ─────────────────────────────────────────────────────────────
+      # A backup that silently stopped is found on the day it is needed.
+      - alert: BackupStale
+        expr: |
+          openedge_backup_last_timestamp_seconds > 0
+          and (time() - openedge_backup_last_timestamp_seconds) > 36 * 3600
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No new backup for over 36 hours"
+          description: "The newest backup file is older than a day and a half: check the backup container and the disk."
+
+      - alert: NoBackups
+        expr: openedge_backup_last_timestamp_seconds == 0
+        for: 26h
+        labels:
+          severity: warning
+        annotations:
+          summary: "No backup has ever been made"
+          description: "A day after start there is still no backup file. Check BACKUP_SCHEDULE and the backup container."
 
       # core-api's own connection to the broker. Distinct from MQTTBrokerDown:
       # the broker can be perfectly healthy while this service is refused —

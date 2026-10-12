@@ -59,7 +59,7 @@ export const securityApi = {
     overview: (): Promise<SecurityOverview> =>
         apiClient.get('/security/overview').then(r => r.data),
     events: (limit = 50): Promise<SecurityEvent[]> =>
-        apiClient.get('/security/events', { params: { limit } }).then(r => r.data),
+        apiClient.get('/security/events', { params: { limit } }).then((r) => r.data ?? []),
     compliance: (): Promise<ComplianceCheck[]> =>
-        apiClient.get('/security/compliance').then(r => r.data),
+        apiClient.get('/security/compliance').then((r) => r.data ?? []),
 };

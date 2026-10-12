@@ -4,7 +4,7 @@ import { Gateway, CreateGatewayDto, OpcUaNode } from '@/types';
 export const gatewaysApi = {
     getAll: async (areaId?: number): Promise<Gateway[]> => {
         const response = await api.get('/gateways', { params: { area_id: areaId } });
-        return response.data;
+        return response.data ?? [];
     },
 
     get: async (id: number): Promise<Gateway> => {

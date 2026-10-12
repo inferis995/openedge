@@ -60,7 +60,7 @@ export interface LoadResult {
 export const recipesApi = {
     getAll: async (): Promise<Recipe[]> => {
         const r = await api.get('/recipes');
-        return r.data;
+        return r.data ?? [];
     },
     get: async (id: number): Promise<Recipe> => {
         const r = await api.get(`/recipes/${id}`);
@@ -82,6 +82,6 @@ export const recipesApi = {
     },
     runs: async (id: number, limit = 50): Promise<RecipeRun[]> => {
         const r = await api.get(`/recipes/${id}/runs`, { params: { limit } });
-        return r.data;
+        return r.data ?? [];
     },
 };
