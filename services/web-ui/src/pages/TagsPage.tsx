@@ -1343,6 +1343,11 @@ const TagsPage = () => {
                                                     </div>
                                                 )}
                                             </div>
+                                            {/* The conversion is part of the tag: it is saved here too,
+                                                not only from the first tab. */}
+                                            <DialogFooter>
+                                                <Button onClick={handleSaveWithValidation}>{updatingTagId ? tr('tagsPage.update_submit') : tr('tagsPage.create_title')}</Button>
+                                            </DialogFooter>
                                         </TabsContent>
 
                                         {updatingTagId && (

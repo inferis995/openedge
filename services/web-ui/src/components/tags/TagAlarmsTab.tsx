@@ -161,11 +161,11 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                 <span className="font-mono font-bold text-base">{currentValueDisplay}</span>
             </div>
 
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-sm text-muted-foreground">
                     {t('tagAlarms.intro')}
                 </p>
-                <Button onClick={addAlarm} size="sm" variant="outline" className="gap-2 shrink-0">
+                <Button onClick={addAlarm} size="sm" variant="outline" className="gap-2 shrink-0 self-start sm:self-auto">
                     <Plus size={16} /> {t('tagAlarms.add')}
                 </Button>
             </div>
@@ -194,7 +194,7 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                                     <Trash2 size={14} />
                                 </Button>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pr-8">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-6 sm:pt-0 sm:pr-8">
                                     <div className="space-y-1">
                                         <Label>{t('tagAlarms.condition')}</Label>
                                         <Select
@@ -331,7 +331,9 @@ export function TagAlarmsTab({ tagId, dataType, onSave }: Props) {
                 </div>
             )}
 
-            <div className="flex justify-end pt-4 border-t">
+            {/* Pinned to the bottom of the dialog, as every dialog's actions:
+                with several rules the button was a long scroll away. */}
+            <div className="sticky -bottom-6 z-10 -mx-6 -mb-6 flex justify-end border-t bg-background px-6 py-3 max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
                 <Button onClick={handleSave} disabled={isSaving}>
                     {isSaving ? t('tagAlarms.saving') : t('tagAlarms.save')}
                 </Button>
