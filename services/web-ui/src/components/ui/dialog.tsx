@@ -35,8 +35,13 @@ const DialogContent = React.forwardRef<
         <DialogPrimitive.Content
             ref={ref}
             className={cn(
-                "fixed left-[50%] top-[50%] z-50 grid w-[calc(100vw-2rem)] max-w-lg max-h-[90dvh] overflow-y-auto gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-1/2 data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-1/2 sm:rounded-lg",
-                className
+                "fixed left-[50%] top-[50%] z-50 grid w-[calc(100vw-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] max-h-[90dvh] overflow-y-auto overscroll-contain gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-1/2 data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-1/2 sm:rounded-xl",
+                className,
+                // Phone: a sheet from the bottom, never taller than what is
+                // visible (dvh follows the browser bars and the keyboard),
+                // scrolling inside. Centred, a long dialog put its Save below
+                // the screen. Last, so a page's own max-h/width does not undo it.
+                "max-sm:inset-x-0 max-sm:bottom-0 max-sm:top-auto max-sm:left-0 max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:max-h-[92dvh] max-sm:rounded-t-2xl max-sm:rounded-b-none"
             )}
             {...props}
         >
@@ -70,7 +75,9 @@ const DialogFooter = ({
 }: React.HTMLAttributes<HTMLDivElement>) => (
     <div
         className={cn(
-            "flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2",
+            // Pinned to the bottom of the dialog while its content scrolls:
+            // Save and Cancel are always on screen, however long the form.
+            "sticky -bottom-6 z-10 -mx-6 -mb-6 mt-2 flex flex-col-reverse gap-2 border-t bg-background px-6 py-3 sm:flex-row sm:justify-end sm:gap-0 sm:space-x-2 max-sm:pb-[max(0.75rem,env(safe-area-inset-bottom))]",
             className
         )}
         {...props}

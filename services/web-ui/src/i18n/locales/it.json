@@ -285,5 +285,26 @@
     "terms": "Termini di servizio",
     "decline": "Rifiuta",
     "accept": "Accetta"
+  },
+  "mfa": {
+    "recovery_title": "Codici di recupero",
+    "recovery_desc": "Ognuno sostituisce l'app di autenticazione per un accesso. Salvali ora: non verranno mostrati di nuovo.",
+    "copy": "Copia",
+    "copied": "Copiati",
+    "download": "Scarica .txt",
+    "enroll_title": "Attiva la verifica in due passaggi",
+    "enroll_desc": "La tua organizzazione la richiede. Inquadra il codice QR con un'app di autenticazione (Google Authenticator, Microsoft Authenticator…) e scrivi il codice che compare.",
+    "enroll_confirm": "Attiva e accedi",
+    "enroll_failed": "Impossibile avviare la configurazione: riprova ad accedere.",
+    "enrolled_title": "Verifica in due passaggi attiva",
+    "enrolled_desc": "Conserva questi codici: servono se perdi il telefono.",
+    "continue": "Ho salvato i codici, continua",
+    "use_recovery": "Non ho il telefono: usa un codice di recupero",
+    "use_app": "Usa il codice dell'app",
+    "recovery_code": "Codice di recupero",
+    "recovery_login_desc": "Scrivi uno dei codici di recupero che hai salvato. Ogni codice vale una sola volta.",
+    "regenerate": "Nuovi codici di recupero",
+    "regenerate_hint": "Hai perso o usato i codici di recupero? Generane di nuovi: i vecchi smettono di funzionare.",
+    "saved_them": "Li ho salvati"
   }
 }

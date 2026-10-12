@@ -39,4 +39,9 @@ type LoginResponse struct {
 	MFARequired      bool   `json:"mfa_required,omitempty"`
 	MFAToken         string `json:"mfa_token,omitempty"`
 	MFASetupRequired bool   `json:"mfa_setup_required,omitempty"`
+	// MFASetupToken lets a user whose organization requires MFA, and who has
+	// none yet, enrol it before the login completes (10 minutes, enrolment only).
+	MFASetupToken string `json:"mfa_setup_token,omitempty"`
+	// RecoveryCodes are returned once, when an enrolment completes the login.
+	RecoveryCodes []string `json:"recovery_codes,omitempty"`
 }

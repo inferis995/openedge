@@ -119,3 +119,18 @@ func TestRequireAuth_TokenWithoutBearer(t *testing.T) {
 		t.Errorf("got %d, want %d", w.Code, http.StatusOK)
 	}
 }
+
+// The enrolment token proves the password only: it must not open the API.
+func TestRequireAuth_RejectsMFASetupToken(t *testing.T) {
+	token := makeToken(t, jwt.MapClaims{
+		"user_id": 7, "username": "op", "mfa_setup": true,
+		"exp": time.Now().Add(5 * time.Minute).Unix(),
+	})
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	newTestRouter().ServeHTTP(w, req)
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("setup token as a session: status %d, want 401", w.Code)
+	}
+}

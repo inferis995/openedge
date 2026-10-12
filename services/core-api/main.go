@@ -1064,6 +1064,9 @@ func main() {
 		publicAuth.POST("/forgot-password", middleware.LoginRateLimit(), authHandler.ForgotPassword)
 		publicAuth.POST("/reset-password", middleware.LoginRateLimit(), authHandler.ResetPassword)
 		publicAuth.POST("/mfa/verify", middleware.LoginRateLimit(), authHandler.MFAVerify)
+		// Enrolment at login, for an organization that requires MFA.
+		publicAuth.POST("/mfa/enroll/start", middleware.LoginRateLimit(), authHandler.MFAEnrollStart)
+		publicAuth.POST("/mfa/enroll/finish", middleware.LoginRateLimit(), authHandler.MFAEnrollFinish)
 		// SSO/OIDC — OAuth2 redirect and callback, no auth required.
 		publicAuth.GET("/sso/:provider/login", authHandler.SSOLogin)
 		publicAuth.GET("/sso/:provider/callback", authHandler.SSOCallback)

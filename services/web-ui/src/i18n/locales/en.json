@@ -285,5 +285,26 @@
     "terms": "Terms of service",
     "decline": "Decline",
     "accept": "Accept"
+  },
+  "mfa": {
+    "recovery_title": "Recovery codes",
+    "recovery_desc": "Each one replaces the authenticator app for one sign-in. Save them now: they will not be shown again.",
+    "copy": "Copy",
+    "copied": "Copied",
+    "download": "Download .txt",
+    "enroll_title": "Turn on two-step verification",
+    "enroll_desc": "Your organization requires it. Scan the QR code with an authenticator app (Google Authenticator, Microsoft Authenticator…) and enter the code it shows.",
+    "enroll_confirm": "Turn on and sign in",
+    "enroll_failed": "Could not start the setup: sign in again.",
+    "enrolled_title": "Two-step verification is on",
+    "enrolled_desc": "Keep these codes: you need them if you lose your phone.",
+    "continue": "I saved the codes, continue",
+    "use_recovery": "No phone? Use a recovery code",
+    "use_app": "Use the app code",
+    "recovery_code": "Recovery code",
+    "recovery_login_desc": "Enter one of the recovery codes you saved. Each code works once.",
+    "regenerate": "New recovery codes",
+    "regenerate_hint": "Lost or used your recovery codes? Make new ones: the old ones stop working.",
+    "saved_them": "I saved them"
   }
 }

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Lock, User as UserIcon, Loader2, Mail, Eye, EyeOff, ShieldCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { RecoveryCodes } from '@/components/auth/RecoveryCodes';
 
 const LoginPage = () => {
     const { t } = useTranslation();
@@ -19,6 +20,12 @@ const LoginPage = () => {
     const [mfaStep, setMfaStep] = useState(false);
     const [mfaToken, setMfaToken] = useState('');
     const [mfaCode, setMfaCode] = useState('');
+    // A recovery code (XXXX-XXXX-XXXX) instead of the authenticator's six digits.
+    const [useRecovery, setUseRecovery] = useState(false);
+    // Enrolment: the organization requires MFA and this user has none yet.
+    const [setupToken, setSetupToken] = useState('');
+    const [enroll, setEnroll] = useState<{ secret: string; qr_png?: string } | null>(null);
+    const [pendingLogin, setPendingLogin] = useState<{ token: string; user: Parameters<ReturnType<typeof useAuthStore.getState>['login']>[1]; codes: string[] } | null>(null);
     const mfaInputRef = useRef<HTMLInputElement>(null);
     const navigate = useNavigate();
     const { login, isAuthenticated } = useAuthStore();
@@ -67,6 +74,22 @@ const LoginPage = () => {
                 setTimeout(() => mfaInputRef.current?.focus(), 100);
                 return;
             }
+            if (data.mfa_setup_required && data.mfa_setup_token) {
+                // The organization requires MFA: set it up now, then sign in.
+                const start = await fetch('/api/auth/mfa/enroll/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mfa_setup_token: data.mfa_setup_token }),
+                });
+                const body = await start.json().catch(() => ({}));
+                if (!start.ok) throw new Error(body.error || t('mfa.enroll_failed'));
+                setSetupToken(data.mfa_setup_token);
+                setEnroll({ secret: body.secret, qr_png: body.qr_png });
+                setMfaCode('');
+                setTimeout(() => mfaInputRef.current?.focus(), 100);
+                return;
+            }
+            if (!data.token) throw new Error(t('login.invalid_credentials'));
 
             login(data.token, data.user);
             navigate('/');
@@ -82,16 +105,27 @@ const LoginPage = () => {
         setError('');
         setLoading(true);
         try {
-            const response = await fetch('/api/auth/mfa/verify', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mfa_token: mfaToken, code: mfaCode }),
-            });
+            const response = enroll
+                ? await fetch('/api/auth/mfa/enroll/finish', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mfa_setup_token: setupToken, code: mfaCode }),
+                })
+                : await fetch('/api/auth/mfa/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mfa_token: mfaToken, code: mfaCode.trim().toUpperCase() }),
+                });
             if (!response.ok) {
                 const body = await response.json().catch(() => ({}));
                 throw new Error(body.error || t('login.mfa_invalid'));
             }
             const data = await response.json();
+            if (enroll && Array.isArray(data.recovery_codes) && data.recovery_codes.length) {
+                // Shown once, before entering: they are the way back in without the phone.
+                setPendingLogin({ token: data.token, user: data.user, codes: data.recovery_codes });
+                return;
+            }
             login(data.token, data.user);
             navigate('/');
         } catch (err: unknown) {
@@ -103,46 +137,84 @@ const LoginPage = () => {
         }
     };
 
-    if (mfaStep) {
+    const resetMfa = () => {
+        setMfaStep(false); setEnroll(null); setSetupToken(''); setPendingLogin(null);
+        setUseRecovery(false); setMfaCode(''); setError('');
+    };
+    const codeOk = useRecovery ? /^[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/i.test(mfaCode.trim()) : mfaCode.length === 6;
+
+    if (mfaStep || enroll || pendingLogin) {
         return (
-            <div className="flex min-h-screen items-center justify-center bg-background">
-                <div className="w-full max-w-sm space-y-8 clip-chamfer border bg-card p-8 shadow-2xl">
+            <div className="flex min-h-screen items-center justify-center bg-background p-4">
+                <div className="w-full max-w-sm space-y-6 rounded-2xl border bg-card p-6 sm:p-8 shadow-xl">
                     <div className="text-center">
                         <div className="flex justify-center mb-4">
-                            <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                                <ShieldCheck className="h-10 sm:h-8 w-10 sm:w-8 text-primary" />
+                            <div className="h-14 w-14 rounded-2xl bg-muted flex items-center justify-center">
+                                <ShieldCheck className="h-7 w-7" />
                             </div>
                         </div>
-                        <h2 className="text-lg font-semibold">{t('login.mfa_title')}</h2>
-                        <p className="mt-1 text-xs text-muted-foreground">{t('login.mfa_desc')}</p>
+                        <h2 className="text-lg font-semibold">{pendingLogin ? t('mfa.enrolled_title') : enroll ? t('mfa.enroll_title') : t('login.mfa_title')}</h2>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            {pendingLogin ? t('mfa.enrolled_desc') : enroll ? t('mfa.enroll_desc') : useRecovery ? t('mfa.recovery_login_desc') : t('login.mfa_desc')}
+                        </p>
                     </div>
-                    <form className="space-y-6" onSubmit={handleMFASubmit}>
+
+                    {pendingLogin ? (
+                        <div className="space-y-5">
+                            <RecoveryCodes codes={pendingLogin.codes} />
+                            <Button className="w-full" onClick={() => { login(pendingLogin.token, pendingLogin.user); navigate('/'); }}>
+                                {t('mfa.continue')}
+                            </Button>
+                        </div>
+                    ) : (
+                    <form className="space-y-5" onSubmit={handleMFASubmit}>
+                        {enroll && (
+                            <div className="space-y-3">
+                                {enroll.qr_png && (
+                                    <div className="flex justify-center">
+                                        <img src={enroll.qr_png} alt={t('profilePage.mfa_qr_alt')} className="h-44 w-44 rounded-lg border bg-white p-2" />
+                                    </div>
+                                )}
+                                <div className="grid gap-1">
+                                    <Label className="text-xs text-muted-foreground">{t('profilePage.mfa_manual_key')}</Label>
+                                    <code className="select-all break-all rounded-md bg-muted px-3 py-2 text-xs">{enroll.secret}</code>
+                                </div>
+                            </div>
+                        )}
                         <div className="grid gap-2">
-                            <Label className="text-xs text-muted-foreground font-medium">{t('login.mfa_code')}</Label>
+                            <Label className="text-xs text-muted-foreground font-medium">{useRecovery ? t('mfa.recovery_code') : t('login.mfa_code')}</Label>
                             <Input
                                 ref={mfaInputRef}
                                 type="text"
-                                inputMode="numeric"
-                                pattern="[0-9]{6}"
-                                maxLength={6}
-                                placeholder="000000"
+                                inputMode={useRecovery ? 'text' : 'numeric'}
+                                maxLength={useRecovery ? 14 : 6}
+                                placeholder={useRecovery ? 'XXXX-XXXX-XXXX' : '000000'}
                                 value={mfaCode}
-                                onChange={e => setMfaCode(e.target.value.replace(/\D/g, ''))}
-                                className="text-center text-2xl tracking-widest font-mono"
+                                onChange={e => setMfaCode(useRecovery
+                                    ? e.target.value.toUpperCase().replace(/[^0-9A-F-]/g, '')
+                                    : e.target.value.replace(/\D/g, ''))}
+                                className="h-12 text-center text-xl tracking-[0.3em] font-mono"
                                 autoComplete="one-time-code"
                             />
                         </div>
                         {error && (
-                            <p className="text-xs font-medium text-destructive text-center">{error}</p>
+                            <p className="text-sm font-medium text-destructive text-center">{error}</p>
                         )}
-                        <Button type="submit" className="w-full" disabled={loading || mfaCode.length !== 6}>
-                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('login.mfa_verify')}
+                        <Button type="submit" className="w-full" disabled={loading || !codeOk}>
+                            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : enroll ? t('mfa.enroll_confirm') : t('login.mfa_verify')}
                         </Button>
-                        <button type="button" onClick={() => { setMfaStep(false); setMfaCode(''); setError(''); }}
+                        {!enroll && (
+                            <button type="button" onClick={() => { setUseRecovery(v => !v); setMfaCode(''); setError(''); setTimeout(() => mfaInputRef.current?.focus(), 50); }}
+                                className="w-full text-sm text-muted-foreground hover:text-foreground text-center">
+                                {useRecovery ? t('mfa.use_app') : t('mfa.use_recovery')}
+                            </button>
+                        )}
+                        <button type="button" onClick={resetMfa}
                             className="w-full text-xs text-muted-foreground hover:text-foreground text-center transition-colors">
                             ← {t('login.back_to_login')}
                         </button>
                     </form>
+                    )}
                 </div>
             </div>
         );

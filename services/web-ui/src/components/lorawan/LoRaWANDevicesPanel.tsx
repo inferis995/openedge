@@ -317,7 +317,7 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
             </div>
           )}
 
-          <DialogFooter className="px-6 py-4 border-t gap-2">
+          <DialogFooter className="bottom-0 mx-0 mb-0 mt-0 px-6 py-4 border-t gap-2">
             <Button variant="ghost" size="sm" onClick={() => refetch()} className="gap-1 mr-auto">
               <RefreshCw size={13} />
               {t('lorawan.refresh')}

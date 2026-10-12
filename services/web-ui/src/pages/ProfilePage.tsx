@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { profileApi } from '@/api/profile';
 import apiClient from '@/api/client';
 import { useTranslation } from 'react-i18next';
+import { RecoveryCodes } from '@/components/auth/RecoveryCodes';
 
 export default function ProfilePage() {
     const { t } = useTranslation();
@@ -57,6 +58,8 @@ export default function ProfilePage() {
     const [mfaCode, setMfaCode] = useState('');
     const [mfaMsg, setMfaMsg] = useState('');
     const [disablePw, setDisablePw] = useState('');
+    // Shown once: after enabling, or after generating a new set.
+    const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
 
     useEffect(() => {
         apiClient.get('/auth/mfa/status').then((r: { data: { mfa_enabled: boolean } }) => setMfaEnabled(r.data.mfa_enabled)).catch(() => {});
@@ -75,7 +78,10 @@ export default function ProfilePage() {
 
     const enableMFA = async () => {
         try {
-            await apiClient.post('/auth/mfa/enable', { code: mfaCode });
+            const r = await apiClient.post('/auth/mfa/enable', { code: mfaCode });
+            // The server makes them now and never shows them again: they were
+            // generated on every enrolment and nobody ever saw one.
+            setRecoveryCodes(Array.isArray(r.data?.recovery_codes) ? r.data.recovery_codes : null);
             setMfaEnabled(true);
             setMfaSetup(null);
             setMfaCode('');
@@ -89,10 +95,21 @@ export default function ProfilePage() {
         try {
             await apiClient.delete('/auth/mfa/disable', { data: { password: disablePw } });
             setMfaEnabled(false);
+            setRecoveryCodes(null);
             setDisablePw('');
             setMfaMsg('profilePage.mfa_disabled_ok');
         } catch {
             setMfaMsg('profilePage.mfa_bad_password');
+        }
+    };
+
+    const regenerateCodes = async () => {
+        try {
+            const r = await apiClient.post('/auth/mfa/recovery-codes');
+            setRecoveryCodes(r.data?.recovery_codes ?? null);
+            setMfaMsg('');
+        } catch (e) {
+            showApiError(e);
         }
     };
 
@@ -247,7 +264,7 @@ export default function ProfilePage() {
                             <Label className="text-xs">{t('profilePage.mfa_manual_key')}</Label>
                             <code className="text-xs bg-muted rounded px-3 py-2 font-mono break-all select-all">{mfaSetup.secret}</code>
                         </div>
-                        <div className="flex gap-2">
+                        <div className="flex flex-col gap-2 sm:flex-row">
                             <Input
                                 type="text"
                                 inputMode="numeric"
@@ -271,8 +288,19 @@ export default function ProfilePage() {
                         <div className="flex items-center gap-2 text-green-600 dark:text-green-400 text-sm">
                             <ShieldCheck className="h-4 w-4" /> {t('profilePage.mfa_protected')}
                         </div>
+                        {recoveryCodes ? (
+                            <div className="rounded-lg border p-4 space-y-3">
+                                <RecoveryCodes codes={recoveryCodes} />
+                                <Button size="sm" onClick={() => setRecoveryCodes(null)}>{t('mfa.saved_them')}</Button>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-lg border p-3">
+                                <p className="text-sm text-muted-foreground">{t('mfa.regenerate_hint')}</p>
+                                <Button size="sm" variant="outline" onClick={() => void regenerateCodes()} className="shrink-0">{t('mfa.regenerate')}</Button>
+                            </div>
+                        )}
                         <p className="text-sm text-muted-foreground">{t('profilePage.mfa_disable_hint')}</p>
-                        <div className="flex gap-2">
+                        <div className="flex flex-col gap-2 sm:flex-row">
                             <Input type="password" placeholder={t('profilePage.current_password')} value={disablePw} onChange={e => setDisablePw(e.target.value)} />
                             <Button variant="destructive" onClick={disableMFA} disabled={!disablePw} className="gap-2 shrink-0">
                                 <ShieldOff className="h-4 w-4" /> {t('profilePage.mfa_disable')}

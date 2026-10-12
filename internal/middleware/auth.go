@@ -55,6 +55,13 @@ func RequireAuth(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: MFA verification required"})
 		return
 	}
+	// Nor the enrolment token (auth.generateMFASetupToken): it proves the
+	// password only, for the two enrolment endpoints, which do not sit behind
+	// this middleware.
+	if setup, _ := claims["mfa_setup"].(bool); setup {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized: MFA enrolment required"})
+		return
+	}
 
 	// A token minted before the user's token_version was bumped — a password
 	// change or reset, a new role or organization — or for a user deleted

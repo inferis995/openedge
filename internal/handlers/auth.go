@@ -470,6 +470,26 @@ func (h *AuthHandler) MFASetup(c *gin.Context) {
 	claims := raw.(jwt.MapClaims)
 	userID := int(claims["user_id"].(float64))
 	username := claims["username"].(string)
+	h.beginTOTPEnrollment(c, userID, username)
+}
+
+// beginTOTPEnrollment stores a new TOTP secret, still disabled until a code
+// confirms it, and answers with the key and its QR code.
+//
+// Refused while MFA is on: replacing the secret switched MFA off, so anyone
+// holding a session — without the password — could remove the second factor.
+// Turning it off takes the password (MFADisable).
+func (h *AuthHandler) beginTOTPEnrollment(c *gin.Context, userID int, username string) {
+	var enabled bool
+	if err := h.db.QueryRowContext(c.Request.Context(),
+		`SELECT totp_enabled FROM users WHERE id=$1`, userID).Scan(&enabled); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
+		return
+	}
+	if enabled {
+		c.JSON(http.StatusConflict, gin.H{"error": "MFA is already enabled: disable it first"})
+		return
+	}
 
 	key, err := totpLib.Generate(totpLib.GenerateOpts{
 		Issuer:      "OpenEdge",
@@ -494,6 +514,43 @@ func (h *AuthHandler) MFASetup(c *gin.Context) {
 		"issuer":   "OpenEdge",
 		"username": username,
 	})
+}
+
+// MFAEnrollStart handles POST /api/auth/mfa/enroll/start (public, with the
+// setup token a login returns when the organization requires MFA).
+func (h *AuthHandler) MFAEnrollStart(c *gin.Context) {
+	var req struct {
+		SetupToken string `json:"mfa_setup_token" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mfa_setup_token is required"})
+		return
+	}
+	userID, username, err := auth.ParseMFASetupToken(req.SetupToken)
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+	h.beginTOTPEnrollment(c, userID, username)
+}
+
+// MFAEnrollFinish handles POST /api/auth/mfa/enroll/finish: the first code
+// turns MFA on and completes the login, with the recovery codes.
+func (h *AuthHandler) MFAEnrollFinish(c *gin.Context) {
+	var req struct {
+		SetupToken string `json:"mfa_setup_token" binding:"required"`
+		Code       string `json:"code" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mfa_setup_token and code are required"})
+		return
+	}
+	resp, err := h.service.CompleteMFAEnrollment(c.Request.Context(), req.SetupToken, req.Code, c.ClientIP(), c.GetHeader("User-Agent"))
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // totpQRDataURL draws the enrolment QR code here, as a PNG data URL.
@@ -584,6 +641,8 @@ func (h *AuthHandler) MFADisable(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to disable MFA"})
 		return
 	}
+	// The old recovery codes went on working as a second factor nobody had.
+	_, _ = h.db.ExecContext(c.Request.Context(), `DELETE FROM mfa_recovery_codes WHERE user_id=$1`, userID)
 	c.JSON(http.StatusOK, gin.H{"message": "MFA disattivato"})
 }
 

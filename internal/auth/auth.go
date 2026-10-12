@@ -242,7 +242,14 @@ func (s *Service) LoginWithMeta(ctx context.Context, req models.LoginRequest, ip
 			}
 		}
 		if orgMFARequired {
-			return &models.LoginResponse{MFASetupRequired: true}, nil
+			// Not a dead end: the password is proven, so hand over a token
+			// that can only enrol MFA. Without it a user of such an
+			// organization could never sign in to set it up.
+			setupToken, err := generateMFASetupToken(user.ID, user.Username)
+			if err != nil {
+				return nil, err
+			}
+			return &models.LoginResponse{MFASetupRequired: true, MFASetupToken: setupToken}, nil
 		}
 	}
 
