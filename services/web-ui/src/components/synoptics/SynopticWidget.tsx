@@ -803,8 +803,8 @@ function WidgetBody({ widget, live, liveMap, onWrite, inAlarm, liveSecondary, on
                         {txt}{cfg.unit ? <span className="text-slate-400 text-[0.6em] ml-0.5">{cfg.unit}</span> : null}
                     </span>
                     {n2 !== null && <span className="text-[9px] text-slate-500 font-mono">SP: {n2.toFixed(decimals)}</span>}
-                    {badQuality && <span className="text-[8px] text-red-500 uppercase tracking-wider">{t('synopticWidget.quality_bad')}</span>}
-                    {uncertainQuality && <span className="text-[8px] text-amber-500 uppercase tracking-wider">{t('synopticWidget.quality_uncertain')}</span>}
+                    {badQuality && <span className="text-[11px] text-red-500">{t('synopticWidget.quality_bad')}</span>}
+                    {uncertainQuality && <span className="text-[11px] text-amber-500">{t('synopticWidget.quality_uncertain')}</span>}
                     {cfg.showTimestamp && live !== undefined && (
                         // The SAMPLE's timestamp, not the wall clock. This used
                         // to render new Date(), so it ticked forward even while

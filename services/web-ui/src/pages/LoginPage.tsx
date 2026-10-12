@@ -118,7 +118,7 @@ const LoginPage = () => {
                     </div>
                     <form className="space-y-6" onSubmit={handleMFASubmit}>
                         <div className="grid gap-2">
-                            <Label className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">{t('login.mfa_code')}</Label>
+                            <Label className="text-xs text-muted-foreground font-medium">{t('login.mfa_code')}</Label>
                             <Input
                                 ref={mfaInputRef}
                                 type="text"
@@ -133,7 +133,7 @@ const LoginPage = () => {
                             />
                         </div>
                         {error && (
-                            <p className="text-[10px] font-bold tracking-widest uppercase text-destructive text-center">{error}</p>
+                            <p className="text-xs font-medium text-destructive text-center">{error}</p>
                         )}
                         <Button type="submit" className="w-full" disabled={loading || mfaCode.length !== 6}>
                             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('login.mfa_verify')}
@@ -151,20 +151,19 @@ const LoginPage = () => {
     return (
         <div className="flex min-h-screen items-center justify-center bg-background relative overflow-hidden">
             {/* HexOS Honeycomb/Geometric background hint could go here, for now solid background */}
-            <div className="w-full max-w-md space-y-8 clip-chamfer border bg-card p-8 shadow-2xl relative z-10">
+            <div className="w-full max-w-md space-y-8 rounded-2xl border bg-card p-8 shadow-xl relative z-10">
                 <div className="text-center">
                     <div className="flex justify-center mb-4">
                         <img src="/avatar.png" alt="OpenEdge" className="h-20 w-20 rounded-2xl object-cover shadow-lg" />
                     </div>
-                    <p className="mt-2 text-sm text-muted-foreground font-mono tracking-widest uppercase">
-                        {t('login.banner')}
-                    </p>
+                    <h1 className="text-xl font-semibold tracking-tight">{t('login.banner')}</h1>
+                    <p className="mt-1 text-sm text-muted-foreground">{t('login.banner_sub')}</p>
                 </div>
 
                 <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
                     <div className="space-y-4">
                         <div className="grid gap-2">
-                            <Label htmlFor="username" className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">{t('login.username')}</Label>
+                            <Label htmlFor="username" className="text-xs text-muted-foreground font-medium">{t('login.username')}</Label>
                             <div className="relative">
                                 <UserIcon className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                                 <Input
@@ -179,7 +178,7 @@ const LoginPage = () => {
                             </div>
                         </div>
                         <div className="grid gap-2">
-                            <Label htmlFor="password" className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">{t('login.password')}</Label>
+                            <Label htmlFor="password" className="text-xs text-muted-foreground font-medium">{t('login.password')}</Label>
                             <div className="relative">
                                 <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                                 <Input
@@ -206,8 +205,8 @@ const LoginPage = () => {
                     </div>
 
                     {error && (
-                        <div className="text-[10px] font-bold tracking-widest uppercase text-destructive text-center flex items-center justify-center gap-2 animate-shake">
-                            <div className="w-1.5 h-1.5 clip-hex bg-destructive" />
+                        <div className="text-xs font-medium text-destructive text-center flex items-center justify-center gap-2 animate-shake">
+                            <div className="w-1.5 h-1.5 rounded-full bg-destructive" />
                             {error}
                         </div>
                     )}
@@ -222,7 +221,7 @@ const LoginPage = () => {
                         ) : (
                             <>
                                 <span>{t('login.sign_in')}</span>
-                                <div className="w-1.5 h-1.5 bg-primary-foreground clip-hex" />
+
                             </>
                         )}
                     </Button>
@@ -237,14 +236,14 @@ const LoginPage = () => {
                         <div className="absolute inset-0 flex items-center">
                             <div className="w-full border-t border-border" />
                         </div>
-                        <div className="relative flex justify-center text-[10px] uppercase tracking-widest">
+                        <div className="relative flex justify-center text-xs">
                             <span className="bg-card px-2 text-muted-foreground font-bold">{t('login.sso_divider')}</span>
                         </div>
                     </div>
 
                     {showSsoInput && (
                         <div className="space-y-2">
-                            <Label className="uppercase text-[10px] tracking-widest text-muted-foreground font-bold">{t('login.work_email')}</Label>
+                            <Label className="text-xs text-muted-foreground font-medium">{t('login.work_email')}</Label>
                             <div className="relative">
                                 <Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                                 <Input

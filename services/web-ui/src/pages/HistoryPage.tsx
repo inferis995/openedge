@@ -143,7 +143,7 @@ const HistoryPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-3xl font-bold tracking-tight">{t('historyPage.title')}</h2>
+                    <h2 className="text-2xl font-semibold tracking-tight">{t('historyPage.title')}</h2>
                     <p className="text-muted-foreground">{t('historyPage.subtitle')}</p>
                 </div>
                 <div className="relative">

@@ -195,7 +195,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
         <div className="h-full flex flex-col bg-card border-r">
             {/* Current Values Panel */}
             <div className="p-3 border-b">
-                <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-2">
+                <h2 className="text-xs font-semibold text-muted-foreground mb-2 flex items-center gap-2">
                     <Clock className="w-3.5 h-3.5" />
                     {tr('trend.current_values')}
                 </h2>
@@ -276,7 +276,7 @@ export const TagBrowser: React.FC<TagBrowserProps> = ({
             {/* Tag Browser */}
             <div className="flex-1 flex flex-col overflow-hidden min-h-0">
                 <div className="p-3 border-b">
-                    <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    <h2 className="text-xs font-semibold text-muted-foreground mb-2">
                         {tr('trend.tag_browser')}
                     </h2>
                     <div className="relative">

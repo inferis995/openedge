@@ -113,7 +113,7 @@ export default function ProfilePage() {
 
             {/* Profile info */}
             <div className="rounded-xl border bg-card p-6 space-y-4">
-                <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">{t('profilePage.account')}</h2>
+                <h2 className="font-semibold text-sm text-muted-foreground">{t('profilePage.account')}</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                     <div>
                         <p className="text-muted-foreground mb-0.5">{t('profilePage.username')}</p>
@@ -140,7 +140,7 @@ export default function ProfilePage() {
             <div className="rounded-xl border bg-card p-6 space-y-4">
                 <div className="flex items-center gap-2">
                     <KeyRound className="h-4 w-4 text-muted-foreground" />
-                    <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground">{t('profilePage.change_password')}</h2>
+                    <h2 className="font-semibold text-sm text-muted-foreground">{t('profilePage.change_password')}</h2>
                 </div>
 
                 <form onSubmit={handleChangePw} className="space-y-4">
@@ -209,7 +209,7 @@ export default function ProfilePage() {
             {/* MFA Section */}
             <div className="rounded-xl border bg-card p-6 space-y-4">
                 <div className="flex items-center gap-3">
-                    <h2 className="font-semibold text-sm uppercase tracking-wide text-muted-foreground flex-1">{t('profilePage.mfa_title')}</h2>
+                    <h2 className="font-semibold text-sm text-muted-foreground flex-1">{t('profilePage.mfa_title')}</h2>
                     <Badge variant={mfaEnabled ? 'default' : 'secondary'}>
                         {mfaEnabled ? t('profilePage.mfa_on') : t('profilePage.mfa_off')}
                     </Badge>

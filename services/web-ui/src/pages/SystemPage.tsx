@@ -468,24 +468,20 @@ const SystemPage = () => {
     };
 
     return (
-        <div className="min-h-full bg-background">
-            {/* Page header */}
-            <div className="bg-card border-b border-border px-6 py-5">
-                <div className="max-w-5xl mx-auto flex items-center justify-between">
-                    <div>
-                        <h1 className="text-xl font-semibold text-foreground">{t('system.title')}</h1>
-                        <p className="text-sm text-muted-foreground mt-0.5">
-                            {t('system.subtitle')}
-                        </p>
-                    </div>
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-primary/10 border border-primary/20 clip-chamfer-sm">
-                        <div className="w-2 h-2 bg-primary clip-hex animate-pulse" />
-                        <span className="text-[10px] tracking-widest uppercase font-bold text-primary">{t('system.status_ok')}</span>
-                    </div>
+        <div className="space-y-6">
+            {/* Page header, as on every page */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                    <h1 className="text-2xl font-semibold tracking-tight">{t('system.title')}</h1>
+                    <p className="text-sm text-muted-foreground">{t('system.subtitle')}</p>
+                </div>
+                <div className="flex h-8 w-fit items-center gap-2 rounded-full border bg-card px-3 text-xs text-muted-foreground">
+                    <span className="size-2 rounded-full bg-emerald-500" />
+                    {t('system.status_ok')}
                 </div>
             </div>
 
-            <div className="max-w-5xl mx-auto px-6 py-8 space-y-6">
+            <div className="max-w-5xl space-y-6">
 
                 {/* Alert message */}
                 {message && (
@@ -527,7 +523,7 @@ const SystemPage = () => {
                         <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                                    <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                                         <Server className="h-4 w-4 text-primary" />
                                     </div>
                                     <div>
@@ -704,12 +700,12 @@ const SystemPage = () => {
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3">
-                                        <div className="w-9 h-9 clip-hex bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
+                                        <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0">
                                             <Server className="h-4 w-4 text-blue-500" />
                                         </div>
                                         <div>
                                             <CardTitle className="text-base text-foreground flex items-center gap-2">
-                                                {t('systemPage.cloud_title')} <Badge variant="secondary" className="text-[10px] uppercase font-mono tracking-wider bg-blue-500/10 text-blue-500 border-none px-1.5 py-0 h-4">Beta</Badge>
+                                                {t('systemPage.cloud_title')} <Badge variant="secondary" className="text-xs font-mono bg-blue-500/10 text-blue-500 border-none px-1.5 py-0 h-4">Beta</Badge>
                                             </CardTitle>
                                             <CardDescription className="text-xs mt-0.5">
                                                 {t('systemPage.cloud_desc')}
@@ -867,7 +863,7 @@ const SystemPage = () => {
                         <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                                    <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                                         <RefreshCw className="h-4 w-4 text-primary" />
                                     </div>
                                     <div>
@@ -1125,7 +1121,7 @@ const SystemPage = () => {
                     <Card className="border-border shadow-xs bg-card">
                         <CardHeader className="pb-4 border-b border-border">
                             <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                                <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                                     <Download className="h-4 w-4 text-primary" />
                                 </div>
                                 <div>
@@ -1153,7 +1149,7 @@ const SystemPage = () => {
                     <Card className="border-border shadow-xs bg-card">
                         <CardHeader className="pb-4 border-b border-border">
                             <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                                <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                                     <HardDrive className="h-4 w-4 text-primary" />
                                 </div>
                                 <div>
@@ -1214,7 +1210,7 @@ const SystemPage = () => {
                     <Card className="border-border shadow-xs bg-card">
                         <CardHeader className="pb-4 border-b border-border">
                             <div className="flex items-center gap-3">
-                                <div className="w-9 h-9 clip-hex bg-muted border border-border flex items-center justify-center shrink-0">
+                                <div className="w-9 h-9 rounded-lg bg-muted border border-border flex items-center justify-center shrink-0">
                                     <FileArchive className="h-4 w-4 text-muted-foreground" />
                                 </div>
                                 <div>
@@ -1295,7 +1291,7 @@ const SystemPage = () => {
                         <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                                    <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                                         <HardDrive className="h-4 w-4 text-primary" />
                                     </div>
                                     <div>
@@ -1374,7 +1370,7 @@ const SystemPage = () => {
                         <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 clip-hex bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
+                                    <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
                                         <Settings2 className="h-4 w-4 text-amber-500" />
                                     </div>
                                     <div>
@@ -1418,7 +1414,7 @@ const SystemPage = () => {
                         <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 clip-hex bg-muted border border-border flex items-center justify-center shrink-0">
+                                    <div className="w-9 h-9 rounded-lg bg-muted border border-border flex items-center justify-center shrink-0">
                                         <FileArchive className="h-4 w-4 text-muted-foreground" />
                                     </div>
                                     <div>
@@ -1451,7 +1447,7 @@ const SystemPage = () => {
                         <Card className="border-border shadow-xs bg-card">
                             <CardHeader className="pb-4 border-b border-border">
                                 <div className="flex items-center gap-3">
-                                    <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                                    <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                                         <Shield className="h-4 w-4 text-primary" />
                                     </div>
                                     <div className="flex-1">
@@ -1482,7 +1478,7 @@ const SystemPage = () => {
 
                                 {/* Callback URLs info */}
                                 <div className="rounded-md bg-muted/40 border border-border p-3 space-y-2">
-                                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{t('systemPage.sso_callbacks')}</p>
+                                    <p className="text-xs font-semibold text-muted-foreground">{t('systemPage.sso_callbacks')}</p>
                                     {(['google', 'azure'] as const).map(p => {
                                         const url = `${window.location.origin}/api/auth/sso/${p}/callback`;
                                         return (

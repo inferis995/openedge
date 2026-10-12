@@ -126,7 +126,7 @@ const ReportsPage = () => {
     return (
         <div className="space-y-6">
             <div>
-                <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+                <h2 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
                     <FileText size={22} /> {tr('reportsPage.title')}
                 </h2>
                 <p className="text-muted-foreground">

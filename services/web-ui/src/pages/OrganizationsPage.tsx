@@ -114,29 +114,10 @@ const OrganizationsPage = () => {
 
     return (
         <div className="space-y-6">
-            {/* Tenant stats banner */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="rounded-lg border bg-card p-4 text-center">
-                    <div className="text-3xl font-bold text-primary">{organizations.length}</div>
-                    <div className="text-sm text-muted-foreground mt-1">{t('organizationsPage.stat_total')}</div>
-                </div>
-                {/* There was an "Active" count here, equal to the total: an
-                    organization has no active/inactive state to count. */}
-                <div className="rounded-lg border bg-card p-4 text-center flex flex-col items-center justify-center">
-                    <a
-                        href="/fleet"
-                        className="text-sm font-medium text-primary hover:underline"
-                    >
-                        {t('organizationsPage.see_fleet')}
-                    </a>
-                    <div className="text-xs text-muted-foreground mt-1">{t('organizationsPage.fleet_hint')}</div>
-                </div>
-            </div>
-
             {/* Header */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight">{t('nav.organizations')}</h2>
+                    <h2 className="text-2xl font-semibold tracking-tight">{t('nav.organizations')}</h2>
                     <p className="text-muted-foreground text-sm">
                         {t('organizationsPage.subtitle')}
                     </p>
@@ -175,6 +156,25 @@ const OrganizationsPage = () => {
                         </DialogContent>
                     </Dialog>
                 )}
+            </div>
+
+            {/* Tenant stats banner */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="rounded-lg border bg-card p-4 text-center">
+                    <div className="text-3xl font-bold text-primary">{organizations.length}</div>
+                    <div className="text-sm text-muted-foreground mt-1">{t('organizationsPage.stat_total')}</div>
+                </div>
+                {/* There was an "Active" count here, equal to the total: an
+                    organization has no active/inactive state to count. */}
+                <div className="rounded-lg border bg-card p-4 text-center flex flex-col items-center justify-center">
+                    <a
+                        href="/fleet"
+                        className="text-sm font-medium text-primary hover:underline"
+                    >
+                        {t('organizationsPage.see_fleet')}
+                    </a>
+                    <div className="text-xs text-muted-foreground mt-1">{t('organizationsPage.fleet_hint')}</div>
+                </div>
             </div>
 
             {/* Org cards */}

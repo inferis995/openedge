@@ -455,7 +455,7 @@ const MqttMonitorPage = () => {
                 <div className="flex items-center gap-3">
                     <Radio className={`h-6 w-6 ${isConnected ? 'text-green-500 animate-pulse' : 'text-red-500'}`} />
                     <div>
-                        <h2 className="text-2xl font-bold tracking-tight">{t('mqttMonitor.title')}</h2>
+                        <h2 className="text-2xl font-semibold tracking-tight">{t('mqttMonitor.title')}</h2>
                         <p className="text-muted-foreground text-sm">
                             {t('mqttMonitor.subtitle', { total: stats.total.toLocaleString(i18n.language) })}
                             <span className="ml-2 text-slate-500">{t('mqttMonitor.split', { legacy: stats.legacy, sparkplug: stats.sparkplug })}</span>

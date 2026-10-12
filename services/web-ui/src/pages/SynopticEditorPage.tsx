@@ -919,7 +919,7 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                 {/* Palette (edit only) */}
                 {isEdit && (
                     <div className="order-2 lg:order-0 space-y-2">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{tr('synopticEditor.palette')}</p>
+                        <p className="text-xs font-semibold text-muted-foreground">{tr('synopticEditor.palette')}</p>
                         <div className="flex gap-2 overflow-x-auto pb-1 lg:grid lg:grid-cols-2 lg:overflow-visible
                                         [&>button]:shrink-0 [&>button]:w-20 lg:[&>button]:w-auto">
                             {WIDGET_CATALOG.map(c => (
@@ -1083,13 +1083,13 @@ const SynopticEditorPage = ({ mode }: { mode: 'view' | 'edit' }) => {
                 {/* Properties panel (edit only) */}
                 {isEdit && (
                     <div className="order-3 lg:order-0 space-y-3">
-                        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{tr('synopticEditor.properties')}</p>
+                        <p className="text-xs font-semibold text-muted-foreground">{tr('synopticEditor.properties')}</p>
                         {selectedIds.length > 1 ? (
                             <div className="space-y-3">
                                 <p className="text-xs text-muted-foreground">{tr('synopticEditor.selected_count', { count: selectedIds.length })}</p>
                                 {/* Align tools */}
                                 <div className="space-y-1">
-                                    <p className="text-[10px] uppercase text-muted-foreground font-semibold tracking-wider">{tr('synopticEditor.align')}</p>
+                                    <p className="text-xs text-muted-foreground font-semibold">{tr('synopticEditor.align')}</p>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1">
                                         {[
                                             { icon: <AlignLeft size={13}/>, title: tr('synopticEditor.align_left'), align: (ws: SynopticWidget[]) => { const min = Math.min(...ws.map(w => w.x)); return ws.map(w => ({ ...w, x: min })); } },

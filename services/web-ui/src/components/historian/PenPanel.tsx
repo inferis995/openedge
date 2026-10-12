@@ -140,7 +140,7 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
                                 { label: t('historian.stat_avg'), value: pen.stats.avg },
                             ].map(({ label, value }, i) => (
                                 <div key={label} className="text-center min-w-0">
-                                    <div className="text-[9px] text-muted-foreground uppercase tracking-wide truncate">{label}</div>
+                                    <div className="text-[11px] text-muted-foreground truncate">{label}</div>
                                     <div
                                         className={i === 0 ? 'text-lg font-mono font-bold leading-tight tabular-nums truncate' : 'text-[11px] font-mono font-medium tabular-nums truncate'}
                                         style={i === 0 ? { color: pen.visible ? pen.color : undefined } : undefined}

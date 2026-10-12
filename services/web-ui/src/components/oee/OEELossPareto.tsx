@@ -101,7 +101,7 @@ export const OEELossPareto = ({ profileId, profileName }: Props) => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <Card>
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <CardTitle className="text-xs text-muted-foreground flex items-center gap-2">
                             <Activity size={12} /> MTBF
                         </CardTitle>
                     </CardHeader>
@@ -117,7 +117,7 @@ export const OEELossPareto = ({ profileId, profileName }: Props) => {
                 </Card>
                 <Card>
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <CardTitle className="text-xs text-muted-foreground flex items-center gap-2">
                             <Wrench size={12} /> MTTR
                         </CardTitle>
                     </CardHeader>
@@ -132,7 +132,7 @@ export const OEELossPareto = ({ profileId, profileName }: Props) => {
                 </Card>
                 <Card>
                     <CardHeader className="pb-2">
-                        <CardTitle className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+                        <CardTitle className="text-xs text-muted-foreground flex items-center gap-2">
                             <AlertCircle size={12} /> {t('oee.breakdowns')}
                         </CardTitle>
                     </CardHeader>

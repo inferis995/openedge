@@ -184,7 +184,7 @@ const BackupConfig = ({ initial, onSaved }: Props) => {
             <CardHeader className="pb-4 border-b border-border">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 clip-hex bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
+                        <div className="w-9 h-9 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
                             <HardDrive className="h-4 w-4 text-primary" />
                         </div>
                         <div>

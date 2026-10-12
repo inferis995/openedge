@@ -89,7 +89,7 @@ export default function AcceptInvitePage() {
                             <ShieldCheck size={28} className="text-primary" />
                         </div>
                     </div>
-                    <h1 className="text-2xl font-bold tracking-tight">{t('acceptInvite.title')}</h1>
+                    <h1 className="text-2xl font-semibold tracking-tight">{t('acceptInvite.title')}</h1>
                     <p className="text-muted-foreground text-sm">
                         {t('acceptInvite.subtitle')}
                     </p>

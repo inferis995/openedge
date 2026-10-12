@@ -163,7 +163,7 @@ export default function SetupWizardPage() {
     return (
         <div className="max-w-3xl mx-auto space-y-6">
             <div>
-                <h2 className="text-2xl font-bold tracking-tight">{t('setup.title')}</h2>
+                <h2 className="text-2xl font-semibold tracking-tight">{t('setup.title')}</h2>
                 <p className="text-muted-foreground">{t('setup.subtitle')}</p>
             </div>
 

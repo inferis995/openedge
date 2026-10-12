@@ -123,7 +123,7 @@ const FleetPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold tracking-tight">{t('fleetPage.title')}</h1>
+                    <h1 className="text-2xl font-semibold tracking-tight">{t('fleetPage.title')}</h1>
                     <p className="text-sm text-muted-foreground mt-1">
                         {t('fleetPage.subtitle')}
                     </p>
@@ -137,15 +137,15 @@ const FleetPage = () => {
             {/* Summary cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div className="rounded-lg border bg-card p-4">
-                    <div className="text-sm text-muted-foreground uppercase tracking-wider font-semibold mb-1">{t('fleetPage.total_orgs')}</div>
+                    <div className="text-sm text-muted-foreground font-semibold mb-1">{t('fleetPage.total_orgs')}</div>
                     <div className="text-3xl font-bold">{fleet.length}</div>
                 </div>
                 <div className="rounded-lg border bg-card p-4">
-                    <div className="text-sm text-muted-foreground uppercase tracking-wider font-semibold mb-1">{t('fleetPage.online')}</div>
+                    <div className="text-sm text-muted-foreground font-semibold mb-1">{t('fleetPage.online')}</div>
                     <div className="text-3xl font-bold text-green-500">{fleet.filter(f => f.online).length}</div>
                 </div>
                 <div className="rounded-lg border bg-card p-4">
-                    <div className="text-sm text-muted-foreground uppercase tracking-wider font-semibold mb-1">{t('fleetPage.offline')}</div>
+                    <div className="text-sm text-muted-foreground font-semibold mb-1">{t('fleetPage.offline')}</div>
                     <div className="text-3xl font-bold text-destructive">{fleet.filter(f => !f.online).length}</div>
                 </div>
             </div>
@@ -180,12 +180,12 @@ const FleetPage = () => {
                                     {org.online ? (
                                         <div className="flex items-center gap-2">
                                             <Wifi className="h-4 w-4 text-green-500" />
-                                            <span className="text-xs font-semibold text-green-600 uppercase tracking-wider">{t('fleetPage.online')}</span>
+                                            <span className="text-xs font-semibold text-green-600">{t('fleetPage.online')}</span>
                                         </div>
                                     ) : (
                                         <div className="flex items-center gap-2">
                                             <WifiOff className="h-4 w-4 text-destructive" />
-                                            <span className="text-xs font-semibold text-destructive uppercase tracking-wider">{t('fleetPage.offline')}</span>
+                                            <span className="text-xs font-semibold text-destructive">{t('fleetPage.offline')}</span>
                                         </div>
                                     )}
                                 </TableCell>

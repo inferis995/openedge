@@ -1212,7 +1212,7 @@ const TagsPage = () => {
                                                             <div className="space-y-5">
                                                                 {/* Raw range */}
                                                                 <div className="space-y-3">
-                                                                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{tr('tagsPage.raw_range')}</h4>
+                                                                    <h4 className="text-sm font-semibold text-muted-foreground">{tr('tagsPage.raw_range')}</h4>
                                                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                                         <div className="grid gap-2">
                                                                             <Label htmlFor="sc-raw-min">{tr('tagsPage.raw_min')}</Label>
@@ -1243,7 +1243,7 @@ const TagsPage = () => {
 
                                                                 {/* EU range */}
                                                                 <div className="space-y-3">
-                                                                    <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">{tr('tagsPage.eu_range')}</h4>
+                                                                    <h4 className="text-sm font-semibold text-muted-foreground">{tr('tagsPage.eu_range')}</h4>
                                                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                                         <div className="grid gap-2">
                                                                             <Label htmlFor="sc-eu-min">EU Min</Label>
@@ -1310,7 +1310,7 @@ const TagsPage = () => {
 
                                                                 {/* Live formula preview */}
                                                                 <div className="p-4 rounded-lg bg-muted/50 border font-mono text-sm space-y-1">
-                                                                    <p className="text-muted-foreground text-xs font-sans font-semibold uppercase tracking-wider mb-2">{tr('tagsPage.formula_preview')}</p>
+                                                                    <p className="text-muted-foreground text-xs font-sans font-semibold mb-2">{tr('tagsPage.formula_preview')}</p>
                                                                     {(() => {
                                                                         const rawMin = formData.scaling_raw_min ?? 4;
                                                                         const rawMax = formData.scaling_raw_max ?? 20;

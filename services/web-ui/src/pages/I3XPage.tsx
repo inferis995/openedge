@@ -495,10 +495,10 @@ export default function I3XPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between gap-4">
                 <div className="space-y-1">
                     <div className="flex items-center gap-3">
-                        <div className="p-2 clip-hex bg-primary/10">
+                        <div className="p-2 rounded-lg bg-primary/10">
                             <Network size={22} className="text-primary" />
                         </div>
-                        <h1 className="text-2xl font-bold tracking-tight">i3X Access API</h1>
+                        <h1 className="text-2xl font-semibold tracking-tight">i3X Access API</h1>
                         <Badge className="bg-primary/10 text-primary border-primary/30 text-xs font-mono">
                             CESMII v1
                         </Badge>
@@ -521,7 +521,7 @@ export default function I3XPage() {
             <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card className="clip-chamfer-sm">
                     <CardContent className="p-4 flex items-center gap-3">
-                        <div className="p-2 clip-hex bg-blue-500/10">
+                        <div className="p-2 rounded-lg bg-blue-500/10">
                             <Cpu size={18} className="text-blue-500" />
                         </div>
                         <div>
@@ -532,7 +532,7 @@ export default function I3XPage() {
                 </Card>
                 <Card className="clip-chamfer-sm">
                     <CardContent className="p-4 flex items-center gap-3">
-                        <div className="p-2 clip-hex bg-slate-500/10">
+                        <div className="p-2 rounded-lg bg-slate-500/10">
                             <Network size={18} className="text-slate-500" />
                         </div>
                         <div>
@@ -543,7 +543,7 @@ export default function I3XPage() {
                 </Card>
                 <Card className="clip-chamfer-sm">
                     <CardContent className="p-4 flex items-center gap-3">
-                        <div className="p-2 clip-hex bg-purple-500/10">
+                        <div className="p-2 rounded-lg bg-purple-500/10">
                             <Tag size={18} className="text-purple-500" />
                         </div>
                         <div>
@@ -556,7 +556,7 @@ export default function I3XPage() {
                 </Card>
                 <Card className="clip-chamfer-sm">
                     <CardContent className="p-4 flex items-center gap-3">
-                        <div className={cn('p-2 clip-hex', activeAlarmCount > 0 ? 'bg-red-500/10' : 'bg-green-500/10')}>
+                        <div className={cn('p-2 rounded-lg', activeAlarmCount > 0 ? 'bg-red-500/10' : 'bg-green-500/10')}>
                             <AlertTriangle size={18} className={activeAlarmCount > 0 ? 'text-red-500' : 'text-green-500'} />
                         </div>
                         <div>

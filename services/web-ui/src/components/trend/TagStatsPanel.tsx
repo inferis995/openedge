@@ -119,7 +119,7 @@ export const TagStatsPanel: React.FC<TagStatsPanelProps> = ({
                     {tagName}
                 </span>
                 {isBool && (
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-blue-400 bg-blue-500/10 px-1 rounded">
+                    <span className="text-[11px] font-medium text-blue-400 bg-blue-500/10 px-1 rounded">
                         BOOL
                     </span>
                 )}
@@ -157,7 +157,7 @@ export const TagStatsPanel: React.FC<TagStatsPanelProps> = ({
                             ] as const).map(({ label, value, color }) => (
                                 <div key={label} className="text-center">
                                     <div
-                                        className="text-[9px] uppercase tracking-wide font-semibold leading-tight"
+                                        className="text-[11px] font-semibold leading-tight"
                                         style={{ color }}
                                     >
                                         {label}

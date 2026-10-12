@@ -193,7 +193,7 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
                             <div className="flex items-center gap-2">
                               <span className="font-mono text-sm font-semibold truncate">{dev.device_id}</span>
                               {dev.dev_eui && (
-                                <span className="text-[10px] text-muted-foreground font-mono uppercase">{dev.dev_eui}</span>
+                                <span className="text-xs text-muted-foreground font-mono">{dev.dev_eui}</span>
                               )}
                             </div>
                             <div className="flex items-center gap-3 mt-0.5 text-xs text-muted-foreground">
@@ -230,7 +230,7 @@ export function LoRaWANDevicesPanel({ gatewayId, gatewayName, open, onClose }: P
                         <div className="px-4 pb-4 border-t">
                           {/* Fields table */}
                           <div className="space-y-1.5 mt-3 mb-3">
-                            <div className="grid grid-cols-[auto_1fr_120px_100px_auto] gap-2 text-[10px] uppercase tracking-widest text-muted-foreground px-1 pb-1 border-b">
+                            <div className="grid grid-cols-[auto_1fr_120px_100px_auto] gap-2 text-xs text-muted-foreground px-1 pb-1 border-b">
                               <span className="w-5" />
                               <span>{t('lorawan.col_field')}</span>
                               <span>{t('lorawan.col_type')}</span>
