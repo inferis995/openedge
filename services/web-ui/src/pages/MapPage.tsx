@@ -7,6 +7,7 @@ import type { MapGeoJSONFeature } from 'maplibre-gl';
 import type { LineLayerSpecification, FillLayerSpecification, StyleSpecification } from 'maplibre-gl';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import { formatLiveValue, agoParts, shortTagNames } from '@/lib/format';
+import { predictPositions } from '@/lib/predictPosition';
 import { useThemeStore } from '@/stores/useThemeStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useGateways } from '@/hooks/useGateways';
@@ -278,7 +279,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
         [],
     );
     const [selectedGwId, setSelectedGwId] = useState<number | null>(null);
-    const selectedGw = gateways.find((g) => g.id === selectedGwId) ?? null;
+    const selectedGwBase = gateways.find((g) => g.id === selectedGwId) ?? null;
     // Popup di dettaglio di un tag (dal click su una pill).
     const [openTagId, setOpenTagId] = useState<number | null>(null);
     // Popup gateway completo (dal «+N altri»).
@@ -302,11 +303,6 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     const placedGateways = useMemo(
         () => gateways.filter((g) => typeof g.latitude === 'number' && typeof g.longitude === 'number'),
         [gateways],
-    );
-    // Gateway dopo il filtro area: la mappa mostra solo questi.
-    const visibleGateways = useMemo(
-        () => (areaFilter === null ? placedGateways : placedGateways.filter((g) => g.area_id === areaFilter)),
-        [placedGateways, areaFilter],
     );
 
     const geojsonAreas = useMemo(
@@ -334,6 +330,33 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
         }),
         [areas],
     );
+
+    // Gateway senza coordinate: mostrati dove probabilmente sono (centro
+    // dell'area, o tra i gateway già posizionati della stessa area), con un
+    // pin «da confermare». Prima restavano fuori dalla mappa finché qualcuno
+    // non li posizionava a mano.
+    const predicted = useMemo(() => {
+        const centers = new Map<number, [number, number]>();
+        for (const f of geojsonAreas.features) {
+            const { id, center_lon, center_lat } = f.properties;
+            if (typeof center_lon === 'number' && typeof center_lat === 'number') centers.set(id as number, [center_lon, center_lat]);
+        }
+        return predictPositions(gateways, centers);
+    }, [gateways, geojsonAreas]);
+    const shownGateways = useMemo(
+        () => [
+            ...placedGateways.map((g) => ({ ...g, predicted: false })),
+            ...gateways.flatMap((g) => { const p = predicted.get(g.id); return p ? [{ ...g, ...p, predicted: true }] : []; }),
+        ],
+        [placedGateways, gateways, predicted],
+    );
+    // Gateway dopo il filtro area: la mappa mostra solo questi.
+    const visibleGateways = useMemo(
+        () => (areaFilter === null ? shownGateways : shownGateways.filter((g) => g.area_id === areaFilter)),
+        [shownGateways, areaFilter],
+    );
+    // The selected gateway where it is drawn: a provisional one has no coordinates of its own.
+    const selectedGw = selectedGwBase ? (shownGateways.find((g) => g.id === selectedGwBase.id) ?? null) : null;
 
     // Tag di un gateway con vista live, in ordine di id.
     const liveTagsFor = (gatewayId: number, snap: Map<number, TagLive>): { tag: Tag; live: TagLive }[] => {
@@ -441,6 +464,8 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
         setSavingPos(true);
         try {
             await gatewaysApi.update(id, { latitude: lat, longitude: lon });
+            // The pin moves (and stops being provisional) without a reload.
+            setGateways((prev) => prev.map((g) => (g.id === id ? { ...g, latitude: lat, longitude: lon } : g)));
         } finally {
             setSavingPos(false);
         }
@@ -682,7 +707,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                                     <button
                                         type="button"
                                         aria-label={gw.name}
-                                        className={`gw-pin ${gw.connection_status === 'offline' ? 'gw-pin-off' : ''} ${placingForId === gw.id ? 'gw-pin-target' : ''} ${editGwId === gw.id ? 'gw-pin-editing' : ''}`}
+                                        className={`gw-pin ${gw.predicted ? 'gw-pin-predicted' : ''} ${gw.connection_status === 'offline' ? 'gw-pin-off' : ''} ${placingForId === gw.id ? 'gw-pin-target' : ''} ${editGwId === gw.id ? 'gw-pin-editing' : ''}`}
                                         style={{ '--pin-color': statusColor(gw.connection_status) } as React.CSSProperties}
                                     />
                                 </div>
@@ -709,6 +734,10 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                                 onOpenTrend={(gid, tid) => navigate(`/trend?gateway=${gid}${tid ? `&tag=${tid}` : ''}`)}
                                 onOpenTrendPens={(pens) => navigate(`/trend?${pens}`)}
                                 canEdit={canEdit}
+                                predicted={selectedGw.predicted}
+                                onConfirm={() => {
+                                    void saveGatewayPos(selectedGw.id, selectedGw.latitude as number, selectedGw.longitude as number);
+                                }}
                                 onPlace={() => {
                                     setPlacingForId(selectedGw.id);
                                     setSelectedGwId(null);
@@ -755,7 +784,14 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                             </span>
                         </span>
                     ))}
-                    <span className="hidden sm:inline text-muted-foreground/80">· {visibleGateways.length}/{placedGateways.length} {t('map.placed_count')}</span>
+                    {visibleGateways.some((g) => g.predicted) && (
+                        <span className="flex items-center gap-1.5">
+                            <span className="size-2.5 rounded-full border-2 border-dashed border-muted-foreground" />
+                            {t('map.legend_predicted')}
+                            <span className="font-semibold tabular-nums text-foreground">{visibleGateways.filter((g) => g.predicted).length}</span>
+                        </span>
+                    )}
+                    <span className="hidden sm:inline text-muted-foreground/80">· {placedGateways.length}/{gateways.length} {t('map.placed_count')}</span>
                 </div>}
 
                 {placingForId !== null && (
@@ -891,6 +927,11 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                     cursor: pointer; transition: transform .15s ease;
                 }
                 .gw-pin:hover { transform: scale(1.15); }
+                /* Provisional: where it probably is, until someone confirms it. */
+                .gw-pin-predicted {
+                    background: transparent; border: 2.5px dashed var(--pin-color, #9CA3AF);
+                    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85);
+                }
                 .gw-pin-off { animation: gw-halo 2s ease-out infinite; }
                 @keyframes gw-halo {
                     0% { box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 0 0 0 rgba(239, 68, 68, 0.55); }
@@ -924,10 +965,13 @@ interface GatewayPopupProps {
     onOpenTrendPens: (query: string) => void;
     canEdit: boolean;
     onPlace: () => void;
+    /** Shown where it probably is, not where someone put it. */
+    predicted?: boolean;
+    onConfirm?: () => void;
 }
 
 // Popup del gateway cliccato: nome, stato, batteria, valori live dei tag.
-function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpenTrendPens, canEdit, onPlace }: GatewayPopupProps) {
+function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpenTrendPens, canEdit, onPlace, predicted, onConfirm }: GatewayPopupProps) {
     const { t } = useTranslation();
     const battery = extractBattery(gateway.connection_config);
     const tags = [...tagsById.values()].filter((tg) => tg.gateway_id === gateway.id);
@@ -944,6 +988,21 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpen
                     ? t(`gatewaysPage.status.${gateway.connection_status}`, { defaultValue: gateway.connection_status })
                     : t('gatewaysPage.status.unknown')}
             </div>
+            {predicted && (
+                <div className="space-y-2 rounded-lg border border-dashed p-2.5 text-xs">
+                    <p className="text-muted-foreground">{t('map.predicted_note')}</p>
+                    {canEdit && (
+                        <div className="flex gap-2">
+                            <button type="button" className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90" onClick={onConfirm}>
+                                {t('map.confirm_here')}
+                            </button>
+                            <button type="button" className="inline-flex h-8 items-center gap-1 px-3 rounded-md border text-xs hover:bg-muted" onClick={onPlace}>
+                                <MapPin size={12} /> {t('map.move')}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            )}
             {battery !== null && (
                 <div className="flex items-center gap-1.5 text-xs">
                     <Battery size={13} className="text-muted-foreground" />
@@ -986,7 +1045,7 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpen
                 >
                     {t('map.open_trend')}
                 </button>
-                {canEdit && (
+                {canEdit && !predicted && (
                     <button
                         type="button"
                         className="inline-flex h-8 items-center gap-1 px-3 rounded-md border text-xs hover:bg-muted"

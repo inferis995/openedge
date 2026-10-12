@@ -155,7 +155,10 @@
       "unknown": "Sconosciuto"
     },
     "test": "Prova",
-    "devices": "Dispositivi"
+    "devices": "Dispositivi",
+    "position": "Posizione sulla mappa",
+    "position_hint": "Incolla le coordinate da Google Maps (es. 39.3592, 16.5142). Vuota: la mappa lo mostra nella sua area, da confermare.",
+    "position_invalid": "Coordinate non riconosciute: scrivi «latitudine, longitudine»."
   },
   "orgInfra": {
     "key_create_failed": "Impossibile creare la chiave API",

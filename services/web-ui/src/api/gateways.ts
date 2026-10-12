@@ -28,6 +28,12 @@ export const gatewaysApi = {
             enabled: data.enabled,
             zero_based: data.zero_based ?? false,
         };
+        // Its place on the map, when given: dropped here, a new gateway was
+        // always created without one, whatever the form said.
+        if (typeof data.latitude === 'number' && typeof data.longitude === 'number') {
+            payload.latitude = data.latitude;
+            payload.longitude = data.longitude;
+        }
 
         // GatewaysPage pre-builds connection_config for all driver types including LORAWAN/MQTT.
         // Use it when present; fall back to field-by-field construction otherwise.

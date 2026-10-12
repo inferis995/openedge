@@ -155,7 +155,10 @@
       "unknown": "Unknown"
     },
     "test": "Test",
-    "devices": "Devices"
+    "devices": "Devices",
+    "position": "Position on the map",
+    "position_hint": "Paste the coordinates from Google Maps (e.g. 39.3592, 16.5142). Empty: the map shows it in its area, to confirm.",
+    "position_invalid": "Coordinates not recognised: write «latitude, longitude»."
   },
   "orgInfra": {
     "key_create_failed": "Failed to create API key",

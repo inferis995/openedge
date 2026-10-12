@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { parseCoords, formatCoord } from '@/lib/coords';
 import {
     Table,
     TableBody,
@@ -133,6 +134,8 @@ const GatewaysPage = () => {
     const offlineCount = useMemo(() => gateways.filter(g => g.connection_status !== 'online' && g.enabled).length, [gateways]);
 
     // Form State
+    // The position as typed, parsed into latitude/longitude as it changes.
+    const [positionText, setPositionText] = useState('');
     const [formData, setFormData] = useState<Partial<ExtendedCreateGatewayDto>>({
         name: '',
         driver_type: 'S7',
@@ -291,6 +294,7 @@ const GatewaysPage = () => {
 
     const resetForm = () => {
         setUpdatingGatewayId(null);
+        setPositionText('');
         setFormData({
             name: '',
             driver_type: 'S7',
@@ -447,6 +451,8 @@ const GatewaysPage = () => {
             latitude: gateway.latitude ?? undefined,
             longitude: gateway.longitude ?? undefined,
         });
+        setPositionText(typeof gateway.latitude === 'number' && typeof gateway.longitude === 'number'
+            ? `${formatCoord(gateway.latitude)}, ${formatCoord(gateway.longitude)}` : '');
         setIsOpen(true);
     };
 
@@ -561,36 +567,33 @@ const GatewaysPage = () => {
                                     />
                                 </div>
 
-                                {/* Posizione sulla mappa: gradi decimali, entrambi o nessuno */}
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="latitude">{t('map.latitude')}</Label>
-                                        <Input
-                                            id="latitude"
-                                            type="number"
-                                            step="any"
-                                            min={-90}
-                                            max={90}
-                                            value={formData.latitude ?? ''}
-                                            onChange={(e) => handleInputChange('latitude', e.target.value === '' ? undefined : parseFloat(e.target.value))}
-                                            placeholder="39.3592"
-                                        />
-                                    </div>
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="longitude">{t('map.longitude')}</Label>
-                                        <Input
-                                            id="longitude"
-                                            type="number"
-                                            step="any"
-                                            min={-180}
-                                            max={180}
-                                            value={formData.longitude ?? ''}
-                                            onChange={(e) => handleInputChange('longitude', e.target.value === '' ? undefined : parseFloat(e.target.value))}
-                                            placeholder="16.5142"
-                                        />
-                                    </div>
+                                {/* Posizione sulla mappa: una casella, come la si copia (Google
+                                    Maps «39.35, 16.51», virgola italiana, gradi-minuti-secondi).
+                                    Vuota: la mappa lo mostra nella sua area, da confermare. */}
+                                <div className="grid gap-2">
+                                    <Label htmlFor="position">{t('gatewaysPage.position')}</Label>
+                                    <Input
+                                        id="position"
+                                        value={positionText}
+                                        onChange={(e) => {
+                                            const v = e.target.value;
+                                            setPositionText(v);
+                                            const parsed = v.trim() ? parseCoords(v) : null;
+                                            setFormData((prev) => ({
+                                                ...prev,
+                                                latitude: parsed ? parsed.latitude : undefined,
+                                                longitude: parsed ? parsed.longitude : undefined,
+                                            }));
+                                        }}
+                                        placeholder="39.3592, 16.5142"
+                                        aria-invalid={!!positionText.trim() && !parseCoords(positionText)}
+                                    />
+                                    <p className={`text-xs ${positionText.trim() && !parseCoords(positionText) ? 'text-destructive' : 'text-muted-foreground'}`}>
+                                        {positionText.trim() && !parseCoords(positionText)
+                                            ? t('gatewaysPage.position_invalid')
+                                            : t('gatewaysPage.position_hint')}
+                                    </p>
                                 </div>
-                                <p className="text-[11px] text-muted-foreground -mt-2">{t('map.coords_hint')}</p>
 
                                 {/* Chi interroga questo gateway: il server, oppure una scatola.
                                     Compare appena esiste una scatola; senza scatole è sempre il

@@ -33,6 +33,10 @@
     "pick_gateway": "Vai al gateway…",
     "all_areas": "Tutte le aree",
     "history": "Storico",
-    "offline_no_new_data": "Offline — nessun dato nuovo"
+    "offline_no_new_data": "Offline — nessun dato nuovo",
+    "predicted_note": "Posizione prevista nella sua area: nessuno l'ha ancora posizionato. Confermala qui o spostala.",
+    "confirm_here": "Conferma qui",
+    "move": "Sposta",
+    "legend_predicted": "Da confermare"
   }
 }
