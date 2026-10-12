@@ -6,7 +6,7 @@ import { Map as MapGL, Marker, Popup, NavigationControl, Source, Layer, type Map
 import type { MapGeoJSONFeature } from 'maplibre-gl';
 import type { LineLayerSpecification, FillLayerSpecification, StyleSpecification } from 'maplibre-gl';
 import { useNavigationStore } from '@/stores/useNavigationStore';
-import { formatLiveValue, agoParts } from '@/lib/format';
+import { formatLiveValue, agoParts, shortTagNames } from '@/lib/format';
 import { useThemeStore } from '@/stores/useThemeStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useGateways } from '@/hooks/useGateways';
@@ -19,7 +19,7 @@ import type { Tag, Gateway, Area } from '@/types';
 import { gatewaysApi } from '@/api/gateways';
 import { areasApi } from '@/api/areas';
 import { parseCoords, formatCoord, searchPlace, type PlaceResult } from '@/lib/coords';
-import { Battery, Cpu, History, Loader2, MapPin, Search } from 'lucide-react';
+import { Battery, History, Loader2, MapPin, Search } from 'lucide-react';
 import TagHistoryChart from '@/components/TagHistoryChart';
 
 // Basemap Esri in versione raster: le tile PNG si vedono ovunque
@@ -83,12 +83,6 @@ function extractBattery(cfg: Record<string, unknown> | undefined): number | null
 
 // Nome corto della pill: l'ultimo segmento dell'alias (plant/linea/T1 → T1),
 // mai oltre 8 caratteri e sempre in maiuscoletto: nei badge conta la leggibilità.
-function shortName(tag: Tag): string {
-    const source = tag.alias || tag.code || `#${tag.id}`;
-    const parts = source.split('/').filter(Boolean);
-    const last = parts[parts.length - 1] || source;
-    return last.length > 8 ? last.slice(0, 7) + '…' : last;
-}
 
 // Micro-freccia di tendenza dagli ultimi valori numerici visti.
 function trendArrow(history: TagValue[]): string {
@@ -168,6 +162,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
     // (o della propria org per gli org-user): cambiando org, mappa, aree,
     // siti e pin seguono. Il filtro sito restringe ulteriormente.
     const { selectedOrgId } = useNavigationStore();
+    const [isWide] = useState(() => typeof window === 'undefined' || window.matchMedia('(min-width: 640px)').matches);
     const sitesHook = useSites(selectedOrgId);
     const sites = sitesHook.sites ?? [];
     // Aree di tutti i siti dell'org (l'hook è per-sito): le uniamo qui,
@@ -480,18 +475,19 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
 
     return (
         <div className="space-y-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight">{t('nav.map')}</h2>
-                    <p className="text-muted-foreground">{t('map.subtitle')}</p>
+                    <h2 className="text-2xl font-semibold tracking-tight">{t('nav.map')}</h2>
+                    <p className="text-sm text-muted-foreground">{t('map.subtitle')}</p>
                 </div>
 
-                {/* Su mobile filtro+ricerca in riga piena, ordinati e senza sovrapposizioni */}
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center w-full sm:w-auto">
+                {/* One toolbar: which area, which gateway, which place. On a
+                    phone the two selects share a row and the search takes the next. */}
+                <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
 
                 {/* Filtro area/impianto: restringe pin, poligoni e conteggio */}
                 <select
-                    className="h-10 sm:h-8 px-2 rounded-md border bg-background text-sm w-full sm:w-auto"
+                    className="h-10 rounded-md border bg-background px-3 text-sm sm:w-48"
                     value={areaFilter ?? ''}
                     onChange={(e) => {
                         const v = e.target.value ? parseInt(e.target.value) : null;
@@ -512,11 +508,35 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                     {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
 
+                {/* Vai al gateway: ricerca e volo sul pin, come nel Trend */}
+                <select
+                    className="h-10 min-w-0 rounded-md border bg-background px-3 text-sm sm:w-64"
+                    value={selectedGwId ?? ''}
+                    aria-label={t('map.pick_gateway')}
+                    onChange={(e) => {
+                        const id = e.target.value ? parseInt(e.target.value) : null;
+                        if (id === null) { setSelectedGwId(null); return; }
+                        const gw = gateways.find((g) => g.id === id);
+                        if (gw && typeof gw.latitude === 'number' && typeof gw.longitude === 'number') {
+                            handleSelectGateway(id, gw.longitude, gw.latitude);
+                        } else {
+                            setSelectedGwId(id);
+                        }
+                    }}
+                >
+                    <option value="">{t('map.pick_gateway')}</option>
+                    {visibleGateways.map((gw) => (
+                        <option key={gw.id} value={gw.id}>
+                            {gw.name}{gw.connection_status === 'online' ? '' : ` — ${t('map.legend_offline').toLowerCase()}`}
+                        </option>
+                    ))}
+                </select>
+
                 {/* Ricerca luogo (Nominatim) */}
-                <div className="relative w-full sm:w-80">
-                    <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                <div className="relative col-span-2 w-full sm:ml-auto sm:w-72">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                     <input
-                        className="w-full h-10 sm:h-8 pl-8 pr-8 text-sm rounded-md border bg-background"
+                        className="w-full h-10 pl-9 pr-8 text-sm rounded-md border bg-background"
                         placeholder={t('map.search_placeholder')}
                         value={placeQuery}
                         onChange={(e) => setPlaceQuery(e.target.value)}
@@ -548,7 +568,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                 </div>
             </div>
 
-            <div className="clip-chamfer border bg-card overflow-hidden relative">
+            <div className="rounded-xl border bg-card overflow-hidden relative">
                 <MapGL
                     ref={mapRef}
                     initialViewState={initialView}
@@ -570,8 +590,9 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                         }
                     }}
                 >
-                    <div className="hidden sm:block"><NavigationControl position="top-right" visualizePitch /></div>
-                    <div className="sm:hidden"><NavigationControl position="bottom-right" visualizePitch /></div>
+                    {/* One control: a wrapping div does not hide a map control, so
+                        the two (desktop and phone) were both drawn. */}
+                    <NavigationControl position={isWide ? 'top-right' : 'bottom-right'} visualizePitch />
 
                     <Source id="areas" type="geojson" data={geojsonAreas}>
                         <Layer {...fillLayer} />
@@ -603,6 +624,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                         const gwDetail = detailMode || selectedGwId === gw.id;
                         const gwTags = gwDetail ? liveTagsFor(gw.id, liveSnapshot) : [];
                         const visibleTags = gwTags.slice(0, MAX_PILLS);
+                        const pillNames = shortTagNames(gwTags.map(({ tag }) => ({ id: tag.id, name: tag.alias || tag.code || `#${tag.id}` })));
                         const extra = gwTags.length - visibleTags.length;
                         return (
                             <Marker
@@ -636,8 +658,8 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                                                     className="gw-qdot"
                                                     style={{ background: live.quality === 0 ? '#10B981' : '#EF4444' }}
                                                 />
-                                                <span className="gw-pill-name">{shortName(tag)}</span>
-                                                <span className="gw-pill-value font-mono">
+                                                <span className="gw-pill-name">{pillNames.get(tag.id)}</span>
+                                                <span className="gw-pill-value">
                                                     {formatLiveValue(live.value, tag.eu_decimals)}
                                                     {tag.eu_unit ? <span className="gw-pill-unit"> {tag.eu_unit}</span> : null}
                                                 </span>
@@ -660,7 +682,7 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                                     <button
                                         type="button"
                                         aria-label={gw.name}
-                                        className={`gw-pin ${placingForId === gw.id ? 'gw-pin-target' : ''} ${editGwId === gw.id ? 'gw-pin-editing' : ''}`}
+                                        className={`gw-pin ${gw.connection_status === 'offline' ? 'gw-pin-off' : ''} ${placingForId === gw.id ? 'gw-pin-target' : ''} ${editGwId === gw.id ? 'gw-pin-editing' : ''}`}
                                         style={{ '--pin-color': statusColor(gw.connection_status) } as React.CSSProperties}
                                     />
                                 </div>
@@ -717,6 +739,25 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                     )}
                 </MapGL>
 
+                {/* Legend, on the map: what the colours mean and how many of each.
+                    Out of the way while a popup is open (on a phone it covered it). */}
+                {!selectedGw && !openTag && <div className="pointer-events-none absolute top-3 left-3 z-10 max-w-[calc(100%-4.5rem)] flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border bg-card/90 px-3 py-1.5 text-xs text-muted-foreground shadow-sm backdrop-blur">
+                    {([
+                        ['online', t('map.legend_online')],
+                        ['offline', t('map.legend_offline')],
+                        ['never', t('map.legend_never')],
+                    ] as const).map(([st, label]) => (
+                        <span key={st} className="flex items-center gap-1.5">
+                            <span className="size-2.5 rounded-full ring-2 ring-white dark:ring-zinc-900" style={{ background: statusColor(st) }} />
+                            {label}
+                            <span className="font-semibold tabular-nums text-foreground">
+                                {visibleGateways.filter((g) => (st === 'never' ? !g.connection_status || (g.connection_status !== 'online' && g.connection_status !== 'offline') : g.connection_status === st)).length}
+                            </span>
+                        </span>
+                    ))}
+                    <span className="hidden sm:inline text-muted-foreground/80">· {visibleGateways.length}/{placedGateways.length} {t('map.placed_count')}</span>
+                </div>}
+
                 {placingForId !== null && (
                     <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-medium shadow-md">
                         {t('map.placing_hint')}
@@ -742,62 +783,9 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                 />
             )}
 
-            {/* Selettore gateway: ricerca e volo sul pin, come nel Trend */}
-            <div className="clip-chamfer border bg-card px-3 py-2.5 flex flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <Cpu size={14} className="text-muted-foreground shrink-0" />
-                    <select
-                        className="h-8 w-full max-w-md rounded-md border bg-background text-sm"
-                        value={selectedGwId ?? ''}
-                        onChange={(e) => {
-                            const id = e.target.value ? parseInt(e.target.value) : null;
-                            if (id === null) { setSelectedGwId(null); return; }
-                            const gw = gateways.find((g) => g.id === id);
-                            if (gw && typeof gw.latitude === 'number' && typeof gw.longitude === 'number') {
-                                handleSelectGateway(id, gw.longitude, gw.latitude);
-                            } else {
-                                setSelectedGwId(id);
-                            }
-                        }}
-                    >
-                        <option value="">{t('map.pick_gateway')}</option>
-                        {visibleGateways.map((gw) => (
-                            <option key={gw.id} value={gw.id}>
-                                {gw.name}{gw.connection_status === 'online' ? '' : ' ·'}
-                            </option>
-                        ))}
-                    </select>
-                </div>
-                {selectedGw && (
-                    <span className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: statusColor(selectedGw.connection_status) }} />
-                        {selectedGw.name}
-                    </span>
-                )}
-            </div>
-
-            {/* Legenda */}
-            <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground px-1">
-                <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: statusColor('online') }} />
-                    {t('map.legend_online')}
-                </span>
-                <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: statusColor('offline') }} />
-                    {t('map.legend_offline')}
-                </span>
-                <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: statusColor('never') }} />
-                    {t('map.legend_never')}
-                </span>
-                <span className="ml-auto">
-                    {visibleGateways.length}/{placedGateways.length} {t('map.placed_count')}
-                </span>
-            </div>
-
             {/* Editing posizione gateway: solo admin */}
             {canEdit && editGw && (
-                <div className="clip-chamfer border bg-card p-4 space-y-3">
+                <div className="rounded-xl border bg-card p-4 space-y-3">
                     <div className="flex items-center gap-2">
                         <MapPin size={16} className="text-muted-foreground" />
                         <strong className="text-sm">{editGw.name}</strong>
@@ -874,50 +862,49 @@ const MapPage = ({ gatewaysOverride, areasOverride }: MapPageProps) => {
                 }
                 .gw-pills-open { max-height: 260px; opacity: 1; transform: translateY(0) scale(1); }
                 .gw-pill {
-                    display: flex; align-items: center; gap: 7px;
-                    background: rgba(13, 17, 23, 0.96);
-                    border: 1px solid rgba(240, 246, 252, 0.1);
-                    border-radius: 6px;
-                    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
-                    padding: 4px 9px;
-                    font-size: 11px; line-height: 1.35;
-                    color: #e6edf3; cursor: pointer; white-space: nowrap;
+                    display: flex; align-items: center; gap: 6px;
+                    background: hsl(var(--card) / 0.97);
+                    color: hsl(var(--card-foreground));
+                    border: 1px solid hsl(var(--border));
+                    border-radius: 8px;
+                    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+                    padding: 3px 8px;
+                    font-size: 12px; line-height: 1.35;
+                    cursor: pointer; white-space: nowrap;
                     backdrop-filter: blur(4px);
-                    transition: border-color .15s ease, transform .15s ease;
+                    transition: border-color .15s ease, box-shadow .15s ease;
                 }
-                .gw-pill:hover { border-color: rgba(56, 189, 248, 0.55); transform: translateX(2px); }
-                .gw-pill-more { justify-content: center; color: #8b949e; font-size: 10px; letter-spacing: 0.04em; }
-                .gw-qdot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 4px currentColor; }
-                .gw-pill-name {
-                    font-weight: 600; font-family: system-ui, sans-serif;
-                    font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase;
-                    color: #c9d1d9; flex-shrink: 0;
-                }
-                .gw-pill-value {
-                    color: #58a6ff; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-                    font-variant-numeric: tabular-nums; margin-left: auto;
-                }
-                .gw-pill-unit { color: #8b949e; font-size: 9px; }
-                .gw-pill-arrow { color: #8b949e; font-size: 9px; flex-shrink: 0; }
+                .gw-pill:hover { border-color: hsl(var(--foreground) / 0.35); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22); }
+                .gw-pill-more { justify-content: center; color: hsl(var(--muted-foreground)); font-size: 11px; }
+                .gw-qdot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+                .gw-pill-name { font-weight: 500; color: hsl(var(--muted-foreground)); flex-shrink: 0; }
+                .gw-pill-value { font-weight: 600; font-variant-numeric: tabular-nums; margin-left: auto; }
+                .gw-pill-unit { color: hsl(var(--muted-foreground)); font-weight: 400; font-size: 11px; }
+                .gw-pill-arrow { color: hsl(var(--muted-foreground)); font-size: 10px; flex-shrink: 0; }
+                /* The pin: a dot with a white ring, its state in the colour;
+                   an offline one keeps a slow halo so it is found at a glance. */
                 .gw-pin {
-                    width: 18px; height: 18px;
-                    border-radius: 50% 50% 50% 0;
-                    transform: rotate(-45deg);
+                    width: 18px; height: 18px; border-radius: 9999px;
                     background: var(--pin-color, #9CA3AF);
-                    border: 2px solid rgba(255, 255, 255, 0.9);
-                    box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
-                    cursor: pointer;
+                    border: 3px solid #fff;
+                    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 2px 6px rgba(0, 0, 0, 0.35);
+                    cursor: pointer; transition: transform .15s ease;
                 }
-                .gw-pin:hover { filter: brightness(1.15); }
-                .gw-pin-target { outline: 2px dashed #fff; outline-offset: 3px; animation: gw-pulse 1s infinite alternate; }
+                .gw-pin:hover { transform: scale(1.15); }
+                .gw-pin-off { animation: gw-halo 2s ease-out infinite; }
+                @keyframes gw-halo {
+                    0% { box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 0 0 0 rgba(239, 68, 68, 0.55); }
+                    100% { box-shadow: 0 0 0 1px rgba(0,0,0,.25), 0 0 0 12px rgba(239, 68, 68, 0); }
+                }
+                .gw-pin-target { outline: 2px dashed hsl(var(--foreground)); outline-offset: 3px; animation: gw-pulse 1s infinite alternate; }
                 .gw-pin-editing { box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.6); }
-                @keyframes gw-pulse { from { transform: rotate(-45deg) scale(1); } to { transform: rotate(-45deg) scale(1.15); } }
+                @keyframes gw-pulse { from { transform: scale(1); } to { transform: scale(1.2); } }
                 .map-popup .maplibregl-popup-content {
                     background: hsl(var(--card));
                     color: hsl(var(--card-foreground));
                     border: 1px solid hsl(var(--border));
-                    border-radius: 6px;
-                    padding: 12px;
+                    border-radius: 12px;
+                    padding: 14px;
                     min-width: 240px;
                     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
                 }
@@ -944,6 +931,7 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpen
     const { t } = useTranslation();
     const battery = extractBattery(gateway.connection_config);
     const tags = [...tagsById.values()].filter((tg) => tg.gateway_id === gateway.id);
+    const popupNames = shortTagNames(tags.map((tg) => ({ id: tg.id, name: tg.alias || tg.code || `#${tg.id}` })));
 
     return (
         <div className="space-y-2 text-sm">
@@ -951,7 +939,7 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpen
                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: statusColor(gateway.connection_status) }} />
                 <strong className="truncate">{gateway.name}</strong>
             </div>
-            <div className="text-xs text-muted-foreground uppercase tracking-widest">
+            <div className="text-xs text-muted-foreground">
                 {gateway.connection_status
                     ? t(`gatewaysPage.status.${gateway.connection_status}`, { defaultValue: gateway.connection_status })
                     : t('gatewaysPage.status.unknown')}
@@ -962,18 +950,18 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpen
                     {t('map.battery')}: {battery}%
                 </div>
             )}
-            <div className="border-t border-white/10 pt-1.5">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">{t('map.live_values')}</div>
+            <div className="border-t pt-2">
+                <div className="text-xs font-medium text-muted-foreground mb-1">{t('map.live_values')}</div>
                 {tags.length === 0 ? (
                     <div className="text-xs text-muted-foreground">{t('map.no_tags')}</div>
                 ) : (
-                    <ul className="space-y-0.5 max-h-32 overflow-y-auto">
+                    <ul className="space-y-1 max-h-40 overflow-y-auto">
                         {tags.map((tg) => {
                             const live = tagLive.get(tg.id);
                             return (
-                                <li key={tg.id} className="flex justify-between gap-3 text-xs">
-                                    <span className="truncate text-muted-foreground">{tg.alias || tg.code || `#${tg.id}`}</span>
-                                    <span className="font-mono">
+                                <li key={tg.id} className="flex items-baseline justify-between gap-3 text-sm">
+                                    <span className="min-w-0 truncate text-muted-foreground" title={tg.alias || tg.code}>{popupNames.get(tg.id)}</span>
+                                    <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums">
                                         {formatLiveValue(live?.value, tg.eu_decimals)}
                                         {tg.eu_unit && live?.value != null ? ` ${tg.eu_unit}` : ''}
                                     </span>
@@ -986,7 +974,7 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpen
             <div className="flex flex-wrap gap-2 pt-1">
                 <button
                     type="button"
-                    className="px-2 py-1 rounded bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90"
+                    className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90"
                     onClick={() => {
                         // Open the trend with THIS gateway's pens preloaded:
                         // ?pens=<ids> is the format the trend page understands.
@@ -1001,7 +989,7 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpen
                 {canEdit && (
                     <button
                         type="button"
-                        className="px-2 py-1 rounded border border-border text-xs hover:bg-muted"
+                        className="inline-flex h-8 items-center gap-1 px-3 rounded-md border text-xs hover:bg-muted"
                         onClick={() => { onPlace(); onClose(); }}
                     >
                         <MapPin size={12} className="inline mr-1 -mt-0.5" />
@@ -1010,7 +998,7 @@ function GatewayPopup({ gateway, tagsById, tagLive, onClose, onOpenTrend, onOpen
                 )}
                 <button
                     type="button"
-                    className="px-2 py-1 rounded border border-border text-xs hover:bg-muted"
+                    className="inline-flex h-8 items-center gap-1 px-3 rounded-md border text-xs hover:bg-muted"
                     onClick={onClose}
                 >
                     {t('common.close')}
@@ -1046,10 +1034,10 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
     })();
     return (
         <div className="space-y-2 text-sm">
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{t('map.tag_detail')}</div>
+            <div className="text-xs font-medium text-muted-foreground">{t('map.tag_detail')}</div>
             <strong className="block truncate">{tag.alias || tag.code || `#${tag.id}`}</strong>
             <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-mono">{formatLiveValue(live.value, tag.eu_decimals)}</span>
+                <span className="text-2xl font-semibold tabular-nums">{formatLiveValue(live.value, tag.eu_decimals)}</span>
                 {tag.eu_unit && <span className="text-xs text-muted-foreground">{tag.eu_unit}</span>}
                 <span
                     className="w-2 h-2 rounded-full self-center ml-1"
@@ -1066,14 +1054,14 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
             <div className="flex gap-2 pt-1">
                 <button
                     type="button"
-                    className="px-2 py-1 rounded bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90"
+                    className="h-8 px-3 rounded-md bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90"
                     onClick={() => { onOpenTrend(tag.gateway_id, tag.id); onClose(); }}
                 >
                     {t('map.open_trend')}
                 </button>
                 <button
                     type="button"
-                    className="px-2 py-1 rounded border border-border text-xs hover:bg-muted"
+                    className="inline-flex h-8 items-center gap-1 px-3 rounded-md border text-xs hover:bg-muted"
                     onClick={() => setShowHistory((v) => !v)}
                 >
                     <History size={12} className="inline mr-1 -mt-0.5" />
@@ -1081,7 +1069,7 @@ function TagDetailPopup({ tag, live, onClose, onOpenTrend }: TagDetailProps) {
                 </button>
                 <button
                     type="button"
-                    className="px-2 py-1 rounded border border-border text-xs hover:bg-muted"
+                    className="inline-flex h-8 items-center gap-1 px-3 rounded-md border text-xs hover:bg-muted"
                     onClick={onClose}
                 >
                     {t('common.close')}
@@ -1132,7 +1120,7 @@ function GatewayListDialog({ gateway, tagsById, tagLive, onClose, onOpenTrend }:
                                     style={{ background: (live?.quality ?? 1) === 0 ? '#10B981' : '#EF4444' }}
                                 />
                                 <span className="truncate flex-1">{tg.alias || tg.code || `#${tg.id}`}</span>
-                                <span className="font-mono text-xs">
+                                <span className="text-xs font-medium tabular-nums">
                                     {formatLiveValue(live?.value, tg.eu_decimals)}
                                     {tg.eu_unit && live?.value != null ? ` ${tg.eu_unit}` : ''}
                                 </span>
