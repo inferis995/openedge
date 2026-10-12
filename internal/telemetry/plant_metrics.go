@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"strings"
@@ -42,11 +43,13 @@ const gatewaysOfflineQuery = `
 	       OR health_reported_at < NOW() - INTERVAL '5 minutes')`
 
 func collectPlantMetrics(db *sql.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	var n float64
-	if err := db.QueryRow(`SELECT COUNT(*) FROM gateways WHERE enabled`).Scan(&n); err == nil {
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gateways WHERE enabled`).Scan(&n); err == nil {
 		GatewaysEnabled.Set(n)
 	}
-	if err := db.QueryRow(gatewaysOfflineQuery).Scan(&n); err == nil {
+	if err := db.QueryRowContext(ctx, gatewaysOfflineQuery).Scan(&n); err == nil {
 		GatewaysOffline.Set(n)
 	}
 	BackupLastTimestamp.Set(float64(newestBackup(backupDir()).Unix()))
@@ -71,9 +74,7 @@ func newestBackup(dir string) time.Time {
 	}
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || strings.HasPrefix(name, "pre-restore_") || strings.HasPrefix(name, ".") ||
-			!(strings.HasSuffix(name, ".sql.gz") || strings.HasSuffix(name, ".dump") ||
-				strings.HasSuffix(name, ".dump.age") || strings.HasSuffix(name, ".zip")) {
+		if e.IsDir() || strings.HasPrefix(name, "pre-restore_") || strings.HasPrefix(name, ".") || !isBackupFile(name) {
 			continue
 		}
 		if info, err := e.Info(); err == nil && info.ModTime().After(newest) {
@@ -84,4 +85,13 @@ func newestBackup(dir string) time.Time {
 		return time.Unix(0, 0)
 	}
 	return newest
+}
+
+func isBackupFile(name string) bool {
+	for _, ext := range []string{".sql.gz", ".dump", ".dump.age", ".zip"} {
+		if strings.HasSuffix(name, ext) {
+			return true
+		}
+	}
+	return false
 }
