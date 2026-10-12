@@ -1568,20 +1568,30 @@ func (d *Driver) reevaluateOnce() {
 		log.Printf("[DRIVER-MQTT] Re-sweep query failed for gateway %d: %v", d.gatewayID, err)
 		return
 	}
-	defer func() { _ = rows.Close() }()
-	n := 0
+	// Read every row and give the connection back before evaluating: an
+	// evaluation can write alarm events, and a driver's pool is two
+	// connections (db.ForDriver). Holding the cursor open while the alarm
+	// writes and the message worker each wanted another could stall the
+	// driver — no values published until the cursor let go.
+	type latest struct {
+		id    int
+		alias string
+		value float64
+		ts    time.Time
+	}
+	var vals []latest
 	for rows.Next() {
-		var id int
-		var alias string
-		var value float64
-		var ts time.Time
-		if err := rows.Scan(&id, &alias, &value, &ts); err != nil {
+		var v latest
+		if err := rows.Scan(&v.id, &v.alias, &v.value, &v.ts); err != nil {
 			continue
 		}
-		d.alarmManager.EvaluateThresholdsAt(id, alias, value, 192, ts)
-		n++
+		vals = append(vals, v)
 	}
-	log.Printf("[DRIVER-MQTT] Re-sweep evaluated %d tags for gateway %d", n, d.gatewayID)
+	_ = rows.Close()
+	for _, v := range vals {
+		d.alarmManager.EvaluateThresholdsAt(v.id, v.alias, v.value, 192, v.ts)
+	}
+	log.Printf("[DRIVER-MQTT] Re-sweep evaluated %d tags for gateway %d", len(vals), d.gatewayID)
 }
 
 // run is the main loop that handles config reloads and periodic health checks
