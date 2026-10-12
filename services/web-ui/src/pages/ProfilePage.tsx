@@ -96,10 +96,10 @@ export default function ProfilePage() {
         }
     };
 
-    if (isLoading) return <div className="p-6 text-muted-foreground">{t('common.loading')}</div>;
+    if (isLoading) return <div className="text-muted-foreground">{t('common.loading')}</div>;
 
     return (
-        <div className="p-6 max-w-2xl space-y-8">
+        <div className="max-w-2xl space-y-8">
             {/* Header */}
             <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">

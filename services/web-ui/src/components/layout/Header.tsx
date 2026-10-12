@@ -155,22 +155,20 @@ const Header = ({ onMenuClick }: HeaderProps) => {
 
                 {/* Context Indicator (Professional Badge) */}
                 {(selectedOrgId || selectedSiteId || selectedAreaId) && (
-                    <div className="hidden md:flex items-center bg-secondary text-secondary-foreground clip-chamfer-sm px-4 py-1.5 border border-border">
-                        <span className="text-[10px] font-bold text-muted-foreground mr-2 uppercase tracking-wider">{t('nav.context')}</span>
-
-                        <div className="flex items-center gap-1 text-sm font-medium">
+                    <div className="hidden md:flex h-8 items-center rounded-full border bg-card pl-3 pr-1.5" title={t('nav.context')}>
+                        <div className="flex items-center gap-1.5 text-sm">
                             {org && (
                                 <div className="flex items-center gap-1">
-                                    <Building2 size={12} className="text-blue-500" />
+                                    <Building2 size={13} className="text-muted-foreground" />
                                     <span className="font-medium">{org.name}</span>
                                 </div>
                             )}
 
                             {site && (
                                 <>
-                                    <span className="text-slate-400">/</span>
+                                    <span className="text-muted-foreground/50">/</span>
                                     <div className="flex items-center gap-1">
-                                        <Factory size={12} className="text-indigo-500" />
+                                        <Factory size={13} className="text-muted-foreground" />
                                         <span className="font-medium">{site.name}</span>
                                     </div>
                                 </>
@@ -178,9 +176,9 @@ const Header = ({ onMenuClick }: HeaderProps) => {
 
                             {area && (
                                 <>
-                                    <span className="text-slate-400">/</span>
+                                    <span className="text-muted-foreground/50">/</span>
                                     <div className="flex items-center gap-1">
-                                        <MapPin size={12} className="text-violet-500" />
+                                        <MapPin size={13} className="text-muted-foreground" />
                                         <span className="font-medium">{area.name}</span>
                                     </div>
                                 </>
@@ -191,7 +189,8 @@ const Header = ({ onMenuClick }: HeaderProps) => {
                         {!isOrgScoped() && (
                             <button
                                 onClick={clearSelection}
-                                className="ml-3 p-0.5 clip-hex hover:bg-muted text-muted-foreground hover:text-destructive transition-colors"
+                                className="ml-2 grid size-6 place-items-center rounded-full hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                aria-label={t('nav.clear_context')}
                                 title={t('nav.clear_context')}
                             >
                                 <X size={14} />
@@ -209,14 +208,15 @@ const Header = ({ onMenuClick }: HeaderProps) => {
                 <div
                     title={isMqttConnected ? t('nav.mqtt_connected_hint') : t('nav.mqtt_disconnected_hint')}
                     className={cn(
-                        "flex items-center gap-2 px-2 md:px-3 py-1.5 clip-chamfer-sm text-[10px] font-bold uppercase tracking-wider border",
+                        // Connected is the normal state: quiet. Only the loss is coloured.
+                        "flex h-8 items-center gap-2 rounded-full border px-2.5 md:px-3 text-xs font-medium",
                         isMqttConnected
-                            ? "bg-[#10B981]/10 text-[#10B981] border-[#10B981]/20"
-                            : "bg-destructive/10 text-destructive border-destructive/20"
+                            ? "bg-card text-muted-foreground"
+                            : "border-red-200 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/50 dark:text-red-400"
                     )}>
                     <span className={cn(
-                        "w-2 h-2 clip-hex shrink-0",
-                        isMqttConnected ? "bg-[#10B981] animate-pulse" : "bg-destructive"
+                        "size-2 rounded-full shrink-0",
+                        isMqttConnected ? "bg-emerald-500" : "bg-red-500 animate-pulse"
                     )}></span>
                     <span className="hidden sm:inline">
                         {isMqttConnected ? t('nav.mqtt_connected') : t('nav.mqtt_disconnected')}

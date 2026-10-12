@@ -67,7 +67,7 @@ const InfrastructurePage = () => {
     }
 
     return (
-        <div className="p-6 space-y-6">
+        <div className="space-y-6">
             <div className="flex items-center gap-3">
                 <Server className="h-10 sm:h-8 w-10 sm:w-8 text-primary" />
                 <div>

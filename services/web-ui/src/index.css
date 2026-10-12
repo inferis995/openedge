@@ -375,6 +375,17 @@ layer(base);
         display: none;
     }
 
+    /* A desktop table may be fixed-layout with a minimum width and cells
+       capped for truncation; as cards none of that applies — it pushed the
+       values out of a 390px card. */
+    table.responsive-table {
+        min-width: 0 !important;
+        table-layout: auto !important;
+    }
+    table.responsive-table tbody td {
+        max-width: none !important;
+    }
+
     table.responsive-table tbody tr {
         border: 1px solid hsl(var(--border));
         border-radius: 0.5rem;

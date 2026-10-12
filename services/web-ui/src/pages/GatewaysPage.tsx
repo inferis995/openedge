@@ -32,7 +32,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, Wifi, ChevronRight, RefreshCw, Search, Radio } from 'lucide-react';
+import { Plus, Trash2, Wifi, ChevronRight, RefreshCw, Search, Radio, Settings2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import { CreateGatewayDto, Gateway } from '@/types';
@@ -107,7 +107,7 @@ const GatewaysPage = () => {
         const orgId = user?.org_id;
         if (!orgId) return;
         edgeAgentsApi.list(orgId)
-            .then((r) => setEdgeAgents(r.agents))
+            .then((r) => setEdgeAgents(r.agents ?? []))
             .catch(() => setEdgeAgents([]));
     }, [user?.org_id]);
 
@@ -491,7 +491,7 @@ const GatewaysPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold tracking-tight">{t('nav.gateways')}</h2>
+                    <h2 className="text-2xl font-semibold tracking-tight">{t('nav.gateways')}</h2>
                     <p className="text-muted-foreground">
                         {t('gatewaysPage.subtitle')}
                     </p>
@@ -1168,7 +1168,7 @@ const GatewaysPage = () => {
                                         </div>
                                     </TableCell>
                                     <TableCell>
-                                        <Badge variant="outline">{gw.driver_type}</Badge>
+                                        <Badge variant="muted">{gw.driver_type}</Badge>
                                     </TableCell>
                                     <TableCell className="text-xs text-muted-foreground">
                                         {gw.driver_type === 'S7'
@@ -1189,8 +1189,8 @@ const GatewaysPage = () => {
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">
-                                            <div className={`h-2 w-2 clip-hex ${gw.connection_status === 'online' ? 'bg-[#10B981] animate-pulse' : 'bg-destructive'}`} />
-                                            <span className="text-[10px] font-bold tracking-widest uppercase text-muted-foreground">{gw.connection_status ? t(`gatewaysPage.status.${gw.connection_status}`, { defaultValue: gw.connection_status }) : t('gatewaysPage.status.unknown')}</span>
+                                            <div className={`size-2 rounded-full ${gw.connection_status === 'online' ? 'bg-emerald-500' : gw.connection_status === 'offline' ? 'bg-red-500' : 'bg-muted-foreground/40'}`} />
+                                            <span className={`text-sm capitalize ${gw.connection_status === 'offline' ? 'text-red-600 dark:text-red-400 font-medium' : 'text-muted-foreground'}`}>{gw.connection_status ? t(`gatewaysPage.status.${gw.connection_status}`, { defaultValue: gw.connection_status }) : t('gatewaysPage.status.unknown')}</span>
                                         </div>
                                     </TableCell>
                                     <TableCell>
@@ -1207,33 +1207,35 @@ const GatewaysPage = () => {
                                     </TableCell>
                                     <TableCell className="text-right">
                                         {isAdmin() && (
-                                            <div className="flex items-center justify-end gap-2">
+                                            <div className="flex items-center justify-end gap-0.5 text-muted-foreground">
                                                 <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="h-10 sm:h-8 text-xs gap-1"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="size-8"
+                                                    title={t('gatewaysPage.test')}
+                                                    aria-label={t('gatewaysPage.test')}
+                                                    onClick={(e) => handleTest(e, gw.id)}
+                                                >
+                                                    <Wifi size={16} />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="size-8"
+                                                    title={t('common.edit')}
+                                                    aria-label={t('common.edit')}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
                                                         handleEditOpen(gw);
                                                     }}
                                                 >
-                                                    {t('common.edit')}
-                                                </Button>
-
-                                                <Button
-                                                    variant="secondary"
-                                                    size="sm"
-                                                    className="h-10 sm:h-8 text-xs gap-1"
-                                                    onClick={(e) => handleTest(e, gw.id)}
-                                                >
-                                                    <Wifi size={12} />
-                                                    {t('gatewaysPage.test')}
+                                                    <Settings2 size={16} />
                                                 </Button>
                                                 {gw.driver_type === 'LORAWAN' && (
                                                     <Button
                                                         variant="outline"
                                                         size="sm"
-                                                        className="h-10 sm:h-8 text-xs gap-1 text-violet-600 border-violet-300 hover:bg-violet-50 dark:hover:bg-violet-950/30"
+                                                        className="h-8 text-xs"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
                                                             setLorawanPanel({ id: gw.id, name: gw.name });
@@ -1246,7 +1248,9 @@ const GatewaysPage = () => {
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
-                                                    className="h-10 sm:h-8 w-10 sm:w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                                    className="size-8 hover:text-red-600 hover:bg-red-500/10"
+                                                    title={t('common.delete')}
+                                                    aria-label={t('common.delete')}
                                                     onClick={(e) => handleDelete(e, gw.id)}
                                                 >
                                                     <Trash2 size={16} />
@@ -1255,7 +1259,7 @@ const GatewaysPage = () => {
                                             </div>
                                         )}
                                         {testResult?.id === gw.id && (
-                                            <div className={`text-[10px] uppercase tracking-widest font-bold mt-1 ${testResult.success ? 'text-[#10B981]' : 'text-destructive'}`}>
+                                            <div className={`text-xs font-medium mt-1 ${testResult.success ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive'}`}>
                                                 {testResult.message}
                                             </div>
                                         )}

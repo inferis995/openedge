@@ -3,7 +3,10 @@ import { toast } from 'sonner';
 import { mqttCredentialsApi } from '@/api/mqttCredentials';
 import i18n from '@/i18n';
 
+const OFFLINE_TOAST = 'mqtt-offline';
+
 class MQTTClientService {
+    private offlineTimer: ReturnType<typeof setTimeout> | null = null;
     private client: MqttClient | null = null;
     private reconnectAttempts = 0;
     private maxReconnectAttempts = 5;
@@ -44,6 +47,9 @@ class MQTTClientService {
 
             this.client.on('connect', () => {
                 console.warn('MQTT connected successfully');
+                // Back: the warning goes, and a pending one is never shown.
+                if (this.offlineTimer) { clearTimeout(this.offlineTimer); this.offlineTimer = null; }
+                toast.dismiss(OFFLINE_TOAST);
                 this.reconnectAttempts = 0;
                 this.isManuallyDisconnected = false;
                 resolve();
@@ -57,15 +63,22 @@ class MQTTClientService {
                 console.error('MQTT error:', err);
                 this.reconnectAttempts++;
                 if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-                    toast.error('MQTT connection failed. Please refresh the page.');
+                    toast.error(i18n.t('nav.mqtt_failed'), { id: OFFLINE_TOAST });
                     reject(err);
                 }
             });
 
             this.client.on('offline', () => {
                 console.warn('MQTT client offline');
-                if (!this.isManuallyDisconnected) {
-                    toast.warning(i18n.t('nav.mqtt_reconnecting'));
+                // Only a drop that lasts: a reconnect within seconds (a phone
+                // waking up, a proxy recycling the socket) is not news, and the
+                // header already shows the connection state. One toast, never
+                // a stack of them.
+                if (!this.isManuallyDisconnected && !this.offlineTimer) {
+                    this.offlineTimer = setTimeout(() => {
+                        this.offlineTimer = null;
+                        if (!this.client?.connected) toast.warning(i18n.t('nav.mqtt_reconnecting'), { id: OFFLINE_TOAST });
+                    }, 10_000);
                 }
             });
 

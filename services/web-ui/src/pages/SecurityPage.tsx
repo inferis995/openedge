@@ -151,7 +151,7 @@ const SecurityPage = () => {
     const notAssessedCount = compliance.length - evaluatedCount;
 
     return (
-        <div className="p-6 space-y-6">
+        <div className="space-y-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
                     <Shield className="h-10 sm:h-8 w-10 sm:w-8 text-primary" />

@@ -135,7 +135,8 @@
     "mqtt_reconnecting": "Connessione ai dati in tempo reale persa: riconnessione in corso…",
     "setup": "Primi passi",
     "all_orgs": "Tutte le organizzazioni",
-    "select_org": "Scegli organizzazione"
+    "select_org": "Scegli organizzazione",
+    "mqtt_failed": "Connessione ai dati in tempo reale non riuscita: ricarica la pagina."
   },
   "system": {
     "title": "Pannello di sistema",

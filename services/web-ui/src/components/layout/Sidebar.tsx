@@ -87,10 +87,10 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
                 title={collapsed ? label : undefined}
                 aria-current={isActive ? 'page' : undefined}
                 className={cn(
-                    "flex items-center clip-chamfer-sm text-sm font-medium transition-all group",
-                    collapsed ? "justify-center w-12 h-12 mx-auto px-0" : "px-4 py-2.5 gap-3 w-full",
+                    "flex items-center rounded-lg text-sm font-medium transition-colors group",
+                    collapsed ? "justify-center w-12 h-12 mx-auto px-0" : "px-3 py-2 gap-3 w-full",
                     isActive
-                        ? "bg-primary text-primary-foreground shadow-md"
+                        ? "bg-primary text-primary-foreground shadow-sm"
                         : "text-[hsl(var(--sidebar-muted))] hover:bg-[hsl(var(--sidebar-accent))] hover:text-[hsl(var(--sidebar-fg))]"
                 )}
             >
@@ -165,7 +165,7 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
             <Button
                 variant="ghost"
                 size="icon"
-                className="absolute -right-3 top-20 h-9 sm:h-6 w-9 sm:w-6 clip-hex bg-[hsl(var(--sidebar-accent))] border border-[hsl(var(--sidebar-border))] text-[hsl(var(--sidebar-muted))] hover:text-[hsl(var(--sidebar-fg))] hover:bg-[hsl(var(--sidebar-accent))]/80 shadow-md z-30 hidden md:flex items-center justify-center p-0"
+                className="absolute -right-3 top-20 h-9 sm:h-6 w-9 sm:w-6 rounded-full bg-[hsl(var(--sidebar-accent))] border border-[hsl(var(--sidebar-border))] text-[hsl(var(--sidebar-muted))] hover:text-[hsl(var(--sidebar-fg))] hover:bg-[hsl(var(--sidebar-accent))]/80 shadow-md z-30 hidden md:flex items-center justify-center p-0"
                 onClick={() => setCollapsed(!collapsed)}
             >
                 {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
@@ -237,7 +237,7 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }: SidebarProps) => {
                             collapsed ? "justify-center p-2" : "flex-1 gap-2 p-2"
                         )}
                     >
-                        <div className="h-8 w-8 min-w-[32px] clip-hex bg-primary flex items-center justify-center text-primary-foreground">
+                        <div className="h-8 w-8 min-w-[32px] rounded-full bg-primary flex items-center justify-center text-primary-foreground">
                             <User size={16} />
                         </div>
                         {!collapsed && (

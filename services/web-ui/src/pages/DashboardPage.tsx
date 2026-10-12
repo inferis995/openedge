@@ -17,6 +17,7 @@ import {
     OEESnapshot, OEEHistoryPoint, OEEOverview, OEEProfileSnapshot, type OEESource } from '@/api/dashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { SeverityBadge } from '@/components/alarms/SeverityBadge';
 import { Badge } from '@/components/ui/badge';
 import PinnedSynopticCard from '@/components/synoptics/PinnedSynopticCard';
 import { usePinnedSynoptics } from '@/hooks/usePinnedSynoptics';
@@ -204,7 +205,7 @@ const KPICard = ({ k }: { k: KPIWidget }) => {
             <Card className="border-border h-full">
                 <CardContent className="p-4 space-y-2">
                     <div className="flex items-center justify-between">
-                        <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">{k.label}</p>
+                        <p className="text-xs text-muted-foreground font-medium">{k.label}</p>
                         {destination && <ArrowUpRight size={12} className="text-muted-foreground opacity-60" />}
                     </div>
                     <div className="flex items-baseline gap-2">
@@ -219,7 +220,7 @@ const KPICard = ({ k }: { k: KPIWidget }) => {
                             </div>
                         ) : <span className="text-muted-foreground">—</span>}
                         {targetLabel && (
-                            <span className={`font-mono ${k.target_met ? 'text-emerald-500' : 'text-red-500'}`}>
+                            <span className={`tabular-nums ${k.target_met ? 'text-emerald-500' : 'text-red-500'}`}>
                                 {t('dashboardPage.target', { value: targetLabel })}
                             </span>
                         )}
@@ -265,10 +266,11 @@ const AlarmsCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard
                 <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                     {(['critical', 'high', 'medium', 'low'] as const).map((sev) => {
                         const n = a.active_by_level[sev] ?? 0;
+                        // A level with nothing active stays grey: colour only where there is something.
                         return (
-                            <div key={sev} className={`p-2 rounded-md border ${severityColor(sev)}`}>
-                                <p className="text-2xl font-bold">{n}</p>
-                                <p className="text-xs uppercase tracking-wider">{t(`alarmsPage.severity_${sev}`)}</p>
+                            <div key={sev} className={`rounded-lg border p-2.5 ${n > 0 ? severityColor(sev) : 'border-border bg-muted/40 text-muted-foreground'}`}>
+                                <p className="text-2xl font-semibold tabular-nums leading-none">{n}</p>
+                                <p className="mt-1 text-xs capitalize">{t(`alarmsPage.severity_${sev}`)}</p>
                             </div>
                         );
                     })}
@@ -299,9 +301,9 @@ const OperationsCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashb
                 </CardTitle>
             </CardHeader>
             <CardContent className="divide-y divide-border">
-                {row(<ChefHat size={14} />, t('dashboardPage.recipe_loads'), <span className="font-mono">{o.recipe_loads_24h}</span>)}
-                {row(<Pencil size={14} />, t('dashboardPage.plc_writes'), <span className="font-mono">{o.writes_24h}</span>)}
-                {row(<LogIn size={14} />, t('dashboardPage.logins'), <span className="font-mono">{o.logins_24h}</span>)}
+                {row(<ChefHat size={14} />, t('dashboardPage.recipe_loads'), <span className="tabular-nums">{o.recipe_loads_24h}</span>)}
+                {row(<Pencil size={14} />, t('dashboardPage.plc_writes'), <span className="tabular-nums">{o.writes_24h}</span>)}
+                {row(<LogIn size={14} />, t('dashboardPage.logins'), <span className="tabular-nums">{o.logins_24h}</span>)}
                 {row(<Mail size={14} />, t('dashboardPage.email_alerts'),
                     o.notif_email_enabled
                         ? <Badge className="bg-emerald-500/10 text-emerald-500 border-none text-xs">ON</Badge>
@@ -384,9 +386,7 @@ const RecentAlarmsCard = ({ alarms }: { alarms: AlarmSummary[] }) => {
                         <Clickable to="/alarms" key={a.id}>
                             <div className="py-2 px-1 text-sm">
                                 <div className="flex items-center gap-2">
-                                    <Badge className={`text-xs ${severityColor(a.severity)} border-none`}>
-                                        {t(`alarmsPage.severity_${a.severity.toLowerCase()}`, { defaultValue: a.severity })}
-                                    </Badge>
+                                    <SeverityBadge severity={a.severity} className="shrink-0" />
                                     <span className="truncate">{a.tag_alias || a.message || t('dashboardPage.alarm_n', { id: a.id })}</span>
                                     <span className="ml-auto text-xs text-muted-foreground">{formatRelative(a.trigger_time)}</span>
                                 </div>
@@ -439,7 +439,7 @@ const ShiftCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard>
             <CardContent className="space-y-3">
                 <div className="flex items-baseline justify-between">
                     <span className="text-xl font-bold tracking-tight">{s.name}</span>
-                    <span className="text-xs text-muted-foreground font-mono">
+                    <span className="text-xs text-muted-foreground tabular-nums">
                         {hhmm(s.started_at)}–{hhmm(s.ends_at)}
                     </span>
                 </div>
@@ -506,7 +506,7 @@ const SystemCard = ({ data }: { data: NonNullable<ReturnType<typeof useDashboard
                     <span className="flex items-center gap-2 text-muted-foreground">
                         <FileText size={14} /> {t('dashboardPage.api_uptime')}
                     </span>
-                    <span className="font-mono text-xs">{formatDuration(s.api_uptime_sec)}</span>
+                    <span className="tabular-nums text-xs">{formatDuration(s.api_uptime_sec)}</span>
                 </div>
             </CardContent>
         </Card>
@@ -557,9 +557,9 @@ const OEEComponentBar = ({
         return (
             <div className="space-y-1" title={t('dashboardPage.source_none_hint')}>
                 <div className="flex items-baseline justify-between text-xs">
-                    <span className="text-muted-foreground uppercase tracking-wider font-semibold">{label}</span>
+                    <span className="text-muted-foreground font-medium">{label}</span>
                     <div className="flex items-center gap-1.5">
-                        <span className="font-mono font-bold text-base text-muted-foreground">—</span>
+                        <span className="tabular-nums font-bold text-base text-muted-foreground">—</span>
                         <Badge variant="outline" className="text-[9px] font-normal h-4 px-1 leading-none">
                             {t('dashboardPage.source_none')}
                         </Badge>
@@ -572,9 +572,9 @@ const OEEComponentBar = ({
     return (
         <div className="space-y-1">
             <div className="flex items-baseline justify-between text-xs">
-                <span className="text-muted-foreground uppercase tracking-wider font-semibold">{label}</span>
+                <span className="text-muted-foreground font-medium">{label}</span>
                 <div className="flex items-center gap-1.5">
-                    <span className={`font-mono font-bold text-base ${band.tone}`}>{value.toFixed(1)}%</span>
+                    <span className={`tabular-nums font-bold text-base ${band.tone}`}>{value.toFixed(1)}%</span>
                     <Badge variant="outline" className="text-[9px] font-normal h-4 px-1 leading-none">
                         {source === 'tag' ? t('dashboardPage.source_tag') : t('dashboardPage.source_auto')}
                     </Badge>
@@ -676,11 +676,11 @@ const MiniBar = ({ label, v }: { label: string; v: number }) => {
         : 'bg-red-500';
     return (
         <div className="flex items-center gap-2 text-[11px]">
-            <span className="text-muted-foreground font-mono w-3">{label}</span>
+            <span className="text-muted-foreground tabular-nums w-3">{label}</span>
             <div className="flex-1 h-1.5 bg-muted rounded overflow-hidden">
                 <div className={`h-1.5 ${color}`} style={{ width: `${Math.min(100, Math.max(0, v))}%` }} />
             </div>
-            <span className="font-mono w-10 text-right">{v.toFixed(0)}%</span>
+            <span className="tabular-nums w-10 text-right">{v.toFixed(0)}%</span>
         </div>
     );
 };
@@ -718,7 +718,7 @@ const OEECard = ({
                         </div>
                         <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">{title} {windowH}h</span>
+                                <span className="text-xs text-muted-foreground font-medium">{title} {windowH}h</span>
                                 <Badge variant="outline" className={`text-[10px] ${band.tone} border-current`}>
                                     {band.label}
                                 </Badge>
@@ -748,26 +748,26 @@ const OEECard = ({
                     {/* Destra: sparkline 7g + numeri di diagnostica */}
                     <div className="lg:col-span-3 space-y-2">
                         <div>
-                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">{t('dashboardPage.trend_7d')}</p>
+                            <p className="text-xs text-muted-foreground font-medium mb-1">{t('dashboardPage.trend_7d')}</p>
                             <OEEHistorySpark data={history ?? []} />
                         </div>
                         <div className="text-xs space-y-0.5 text-muted-foreground">
                             {o.critical_downtime_min > 0 && (
                                 <div className="flex justify-between">
                                     <span>{t('dashboardPage.critical_downtime')}</span>
-                                    <span className="font-mono">{o.critical_downtime_min.toFixed(0)} min</span>
+                                    <span className="tabular-nums">{o.critical_downtime_min.toFixed(0)} min</span>
                                 </div>
                             )}
                             {o.pieces_produced !== undefined && o.pieces_produced > 0 && (
                                 <div className="flex justify-between">
                                     <span>{t('dashboardPage.pieces_produced')}</span>
-                                    <span className="font-mono">{o.pieces_produced.toFixed(0)}</span>
+                                    <span className="tabular-nums">{o.pieces_produced.toFixed(0)}</span>
                                 </div>
                             )}
                             {o.pieces_good !== undefined && o.pieces_good > 0 && (
                                 <div className="flex justify-between">
                                     <span>{t('dashboardPage.pieces_good')}</span>
-                                    <span className="font-mono">{o.pieces_good.toFixed(0)}</span>
+                                    <span className="tabular-nums">{o.pieces_good.toFixed(0)}</span>
                                 </div>
                             )}
                         </div>
@@ -861,8 +861,8 @@ const DashboardPage = () => {
     return (
         <div className="space-y-6">
             <div>
-                <h2 className="text-3xl font-bold tracking-tight">{t('nav.dashboard')}</h2>
-                <p className="text-muted-foreground">{t('dashboardPage.subtitle')}</p>
+                <h2 className="text-2xl font-semibold tracking-tight">{t('nav.dashboard')}</h2>
+                <p className="text-sm text-muted-foreground">{t('dashboardPage.subtitle')}</p>
             </div>
 
             {empty && (

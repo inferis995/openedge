@@ -135,7 +135,8 @@
     "mqtt_reconnecting": "Live data connection lost: reconnecting…",
     "setup": "Getting started",
     "all_orgs": "All organizations",
-    "select_org": "Select organization"
+    "select_org": "Select organization",
+    "mqtt_failed": "Could not connect to live data: reload the page."
   },
   "system": {
     "title": "System Manager",

@@ -8,12 +8,15 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { CheckCircle2, AlertTriangle, AlertCircle, Info, RefreshCw, Search, Download, Trash2, BellOff } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Info, RefreshCw, Search, Download, Trash2, BellOff } from 'lucide-react';
 import { alarmsApi, AlarmEvent } from '@/api/alarms';
 import { tagsApi } from '@/api/tags';
 import { Tag } from '@/types';
 import { toast } from 'sonner';
 import { alarmTypeBadgeLabel } from '@/lib/alarmTypes';
+import { SeverityBadge, AlarmStatusBadge } from '@/components/alarms/SeverityBadge';
+import { timeAgo } from '@/lib/relativeTime';
+import { formatLiveValue } from '@/lib/format';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useTranslation } from 'react-i18next';
 import { startLoad } from '@/lib/startLoad';
@@ -204,23 +207,17 @@ export default function AlarmsPage() {
         return new Date(ts).toLocaleString(i18n.language);
     };
 
-    const getSeverityIcon = (severity: string) => {
-        switch (severity.toLowerCase()) {
-            case 'critical': return <AlertTriangle className="h-4 w-4 text-red-500" />;
-            case 'warning':  return <AlertCircle className="h-4 w-4 text-orange-500" />;
-            case 'info':     return <Info className="h-4 w-4 text-blue-500" />;
-            default:         return <AlertCircle className="h-4 w-4" />;
-        }
-    };
+    const relTime = (ts: string | null) => (ts ? timeAgo(Date.parse(ts), i18n.language) : '—');
 
-    const getStatusBadge = (status: string) => {
-        switch (status) {
-            case 'ACTIVE':       return <Badge variant="destructive">{tr('alarmsPage.status_active')}</Badge>;
-            case 'ACKNOWLEDGED': return <Badge variant="secondary" className="bg-orange-500/20 text-orange-500">{tr('alarmsPage.status_acknowledged')}</Badge>;
-            case 'CLEARED':      return <Badge variant="outline" className="text-green-500 border-green-500">{tr('alarmsPage.status_cleared')}</Badge>;
-            default:             return <Badge variant="outline">{status}</Badge>;
-        }
-    };
+    // Tag and what happened, on two lines: the type and message under the name.
+    const TagCell = ({ event, tagName }: { event: AlarmEvent; tagName: string }) => (
+        <div className="min-w-0">
+            <div className="truncate font-medium">{tagName}</div>
+            <div className="truncate text-xs text-muted-foreground" title={event.message}>
+                {event.alarm_type ? <>{alarmTypeBadgeLabel(event.alarm_type)} · </> : null}{event.message}
+            </div>
+        </div>
+    );
 
     const ackableActive = activeAlarms.filter(e => e.status === 'ACTIVE');
     const allSelected = ackableActive.length > 0 && ackableActive.every(e => selectedIds.has(e.id));
@@ -238,7 +235,7 @@ export default function AlarmsPage() {
     };
 
     const renderActiveTable = () => (
-        <Table>
+        <Table className="table-fixed min-w-[760px]">
             <TableHeader>
                 <TableRow>
                     <TableHead className="w-8">
@@ -248,22 +245,20 @@ export default function AlarmsPage() {
                             disabled={ackableActive.length === 0}
                         />
                     </TableHead>
-                    <TableHead>{tr('alarmsPage.col_status')}</TableHead>
-                    <TableHead>{tr('alarmsPage.col_severity')}</TableHead>
+                    <TableHead className="w-[110px]">{tr('alarmsPage.col_severity')}</TableHead>
                     <TableHead>Tag</TableHead>
-                    <TableHead>{tr('alarmsPage.col_type')}</TableHead>
-                    <TableHead>{tr('alarmsPage.col_message')}</TableHead>
-                    <TableHead>{tr('alarmsPage.col_value')}</TableHead>
-                    <TableHead>{tr('alarmsPage.col_trigger_time')}</TableHead>
-                    <TableHead className="text-right">{tr('common.actions')}</TableHead>
+                    <TableHead className="w-[100px] text-right">{tr('alarmsPage.col_value')}</TableHead>
+                    <TableHead className="w-[150px]">{tr('alarmsPage.col_trigger_time')}</TableHead>
+                    <TableHead className="w-[130px]">{tr('alarmsPage.col_status')}</TableHead>
+                    <TableHead className="w-[130px] text-right"><span className="sr-only">{tr('common.actions')}</span></TableHead>
                 </TableRow>
             </TableHeader>
             <TableBody>
                 {isLoading ? (
-                    <TableSkeletonRows cols={9} />
+                    <TableSkeletonRows cols={7} />
                 ) : activeAlarms.length === 0 ? (
                     <TableRow>
-                        <TableCell colSpan={9} className="text-center py-12">
+                        <TableCell colSpan={7} className="text-center py-12">
                             <div className="flex flex-col items-center gap-2 text-muted-foreground">
                                 <BellOff className="w-10 sm:w-8 h-10 sm:h-8 opacity-30" />
                                 <p className="font-medium">{tr('alarmsPage.no_active')}</p>
@@ -285,21 +280,14 @@ export default function AlarmsPage() {
                                     />
                                 )}
                             </TableCell>
-                            <TableCell>{getStatusBadge(event.status)}</TableCell>
-                            <TableCell>
-                                <div className="flex items-center gap-2">
-                                    {getSeverityIcon(event.severity)}
-                                    <span className="capitalize">{tr(`alarmsPage.severity_${(event.severity || '').toLowerCase()}`, { defaultValue: event.severity })}</span>
-                                </div>
-                            </TableCell>
-                            <TableCell className="font-medium">{tagName}</TableCell>
-                            <TableCell><Badge variant="outline" className="text-xs">{alarmTypeBadgeLabel(event.alarm_type)}</Badge></TableCell>
-                            <TableCell>{event.message}</TableCell>
-                            <TableCell>{event.value_at_trigger?.toFixed(2) ?? '-'}</TableCell>
-                            <TableCell>{formatTime(event.trigger_time)}</TableCell>
+                            <TableCell><SeverityBadge severity={event.severity} /></TableCell>
+                            <TableCell className="max-w-0"><TagCell event={event} tagName={tagName} /></TableCell>
+                            <TableCell className="text-right font-semibold tabular-nums">{event.value_at_trigger != null ? formatLiveValue(event.value_at_trigger, 2) : '—'}</TableCell>
+                            <TableCell className="text-sm"><span title={formatTime(event.trigger_time)}>{relTime(event.trigger_time)}</span></TableCell>
+                            <TableCell><AlarmStatusBadge status={event.status} /></TableCell>
                             <TableCell className="text-right">
                                 {isAckable && (
-                                    <Button size="sm" variant="outline" onClick={() => handleAcknowledge(event.id)} className="h-10 sm:h-8 gap-1">
+                                    <Button size="sm" variant="outline" onClick={() => handleAcknowledge(event.id)} className="h-9 sm:h-8">
                                         <CheckCircle2 size={14} /> {tr('alarmsPage.ack')}
                                     </Button>
                                 )}
@@ -312,19 +300,17 @@ export default function AlarmsPage() {
     );
 
     const renderHistoryTable = () => (
-        <Table>
+        <Table className="table-fixed min-w-[760px]">
             <TableHeader>
                 <TableRow>
-                    <TableHead>{tr('alarmsPage.col_status')}</TableHead>
-                    <TableHead>{tr('alarmsPage.col_severity')}</TableHead>
+                    <TableHead className="w-[110px]">{tr('alarmsPage.col_severity')}</TableHead>
                     <TableHead>Tag</TableHead>
-                    <TableHead>{tr('alarmsPage.col_type')}</TableHead>
-                    <TableHead>{tr('alarmsPage.col_message')}</TableHead>
-                    <TableHead>{tr('alarmsPage.col_value')}</TableHead>
-                    <TableHead>{tr('alarmsPage.col_trigger_time')}</TableHead>
-                    <TableHead>{tr('alarmsPage.col_clear_time')}</TableHead>
-                    <TableHead>{tr('alarmsPage.col_ack_by')}</TableHead>
-                    {isAdmin() && <TableHead className="text-right">{tr('common.actions')}</TableHead>}
+                    <TableHead className="w-[90px] text-right">{tr('alarmsPage.col_value')}</TableHead>
+                    <TableHead className="w-[170px]">{tr('alarmsPage.col_trigger_time')}</TableHead>
+                    <TableHead className="hidden xl:table-cell w-[170px]">{tr('alarmsPage.col_clear_time')}</TableHead>
+                    <TableHead className="hidden lg:table-cell w-[150px]">{tr('alarmsPage.col_ack_by')}</TableHead>
+                    <TableHead className="w-[120px]">{tr('alarmsPage.col_status')}</TableHead>
+                    {isAdmin() && <TableHead className="w-[56px] text-right"><span className="sr-only">{tr('common.actions')}</span></TableHead>}
                 </TableRow>
             </TableHeader>
             <TableBody>
@@ -347,31 +333,24 @@ export default function AlarmsPage() {
                     const tagName = tag ? (tag.alias || tag.code) : `ID: ${event.tag_id}`;
                     return (
                         <TableRow key={`${event.id}-${idx}`}>
-                            <TableCell>{getStatusBadge(event.status)}</TableCell>
-                            <TableCell>
-                                <div className="flex items-center gap-2">
-                                    {getSeverityIcon(event.severity)}
-                                    <span className="capitalize">{tr(`alarmsPage.severity_${(event.severity || '').toLowerCase()}`, { defaultValue: event.severity })}</span>
-                                </div>
-                            </TableCell>
-                            <TableCell className="font-medium">{tagName}</TableCell>
-                            <TableCell><Badge variant="outline" className="text-xs">{alarmTypeBadgeLabel(event.alarm_type)}</Badge></TableCell>
-                            <TableCell>{event.message}</TableCell>
-                            <TableCell>{event.value_at_trigger?.toFixed(2) ?? '-'}</TableCell>
-                            <TableCell>{formatTime(event.trigger_time)}</TableCell>
-                            <TableCell>{formatTime(event.clear_time)}</TableCell>
-                            <TableCell>
+                            <TableCell><SeverityBadge severity={event.severity} /></TableCell>
+                            <TableCell className="max-w-0"><TagCell event={event} tagName={tagName} /></TableCell>
+                            <TableCell className="text-right font-semibold tabular-nums">{event.value_at_trigger != null ? formatLiveValue(event.value_at_trigger, 2) : '—'}</TableCell>
+                            <TableCell className="text-sm tabular-nums">{formatTime(event.trigger_time)}</TableCell>
+                            <TableCell className="hidden xl:table-cell text-sm tabular-nums">{formatTime(event.clear_time)}</TableCell>
+                            <TableCell className="hidden lg:table-cell">
                                 <div className="text-xs">
-                                    {event.bg_ack_user || '-'}
-                                    {event.bg_ack_user && <><br />{formatTime(event.ack_time)}</>}
+                                    {event.bg_ack_user || '—'}
+                                    {event.bg_ack_user && <div className="text-muted-foreground">{formatTime(event.ack_time)}</div>}
                                 </div>
                             </TableCell>
+                            <TableCell><AlarmStatusBadge status={event.status} /></TableCell>
                             {isAdmin() && (
                                 <TableCell className="text-right">
                                     <Button
-                                        size="sm" variant="outline"
+                                        size="icon" variant="ghost"
                                         onClick={() => setConfirmDelete(event.id)}
-                                        className="h-10 sm:h-8 w-10 sm:w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+                                        className="size-8 text-muted-foreground hover:text-red-600 hover:bg-red-500/10"
                                         title={tr('common.delete')}
                                     >
                                         <Trash2 size={14} />
@@ -386,7 +365,7 @@ export default function AlarmsPage() {
     );
 
     return (
-        <div className="h-full flex flex-col p-6 overflow-hidden">
+        <div className="h-full flex flex-col overflow-hidden">
             {/* Confirm dialogs */}
             <ConfirmDialog
                 open={confirmDelete !== null}
@@ -417,19 +396,19 @@ export default function AlarmsPage() {
 
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
                 <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{tr('alarmsPage.title')}</h1>
-                    <p className="text-muted-foreground mt-1">{tr('alarmsPage.subtitle')}</p>
+                    <h1 className="text-2xl font-semibold tracking-tight">{tr('alarmsPage.title')}</h1>
+                    <p className="text-sm text-muted-foreground">{tr('alarmsPage.subtitle')}</p>
                 </div>
                 <Button variant="outline" size="icon" onClick={loadData} disabled={isLoading} title={tr('alarmsPage.refresh')}>
                     <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
                 </Button>
             </div>
 
-            <Card className="flex-1 overflow-hidden flex flex-col shadow-md border-border/50">
+            <Card className="flex-1 overflow-hidden flex flex-col">
                 <Tabs defaultValue="active" className="h-full flex flex-col">
                     <CardHeader className="pb-3 flex flex-row items-center justify-between space-y-0 shrink-0">
-                        <TabsList className="bg-muted">
-                            <TabsTrigger value="active" className="gap-2 px-6">
+                        <TabsList className="bg-muted w-full sm:w-auto">
+                            <TabsTrigger value="active" className="flex-1 sm:flex-none gap-2 px-3 sm:px-6">
                                 <AlertTriangle size={16} className="text-red-500" />
                                 {tr('alarmsPage.tab_active')}
                                 {activeAlarms.length > 0 && (
@@ -438,7 +417,7 @@ export default function AlarmsPage() {
                                     </Badge>
                                 )}
                             </TabsTrigger>
-                            <TabsTrigger value="history" className="gap-2 px-6">
+                            <TabsTrigger value="history" className="flex-1 sm:flex-none gap-2 px-3 sm:px-6">
                                 <Info size={16} />
                                 {tr('alarmsPage.tab_history')}
                                 {history.length > 0 && (

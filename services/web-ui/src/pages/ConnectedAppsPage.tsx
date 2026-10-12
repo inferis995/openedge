@@ -51,7 +51,7 @@ const ConnectedAppsPage = () => {
         new Date(iso).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' });
 
     return (
-        <div className="p-6 space-y-6">
+        <div className="space-y-6">
             <div>
                 <h1 className="text-2xl font-semibold flex items-center gap-2">
                     <Plug size={22} /> {t('nav.connected_apps')}
