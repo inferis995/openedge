@@ -553,10 +553,10 @@ func (h *AuthHandler) MFAEnrollFinish(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// totpQRDataURL draws the enrolment QR code here, as a PNG data URL.
+// totpQRDataURL draws the enrollment QR code here, as a PNG data URL.
 //
 // The web UI used to build it by sending the otpauth:// URL — the TOTP secret
-// itself — to api.qrserver.com in an <img> src: every enrolment handed the
+// itself — to api.qrserver.com in an <img> src: every enrollment handed the
 // second factor of an account to a third party, and on a plant network with no
 // internet the code never appeared at all. Empty on failure; the UI then shows
 // only the key to type in.

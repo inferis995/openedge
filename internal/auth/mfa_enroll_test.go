@@ -20,10 +20,10 @@ func TestMFASetupToken_RoundTrip(t *testing.T) {
 
 func TestMFASetupToken_RejectsOtherTokens(t *testing.T) {
 	// The MFA step token (password proven, second factor pending) is not an
-	// enrolment token, and neither is an expired one.
+	// enrollment token, and neither is an expired one.
 	step, _ := (&Service{}).generateMFAToken(42)
 	if _, _, err := ParseMFASetupToken(step); err == nil {
-		t.Error("an MFA step token was accepted for enrolment")
+		t.Error("an MFA step token was accepted for enrollment")
 	}
 	expired, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id": float64(42), "mfa_setup": true, "exp": time.Now().Add(-time.Minute).Unix(),

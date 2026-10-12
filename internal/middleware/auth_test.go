@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -120,14 +121,14 @@ func TestRequireAuth_TokenWithoutBearer(t *testing.T) {
 	}
 }
 
-// The enrolment token proves the password only: it must not open the API.
+// The enrollment token proves the password only: it must not open the API.
 func TestRequireAuth_RejectsMFASetupToken(t *testing.T) {
 	token := makeToken(t, jwt.MapClaims{
 		"user_id": 7, "username": "op", "mfa_setup": true,
 		"exp": time.Now().Add(5 * time.Minute).Unix(),
 	})
 	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/ping", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/ping", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	newTestRouter().ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {
