@@ -19,6 +19,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -238,10 +239,31 @@ func (h *OEEHistoryHandler) History(c *gin.Context) {
 			&r.Performance, &r.Quality, &r.PlannedMin, &r.DowntimeMin,
 			&r.PiecesProduced, &r.PiecesGood, &r.ShiftID,
 		); err == nil {
+			// A NaN/Inf that ever reaches encoding/json aborts the whole
+			// body after the 200 header: the page gets an empty response
+			// and crashes on .map. Clamp here so one bad row can never
+			// kill the endpoint again.
+			r.OEE = finiteOr(r.OEE, 0)
+			r.Availability = finiteOr(r.Availability, 0)
+			r.Performance = finiteOr(r.Performance, 100)
+			r.Quality = finiteOr(r.Quality, 100)
+			r.PlannedMin = finiteOr(r.PlannedMin, 0)
+			r.DowntimeMin = finiteOr(r.DowntimeMin, 0)
+			r.PiecesProduced = finiteOr(r.PiecesProduced, 0)
+			r.PiecesGood = finiteOr(r.PiecesGood, 0)
 			out = append(out, r)
 		}
 	}
 	c.JSON(http.StatusOK, out)
+}
+
+// finiteOr returns v unless it is NaN or infinite (which encoding/json
+// refuses to marshal, failing the entire response), in which case fb.
+func finiteOr(v, fb float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return fb
+	}
+	return v
 }
 
 // orgProfiles is one organization's enabled profiles.
@@ -290,6 +312,11 @@ func averageSnapshots(snaps []OEESnapshot, windowMin int) OEESnapshot {
 	out.Availability /= n
 	out.Performance /= n
 	out.Quality /= n
+	// Never persist NaN: one poisoned snapshot breaks the history JSON.
+	out.OEE = finiteOr(out.OEE, 0)
+	out.Availability = finiteOr(out.Availability, 0)
+	out.Performance = finiteOr(out.Performance, 100)
+	out.Quality = finiteOr(out.Quality, 100)
 	return out
 }
 
