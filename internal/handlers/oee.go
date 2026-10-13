@@ -502,13 +502,16 @@ func (h *OEEHandler) computeAvailability(ctx context.Context, start, end time.Ti
 
 	// Value-driven (default): the share of in-window readings inside each
 	// tag's learned band (tag_bands, re-learned every startup from 30 days
-	// of history). A reading out of band means that point was not producing
-	// — pressure collapsed, flow gone — regardless of whether any alarm
-	// rule fired.
-	var total, inBand int
+	// of alarm-free history). A reading out of band means that point was not
+	// producing — pressure collapsed, flow gone — regardless of whether any
+	// alarm rule fired. A tag that learned a band but reports nothing in the
+	// window counts as stopped at the average reporting rate: silence is
+	// downtime, never absence of evidence.
+	var total, inBand, reportingTags, silentTags int
 	_ = h.db.QueryRowContext(ctx, `
 		SELECT COUNT(*),
-			COUNT(*) FILTER (WHERE h.value BETWEEN b.band_low AND b.band_high)
+			COUNT(*) FILTER (WHERE h.value BETWEEN b.band_low AND b.band_high),
+			COUNT(DISTINCT h.tag_id)
 		FROM tag_history h
 		JOIN tags t ON t.id = h.tag_id
 		JOIN tag_bands b ON b.tag_id = h.tag_id
@@ -520,10 +523,30 @@ func (h *OEEHandler) computeAvailability(ctx context.Context, start, end time.Ti
 		  AND ($4 = 0 OR a.id = $4)
 		  AND ($5 = 0 OR g.id = $5)`,
 		start, end, cfg.OrgID, cfg.AreaID, cfg.GatewayID,
-	).Scan(&total, &inBand)
-	if total == 0 {
+	).Scan(&total, &inBand, &reportingTags)
+	_ = h.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM tags t
+		JOIN tag_bands b ON b.tag_id = t.id
+		JOIN gateways g ON g.id = t.gateway_id
+		JOIN areas a ON a.id = g.area_id
+		JOIN sites s ON s.id = a.site_id
+		WHERE ($1 = 0 OR s.org_id = $1)
+		  AND ($2 = 0 OR a.id = $2)
+		  AND ($3 = 0 OR g.id = $3)
+		  AND NOT EXISTS (
+			SELECT 1 FROM tag_history h
+			WHERE h.tag_id = t.id AND h.time > $4 AND h.time <= $5
+		  )`,
+		cfg.OrgID, cfg.AreaID, cfg.GatewayID, start, end,
+	).Scan(&silentTags)
+	if total == 0 && silentTags == 0 {
 		// Nothing reported in this window: no evidence either way.
 		return 100, "no-data", 0
+	}
+	if reportingTags > 0 && silentTags > 0 {
+		avgPerTag := float64(total) / float64(reportingTags)
+		total += int(float64(silentTags)*avgPerTag + 0.5)
 	}
 	availability := float64(inBand) / float64(total) * 100
 	downMin := float64(total-inBand) / float64(total) * end.Sub(start).Minutes()

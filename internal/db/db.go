@@ -1822,11 +1822,18 @@ func intMinDB(a, b int) int {
 }
 
 // ensureTagBands learns the "normal" value band of every tag from its own
-// history: min/max of the last 30 days widened by a margin. OEE availability
-// is judged against these bands (value inside = running), so thresholds
-// follow each sensor — a 2-bar line and a 9-bar line each get their own —
-// instead of one global number that fits nobody. Re-learned on every
-// startup: cheap aggregate, always follows recent reality.
+// history: 5th/95th percentile of the last 30 days widened by a margin. OEE
+// availability is judged against these bands (value inside = running), so
+// thresholds follow each sensor — a 2-bar line and a 9-bar line each get
+// their own — instead of one global number that fits nobody.
+//
+// Two rules keep the learning honest. Readings taken while the tag sat under
+// an open alarm are excluded: otherwise a pressure that has been low for days
+// teaches the band that low is normal and the OEE reads 100% on a leaking
+// line. Tags that learned a band but go silent afterwards count as stopped,
+// not as missing: a dead sensor must lower availability, never vanish from it.
+// Re-learned on every startup: cheap aggregate, always follows recent healthy
+// reality.
 func ensureTagBands(db *sql.DB) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -1846,14 +1853,20 @@ func ensureTagBands(db *sql.DB) {
 	res, err := db.ExecContext(ctx, `
 		INSERT INTO tag_bands (tag_id, band_low, band_high, samples, learned_at)
 		SELECT t.id,
-			MIN(h.value) - GREATEST((MAX(h.value) - MIN(h.value)) * 0.15, ABS(AVG(h.value)) * 0.05, 0.05),
-			MAX(h.value) + GREATEST((MAX(h.value) - MIN(h.value)) * 0.15, ABS(AVG(h.value)) * 0.05, 0.05),
+			PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY h.value) - GREATEST((PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY h.value) - PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY h.value)) * 0.15, ABS(AVG(h.value)) * 0.05, 0.05),
+			PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY h.value) + GREATEST((PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY h.value) - PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY h.value)) * 0.15, ABS(AVG(h.value)) * 0.05, 0.05),
 			COUNT(*), NOW()
 		FROM tags t
 		JOIN tag_history h ON h.tag_id = t.id
 		WHERE h.time > NOW() - INTERVAL '30 days'
+		  AND NOT EXISTS (
+			SELECT 1 FROM alarm_events ae
+			WHERE ae.tag_id = t.id
+			  AND h.time >= ae.trigger_time
+			  AND (ae.clear_time IS NULL OR h.time <= ae.clear_time)
+		  )
 		GROUP BY t.id
-		HAVING COUNT(*) >= 5
+		HAVING COUNT(*) >= 50
 		ON CONFLICT (tag_id) DO UPDATE SET
 			band_low = EXCLUDED.band_low,
 			band_high = EXCLUDED.band_high,
