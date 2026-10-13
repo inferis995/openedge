@@ -60,7 +60,10 @@ export const OEEHistoryChart = ({ profileId, target }: Props) => {
         },
     });
 
-    const chartData = (data ?? []).map((r: OEEHistoryRow) => ({
+    // The endpoint once answered 200 with an empty body (NaN poisoned the JSON):
+    // r.data was "" and "".map crashed the whole tab. Only arrays render.
+    const rows = Array.isArray(data) ? data : [];
+    const chartData = rows.map((r: OEEHistoryRow) => ({
         label: formatBucketLabel(r.bucket_start, cfg.bucket, i18n.language),
         OEE: parseFloat(r.oee.toFixed(1)),
         Availability: parseFloat(r.availability.toFixed(1)),

@@ -419,6 +419,16 @@ func (h *OEEHandler) computeSnapshotAt(ctx context.Context, end time.Time, cfg *
 	q := clamp01(out.Quality / 100)
 	out.OEE = a * p * q * 100
 
+	// NaN must never leave this function: encoding/json drops the whole
+	// body after the 200 header and the UI crashes on .map.
+	out.Availability = finiteOr(out.Availability, 0)
+	out.Performance = finiteOr(out.Performance, 100)
+	out.Quality = finiteOr(out.Quality, 100)
+	out.OEE = finiteOr(out.OEE, 0)
+	out.CriticalDowntimeMin = finiteOr(out.CriticalDowntimeMin, 0)
+	out.PiecesProduced = finiteOr(out.PiecesProduced, 0)
+	out.PiecesGood = finiteOr(out.PiecesGood, 0)
+
 	if cfg.Target > 0 {
 		t := cfg.Target
 		out.Target = &t
@@ -540,7 +550,13 @@ func (h *OEEHandler) computeAvailability(ctx context.Context, start, end time.Ti
 		  )`,
 		cfg.OrgID, cfg.AreaID, cfg.GatewayID, start, end,
 	).Scan(&silentTags)
-	if total == 0 && silentTags == 0 {
+	if total == 0 {
+		if silentTags > 0 {
+			// Every banded tag silent: the line is down for the whole
+			// window. (Must return before the division below: 0/0 is NaN,
+			// it poisons oee_history and kills the history page JSON.)
+			return 0, "values", end.Sub(start).Minutes()
+		}
 		// Nothing reported in this window: no evidence either way.
 		return 100, "no-data", 0
 	}
