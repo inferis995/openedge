@@ -1,9 +1,5 @@
 import { useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
-} from '@/components/ui/dialog';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,13 +32,20 @@ const EMPTY_SSO: SSOProviderInput = {
     tenant_id: '', domain_hint: '', enabled: true,
 };
 
+/** The organization settings sections that are not about the organization
+ * itself: edge boxes, API keys, invites, webhooks, MQTT logins and SSO. */
+export type OrgIntegrationSection = 'edge' | 'apikeys' | 'invites' | 'webhooks' | 'mqtt' | 'sso';
+
 interface Props {
     org: { id: number; name: string };
-    open: boolean;
-    onOpenChange: (open: boolean) => void;
+    section: OrgIntegrationSection;
 }
 
-export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Props) {
+/**
+ * One section of the organization settings page. Mounted per section (keyed
+ * by it), so a key or secret shown once is gone when the user moves on.
+ */
+export default function OrgSettingsSections({ org, section }: Props) {
     const { t } = useTranslation();
     const qc = useQueryClient();
 
@@ -50,15 +53,15 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
     const { data: edgeStatus, refetch: refetchEdge, isFetching: edgeFetching } = useQuery({
         queryKey: ['edge-status', org.id],
         queryFn: () => organizationsApi.getEdgeStatus(org.id),
-        enabled: open,
-        refetchInterval: open ? 30_000 : false,
+        enabled: section === 'edge',
+        refetchInterval: section === 'edge' ? 30_000 : false,
     });
 
     // ── API Keys ──────────────────────────────────────────────────────────────
     const { data: apiKeys = [], isFetching: keysFetching } = useQuery({
         queryKey: ['api-keys', org.id],
         queryFn: () => apiKeysApi.list(org.id),
-        enabled: open,
+        enabled: section === 'apikeys',
     });
 
     const [newKeyName, setNewKeyName] = useState('');
@@ -135,7 +138,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
     const { data: webhooks = [], refetch: refetchWebhooks } = useQuery<Webhook[]>({
         queryKey: ['webhooks', org.id],
         queryFn: () => webhooksApi.list(org.id),
-        enabled: open,
+        enabled: section === 'webhooks',
     });
 
     const createWebhookMutation = useMutation({
@@ -166,7 +169,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
     const { data: ssoProviders = [], refetch: refetchSSO } = useQuery<SSOProvider[]>({
         queryKey: ['sso-providers', org.id],
         queryFn: () => organizationsApi.listSSOProviders(org.id),
-        enabled: open,
+        enabled: section === 'sso',
     });
 
     const upsertSSOMutation = useMutation({
@@ -194,48 +197,13 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
         setSSOEditing(true);
     };
 
-    // Reset local state when dialog closes (adjusted during render, not in an effect)
-    const [prevOpen, setPrevOpen] = useState(open);
-    if (open !== prevOpen) {
-        setPrevOpen(open);
-        if (!open) {
-            setShownKey(null);
-            setCreatedInvite(null);
-            setInviteEmail('');
-            setNewKeyName('');
-            setShownWhSecret(null);
-            setSSOForm(EMPTY_SSO);
-            setSSOEditing(false);
-        }
-    }
-
     const activeKeys = apiKeys.filter((k: ApiKey) => !k.revoked_at);
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2 text-lg">
-                        {t('orgInfra.title', { name: org.name })}
-                    </DialogTitle>
-                    <DialogDescription>
-                        {t('orgInfra.subtitle')}
-                    </DialogDescription>
-                </DialogHeader>
-
-                <Tabs defaultValue="edge" className="mt-2">
-                    <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-                        <TabsTrigger value="edge">{t('orgInfra.tab_edge')}</TabsTrigger>
-                        <TabsTrigger value="apikeys">{t('orgInfra.tab_keys')}</TabsTrigger>
-                        <TabsTrigger value="invites">{t('orgInfra.tab_invites')}</TabsTrigger>
-                        <TabsTrigger value="webhooks">{t('orgInfra.tab_webhooks')}</TabsTrigger>
-                        <TabsTrigger value="mqtt">{t('mqttClients.tab')}</TabsTrigger>
-                        <TabsTrigger value="sso">SSO</TabsTrigger>
-                    </TabsList>
-
+        <>
                     {/* ── EDGE TAB ─────────────────────────────────────────── */}
-                    <TabsContent value="edge" className="space-y-4 pt-4">
-                        <div className="flex items-center justify-between rounded-lg border p-4">
+                    {section === 'edge' && (<div className="space-y-4">
+                        <div className="flex items-center justify-between rounded-lg border bg-card p-4">
                             <div className="space-y-1">
                                 <p className="text-sm font-medium">{t('orgInfra.edge_status')}</p>
                                 {edgeStatus?.online ? (
@@ -270,7 +238,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                             </Button>
                         </div>
 
-                        <div className="rounded-lg border p-4 space-y-3">
+                        <div className="rounded-lg border bg-card p-4 space-y-3">
                             <div>
                                 <p className="text-sm font-medium">{t('orgInfra.who_polls')}</p>
                                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -280,7 +248,7 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                             <EdgeBoxesPanel orgId={org.id} />
                         </div>
 
-                        <div className="rounded-lg border p-4 space-y-3">
+                        <div className="rounded-lg border bg-card p-4 space-y-3">
                             <div>
                                 <p className="text-sm font-medium">{t('orgInfra.install_box')}</p>
                                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -301,10 +269,10 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                 </Button>
                             </div>
                         </div>
-                    </TabsContent>
+                    </div>)}
 
                     {/* ── API KEYS TAB ─────────────────────────────────────── */}
-                    <TabsContent value="apikeys" className="space-y-4 pt-4">
+                    {section === 'apikeys' && (<div className="space-y-4">
                         {/* New key revealed after creation */}
                         {shownKey && (
                             <div className="rounded-lg border border-amber-500 bg-amber-50 dark:bg-amber-950/20 p-4 space-y-2">
@@ -326,9 +294,9 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                         )}
 
                         {/* Create new key */}
-                        <div className="rounded-lg border p-4 space-y-3">
+                        <div className="rounded-lg border bg-card p-4 space-y-3">
                             <p className="text-sm font-medium">{t('orgInfra.key_create_title')}</p>
-                            <div className="flex gap-2">
+                            <div className="flex max-w-xl gap-2">
                                 <Input
                                     placeholder={t('orgInfra.key_name_placeholder')}
                                     value={newKeyName}
@@ -402,10 +370,10 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                 {t('orgInfra.keys_empty')}
                             </p>
                         )}
-                    </TabsContent>
+                    </div>)}
 
                     {/* ── INVITES TAB ──────────────────────────────────────── */}
-                    <TabsContent value="invites" className="space-y-4 pt-4">
+                    {section === 'invites' && (<div className="space-y-4">
                         {/* Show invite link after creation */}
                         {inviteLink && (
                             <div className="rounded-lg border border-blue-500 bg-blue-50 dark:bg-blue-950/20 p-4 space-y-2">
@@ -427,9 +395,9 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                         )}
 
                         {/* Create invite form */}
-                        <div className="rounded-lg border p-4 space-y-3">
+                        <div className="rounded-lg border bg-card p-4 space-y-3">
                             <p className="text-sm font-medium">{t('orgInfra.invite_title')}</p>
-                            <div className="grid gap-3">
+                            <div className="grid max-w-xl gap-3">
                                 <div className="space-y-1.5">
                                     <Label htmlFor="invite-email" className="text-xs">{t('orgInfra.email')}</Label>
                                     <Input
@@ -466,10 +434,10 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                         <p className="text-xs text-muted-foreground px-1">
                             {t('orgInfra.invite_footer')}
                         </p>
-                    </TabsContent>
+                    </div>)}
 
                     {/* ── WEBHOOKS TAB ─────────────────────────────────────── */}
-                    <TabsContent value="webhooks" className="space-y-4 pt-4">
+                    {section === 'webhooks' && (<div className="space-y-4">
                         {shownWhSecret && (
                             <div className="rounded-lg border border-amber-500 bg-amber-50 dark:bg-amber-950/20 p-4 space-y-2">
                                 <p className="text-sm font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-2">
@@ -493,9 +461,9 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                         )}
 
                         {/* Create webhook */}
-                        <div className="rounded-lg border p-4 space-y-3">
+                        <div className="rounded-lg border bg-card p-4 space-y-3">
                             <p className="text-sm font-medium">{t('orgInfra.wh_add_title')}</p>
-                            <div className="space-y-1.5">
+                            <div className="max-w-xl space-y-1.5">
                                 <Label className="text-xs">URL</Label>
                                 <Input
                                     type="url"
@@ -586,17 +554,14 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                 {t('orgInfra.wh_empty')}
                             </p>
                         )}
-                    </TabsContent>
-                    {/* ── SSO TAB ──────────────────────────────────────────── */}
-                    <TabsContent value="mqtt" className="space-y-4 pt-4">
+                    </div>)}
+                    {/* ── MQTT TAB ─────────────────────────────────────────── */}
+                    {section === 'mqtt' && (<div className="space-y-4">
                         <MqttClientsPanel orgId={org.id} />
-                    </TabsContent>
+                    </div>)}
 
-                    <TabsContent value="sso" className="space-y-4 pt-4">
-                        <p className="text-sm text-muted-foreground">
-                            {t('orgInfra.sso_intro')}
-                        </p>
-
+                    {/* ── SSO TAB ──────────────────────────────────────────── */}
+                    {section === 'sso' && (<div className="space-y-4">
                         {/* Provider list */}
                         {ssoProviders.length > 0 && (
                             <div className="rounded-md border">
@@ -653,13 +618,13 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
 
                         {/* Add / Edit form */}
                         {ssoEditing || ssoProviders.length === 0 ? (
-                            <div className="rounded-lg border p-4 space-y-3">
+                            <div className="rounded-lg border bg-card p-4 space-y-3">
                                 <p className="text-sm font-medium flex items-center gap-2">
                                     <Shield size={14} />
                                     {ssoEditing ? t('orgInfra.sso_edit_title') : t('orgInfra.sso_add_title')}
                                 </p>
 
-                                <div className="grid gap-3">
+                                <div className="grid max-w-xl gap-3">
                                     <div className="space-y-1.5">
                                         <Label className="text-xs">Provider</Label>
                                         <Select
@@ -756,10 +721,8 @@ export default function OrgInfrastructureDialog({ org, open, onOpenChange }: Pro
                                 <Plus size={14} /> {t('orgInfra.sso_add_another')}
                             </Button>
                         )}
-                    </TabsContent>
-                </Tabs>
-            </DialogContent>
-        </Dialog>
+                    </div>)}
+        </>
     );
 }
 

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { ShieldCheck } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { organizationsApi } from '@/api/organizations';
 import { showApiError } from '@/lib/api-error-handler';
@@ -31,15 +30,12 @@ export function OrgMFAField({ orgId, initial }: { orgId: number; initial: boolea
         }
     };
     return (
-        <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
-            <div className="flex gap-3">
-                <ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                <div>
-                    <p className="text-sm font-medium">{t('organizationsPage.mfa_required')}</p>
-                    <p className="text-xs text-muted-foreground">{t('organizationsPage.mfa_required_hint')}</p>
-                </div>
+        <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+                <p className="text-sm font-medium">{t('organizationsPage.mfa_required')}</p>
+                <p className="text-sm text-muted-foreground">{t('organizationsPage.mfa_required_hint')}</p>
             </div>
-            <Switch checked={on} disabled={busy} onCheckedChange={(v) => void change(v)} aria-label={t('organizationsPage.mfa_required')} />
+            <Switch checked={on} disabled={busy} onCheckedChange={(v) => void change(v)} aria-label={t('organizationsPage.mfa_required')} className="mt-0.5 shrink-0" />
         </div>
     );
 }

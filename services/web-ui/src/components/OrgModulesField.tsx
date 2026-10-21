@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { organizationsApi } from '@/api/organizations';
 import { orgModulesKey } from '@/hooks/useOrgModules';
@@ -13,7 +12,7 @@ const moduleNavKey: Record<string, string> = {
     'connected-apps': 'connected_apps',
 };
 
-/** Which pages the organization may use: one checkbox per module. */
+/** Which pages the organization may use: one checkbox per module, saved as it is ticked. */
 export function OrgModulesField({ orgId }: { orgId: number }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
@@ -42,20 +41,18 @@ export function OrgModulesField({ orgId }: { orgId: number }) {
     };
 
     return (
-        <div className="space-y-1.5">
-            <Label>{t('organizationsPage.modules')}</Label>
-            <div className="grid grid-cols-2 gap-1.5 rounded border p-3">
-                {(modules ?? []).map((m) => (
-                    <label key={m.key} className="flex items-center gap-2 text-sm cursor-pointer">
-                        <Checkbox
-                            checked={m.enabled}
-                            disabled={busy}
-                            onCheckedChange={(v) => void toggle(m.key, v === true)}
-                        />
-                        {t(`nav.${moduleNavKey[m.key] ?? m.key}`, { defaultValue: m.key })}
-                    </label>
-                ))}
-            </div>
+        <div className="grid grid-cols-2 gap-2 xl:grid-cols-3">
+            {(modules ?? []).map((m) => (
+                <label key={m.key}
+                    className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2.5 rounded-md border px-2.5 py-2 text-sm sm:gap-3 sm:px-3 transition-colors hover:bg-muted/50 has-[[data-state=checked]]:border-foreground/20">
+                    <Checkbox
+                        checked={m.enabled}
+                        disabled={busy}
+                        onCheckedChange={(v) => void toggle(m.key, v === true)}
+                    />
+                    <span className="min-w-0 truncate">{t(`nav.${moduleNavKey[m.key] ?? m.key}`, { defaultValue: m.key })}</span>
+                </label>
+            ))}
         </div>
     );
 }

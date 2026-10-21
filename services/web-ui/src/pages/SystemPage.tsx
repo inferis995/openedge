@@ -529,9 +529,9 @@ const SystemPage = () => {
                     className="grid gap-6 lg:grid-cols-[230px_minmax(0,1fr)] lg:items-start">
                     <nav className="min-w-0 lg:sticky lg:top-4" aria-label={t('system.title')}>
                         <TabsList className="flex h-auto w-full flex-row items-stretch justify-start gap-1 overflow-x-auto rounded-none bg-transparent p-0 sm:justify-start lg:flex-col lg:overflow-visible [scrollbar-width:none]">
-                            {settingsSections.map((group) => (
+                            {settingsSections.map((group, gi) => (
                                 <div key={group.key} className="contents">
-                                    <p className="hidden px-3 pb-1 pt-3 text-xs font-medium text-muted-foreground first:pt-0 lg:block">{t(group.key)}</p>
+                                    <p className={`hidden px-3 pb-1 text-xs font-medium text-muted-foreground lg:block ${gi === 0 ? '' : 'pt-5'}`}>{t(group.key)}</p>
                                     {group.items.map(({ value, icon: Icon, label }) => (
                                         <TabsTrigger key={value} value={value}
                                             className="shrink-0 justify-start gap-2.5 rounded-lg border border-transparent px-3 py-2 text-sm font-medium text-muted-foreground shadow-none hover:bg-muted hover:text-foreground data-[state=active]:border-border data-[state=active]:bg-card data-[state=active]:text-foreground data-[state=active]:shadow-xs lg:w-full">

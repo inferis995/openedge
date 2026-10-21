@@ -89,8 +89,11 @@ const Header = ({ onMenuClick }: HeaderProps) => {
         crumbs.push({ name: t(item.key), path: item.path });
         if (path !== item.path) {
             const rest = path.slice(item.path.length + 1).split('/');
+            // A detail page named by its last segment (/synoptics/4/edit,
+            // /organizations/1/settings), "Detail" otherwise.
+            const named: Record<string, string> = { edit: 'nav.editing', settings: 'nav.detail_settings' };
             crumbs.push({
-                name: rest[rest.length - 1] === 'edit' ? t('nav.editing') : t('nav.detail'),
+                name: t(named[rest[rest.length - 1]] ?? 'nav.detail'),
                 path,
             });
         }

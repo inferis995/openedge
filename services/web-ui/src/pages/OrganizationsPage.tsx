@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useOrganizations } from '@/hooks/useOrganizations';
-import { refreshOrgAccent } from '@/hooks/useOrgTheme';
-import { useThemeStore } from '@/stores/useThemeStore';
+import { useOrgLogo } from '@/hooks/useOrgLogo';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useQuery } from '@tanstack/react-query';
@@ -19,14 +18,10 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import {
-    Building2, Plus, Trash2, ChevronRight, Server, Pencil, WifiOff,
+    Building2, Plus, Trash2, ChevronRight, Settings, WifiOff, Radar,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { organizationsApi } from '@/api/organizations';
-import OrgInfrastructureDialog from '@/components/OrgInfrastructureDialog';
-import { OrgLogoField } from '@/components/OrgLogoField';
-import { OrgMFAField } from '@/components/OrgMFAField';
-import { OrgModulesField } from '@/components/OrgModulesField';
 import { Organization } from '@/types';
 import { confirmAction } from '@/lib/confirm';
 import i18n from '@/i18n';
@@ -48,53 +43,52 @@ function EdgeBadge({ orgId }: { orgId: number }) {
     const { data } = useEdgeStatus(orgId, true);
     if (!data) return null;
     return data.online ? (
-        <Badge variant="outline" className="gap-1 border-green-500 text-green-600 text-[10px] h-5 px-1.5">
-            <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-green-500" />
-            </span>
+        <Badge variant="success" className="gap-1.5">
+            <span className="size-1.5 rounded-full bg-current" />
             {t('organizationsPage.edge_online')}
         </Badge>
     ) : (
-        <Badge variant="outline" className="gap-1 border-muted-foreground/40 text-muted-foreground text-[10px] h-5 px-1.5">
-            <WifiOff size={9} />
+        <Badge variant="muted" className="gap-1.5">
+            <WifiOff size={11} />
             {t('organizationsPage.edge_offline')}
         </Badge>
+    );
+}
+
+/** The organization's logo, or a neutral mark with a stripe of its colour. */
+function OrgAvatar({ org }: { org: Organization }) {
+    const { data: logo } = useOrgLogo(org.id);
+    if (logo) {
+        return (
+            <div className="flex h-10 w-16 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-background p-1">
+                <img src={logo} alt="" className="max-h-full max-w-full object-contain" />
+            </div>
+        );
+    }
+    return (
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-muted"
+            style={org.theme_color ? { boxShadow: `inset 0 -3px 0 ${org.theme_color}` } : undefined}>
+            <Building2 size={18} className="text-muted-foreground" />
+        </div>
     );
 }
 
 const OrganizationsPage = () => {
     const navigate = useNavigate();
     const { t } = useTranslation();
-    const { organizations, isLoading, create, update, remove } = useOrganizations();
+    const { organizations, isLoading, create, remove } = useOrganizations();
     const { setSelectedOrgId } = useNavigationStore();
-    const { isAdmin } = useAuthStore();
+    const { isAdmin, isGlobalAdmin } = useAuthStore();
 
     // Create dialog
     const [isOpen, setIsOpen] = useState(false);
     const [newOrgName, setNewOrgName] = useState('');
-
-    // Edit dialog
-    const [isEditOpen, setIsEditOpen] = useState(false);
-    const [editingOrg, setEditingOrg] = useState<{ id: number; name: string; theme_color?: string; mfa_required?: boolean } | null>(null);
-
-    // Infrastructure dialog
-    const [infraOrg, setInfraOrg] = useState<Organization | null>(null);
 
     const handleCreate = async () => {
         if (!newOrgName.trim()) return;
         await create({ name: newOrgName.trim() });
         setIsOpen(false);
         setNewOrgName('');
-    };
-
-    const handleUpdate = async () => {
-        if (!editingOrg) return;
-        await update({ id: editingOrg.id, data: { name: editingOrg.name, theme_color: editingOrg.theme_color || '' } });
-        // New color applies instantly everywhere (and lands in the cache).
-        refreshOrgAccent(editingOrg.id, useThemeStore.getState().theme === 'dark');
-        setIsEditOpen(false);
-        setEditingOrg(null);
     };
 
     const handleDelete = async (e: React.MouseEvent, id: number) => {
@@ -118,11 +112,17 @@ const OrganizationsPage = () => {
             {/* Header */}
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h2 className="text-2xl font-semibold tracking-tight">{t('nav.organizations')}</h2>
+                    <h1 className="text-2xl font-semibold tracking-tight">{t('nav.organizations')}</h1>
                     <p className="text-muted-foreground text-sm">
                         {t('organizationsPage.subtitle')}
                     </p>
                 </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                {isGlobalAdmin() && (
+                    <Button variant="outline" className="gap-2" asChild>
+                        <Link to="/fleet"><Radar size={16} /> {t('orgSettings.fleet')}</Link>
+                    </Button>
+                )}
                 {isAdmin() && (
                     <Dialog open={isOpen} onOpenChange={setIsOpen}>
                         <DialogTrigger asChild>
@@ -157,24 +157,6 @@ const OrganizationsPage = () => {
                         </DialogContent>
                     </Dialog>
                 )}
-            </div>
-
-            {/* Tenant stats banner */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="rounded-lg border bg-card p-4 text-center">
-                    <div className="text-3xl font-bold text-primary">{organizations.length}</div>
-                    <div className="text-sm text-muted-foreground mt-1">{t('organizationsPage.stat_total')}</div>
-                </div>
-                {/* There was an "Active" count here, equal to the total: an
-                    organization has no active/inactive state to count. */}
-                <div className="rounded-lg border bg-card p-4 text-center flex flex-col items-center justify-center">
-                    <a
-                        href="/fleet"
-                        className="text-sm font-medium text-primary hover:underline"
-                    >
-                        {t('organizationsPage.see_fleet')}
-                    </a>
-                    <div className="text-xs text-muted-foreground mt-1">{t('organizationsPage.fleet_hint')}</div>
                 </div>
             </div>
 
@@ -191,6 +173,7 @@ const OrganizationsPage = () => {
                 </div>
             ) : (
                 <div className="space-y-3">
+                    <p className="text-sm text-muted-foreground">{t('orgSettings.count', { count: organizations.length })}</p>
                     {organizations.map((org) => (
                         <div
                             key={org.id}
@@ -198,50 +181,34 @@ const OrganizationsPage = () => {
                         >
                             {/* Main row: stacked on mobile so actions never cover the metadata */}
                             <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-4">
-                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                                    <Building2 size={20} className="text-primary" />
-                                </div>
+                                <div className="flex min-w-0 flex-1 items-center gap-3">
+                                    <OrgAvatar org={org} />
 
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="font-semibold text-base">{org.name}</span>
-                                        <EdgeBadge orgId={org.id} />
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="font-semibold text-base">{org.name}</span>
+                                            <EdgeBadge orgId={org.id} />
+                                        </div>
+                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                            {t('organizationsPage.created_on', { date: new Date(org.created_at).toLocaleDateString(i18n.language, {
+                                                year: 'numeric', month: 'long', day: 'numeric',
+                                            }) })}
+                                            {' · '}ID #{org.id}
+                                        </p>
                                     </div>
-                                    <p className="text-xs text-muted-foreground mt-0.5">
-                                        {t('organizationsPage.created_on', { date: new Date(org.created_at).toLocaleDateString(i18n.language, {
-                                            year: 'numeric', month: 'long', day: 'numeric',
-                                        }) })}
-                                        {' · '}ID #{org.id}
-                                    </p>
                                 </div>
 
                                 {/* Actions */}
                                 <div className="flex flex-wrap items-center gap-1.5 shrink-0 sm:justify-end">
                                     {isAdmin() && (
                                         <>
-                                            {/* Infrastructure (edge, keys, invites) */}
-                                            <Button
-                                                variant="outline"
-                                                size="sm"
-                                                className="gap-1.5 text-xs h-10 sm:h-8"
-                                                onClick={(e) => { e.stopPropagation(); setInfraOrg(org); }}
-                                            >
-                                                <Server size={13} />
-                                                {t('nav.infrastructure')}
-                                            </Button>
-
-                                            {/* Edit */}
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-10 sm:h-8 w-10 sm:w-8 text-muted-foreground hover:text-foreground"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setEditingOrg({ id: org.id, name: org.name, theme_color: org.theme_color || '', mfa_required: !!org.mfa_required });
-                                                    setIsEditOpen(true);
-                                                }}
-                                            >
-                                                <Pencil size={14} />
+                                            {/* All the organization's settings: name, colour, logo,
+                                                pages, security, edge boxes, keys, invites… */}
+                                            <Button variant="outline" size="sm" className="gap-1.5 text-xs h-10 sm:h-8" asChild>
+                                                <Link to={`/organizations/${org.id}/settings`}>
+                                                    <Settings size={13} />
+                                                    {t('orgSettings.open')}
+                                                </Link>
                                             </Button>
 
                                             {/* Delete */}
@@ -249,6 +216,7 @@ const OrganizationsPage = () => {
                                                 variant="ghost"
                                                 size="icon"
                                                 className="h-10 sm:h-8 w-10 sm:w-8 text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                                                aria-label={t('common.delete')}
                                                 onClick={(e) => handleDelete(e, org.id)}
                                             >
                                                 <Trash2 size={14} />
@@ -273,79 +241,6 @@ const OrganizationsPage = () => {
                 </div>
             )}
 
-            {/* Edit dialog */}
-            <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>{t('organizationsPage.rename_title')}</DialogTitle>
-                    </DialogHeader>
-                    <div className="grid gap-4 py-4">
-                        <div className="space-y-1.5">
-                            <Label htmlFor="edit-name">{t('common.name')}</Label>
-                            <Input
-                                id="edit-name"
-                                value={editingOrg?.name || ''}
-                                onChange={(e) =>
-                                    setEditingOrg((prev) => prev ? { ...prev, name: e.target.value } : null)
-                                }
-                                onKeyDown={(e) => e.key === 'Enter' && handleUpdate()}
-                                autoFocus
-                            />
-                        </div>
-                        <div className="space-y-1.5">
-                            <Label htmlFor="edit-color">{t('organizationsPage.accent_title')}</Label>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                                {['#e0ff00', '#ff7a00', '#2f81f7', '#22c55e', '#000000', '#ffffff'].map((c) => (
-                                    <button
-                                        key={c}
-                                        type="button"
-                                        title={c}
-                                        className={`h-7 w-7 rounded-full border-2 ${editingOrg?.theme_color?.toLowerCase() === c ? 'border-foreground scale-110' : 'border-muted'}`}
-                                        style={{ backgroundColor: c }}
-                                        onClick={() =>
-                                            setEditingOrg((prev) => prev ? { ...prev, theme_color: c } : null)
-                                        }
-                                    />
-                                ))}
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Input
-                                    id="edit-color"
-                                    type="color"
-                                    className="h-9 w-14 cursor-pointer p-1"
-                                    value={editingOrg?.theme_color || '#e0ff00'}
-                                    onChange={(e) =>
-                                        setEditingOrg((prev) => prev ? { ...prev, theme_color: e.target.value } : null)
-                                    }
-                                />
-                                <span className="text-xs text-muted-foreground font-mono">{editingOrg?.theme_color || t('organizationsPage.accent_default')}</span>
-                                {editingOrg?.theme_color && (
-                                    <Button variant="ghost" size="sm" onClick={() => setEditingOrg((prev) => prev ? { ...prev, theme_color: '' } : null)}>
-                                        {t('organizationsPage.accent_reset')}
-                                    </Button>
-                                )}
-                            </div>
-                            <p className="text-[11px] text-muted-foreground">{t('organizationsPage.accent_help')}</p>
-                        </div>
-                        {editingOrg && <OrgLogoField orgId={editingOrg.id} />}
-                        {editingOrg && <OrgMFAField key={editingOrg.id} orgId={editingOrg.id} initial={!!editingOrg.mfa_required} />}
-                        {editingOrg && <OrgModulesField orgId={editingOrg.id} />}
-                    </div>
-                    <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsEditOpen(false)}>{t('common.cancel')}</Button>
-                        <Button onClick={handleUpdate}>{t('common.save')}</Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
-
-            {/* Infrastructure dialog */}
-            {infraOrg && (
-                <OrgInfrastructureDialog
-                    org={infraOrg}
-                    open={!!infraOrg}
-                    onOpenChange={(open) => { if (!open) setInfraOrg(null); }}
-                />
-            )}
         </div>
     );
 };

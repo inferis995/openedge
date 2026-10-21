@@ -7,6 +7,7 @@ import RequireAuth from '@/components/RequireAuth';
 import RequireAdmin from '@/components/RequireAdmin';
 
 import OrganizationsPage from '@/pages/OrganizationsPage';
+import OrgSettingsPage from '@/pages/OrgSettingsPage';
 import DashboardPage from '@/pages/DashboardPage';
 import SetupWizardPage from '@/pages/SetupWizardPage';
 import SitesPage from '@/pages/SitesPage';
@@ -157,6 +158,7 @@ function App() {
                     <Route path="/" element={<DashboardPage />} />
                     <Route path="/setup" element={<SetupWizardPage />} />
                     <Route path="/organizations" element={<OrganizationsPage />} />
+                    <Route path="/organizations/:id/settings" element={<OrgSettingsPage />} />
                     <Route path="/sites" element={<SitesPage />} />
                     <Route path="/areas" element={<AreasPage />} />
                     <Route path="/gateways" element={<GatewaysPage />} />

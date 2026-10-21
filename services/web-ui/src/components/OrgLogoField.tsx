@@ -5,13 +5,13 @@ import { toast } from 'sonner';
 import { ImagePlus, Trash2 } from 'lucide-react';
 import { isAxiosError } from 'axios';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
 import { organizationsApi } from '@/api/organizations';
 import { orgLogoKey, useOrgLogo } from '@/hooks/useOrgLogo';
 
 const MAX_BYTES = 512 * 1024;
 
-/** The organization's logo: a preview, a new one chosen from a file, or none. */
+/** The organization's logo: a preview, a new one chosen from a file, or none.
+ * Saved as soon as a file is chosen. */
 export function OrgLogoField({ orgId }: { orgId: number }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
@@ -40,10 +40,8 @@ export function OrgLogoField({ orgId }: { orgId: number }) {
     };
 
     return (
-        <div className="space-y-1.5">
-            <Label>{t('organizationsPage.logo')}</Label>
-            <div className="flex items-center gap-3">
-                <div className="h-14 w-28 rounded border bg-muted/40 flex items-center justify-center overflow-hidden shrink-0">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
+                <div className="flex h-20 w-full shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40 p-2 sm:w-40">
                     {logo
                         ? <img src={logo} alt="" className="max-h-full max-w-full object-contain" />
                         : <span className="text-[11px] text-muted-foreground">{t('organizationsPage.logo_none')}</span>}
@@ -61,8 +59,6 @@ export function OrgLogoField({ orgId }: { orgId: number }) {
                 </div>
                 <input ref={input} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
                     onChange={e => { onFile(e.target.files?.[0]); e.target.value = ''; }} />
-            </div>
-            <p className="text-xs text-muted-foreground">{t('organizationsPage.logo_hint')}</p>
         </div>
     );
 }
