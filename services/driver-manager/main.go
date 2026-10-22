@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -404,26 +403,6 @@ func pickDriverNetwork(nets map[string]*network.EndpointSettings) (id, name stri
 	return nets[names[0]].NetworkID, names[0], true
 }
 
-// resolveHostname resolves a hostname to IP, with fallback to original hostname
-func (m *Manager) resolveHostname(hostname string) string {
-	ips, err := net.LookupHost(hostname)
-	if err != nil {
-		log.Printf("[DRIVER-MANAGER] WARNING: Failed to resolve %s: %v, using hostname", hostname, err)
-		return hostname
-	}
-
-	// Find first non-loopback IP
-	for _, ip := range ips {
-		if ip != "127.0.0.1" && ip != "::1" && !strings.HasPrefix(ip, "127.") && !strings.HasPrefix(ip, "::1") {
-			log.Printf("[DRIVER-MANAGER] Resolved %s to IP %s", hostname, ip)
-			return ip
-		}
-	}
-
-	log.Printf("[DRIVER-MANAGER] WARNING: Only loopback IPs found for %s, using hostname", hostname)
-	return hostname
-}
-
 // pullImageWithRetry pulls a Docker image with retry logic and exponential backoff
 func (m *Manager) pullImageWithRetry(imageName string) error {
 	log.Printf("[DRIVER-MANAGER] Checking image: %s", imageName)
@@ -621,9 +600,13 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 		return fmt.Errorf("network verification failed: %w", err)
 	}
 
-	// 2. Resolve hostnames to IPs (image already cached by syncGateways pre-pull)
-	dbHost := m.resolveHostname(getEnv("DB_HOST", "postgres"))
-	mqttHost := m.resolveHostname(getEnv("MQTT_HOST", "mosquitto"))
+	// 2. Pass hostnames through (never bake resolved IPs).
+	// Docker's embedded DNS always resolves the current container IP,
+	// so drivers survive postgres/mosquitto recreates. Baking the IP
+	// (resolveHostname) froze the address at spawn time: after a DB
+	// recreate the 88 drivers crash-looped forever on the stale IP.
+	dbHost := getEnv("DB_HOST", "postgres")
+	mqttHost := getEnv("MQTT_HOST", "mosquitto")
 
 	// 4. Resolve resource limits for this driver type
 	resources := driverResourceLimits[gateway.DriverType]
