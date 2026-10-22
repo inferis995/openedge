@@ -674,7 +674,10 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 	adoptCtx, adoptCancel := context.WithTimeout(m.ctx, 15*time.Second)
 	defer adoptCancel()
 	if inspect, err := m.dockerClient.ContainerInspect(adoptCtx, containerName); err == nil {
-		if inspect.State != nil && inspect.State.Running && inspect.Config != nil && inspect.Config.Image == imageName {
+		// Kept only if it is what this manager would create now (image,
+		// network, environment): see adoptMismatch.
+		why := adoptMismatch(&inspect, imageName, m.networkID, env)
+		if why == "" {
 			m.gatewayStates[gateway.ID] = &GatewayState{
 				Gateway:     gateway,
 				ContainerID: inspect.ID,
@@ -684,7 +687,8 @@ func (m *Manager) startGatewayContainer(gateway models.Gateway) error {
 			log.Printf("[DRIVER-MANAGER] ✓ Adopted running container for gateway %d (%s)", gateway.ID, containerName)
 			return nil
 		}
-		// Exists but stopped/wrong image: remove and recreate below.
+		// Exists but out of date: remove and recreate below.
+		log.Printf("[DRIVER-MANAGER] Recreating container for gateway %d (%s): %s", gateway.ID, containerName, why)
 		_ = m.dockerClient.ContainerRemove(adoptCtx, containerName, container.RemoveOptions{Force: true})
 	}
 
