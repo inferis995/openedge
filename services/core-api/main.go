@@ -27,6 +27,7 @@ import (
 	"github.com/ralph/industrial-edge-middleware/internal/crypto"
 	"github.com/ralph/industrial-edge-middleware/internal/db"
 	"github.com/ralph/industrial-edge-middleware/internal/dbhealth"
+	"github.com/ralph/industrial-edge-middleware/internal/forecast"
 	"github.com/ralph/industrial-edge-middleware/internal/gatewayhealth"
 	"github.com/ralph/industrial-edge-middleware/internal/handlers"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
@@ -599,6 +600,23 @@ func main() {
 			inventoryGroup.GET("/export.csv", inventoryHandler.ExportInventoryCSV)
 		}
 
+		// Tag forecasting (internal/forecast, docs/FORECASTING.md). On unless
+		// FORECAST_ENABLED=false. The statistical engine is always there;
+		// FORECASTER_URL adds the model served by services/forecaster, and the
+		// runner keeps, per tag, whichever did better on the known history.
+		var forecastRunner *forecast.Runner
+		if getEnv("FORECAST_ENABLED", "true") != "false" {
+			forecastRunner = forecast.NewRunner(database, getEnv("FORECASTER_URL", ""))
+			go forecastRunner.Start(context.Background())
+		}
+		forecastHandler := handlers.NewForecastHandler(database, forecastRunner)
+		forecastGroup := api.Group("/forecast")
+		forecastGroup.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		{
+			forecastGroup.GET("/profiles", forecastHandler.GetProfile)
+			forecastGroup.PUT("/profiles", middleware.RequireRole(models.RoleAdmin), forecastHandler.PutProfile)
+		}
+
 		// Tags endpoints
 		tags := api.Group("/tags")
 		tags.Use(middleware.RequireAuth, middleware.OrganizationContext())
@@ -625,6 +643,10 @@ func main() {
 			// Alarm configuration per tag
 			tags.GET("/:id/alarms", alarmsHandler.GetTagAlarmConfig)
 			tags.PUT("/:id/alarms", middleware.RequireRole(models.RoleAdmin), alarmsHandler.SaveTagAlarmConfig)
+
+			// The tag's latest forecast, and one made now.
+			tags.GET("/:id/forecast", forecastHandler.GetTagForecast)
+			tags.POST("/:id/forecast/refresh", middleware.RequireRole(models.RoleAdmin), forecastHandler.RefreshTagForecast)
 
 			tags.POST("", middleware.RequireRole(models.RoleAdmin), tagsHandler.Create)
 			tags.GET("", tagsHandler.List)

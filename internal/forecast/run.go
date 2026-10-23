@@ -98,34 +98,12 @@ type prepared struct {
 func Run(ctx context.Context, jobs []Job, engines []Forecaster) []Result {
 	results := make([]Result, len(jobs))
 	var preps []prepared
-	for i, j := range jobs {
-		results[i] = Result{TagID: j.TagID, Engines: map[string]Score{}, Errors: map[string]string{}}
-		if !j.Settings.Enabled {
-			results[i].Status = StatusDisabled
-			continue
+	for i := range jobs {
+		results[i] = Result{TagID: jobs[i].TagID, Engines: map[string]Score{}, Errors: map[string]string{}}
+		if p, ok := prepare(&jobs[i], &results[i]); ok {
+			p.idx = i
+			preps = append(preps, p)
 		}
-		obs := j.Series.Observed()
-		if obs < MinObserved {
-			results[i].Status = StatusLearning
-			results[i].Reason = fmt.Sprintf("%d of %d values needed", obs, MinObserved)
-			continue
-		}
-		kind, period := j.Settings.Kind, 0
-		if kind == KindAuto {
-			kind, period = Classify(j.Series, j.IsBool)
-		} else if kind == KindCyclic || kind == KindState {
-			period = seasonFor(j.Series)
-		}
-		p := prepared{idx: i, series: j.Series, kind: kind, period: period}
-		p.horizon = HorizonSteps(j.Settings.HorizonHours, j.Series.Step)
-		p.holdout = HoldoutSteps(j.Series, p.horizon)
-		vals := fillForward(j.Series.Values)
-		p.last = vals[len(vals)-1]
-		if kind == KindCounter {
-			p.series, p.shift = withoutResets(j.Series)
-		}
-		results[i].Kind, results[i].Period = kind, period
-		preps = append(preps, p)
 	}
 	if len(preps) == 0 {
 		return results
@@ -134,62 +112,104 @@ func Run(ctx context.Context, jobs []Job, engines []Forecaster) []Result {
 	// Two requests per tag: the forecast itself, and the one made from the
 	// history without its last part, to score.
 	reqs := make([]Request, 0, 2*len(preps))
-	for _, p := range preps {
+	for k := range preps {
+		p := &preps[k]
 		reqs = append(reqs,
 			Request{Series: p.series, Horizon: p.horizon, Kind: p.kind, Period: p.period},
 			Request{Series: p.series.Head(p.holdout), Horizon: p.holdout, Kind: p.kind, Period: p.period},
 		)
 	}
-	type best struct {
-		ok    bool
-		score Score
-		name  string
-		f     Forecast
-	}
-	chosen := make([]best, len(preps))
+	chosen := make([]choice, len(preps))
 	for _, e := range engines {
 		fs, err := e.Forecast(ctx, reqs)
 		if err == nil && len(fs) != len(reqs) {
 			err = fmt.Errorf("%d forecasts for %d requests", len(fs), len(reqs))
 		}
 		if err != nil {
-			for _, p := range preps {
-				results[p.idx].Errors[e.Name()] = err.Error()
+			for k := range preps {
+				results[preps[k].idx].Errors[e.Name()] = err.Error()
 			}
 			continue
 		}
-		for k, p := range preps {
-			full := Shape(unshift(fs[2*k], p.shift), p.kind, p.last)
-			// Scored where the engine worked: a counter without its resets.
-			sc := Evaluate(p.series, fs[2*k+1], p.holdout)
-			results[p.idx].Engines[e.Name()] = sc
-			if !usable(full) {
-				results[p.idx].Errors[e.Name()] = "empty forecast"
-				continue
-			}
-			c := &chosen[k]
-			if !c.ok || better(sc, c.score) {
-				*c = best{ok: true, score: sc, name: e.Name(), f: full}
-			}
+		for k := range preps {
+			p := &preps[k]
+			consider(&chosen[k], &results[p.idx], e.Name(), p, &fs[2*k], &fs[2*k+1])
 		}
 	}
-	for k, p := range preps {
-		r := &results[p.idx]
-		c := chosen[k]
-		if !c.ok {
-			r.Status = StatusError
-			r.Reason = "no engine produced a forecast"
-			continue
-		}
-		r.Engine, r.Forecast, r.Score = c.name, c.f, c.score
-		if c.score.Reliable() {
-			r.Status = StatusOK
-		} else {
-			r.Status = StatusUnreliable
-			r.Reason = fmt.Sprintf("does not beat repeating the last value (skill %.2f)", c.score.Skill)
-		}
+	for k := range preps {
+		conclude(&results[preps[k].idx], &chosen[k])
 	}
 	return results
+}
+
+// prepare decides whether a job is forecast at all and, if so, how. When it is
+// not, it says why in the result.
+func prepare(j *Job, r *Result) (prepared, bool) {
+	if !j.Settings.Enabled {
+		r.Status = StatusDisabled
+		return prepared{}, false
+	}
+	if obs := j.Series.Observed(); obs < MinObserved {
+		r.Status = StatusLearning
+		r.Reason = fmt.Sprintf("%d of %d values needed", obs, MinObserved)
+		return prepared{}, false
+	}
+	kind, period := j.Settings.Kind, 0
+	switch kind {
+	case KindAuto:
+		kind, period = Classify(j.Series, j.IsBool)
+	case KindCyclic, KindState:
+		period = seasonFor(j.Series)
+	}
+	p := prepared{series: j.Series, kind: kind, period: period}
+	p.horizon = HorizonSteps(j.Settings.HorizonHours, j.Series.Step)
+	p.holdout = HoldoutSteps(j.Series, p.horizon)
+	vals := fillForward(j.Series.Values)
+	p.last = vals[len(vals)-1]
+	if kind == KindCounter {
+		p.series, p.shift = withoutResets(j.Series)
+	}
+	r.Kind, r.Period = kind, period
+	return p, true
+}
+
+type choice struct {
+	ok    bool
+	score Score
+	name  string
+	f     Forecast
+}
+
+// consider scores one engine's forecast of one tag and keeps it if it is the
+// best so far.
+func consider(c *choice, r *Result, engine string, p *prepared, full, test *Forecast) {
+	f := unshift(full, p.shift)
+	Shape(&f, p.kind, p.last)
+	// Scored where the engine worked: a counter without its resets.
+	sc := Evaluate(p.series, test, p.holdout)
+	r.Engines[engine] = sc
+	if !usable(&f) {
+		r.Errors[engine] = "empty forecast"
+		return
+	}
+	if !c.ok || better(sc, c.score) {
+		*c = choice{ok: true, score: sc, name: engine, f: f}
+	}
+}
+
+func conclude(r *Result, c *choice) {
+	if !c.ok {
+		r.Status = StatusError
+		r.Reason = "no engine produced a forecast"
+		return
+	}
+	r.Engine, r.Forecast, r.Score = c.name, c.f, c.score
+	if c.score.Reliable() {
+		r.Status = StatusOK
+		return
+	}
+	r.Status = StatusUnreliable
+	r.Reason = fmt.Sprintf("does not beat repeating the last value (skill %.2f)", c.score.Skill)
 }
 
 // better: reliability first, then skill, then the calibration of the band.
@@ -203,7 +223,7 @@ func better(a, b Score) bool {
 	return math.Abs(a.Coverage-0.8) < math.Abs(b.Coverage-0.8)
 }
 
-func usable(f Forecast) bool {
+func usable(f *Forecast) bool {
 	for _, x := range f.Q50 {
 		if !math.IsNaN(x) {
 			return true
@@ -237,9 +257,9 @@ func withoutResets(s Series) (Series, float64) {
 	return out, -off
 }
 
-func unshift(f Forecast, d float64) Forecast {
+func unshift(f *Forecast, d float64) Forecast {
 	if d == 0 {
-		return f
+		return *f
 	}
 	g := Forecast{Start: f.Start, Step: f.Step,
 		Q10: make([]float64, len(f.Q10)), Q50: make([]float64, len(f.Q50)), Q90: make([]float64, len(f.Q90))}

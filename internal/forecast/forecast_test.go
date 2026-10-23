@@ -217,8 +217,8 @@ func (f fakeEngine) Forecast(_ context.Context, reqs []Request) ([]Forecast, err
 		return nil, f.err
 	}
 	out := make([]Forecast, len(reqs))
-	for i, r := range reqs {
-		fc := newForecast(r)
+	for i := range reqs {
+		fc := newForecast(&reqs[i])
 		for h := range fc.Q50 {
 			fc.Q10[h], fc.Q50[h], fc.Q90[h] = f.value-1, f.value, f.value+1
 		}
@@ -291,7 +291,7 @@ func TestRemote(t *testing.T) {
 			return
 		}
 		out := struct {
-			Model     string `json:"model"`
+			Model     string                  `json:"model"`
 			Forecasts []map[string][]*float64 `json:"forecasts"`
 		}{Model: "test-model"}
 		for _, s := range req.Series {

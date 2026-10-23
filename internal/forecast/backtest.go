@@ -38,7 +38,7 @@ func HoldoutSteps(s Series, horizon int) int {
 
 // Evaluate scores a forecast made from s.Head(h) against the last h values of
 // s. Steps without a true value or a forecast are skipped.
-func Evaluate(s Series, f Forecast, h int) Score {
+func Evaluate(s Series, f *Forecast, h int) Score {
 	n := len(s.Values)
 	if h <= 0 || h > n {
 		return Score{}

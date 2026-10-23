@@ -41,13 +41,13 @@ func (Statistical) Name() string { return "statistical" }
 // Forecast implements Forecaster.
 func (Statistical) Forecast(_ context.Context, reqs []Request) ([]Forecast, error) {
 	out := make([]Forecast, len(reqs))
-	for i, r := range reqs {
-		out[i] = statistical(r)
+	for i := range reqs {
+		out[i] = statistical(&reqs[i])
 	}
 	return out, nil
 }
 
-func statistical(r Request) Forecast {
+func statistical(r *Request) Forecast {
 	f := newForecast(r)
 	v := fillForward(r.Series.Values)
 	if len(v) == 0 || math.IsNaN(v[len(v)-1]) || r.Horizon <= 0 {
@@ -56,14 +56,14 @@ func statistical(r Request) Forecast {
 	switch r.Kind {
 	case KindCyclic, KindState:
 		if r.Period > 0 && len(v) >= 2*r.Period {
-			seasonal(v, r.Period, f)
+			seasonal(v, r.Period, &f)
 		} else {
-			changes(v, f)
+			changes(v, &f)
 		}
 	case KindDegradation:
-		trend(v, f)
+		trend(v, &f)
 	case KindCounter:
-		changes(resetFree(v), f)
+		changes(resetFree(v), &f)
 		last := v[len(v)-1]
 		base := resetFree(v)
 		shift := last - base[len(base)-1]
@@ -73,12 +73,12 @@ func statistical(r Request) Forecast {
 			f.Q90[i] += shift
 		}
 	default:
-		changes(v, f)
+		changes(v, &f)
 	}
 	return f
 }
 
-func newForecast(r Request) Forecast {
+func newForecast(r *Request) Forecast {
 	nan := func() []float64 {
 		s := make([]float64, r.Horizon)
 		for i := range s {
@@ -97,7 +97,7 @@ func newForecast(r Request) Forecast {
 // The quantiles are computed at a few horizons (every step up to 8, then
 // about 24 more) and interpolated in between: the band changes slowly with h,
 // and computing every h costs O(n·H·log n) per series.
-func changes(v []float64, f Forecast) {
+func changes(v []float64, f *Forecast) {
 	n := len(v)
 	last := v[n-1]
 	H := len(f.Q50)
@@ -149,7 +149,7 @@ func changes(v []float64, f Forecast) {
 
 // seasonal: the median of the same moment in the last (up to four) seasons,
 // with the band of how far a value has strayed from that in the past.
-func seasonal(v []float64, p int, f Forecast) {
+func seasonal(v []float64, p int, f *Forecast) {
 	n := len(v)
 	const seasons = 4
 	at := func(t int) float64 { // median of t-p, t-2p, … known before t
@@ -191,7 +191,7 @@ func seasonal(v []float64, p int, f Forecast) {
 
 // trend: the straight line through the recent past, with the band of the
 // residuals around it.
-func trend(v []float64, f Forecast) {
+func trend(v []float64, f *Forecast) {
 	n := len(v)
 	slope, icept, ok := linearFit(v)
 	if !ok {
@@ -227,10 +227,10 @@ func resetFree(v []float64) []float64 {
 	return out
 }
 
-// Shape makes a forecast respect what the kind implies, whatever the engine:
+// Shape makes a forecast, in place, respect what the kind implies, whatever the engine:
 // quantiles in order, a state's share of time within [0, 1], a counter that
 // does not go below its last value or down from one step to the next.
-func Shape(f Forecast, kind Kind, last float64) Forecast {
+func Shape(f *Forecast, kind Kind, last float64) {
 	for i := range f.Q50 {
 		lo, mid, hi := f.Q10[i], f.Q50[i], f.Q90[i]
 		if lo > mid {
@@ -263,7 +263,6 @@ func Shape(f Forecast, kind Kind, last float64) Forecast {
 			}
 		}
 	}
-	return f
 }
 
 func clamp01(x float64) float64 {

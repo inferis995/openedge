@@ -105,7 +105,7 @@ func (r *Remote) call(ctx context.Context, reqs []Request) ([]Forecast, error) {
 	if err != nil {
 		return nil, fmt.Errorf("forecaster: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 		return nil, fmt.Errorf("forecaster: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
@@ -121,8 +121,8 @@ func (r *Remote) call(ctx context.Context, reqs []Request) ([]Forecast, error) {
 		r.Model = wr.Model
 	}
 	out := make([]Forecast, len(reqs))
-	for i, q := range reqs {
-		f := newForecast(q)
+	for i := range reqs {
+		f := newForecast(&reqs[i])
 		w := wr.Forecasts[i]
 		copy(f.Q10, w.Q10)
 		copy(f.Q50, w.Q50)

@@ -1039,6 +1039,51 @@ func runAutoMigrations(db *sql.DB) error {
 		)`); err != nil {
 		log.Printf("Warning: failed to create trend_views: %v", err)
 	}
+
+	// Forecasting (internal/forecast, docs/FORECASTING.md).
+	//
+	// A profile sets forecast options for one level of the hierarchy; a tag
+	// gets them merged from its organization down to itself. scope_id is the
+	// id at that level (the org's own id for scope 'org').
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS forecast_profiles (
+			id          SERIAL PRIMARY KEY,
+			org_id      INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			scope       TEXT NOT NULL CHECK (scope IN ('org','site','area','gateway','tag')),
+			scope_id    INT NOT NULL,
+			settings    JSONB NOT NULL DEFAULT '{}',
+			updated_by  INT REFERENCES users(id) ON DELETE SET NULL,
+			updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (scope, scope_id)
+		)`); err != nil {
+		log.Printf("Warning: failed to create forecast_profiles: %v", err)
+	}
+	// The latest forecast of each tag, one row per tag: the forecast runner
+	// rewrites it, pages read it. The quantiles are JSON arrays with null for
+	// a step that could not be forecast. next_run_at is when the runner will
+	// take the tag up again.
+	if _, err := db.ExecContext(context.Background(), `
+		CREATE TABLE IF NOT EXISTS tag_forecasts (
+			tag_id        INT PRIMARY KEY REFERENCES tags(id) ON DELETE CASCADE,
+			status        TEXT NOT NULL,
+			reason        TEXT NOT NULL DEFAULT '',
+			kind          TEXT NOT NULL DEFAULT '',
+			engine        TEXT NOT NULL DEFAULT '',
+			step_seconds  INT NOT NULL DEFAULT 0,
+			start_at      TIMESTAMPTZ,
+			quantiles     JSONB,
+			skill         DOUBLE PRECISION,
+			coverage      DOUBLE PRECISION,
+			details       JSONB NOT NULL DEFAULT '{}',
+			generated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			next_run_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		log.Printf("Warning: failed to create tag_forecasts: %v", err)
+	}
+	if _, err := db.ExecContext(context.Background(),
+		`CREATE INDEX IF NOT EXISTS idx_tag_forecasts_next_run ON tag_forecasts (next_run_at)`); err != nil {
+		log.Printf("Warning: failed to index tag_forecasts: %v", err)
+	}
 	// Synoptics can be filed under the plant hierarchy (site → area → line)
 	// to power a navigation work tree. Both nullable: an org-level synoptic
 	// with no site/area is the "General" node.
