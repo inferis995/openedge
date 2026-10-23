@@ -252,14 +252,11 @@ func (h *MQTTExternalClientsHandler) Create(c *gin.Context) {
 	}
 	ctx := c.Request.Context()
 
-	var orgName string
-	if err := h.db.QueryRowContext(ctx, `SELECT name FROM organizations WHERE id = $1`, orgID).Scan(&orgName); err != nil {
+	// The organization's name, sites and gateways: every grant is pinned to them.
+	scope, err := orgMQTTScope(ctx, h.db, orgID)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "organization not found"})
 		return
-	}
-	sites, err := orgSiteNames(ctx, h.db, orgID)
-	if err != nil {
-		sites = nil // wider Sparkplug grant; narrowed on the next site change, as for the UI login
 	}
 	password := strings.TrimSpace(req.Password)
 	if password == "" {
@@ -274,7 +271,7 @@ func (h *MQTTExternalClientsHandler) Create(c *gin.Context) {
 
 	// Broker first: a row for a login the broker never accepted would look
 	// valid here and fail there.
-	if err := h.dynsec.CreateExternalReader(orgID, orgName, username, password, sites...); err != nil {
+	if err := h.dynsec.CreateExternalReader(scope, username, password); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "the broker did not accept the new login"})
 		return
 	}

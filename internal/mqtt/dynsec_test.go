@@ -32,7 +32,7 @@ func TestDeliveryLockIsFreeWhileWaitingForAReply(t *testing.T) {
 
 	// The real path: a caller takes the command lock and send() waits.
 	done := make(chan error, 1)
-	go func() { done <- d.CreateOrgUser(1, "Org", "org-1", "secret") }()
+	go func() { done <- d.CreateOrgUser(TenantScope{OrgID: 1, OrgName: "Org"}, "org-1", "secret") }()
 
 	select {
 	case <-broker.published:

@@ -238,8 +238,35 @@ func (a *aclSet) add(aclType, topic string) {
 	}
 	a.seen[key] = true
 	a.entries = append(a.entries, map[string]interface{}{
-		"acltype": aclType, "topic": topic, "priority": 1, "allow": true,
+		"acltype": aclType, "topic": topic, "priority": grantPriority, "allow": true,
 	})
+}
+
+// Priorities. Mosquitto checks a role's ACLs from the highest priority down and
+// the first one that matches decides; only when none matches does the broker's
+// default apply.
+const (
+	grantPriority = 10
+	denyPriority  = 0
+)
+
+// denyEverythingElse closes the role: anything not granted above is refused
+// by the role itself, whatever the broker's default says.
+//
+// Confinement used to rest on that default. The roles subscribe wide (the
+// services use literal filters like "data/#") and grant receive only on the
+// tenant's own topics, which isolates tenants only if receiving is denied by
+// default — and the dynamic-security plugin ships with it ALLOWED. The bundled
+// broker's entrypoint flips it, but an external broker, a restored
+// dynamic-security.json or a hand-made one does not, and with the stock default
+// every tenant's login receives every other tenant's data. This makes the role
+// correct on any broker.
+func (a *aclSet) denyEverythingElse() {
+	for _, t := range []string{"publishClientSend", "publishClientReceive", "subscribePattern"} {
+		a.entries = append(a.entries, map[string]interface{}{
+			"acltype": t, "topic": "#", "priority": denyPriority, "allow": false,
+		})
+	}
 }
 
 // send lets the client PUBLISH on the filter.  This is the only ACL type that can
@@ -277,16 +304,62 @@ func (a *aclSet) sendReceive(topics ...string) {
 	a.receive(topics...)
 }
 
-// orgNameVariants returns the distinct spellings of an org name that appear in
-// topics at runtime.  Both occur: the drivers interpolate the configured org name
-// verbatim (services/driver-*/main.go, `data/%s/%s/...` with cfg.OrgName), while
-// internal/sparkplug.BuildLegacyTopic slugifies every level.  internal/handlers
-// (tags.go, gateways.go) subscribes to *both* spellings for exactly this reason,
-// so the ACL must grant both or half the legacy tag traffic is silently dropped.
-func orgNameVariants(orgName string) []string {
-	out := []string{orgName}
-	if s := slugifyTopic(orgName); s != orgName {
-		out = append(out, s)
+// TenantScope is everything an organization's broker roles are built from.
+//
+// Every grant is derived from it, and nothing is granted by wildcard across
+// tenants: a level that names the organization is pinned to this one, and a
+// topic keyed by gateway id is granted only for this organization's gateways.
+type TenantScope struct {
+	OrgID      int
+	OrgName    string
+	SiteNames  []string
+	GatewayIDs []int
+}
+
+// TopicSafe reports whether a name can stand as one topic level: not empty,
+// no MQTT wildcard, no level separator, no NUL, not a $-topic. A name that is
+// not would, put into a grant verbatim, cover other tenants' topics ("+" is
+// every organization, "a/b" is organization a's site b).
+func TopicSafe(name string) bool {
+	return name != "" && !strings.ContainsAny(name, "+#/\x00") && !strings.HasPrefix(name, "$")
+}
+
+// nameVariants returns the distinct spellings of the org name that appear in
+// topics at runtime, those safe to grant. Both occur: the drivers interpolate
+// the configured org name verbatim (services/driver-*/main.go,
+// `data/%s/%s/...` with cfg.OrgName), while internal/sparkplug.BuildLegacyTopic
+// slugifies every level. internal/handlers (tags.go, gateways.go) subscribes
+// to *both* spellings for exactly this reason, so the ACL must grant both or
+// half the legacy tag traffic is silently dropped.
+func (s TenantScope) nameVariants() []string {
+	var out []string
+	for _, n := range []string{s.OrgName, slugifyTopic(s.OrgName)} {
+		if TopicSafe(n) && (len(out) == 0 || out[0] != n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// SparkplugGroups are the organization's Sparkplug group ids, one per site:
+// "{org-slug}-{site-slug}" (internal/sparkplug BuildGroupID).
+//
+// Org and site share ONE topic level, and MQTT wildcards only match whole
+// levels ("+" cannot prefix-match "acme-*"), so the org's Sparkplug namespace
+// can only be granted by naming each of its sites. With no sites there is no
+// group, and nothing Sparkplug is granted.
+func (s TenantScope) SparkplugGroups() []string {
+	org := slugifyTopic(s.OrgName)
+	out := make([]string, 0, len(s.SiteNames))
+	seen := map[string]bool{}
+	for _, site := range s.SiteNames {
+		site = slugifyTopic(site)
+		g := org + "-" + site
+		if site == "" || !TopicSafe(org) || !TopicSafe(g) || seen[g] {
+			continue
+		}
+		seen[g] = true
+		out = append(out, g)
 	}
 	return out
 }
@@ -301,199 +374,121 @@ func orgNameVariants(orgName string) []string {
 // this role — so tightening it cannot break the single-node stack.
 //
 // Design: subscribePattern is granted at the same width the services actually
-// subscribe with, and confinement is enforced by publishClientSend /
-// publishClientReceive.  Mosquitto matches a subscription request against
-// subscribePattern by *filter coverage*, not topic matching, so narrowing
-// subscribePattern below the literal filter in the code would make Subscribe()
-// fail outright — a silent, total data-flow outage.  Narrowing receive instead
-// drops exactly the out-of-tenant messages and nothing else.
-//
-// Nothing here grants an unqualified `sys/#` or `spBv1.0/#` publish, because those
-// let any tenant publish a DCMD / sys/command write into any other tenant's PLCs.
-//
-// siteNames is the list of the org's site names.  It is optional (variadic at the
-// call sites) so existing callers keep compiling; pass it whenever it is known,
-// because it is the only way to scope the Sparkplug namespace exactly — see below.
-func orgRoleACLs(orgID int, orgName string, siteNames []string) []map[string]interface{} {
+// subscribe with (Mosquitto matches a subscription request against
+// subscribePattern by *filter coverage*, so narrowing it below the literal
+// filter in the code makes Subscribe() fail outright). What a client is
+// DELIVERED is decided by publishClientReceive, granted only on this tenant's
+// topics, and the role ends with an explicit deny of everything else — see
+// denyEverythingElse. A wide subscription therefore delivers nothing of another
+// tenant's.
+func orgRoleACLs(s TenantScope) []map[string]interface{} {
 	a := newACLSet()
-	org := fmt.Sprintf("%d", orgID)
-	names := orgNameVariants(orgName)
+	org := fmt.Sprintf("%d", s.OrgID)
 
 	// --- Legacy tag data: data/{org}/{site}/{area}/{gateway}/{alias} ------------
-	// Org-scoped by the first level.  Both spellings — see orgNameVariants.
-	for _, n := range names {
+	for _, n := range s.nameVariants() {
 		a.sendReceive("data/" + n + "/#")
 	}
-	// core-api subscribes with the literal filter "data/#"
-	// (services/core-api/main.go).  Delivery is still confined to data/{org}/# by
-	// the receive grants above.
+	// core-api subscribes with the literal filter "data/#".
 	a.subscribe("data/#")
 
 	// --- Sparkplug B -----------------------------------------------------------
-	// Publish layout (internal/sparkplug/topic.go BuildTopic / BuildNBIRTHTopic):
-	//   spBv1.0/{group}/{msgtype}/{edge_node}[/{device}]
-	// with {group} = BuildGroupID(org, site) = "{org-slug}-{site-slug}" and
-	// {edge_node} = BuildEdgeNodeID(area, gateway).  Org and site share ONE topic
-	// level, and MQTT wildcards only match whole levels ("+" cannot prefix-match
-	// "acme-*"), so the org's Sparkplug namespace can only be granted exactly by
-	// naming each of its sites.
-	//
-	// A "{ns}/{group}/{msgtype}/#" filter also covers the 4-level node-level topics
-	// (NBIRTH/NDEATH have no device level): "#" matches zero or more levels.
-	groups := make([]string, 0, len(siteNames))
-	for _, site := range siteNames {
-		if strings.TrimSpace(site) == "" {
-			continue
-		}
-		groups = append(groups, fmt.Sprintf("%s-%s", slugifyTopic(orgName), slugifyTopic(site)))
-	}
-
-	if len(groups) > 0 {
-		for _, g := range groups {
-			for _, mt := range sparkplugEdgeOriginated {
-				a.sendReceive(fmt.Sprintf("%s/%s/%s/#", sparkplugNamespace, g, mt))
-				// engine-historian's cloud forwarder re-emits with msgtype and group
-				// SWAPPED (services/engine-historian/main.go: "%sspBv1.0/%s/%s/%s/%s"
-				// with MessageType before GroupID).  Granting only the canonical order
-				// would silently kill cloud sync, so the mirrored order is granted too
-				// — send only, still no command types.
-				a.send(fmt.Sprintf("%s/%s/%s/#", sparkplugNamespace, mt, g))
-			}
-			for _, mt := range sparkplugCommands {
-				// NCMD/DCMD are setpoint writes travelling core-api -> edge.
-				// Receive only: an edge must never SEND a command.
-				a.receive(fmt.Sprintf("%s/%s/%s/#", sparkplugNamespace, g, mt))
-			}
-		}
-	} else {
-		// RESIDUAL RISK (documented, deliberate): no caller currently has the org's
-		// site list to hand (internal/handlers/organizations.go calls CreateOrgUser /
-		// UpdateOrgRole without it), so the {group} level cannot be pinned and this
-		// branch is what actually runs today.  Instead of the old `spBv1.0/#`
-		// wildcard we split by message type:
-		//   * send only on edge-originated types (birth/death/data), so a tenant can
-		//     no longer publish DCMD/NCMD — the cross-tenant setpoint write, i.e. the
-		//     safety event, is closed.
-		//   * receive only on the command types the edge must consume, so a tenant can
-		//     no longer read every other tenant's live DDATA.
-		// What remains shared: a tenant can still publish *data* into another tenant's
-		// group (spoofing / integrity, not control) and observe commands addressed to
-		// another tenant's group (setpoint disclosure).  Both disappear as soon as
-		// siteNames is supplied.
+	// spBv1.0/{group}/{msgtype}/{edge_node}[/{device}]; a "{ns}/{group}/{msgtype}/#"
+	// filter also covers the node-level topics ("#" matches zero levels).
+	for _, g := range s.SparkplugGroups() {
 		for _, mt := range sparkplugEdgeOriginated {
-			a.send(fmt.Sprintf("%s/+/%s/#", sparkplugNamespace, mt))
-			a.send(fmt.Sprintf("%s/%s/#", sparkplugNamespace, mt)) // swapped cloud-forward order
+			a.sendReceive(fmt.Sprintf("%s/%s/%s/#", sparkplugNamespace, g, mt))
+			// engine-historian's cloud forwarder re-emits with msgtype and group
+			// SWAPPED (services/engine-historian/main.go: "%sspBv1.0/%s/%s/%s/%s"
+			// with MessageType before GroupID). Send only, still no command types.
+			a.send(fmt.Sprintf("%s/%s/%s/#", sparkplugNamespace, mt, g))
 		}
 		for _, mt := range sparkplugCommands {
-			a.receive(fmt.Sprintf("%s/+/%s/#", sparkplugNamespace, mt))
+			// NCMD/DCMD are setpoint writes going core-api -> edge.
+			// Receive only: an edge must never SEND a command.
+			a.receive(fmt.Sprintf("%s/%s/%s/#", sparkplugNamespace, g, mt))
 		}
 	}
 	// core-api subscribes with the literal filter "spBv1.0/#".
 	a.subscribe(sparkplugNamespace + "/#")
 
-	// --- sys/ topics that ARE keyed by org id — scope them exactly -------------
-	// sys/write/{org_id}/{site}/{area}/{gateway}/{tag}  (external -> core-api write,
-	//                                                    core-api resolves the org
-	//                                                    from the topic, so pinning
-	//                                                    this level is what stops a
-	//                                                    cross-tenant tag write)
-	// sys/edge/{org_id}/ping                            (edge manager heartbeat)
-	// sys/alarms/{org_id}/{site}/{area}/{gateway}/{tag} (alarm events)
+	// --- sys/ topics keyed by org id ---------------------------------------------
+	// sys/write/{org_id}/...  (external -> core-api write: pinning this level is
+	//                          what stops a cross-tenant tag write)
+	// sys/edge/{org_id}/ping  (edge manager heartbeat)
+	// sys/alarms/{org_id}/... (alarm events)
 	a.sendReceive("sys/write/"+org+"/#", "sys/edge/"+org+"/#", "sys/alarms/"+org+"/#")
-	// Literal filters used by core-api and engine-historian.
 	a.subscribe("sys/write/#", "sys/edge/#", "sys/alarms/#")
 
-	// sys/update/{org_id} and sys/restart/{org_id} are OTA commands published by
-	// core-api towards the edge: receive-only, and only this org's own.
-	// Both shapes: addressed to the organization, and addressed to one of its
-	// boxes. Without the second the broker would refuse to deliver a restart
-	// aimed at a single box, and the command would vanish with no error
-	// anywhere — the publisher sees a successful publish either way.
+	// OTA commands core-api sends to this organization, or to one of its boxes.
 	a.receive("sys/update/"+org, "sys/restart/"+org,
 		"sys/update/"+org+"/+", "sys/restart/"+org+"/+")
-	// services/driver-manager/main.go subscribes to the literal filters
-	// "sys/update/#" and "sys/restart/#"; the subscription is allowed but only this
-	// org's own messages are ever delivered.
 	a.subscribe("sys/update/#", "sys/restart/#")
 
-	// --- sys/ topics that are keyed by GATEWAY id, not org id ------------------
-	// Gateway ids are globally unique integers and the topics carry no org
-	// component, so they CANNOT be scoped per-org without changing the topic layout
-	// (it would have to become sys/health/{org_id}/{gateway_id}).  Granted as
-	// narrowly as the layout permits:
-	//
-	//   sys/health/{gateway_id} — read/write (LWT + retained status, published by
-	//   every driver and by internal/handlers/gateways.go).
-	//   RESIDUAL, SHARED ACROSS TENANTS: a tenant can publish or read health for a
-	//   gateway id it does not own.  That is an integrity / liveness-disclosure
-	//   issue, not a control action.
-	// Both shapes. The old one carries no organization, which is why it could
-	// only ever be granted to everybody: any tenant could read another tenant's
-	// gateway states, or publish a false one. It stays granted only for as long
-	// as drivers that have not been updated are still publishing it.
-	a.sendReceive("sys/health/+", "sys/health/"+org+"/+")
-	// A multi-level wildcard so one subscription covers both shapes.
+	// --- Gateway health ------------------------------------------------------------
+	// sys/health/{org_id}/{gateway_id} carries the organization; the old shape
+	// sys/health/{gateway_id} does not, so it is granted per gateway of this
+	// organization, never as "sys/health/+".
+	a.sendReceive("sys/health/" + org + "/+")
+	for _, id := range s.GatewayIDs {
+		a.sendReceive(fmt.Sprintf("sys/health/%d", id))
+	}
 	a.subscribe("sys/health/#")
 
-	//   sys/command/reload/{gateway_id}, sys/command/write/{gateway_id},
-	//   sys/command/settings-reload, sys/command/restore-complete and
-	//   sys/lorawan/down/{gateway_id} are all published BY core-api towards a
-	//   gateway.  Receive-only: withholding publishClientSend is what stops a tenant
-	//   from issuing a write/reload to another tenant's gateway.
-	//   RESIDUAL, SHARED ACROSS TENANTS: a tenant can still observe commands
-	//   addressed to other tenants' gateways (gateway ids are not org-scoped).
-	a.receive("sys/command/#", "sys/lorawan/down/+")
+	// --- Commands to this organization's gateways (receive only) -------------------
+	// Published BY core-api towards a gateway. Withholding send is what stops a
+	// tenant from issuing a write or a reload; granting receive only for this
+	// organization's gateway ids is what stops it from reading another tenant's.
+	for _, id := range s.GatewayIDs {
+		a.receive(
+			fmt.Sprintf("sys/command/reload/%d", id),
+			fmt.Sprintf("sys/command/write/%d", id),
+			fmt.Sprintf("sys/command/settings-reload/%d", id),
+			fmt.Sprintf("sys/lorawan/down/%d", id),
+			fmt.Sprintf("cmd/write/%d", id),
+		)
+		a.sendReceive(fmt.Sprintf("cmd/write/result/%d", id))
+	}
+	// Broadcasts with no tenant data in them (a reload or restore notice).
+	a.receive("sys/command/reload", "sys/command/settings-reload", "sys/command/restore-complete")
 	a.subscribe("sys/command/#", "sys/lorawan/#")
 
-	// --- cmd/ write-command topics ---------------------------------------------
-	// cmd/{org}/{site}/{area}/{gateway}/{alias}  core-api/cloud -> driver (legacy)
-	// cmd/write/{gateway_id}                     core-api -> driver (direct)
-	// cmd/write/result/{gateway_id}              driver -> core-api (ack)
-	// cmd/result/{org}/{site}/{area}/{gateway}/{alias}  driver -> core-api (legacy ack)
-	// The two -> driver directions are receive-only for the same reason as DCMD:
-	// they are setpoint writes.
-	for _, n := range names {
+	// --- cmd/ legacy write-command topics, keyed by org name --------------------
+	// cmd/{org}/{site}/{area}/{gateway}/{alias}         core-api -> driver: receive
+	// cmd/result/{org}/{site}/{area}/{gateway}/{alias}  driver -> core-api (ack)
+	for _, n := range s.nameVariants() {
 		a.receive("cmd/" + n + "/#")
 		a.sendReceive("cmd/result/" + n + "/#")
 	}
-	// Gateway-keyed, so org-scoping is impossible with the current layout — same
-	// RESIDUAL as sys/command above.  "cmd/write/+" is exactly three levels and so
-	// does not overlap the four-level "cmd/write/result/+".
-	a.receive("cmd/write/+")
-	a.sendReceive("cmd/write/result/+")
-	// engine-historian's cloud bridge subscribes to the literal filter "cmd/#"
-	// (with an optional operator-configured prefix, see below).
+	// engine-historian's cloud bridge subscribes to the literal filter "cmd/#".
 	a.subscribe("cmd/#")
 
 	// --- NOT granted, on purpose ------------------------------------------------
 	// engine-historian's cloud forwarder can prepend an operator-chosen prefix
 	// (global_settings.cloud_mqtt_topic) and re-publishes tag data as
 	// "{prefix}legacy/{org}/..." and alarms as "{prefix}alarms/{site}/..." — note
-	// the alarms form has NO org level at all.  Neither topic has a subscriber
+	// the alarms form has NO org level at all. Neither topic has a subscriber
 	// anywhere in OpenEdge (they exist for third-party cloud brokers), and granting
 	// them would mean an unscopeable cross-tenant injection channel, so they are
-	// left denied.  An operator bridging to a *third-party* broker with a custom
-	// prefix must add those grants there, not to this role.
+	// left denied.
+	a.denyEverythingElse()
 	return a.entries
 }
 
-// CreateOrgUser provisions an MQTT user for an organization.
-// The user is confined to its own tenant namespace — see orgRoleACLs for the
-// exact grant and for the residual risks that the current topic layout forces.
-// siteNames is optional; supplying the org's sites pins the Sparkplug group level
-// exactly instead of falling back to the narrowed per-message-type grant.
-func (d *DynsecClient) CreateOrgUser(orgID int, orgName, username, password string, siteNames ...string) error {
+// CreateOrgUser provisions an MQTT user for an organization, confined to its
+// own tenant namespace — see orgRoleACLs.
+func (d *DynsecClient) CreateOrgUser(scope TenantScope, username, password string) error {
 	d.cmdMu.Lock()
 	defer d.cmdMu.Unlock()
 
 	corrID := newCorrID()
-	roleName := fmt.Sprintf("org-%d-role", orgID)
+	roleName := fmt.Sprintf("org-%d-role", scope.OrgID)
 
 	return d.send([]map[string]interface{}{
 		{
 			"command":  "createRole",
 			"rolename": roleName,
-			"acls":     orgRoleACLs(orgID, orgName, siteNames),
+			"acls":     orgRoleACLs(scope),
 		},
 		{
 			"command":  "createClient",
@@ -518,21 +513,20 @@ func (d *DynsecClient) DeleteOrgUser(orgID int, username string) error {
 	}, corrID)
 }
 
-// UpdateOrgRole rebuilds the ACLs for an org's role (e.g. after a rename, or when
-// the org's site list changes).  Passing the org's site names pins the Sparkplug
-// group level exactly — see orgRoleACLs.
-func (d *DynsecClient) UpdateOrgRole(orgID int, newOrgName string, siteNames ...string) error {
+// UpdateOrgRole rebuilds the ACLs for an org's role: after a rename, or when
+// its sites or gateways change.
+func (d *DynsecClient) UpdateOrgRole(scope TenantScope) error {
 	d.cmdMu.Lock()
 	defer d.cmdMu.Unlock()
 
 	corrID := newCorrID()
-	roleName := fmt.Sprintf("org-%d-role", orgID)
+	roleName := fmt.Sprintf("org-%d-role", scope.OrgID)
 
 	return d.send([]map[string]interface{}{
 		{
 			"command":  "modifyRole",
 			"rolename": roleName,
-			"acls":     orgRoleACLs(orgID, newOrgName, siteNames),
+			"acls":     orgRoleACLs(scope),
 		},
 	}, corrID)
 }
@@ -569,43 +563,25 @@ func newCorrID() string {
 // MqttMonitorPage), and Mosquitto still evaluates publishClientReceive for every
 // message it is about to deliver — so the wide subscribePattern below grants
 // nothing on its own, exactly as in orgRoleACLs.
-func uiViewerACLs(orgID int, orgName string, siteNames []string) []map[string]interface{} {
+func uiViewerACLs(s TenantScope) []map[string]interface{} {
 	a := newACLSet()
-	org := fmt.Sprintf("%d", orgID)
+	org := fmt.Sprintf("%d", s.OrgID)
 
-	// Legacy tag data, this org only. Both spellings — see orgNameVariants.
-	for _, n := range orgNameVariants(orgName) {
+	// Legacy tag data, this org only. Both spellings — see nameVariants.
+	for _, n := range s.nameVariants() {
 		a.receive("data/" + n + "/#")
 	}
 	a.subscribe("data/#")
 
-	// Sparkplug: edge-originated message types only. A viewer has no business
-	// seeing NCMD/DCMD — those carry setpoint writes, and reading them discloses
-	// what an operator is about to do to a machine.
-	groups := make([]string, 0, len(siteNames))
-	for _, site := range siteNames {
-		if strings.TrimSpace(site) == "" {
-			continue
-		}
-		groups = append(groups, fmt.Sprintf("%s-%s", slugifyTopic(orgName), slugifyTopic(site)))
-	}
-	if len(groups) > 0 {
-		for _, g := range groups {
-			for _, mt := range sparkplugEdgeOriginated {
-				a.receive(fmt.Sprintf("%s/%s/%s/#", sparkplugNamespace, g, mt))
-				// engine-historian re-emits with group and msgtype swapped.
-				a.receive(fmt.Sprintf("%s/%s/%s/#", sparkplugNamespace, mt, g))
-			}
-		}
-	} else {
-		// Same residual as orgRoleACLs, and for the same reason: no caller has
-		// the org's site list, so the {group} level cannot be pinned and a
-		// viewer can observe other tenants' DDATA. Narrowed to edge-originated
-		// types so at least the command traffic stays private. It closes the
-		// moment siteNames is supplied.
+	// Sparkplug: edge-originated message types of this organization's groups
+	// only. A viewer has no business seeing NCMD/DCMD — those carry setpoint
+	// writes, and reading them discloses what an operator is about to do to a
+	// machine. No sites, no groups, nothing granted.
+	for _, g := range s.SparkplugGroups() {
 		for _, mt := range sparkplugEdgeOriginated {
-			a.receive(fmt.Sprintf("%s/+/%s/#", sparkplugNamespace, mt))
-			a.receive(fmt.Sprintf("%s/%s/#", sparkplugNamespace, mt))
+			a.receive(fmt.Sprintf("%s/%s/%s/#", sparkplugNamespace, g, mt))
+			// engine-historian re-emits with group and msgtype swapped.
+			a.receive(fmt.Sprintf("%s/%s/%s/#", sparkplugNamespace, mt, g))
 		}
 	}
 	a.subscribe(sparkplugNamespace + "/#")
@@ -614,6 +590,7 @@ func uiViewerACLs(orgID int, orgName string, siteNames []string) []map[string]in
 	a.receive("sys/alarms/" + org + "/#")
 	a.subscribe("sys/alarms/#")
 
+	a.denyEverythingElse()
 	return a.entries
 }
 
@@ -627,12 +604,12 @@ func uiViewerACLs(orgID int, orgName string, siteNames []string) []map[string]in
 // exists" is treated as success in send), modifyRole brings stale ACLs up to
 // date, and setClientPassword makes the stored password the true one rather
 // than hoping they never diverged.
-func (d *DynsecClient) EnsureOrgViewer(orgID int, orgName, username, password string, siteNames ...string) error {
+func (d *DynsecClient) EnsureOrgViewer(scope TenantScope, username, password string) error {
 	d.cmdMu.Lock()
 	defer d.cmdMu.Unlock()
 
-	roleName := fmt.Sprintf("org-%d-ui-role", orgID)
-	acls := uiViewerACLs(orgID, orgName, siteNames)
+	roleName := fmt.Sprintf("org-%d-ui-role", scope.OrgID)
+	acls := uiViewerACLs(scope)
 
 	return d.send([]map[string]interface{}{
 		{"command": "createRole", "rolename": roleName, "acls": acls},
@@ -653,15 +630,15 @@ func (d *DynsecClient) EnsureOrgViewer(orgID int, orgName, username, password st
 // Deliberately touches the ROLE and not the client: rotating the password here
 // would sign out every browser currently connected, and the reason to call this
 // is that the grant should get NARROWER, not that the secret went stale.
-func (d *DynsecClient) UpdateOrgViewerRole(orgID int, orgName string, siteNames ...string) error {
+func (d *DynsecClient) UpdateOrgViewerRole(scope TenantScope) error {
 	d.cmdMu.Lock()
 	defer d.cmdMu.Unlock()
 
 	return d.send([]map[string]interface{}{
 		{
 			"command":  "modifyRole",
-			"rolename": fmt.Sprintf("org-%d-ui-role", orgID),
-			"acls":     uiViewerACLs(orgID, orgName, siteNames),
+			"rolename": fmt.Sprintf("org-%d-ui-role", scope.OrgID),
+			"acls":     uiViewerACLs(scope),
 		},
 	}, newCorrID())
 }
@@ -690,12 +667,12 @@ func OrgViewerUsername(orgID int) string { return fmt.Sprintf("org-%d-ui", orgID
 // one publish. Sharing the role means a site added later widens both at once,
 // through UpdateOrgViewerRole. Each system gets its own client, so one can be
 // revoked without touching the others or the browsers.
-func (d *DynsecClient) CreateExternalReader(orgID int, orgName, username, password string, siteNames ...string) error {
+func (d *DynsecClient) CreateExternalReader(scope TenantScope, username, password string) error {
 	d.cmdMu.Lock()
 	defer d.cmdMu.Unlock()
 
-	roleName := fmt.Sprintf("org-%d-ui-role", orgID)
-	acls := uiViewerACLs(orgID, orgName, siteNames)
+	roleName := fmt.Sprintf("org-%d-ui-role", scope.OrgID)
+	acls := uiViewerACLs(scope)
 	return d.send([]map[string]interface{}{
 		{"command": "createRole", "rolename": roleName, "acls": acls},
 		{"command": "modifyRole", "rolename": roleName, "acls": acls},

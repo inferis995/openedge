@@ -88,6 +88,7 @@ type fixture struct {
 	siteID   int
 	areaID   int
 	gwID     int
+	siteName string
 	tagID    int
 	tagAlias string
 	// dataTopic is the legacy topic a driver publishes this tag on.
@@ -146,7 +147,7 @@ func newFixture(t *testing.T, admin *apiClient) fixture {
 	})
 
 	return fixture{
-		org: org, siteID: siteID, areaID: areaID, gwID: gwID,
+		org: org, siteID: siteID, areaID: areaID, gwID: gwID, siteName: "site-" + suffix,
 		tagID: tagID, tagAlias: alias,
 		dataTopic: fmt.Sprintf("data/%s/%s/%s/%s/%s",
 			slug("e2e-flow-"+suffix), slug("site-"+suffix),

@@ -82,6 +82,11 @@ func (h *SitesHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if err := h.checkSiteTopicName(c, orgID, 0, req.Name); err != nil {
+		respondTopicNameError(c, err)
+		return
+	}
+
 	var site models.Site
 	err := h.db.QueryRow(
 		"INSERT INTO sites (org_id, name) VALUES ($1, $2) RETURNING id, org_id, name, created_at",
@@ -390,6 +395,13 @@ func (h *SitesHandler) Update(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+
+	if req.Name != nil {
+		if nerr := h.checkSiteTopicName(c, orgID, id, *req.Name); nerr != nil {
+			respondTopicNameError(c, nerr)
+			return
+		}
 	}
 
 	var site models.Site

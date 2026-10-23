@@ -1,177 +1,279 @@
 package mqtt
 
 import (
+	"sort"
 	"strings"
 	"testing"
 )
 
-// The property the whole fix rests on: a browser cannot publish.
+// ── A model of how Mosquitto's dynamic-security plugin decides ────────────────
 //
-// The web UI used to reach the broker anonymously, which on the cloud
-// deployment meant anyone on the internet could subscribe to every tenant's
-// live data AND publish cmd/write/{gateway} — a setpoint on a real machine. The
-// answer was to give the UI an identity; the answer is only worth anything if
-// that identity is read-only.
-//
-// It would have been easier to hand the UI the org's existing role. That role
-// belongs to an EDGE: it may publish tag data, because a gateway must. Any
-// signed-in user, including one whose whole purpose is to look at a dashboard,
-// would then be able to inject readings indistinguishable from a PLC's.
+// For a client with one role: its ACLs of the asked type are tried from the
+// highest priority down, and the first whose topic filter matches decides.
+// When none matches, the broker's default decides — and the plugin's stock
+// default ALLOWS receiving. The tests below run with that default, the
+// unfavorable one, so a role is only isolated if it is isolated on its own.
+
+func filterMatches(filter, topic string) bool {
+	f, t := strings.Split(filter, "/"), strings.Split(topic, "/")
+	for i, part := range f {
+		if part == "#" {
+			return true
+		}
+		if i >= len(t) {
+			return false
+		}
+		if part != "+" && part != t[i] {
+			return false
+		}
+	}
+	return len(f) == len(t)
+}
+
+func decide(acls []map[string]interface{}, aclType, topic string, stockDefault bool) bool {
+	matching := make([]map[string]interface{}, 0, len(acls))
+	for _, a := range acls {
+		if a["acltype"] == aclType {
+			matching = append(matching, a)
+		}
+	}
+	sort.SliceStable(matching, func(i, j int) bool {
+		return matching[i]["priority"].(int) > matching[j]["priority"].(int)
+	})
+	for _, a := range matching {
+		if filterMatches(a["topic"].(string), topic) {
+			return a["allow"].(bool)
+		}
+	}
+	return stockDefault
+}
+
+// receives: would a message on topic be delivered to this client?
+func receives(acls []map[string]interface{}, topic string) bool {
+	return decide(acls, "publishClientReceive", topic, true)
+}
+
+// sends: may this client publish on topic?
+func sends(acls []map[string]interface{}, topic string) bool {
+	return decide(acls, "publishClientSend", topic, false)
+}
+
+var (
+	acme = TenantScope{OrgID: 7, OrgName: "Acme Corp", SiteNames: []string{"Plant A"}, GatewayIDs: []int{70, 71}}
+	// The neighbor: another organization on the same broker.
+	beta = TenantScope{OrgID: 8, OrgName: "Beta", SiteNames: []string{"North"}, GatewayIDs: []int{80}}
+)
+
+// Topics that belong to Beta, one per kind of traffic the broker carries.
+var betaTopics = []string{
+	"data/Beta/North/Area/GW/temp",
+	"data/beta/north/area/gw/temp",
+	"spBv1.0/beta-north/DDATA/area-gw/dev",
+	"spBv1.0/beta-north/NBIRTH/area-gw",
+	"spBv1.0/beta-north/DCMD/area-gw/dev",
+	"spBv1.0/DDATA/beta-north/area-gw/dev",
+	"sys/alarms/8/north/area/gw/temp",
+	"sys/write/8/north/area/gw/temp",
+	"sys/edge/8/ping",
+	"sys/update/8",
+	"sys/restart/8/box-1",
+	"sys/health/80",
+	"sys/health/8/80",
+	"sys/command/reload/80",
+	"sys/command/write/80",
+	"sys/command/settings-reload/80",
+	"sys/lorawan/down/80",
+	"cmd/write/80",
+	"cmd/write/result/80",
+	"cmd/Beta/North/Area/GW/temp",
+	"cmd/result/beta/north/area/gw/temp",
+}
+
+func roles(s TenantScope) map[string][]map[string]interface{} {
+	return map[string][]map[string]interface{}{"edge": orgRoleACLs(s), "web UI viewer": uiViewerACLs(s)}
+}
+
+// The property the whole file is about: with Acme's credentials, nothing of
+// Beta's is delivered and nothing can be published into Beta's topics — on a
+// broker whose default lets everything through.
+func TestATenantNeitherReadsNorWritesAnotherTenantsTopics(t *testing.T) {
+	for name, acls := range roles(acme) {
+		for _, topic := range betaTopics {
+			if receives(acls, topic) {
+				t.Errorf("%s role of org 7 RECEIVES %q, which belongs to org 8", name, topic)
+			}
+			if sends(acls, topic) {
+				t.Errorf("%s role of org 7 may PUBLISH on %q, which belongs to org 8", name, topic)
+			}
+		}
+	}
+}
+
+// The list above must really be Beta's traffic, or the test proves nothing:
+// Beta's own edge role reaches every one of those topics.
+func TestTheNeighborsTopicsAreRealTopics(t *testing.T) {
+	edge := orgRoleACLs(beta)
+	for _, topic := range betaTopics {
+		if !receives(edge, topic) && !sends(edge, topic) {
+			t.Errorf("%q is not a topic of org 8 at all; the isolation test would pass on it vacuously", topic)
+		}
+	}
+}
+
+// Same with an organization that has no site yet: it has no Sparkplug group
+// either, and must not get a group-level wildcard in its place.
+func TestAnOrganizationWithoutSitesGetsNoSparkplugWildcard(t *testing.T) {
+	bare := TenantScope{OrgID: 7, OrgName: "Acme Corp"}
+	for name, acls := range roles(bare) {
+		for _, topic := range betaTopics {
+			if receives(acls, topic) || sends(acls, topic) {
+				t.Errorf("%s role of an organization with no sites reaches %q", name, topic)
+			}
+		}
+		for _, a := range acls {
+			topic := a["topic"].(string)
+			if a["allow"] == true && strings.HasPrefix(topic, sparkplugNamespace+"/") && a["acltype"] != "subscribePattern" {
+				t.Errorf("%s role grants %s on %q with no site to scope it", name, a["acltype"], topic)
+			}
+		}
+	}
+}
+
+// No grant that delivers or publishes uses a wildcard where a tenant's
+// identity belongs: the level after data/, cmd/, sys/<kind>/, the gateway id,
+// or the Sparkplug group.
+func TestNoGrantWildcardsTheTenantLevel(t *testing.T) {
+	allowedPlus := map[string]bool{
+		"sys/health/7/+": true, "sys/update/7/+": true, "sys/restart/7/+": true,
+	}
+	for name, acls := range roles(acme) {
+		for _, a := range acls {
+			topic := a["topic"].(string)
+			if a["allow"] != true || a["acltype"] == "subscribePattern" {
+				continue
+			}
+			if strings.Contains(topic, "+") && !allowedPlus[topic] {
+				t.Errorf("%s role grants %s on %q: a single-level wildcard on a tenant level", name, a["acltype"], topic)
+			}
+			parts := strings.Split(topic, "/")
+			if len(parts) <= 2 && strings.HasSuffix(topic, "#") {
+				t.Errorf("%s role grants %s on %q: wider than any one tenant", name, a["acltype"], topic)
+			}
+		}
+	}
+}
+
+// And the role still works for its owner: an edge publishes and receives its
+// own traffic, a viewer receives its own data.
+func TestATenantStillReachesItsOwnTopics(t *testing.T) {
+	edge, viewer := orgRoleACLs(acme), uiViewerACLs(acme)
+	for _, topic := range []string{
+		"data/Acme Corp/Plant A/Area/GW/temp",
+		"data/acme-corp/plant-a/area/gw/temp",
+		"spBv1.0/acme-corp-plant-a/DDATA/area-gw/dev",
+		"sys/alarms/7/plant-a/area/gw/temp",
+	} {
+		if !receives(edge, topic) || !receives(viewer, topic) {
+			t.Errorf("org 7 does not receive its own %q (edge %v, viewer %v)", topic, receives(edge, topic), receives(viewer, topic))
+		}
+	}
+	for _, topic := range []string{
+		"data/acme-corp/plant-a/area/gw/temp",
+		"spBv1.0/acme-corp-plant-a/DDATA/area-gw/dev",
+		"spBv1.0/DDATA/acme-corp-plant-a/area-gw/dev",
+		"sys/health/70",
+		"sys/health/7/71",
+		"cmd/write/result/71",
+		"sys/edge/7/ping",
+	} {
+		if !sends(edge, topic) {
+			t.Errorf("the edge of org 7 cannot publish its own %q — no gateway could report", topic)
+		}
+	}
+	for _, topic := range []string{
+		"sys/command/reload/70", "cmd/write/71", "sys/lorawan/down/70", "sys/update/7", "sys/restart/7/box-1",
+		"spBv1.0/acme-corp-plant-a/DCMD/area-gw/dev", "sys/command/settings-reload",
+	} {
+		if !receives(edge, topic) {
+			t.Errorf("the edge of org 7 does not receive the command %q addressed to it", topic)
+		}
+	}
+}
+
+// Commands travel core-api → edge only. Neither role may send one, to anybody,
+// itself included: a DCMD or a cmd/write is a setpoint on a real machine.
+func TestNoRoleCanIssueACommand(t *testing.T) {
+	for name, acls := range roles(acme) {
+		for _, topic := range []string{
+			"spBv1.0/acme-corp-plant-a/DCMD/area-gw/dev", "spBv1.0/acme-corp-plant-a/NCMD/area-gw",
+			"cmd/write/70", "sys/command/write/70", "sys/command/reload/70", "cmd/acme-corp/plant-a/area/gw/t",
+			"sys/update/7", "sys/restart/7",
+		} {
+			if sends(acls, topic) {
+				t.Errorf("%s role of org 7 may publish the command %q", name, topic)
+			}
+		}
+	}
+}
+
+// A browser identity cannot publish at all, whatever the scope.
 func TestUIViewerCannotPublishAnything(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		sites []string
-	}{
-		// Both branches: with the org's sites the Sparkplug group is pinned,
-		// without them it falls back to the wildcard form. A grant that leaks
-		// into only one of them is the kind that ships.
-		{"sites known", []string{"Plant A", "Plant B"}},
-		{"sites unknown", nil},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			acls := uiViewerACLs(7, "Acme Corp", tc.sites)
-			if len(acls) == 0 {
-				t.Fatal("the viewer role is empty — it would see nothing, and this test would " +
-					"pass on a role that grants nothing at all")
+	for _, s := range []TenantScope{acme, {OrgID: 7, OrgName: "Acme Corp"}} {
+		acls := uiViewerACLs(s)
+		for _, a := range acls {
+			if a["acltype"] == "publishClientSend" && a["allow"] == true {
+				t.Errorf("the viewer role may PUBLISH on %q", a["topic"])
 			}
+		}
+		if sends(acls, "data/acme-corp/plant-a/area/gw/temp") {
+			t.Error("the viewer can publish tag data")
+		}
+	}
+}
 
-			sawReceive, sawSubscribe := false, false
-			for _, acl := range acls {
-				aclType, _ := acl["acltype"].(string)
-				topic, _ := acl["topic"].(string)
-				switch aclType {
-				case "publishClientSend":
-					t.Errorf("the viewer role may PUBLISH on %q. This identity is handed to a "+
-						"browser: publishing means injecting tag values, and on cmd/ topics it "+
-						"means writing a setpoint to a PLC", topic)
-				case "publishClientReceive":
-					sawReceive = true
-				case "subscribePattern", "subscribeLiteral":
-					sawSubscribe = true
-				default:
-					t.Errorf("unexpected ACL type %q on %q", aclType, topic)
+// A name that is not one topic level must not become a grant: "+" would be
+// every organization, "a/b" organization a's site b.
+func TestUnsafeNamesAreNeverGranted(t *testing.T) {
+	for _, name := range []string{"+", "#", "Beta/North", "$SYS"} {
+		s := TenantScope{OrgID: 9, OrgName: name, SiteNames: []string{"x"}}
+		for role, acls := range roles(s) {
+			for _, topic := range betaTopics {
+				if receives(acls, topic) || sends(acls, topic) {
+					t.Errorf("org named %q: %s role reaches %q", name, role, topic)
 				}
 			}
-			if !sawReceive || !sawSubscribe {
-				t.Errorf("the viewer must be able to subscribe and receive (receive=%v subscribe=%v)",
-					sawReceive, sawSubscribe)
-			}
-		})
+		}
+	}
+	if TopicSafe("+") || TopicSafe("a/b") || TopicSafe("") || TopicSafe("$x") || !TopicSafe("Acme Corp") {
+		t.Error("TopicSafe disagrees with the cases above")
 	}
 }
 
-// A viewer sees its own organization's data, not the neighbours'.
-func TestUIViewerIsScopedToItsOrganization(t *testing.T) {
-	acls := uiViewerACLs(7, "Acme Corp", []string{"Plant A"})
-
-	var receives []string
-	for _, acl := range acls {
-		if acl["acltype"] == "publishClientReceive" {
-			receives = append(receives, acl["topic"].(string))
-		}
-	}
-	if len(receives) == 0 {
-		t.Fatal("no receive grants at all")
-	}
-
-	for _, topic := range receives {
-		// Legacy data and alarms are keyed by org, so they must name it.
-		if strings.HasPrefix(topic, "data/") && !strings.Contains(strings.ToLower(topic), "acme") {
-			t.Errorf("receive grant %q is not scoped to the organization", topic)
-		}
-		if strings.HasPrefix(topic, "sys/alarms/") && !strings.HasPrefix(topic, "sys/alarms/7/") {
-			t.Errorf("alarm grant %q is not scoped to org 7", topic)
-		}
-		// Setpoint traffic is none of a dashboard's business, in either
-		// direction: reading a DCMD discloses what is about to be written.
-		for _, cmd := range sparkplugCommands {
-			if strings.Contains(topic, "/"+cmd+"/") || strings.HasSuffix(topic, "/"+cmd) {
-				t.Errorf("the viewer may receive %s traffic via %q — that is setpoint disclosure", cmd, topic)
-			}
-		}
-		if strings.HasPrefix(topic, "cmd/") || strings.HasPrefix(topic, "sys/command/") {
-			t.Errorf("the viewer may receive command traffic via %q", topic)
-		}
-	}
-}
-
-// The edge role is the counterpart: it MUST be able to publish, or no gateway
-// can report a value. Without this, deleting every send grant everywhere would
-// satisfy the test above.
-func TestTheEdgeRoleStillPublishes(t *testing.T) {
-	sends := 0
-	for _, acl := range orgRoleACLs(7, "Acme Corp", []string{"Plant A"}) {
-		if acl["acltype"] == "publishClientSend" {
-			sends++
-		}
-	}
-	if sends == 0 {
-		t.Fatal("the org (edge) role can no longer publish — no gateway could report data")
-	}
-}
-
-// Supplying the sites is what closes the cross-tenant hole, in BOTH roles.
-//
-// Sparkplug puts the organization and the site in one topic level —
-// spBv1.0/{org-slug}-{site-slug}/... — and MQTT wildcards match whole levels, so
-// "+" cannot prefix-match "acme-*". Without the site list the grant has to use
-// that "+", and "+" is every other tenant's group too.
-//
-// Both roles were built once, at organization creation, when no site exists yet,
-// and never rebuilt — so every deployment ran on the wildcard. The comment in
-// orgRoleACLs said it would close "as soon as siteNames is supplied"; nothing
-// supplied it until refreshOrgMQTTRoles. This is the assertion that the promise
-// is real, and that it stays real.
-func TestSupplyingSitesRemovesTheCrossTenantWildcard(t *testing.T) {
-	for _, role := range []struct {
-		name  string
-		build func(sites []string) []map[string]interface{}
-	}{
-		{"web UI viewer", func(s []string) []map[string]interface{} { return uiViewerACLs(7, "Acme Corp", s) }},
-		{"edge", func(s []string) []map[string]interface{} { return orgRoleACLs(7, "Acme Corp", s) }},
-	} {
-		t.Run(role.name, func(t *testing.T) {
-			wildcards := func(acls []map[string]interface{}) []string {
-				var out []string
-				for _, acl := range acls {
-					topic, _ := acl["topic"].(string)
-					// The group level is the one right after the namespace.
-					if strings.HasPrefix(topic, sparkplugNamespace+"/+/") {
-						out = append(out, topic)
-					}
-				}
-				return out
-			}
-
-			// Without sites the wildcard is there — otherwise this test would be
-			// asserting the absence of something that never appears.
-			if got := wildcards(role.build(nil)); len(got) == 0 {
-				t.Fatal("no group-level wildcard even without sites; this test cannot detect " +
-					"the regression it exists for")
-			}
-
-			if got := wildcards(role.build([]string{"Plant A", "Plant B"})); len(got) > 0 {
-				t.Errorf("with the org's sites supplied the grant still wildcards the Sparkplug "+
-					"group level: %v. That level carries {org}-{site}, so a wildcard there is "+
-					"every other tenant's namespace", got)
-			}
-		})
-	}
-}
-
-// And the pinned form must actually name this org's groups, or "no wildcards"
-// could be satisfied by granting nothing.
+// The pinned groups name this organization's sites, so "no wildcard" cannot be
+// satisfied by granting nothing.
 func TestPinnedSitesNameTheOrganizationsOwnGroups(t *testing.T) {
-	acls := uiViewerACLs(7, "Acme Corp", []string{"Plant A"})
-
-	found := false
-	for _, acl := range acls {
-		if topic, _ := acl["topic"].(string); strings.Contains(topic, "acme-corp-plant-a") {
-			found = true
-		}
+	if got := acme.SparkplugGroups(); len(got) != 1 || got[0] != "acme-corp-plant-a" {
+		t.Fatalf("groups %v, want [acme-corp-plant-a]", got)
 	}
-	if !found {
-		t.Fatal("the grant names no group for org 'Acme Corp' site 'Plant A' — the viewer would " +
-			"see none of its own Sparkplug traffic")
+	if !receives(uiViewerACLs(acme), "spBv1.0/acme-corp-plant-a/DDATA/area-gw/dev") {
+		t.Fatal("the viewer sees none of its own Sparkplug traffic")
+	}
+}
+
+// Every role ends with the explicit deny: correct on a broker whose default
+// allows everything, not only on ours.
+func TestEveryRoleClosesItself(t *testing.T) {
+	for name, acls := range roles(acme) {
+		for _, typ := range []string{"publishClientSend", "publishClientReceive", "subscribePattern"} {
+			found := false
+			for _, a := range acls {
+				if a["acltype"] == typ && a["topic"] == "#" && a["allow"] == false {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("%s role has no closing deny for %s", name, typ)
+			}
+		}
 	}
 }

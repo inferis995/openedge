@@ -59,6 +59,11 @@ func (h *OrganizationsHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if err := checkTopicNames(c.Request.Context(), h.db, 0, req.Name, nil); err != nil {
+		respondTopicNameError(c, err)
+		return
+	}
+
 	tx, err := h.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to begin transaction"})
@@ -84,7 +89,7 @@ func (h *OrganizationsHandler) Create(c *gin.Context) {
 			return
 		}
 
-		if dynsecErr := h.dynsecClient.CreateOrgUser(org.ID, org.Name, mqttUser, mqttPass); dynsecErr != nil {
+		if dynsecErr := h.dynsecClient.CreateOrgUser(mqtt.TenantScope{OrgID: org.ID, OrgName: org.Name}, mqttUser, mqttPass); dynsecErr != nil {
 			// Log but don't block org creation — MQTT creds can be re-provisioned later
 			fmt.Printf("[ORG] WARNING: failed to create MQTT user for org %d: %v\n", org.ID, dynsecErr)
 		} else {
@@ -101,7 +106,7 @@ func (h *OrganizationsHandler) Create(c *gin.Context) {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate MQTT credentials"})
 				return
 			}
-			if viewerErr := h.dynsecClient.EnsureOrgViewer(org.ID, org.Name, uiUser, uiPass); viewerErr != nil {
+			if viewerErr := h.dynsecClient.EnsureOrgViewer(mqtt.TenantScope{OrgID: org.ID, OrgName: org.Name}, uiUser, uiPass); viewerErr != nil {
 				// Not fatal, same as above: the credentials endpoint repairs it.
 				fmt.Printf("[ORG] WARNING: failed to create MQTT UI user for org %d: %v\n", org.ID, viewerErr)
 				uiUser, uiPass = "", ""
@@ -283,6 +288,17 @@ func (h *OrganizationsHandler) Update(c *gin.Context) {
 		themeColor = strings.TrimSpace(*req.ThemeColor)
 		if themeColor != "" && !validHexColor(themeColor) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "theme_color must be #rgb or #rrggbb"})
+			return
+		}
+	}
+
+	if orgIDInt, convErr := strconv.Atoi(id); convErr == nil {
+		sites, siteErr := orgSiteNames(c.Request.Context(), h.db, orgIDInt)
+		if siteErr == nil {
+			siteErr = checkTopicNames(c.Request.Context(), h.db, orgIDInt, req.Name, sites)
+		}
+		if siteErr != nil {
+			respondTopicNameError(c, siteErr)
 			return
 		}
 	}

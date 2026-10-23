@@ -376,6 +376,10 @@ func main() {
 	if mqttUser != "" {
 		dynsecClient = mqtt.NewDynsecClient(mqttClient)
 		slog.Info("Mosquitto Dynamic Security client ready")
+		// Every organization's broker roles follow its sites and gateways, and
+		// are rebuilt once at start-up — so roles made by an older, wider ACL
+		// builder are corrected on the first restart. See MQTTRoleReconciler.
+		go handlers.NewMQTTRoleReconciler(database, dynsecClient).Run(context.Background(), time.Minute)
 	}
 
 	// Health check handler (declared early — used both in unauthenticated /health routes and inside api group)

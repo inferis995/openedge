@@ -105,20 +105,17 @@ func (h *MQTTUICredentialsHandler) Get(c *gin.Context) {
 	}
 	newUsername := mqtt.OrgViewerUsername(orgID)
 
-	// The org's sites pin the Sparkplug group level exactly. Without them the
-	// grant falls back to a wildcard that lets this tenant observe another
-	// tenant's live data — see uiViewerACLs.
-	sites, siteErr := orgSiteNames(ctx, h.db, orgID)
-	if siteErr != nil {
-		// Not fatal: a wider grant beats no credentials and a disconnected UI,
-		// and refreshOrgMQTTRoles narrows it again on the next site change.
-		sites = nil
+	// The org's sites and gateways pin every grant — see uiViewerACLs.
+	scope, scopeErr := orgMQTTScope(ctx, h.db, orgID)
+	if scopeErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read the organization"})
+		return
 	}
 
 	// Broker first, database second. The other order would store a secret the
 	// broker never accepted, and the UI would fail to connect with a credential
 	// that looks perfectly valid in the database.
-	if err := h.dynsec.EnsureOrgViewer(orgID, orgName, newUsername, newPassword, sites...); err != nil {
+	if err := h.dynsec.EnsureOrgViewer(scope, newUsername, newPassword); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": "failed to provision MQTT credentials on the broker",
 		})
