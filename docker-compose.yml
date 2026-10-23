@@ -188,6 +188,11 @@ services:
       API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-}
       API_RATE_LIMIT_BURST: ${API_RATE_LIMIT_BURST:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001}
+      # Tag forecasting (docs/FORECASTING.md). On by default with the built-in
+      # statistical engine; FORECASTER_URL adds the model served by the
+      # "forecaster" service (compose profile "forecast").
+      FORECAST_ENABLED: ${FORECAST_ENABLED:-true}
+      FORECASTER_URL: ${FORECASTER_URL:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -672,6 +677,37 @@ services:
     networks:
       - openedge-net
 
+  # Forecasting model (Timestral on CPU) for tag forecasts. Optional:
+  #   docker compose --profile forecast up -d forecaster
+  # and FORECASTER_URL=http://forecaster:8000 for core-api. Reachable only on
+  # openedge-net: no port is published. The weights are downloaded once into
+  # the forecaster-models volume; HF_HUB_OFFLINE=1 for a server without
+  # internet, with the weights copied into the volume beforehand.
+  forecaster:
+    profiles: ["forecast"]
+    build:
+      context: .
+      dockerfile: services/forecaster/Dockerfile
+    image: openedge-forecaster:latest
+    container_name: openedge-forecaster
+    mem_limit: ${FORECASTER_MEM_LIMIT:-2g}
+    cpus: ${FORECASTER_CPUS:-2.0}
+    pids_limit: 256
+    environment:
+      TIMESTRAL_MODEL: ${TIMESTRAL_MODEL:-mistralai/Timestral-28M}
+      TORCH_THREADS: ${FORECASTER_THREADS:-2}
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+    volumes:
+      - forecaster-models:/models
+    security_opt:
+      - no-new-privileges:true
+    restart: always
+    logging:
+      driver: "json-file"
+      options: {max-size: "10m", max-file: "3"}
+    networks:
+      - openedge-net
+
 networks:
   openedge-net:
     driver: bridge
@@ -706,4 +742,6 @@ volumes:
   alertmanager-data:
     driver: local
   loki-data:
+    driver: local
+  forecaster-models:
     driver: local

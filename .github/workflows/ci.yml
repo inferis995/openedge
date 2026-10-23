@@ -169,6 +169,27 @@ jobs:
           name: frontend-coverage
           path: services/web-ui/coverage/
 
+  # ── Forecaster (Python) ──────────────────────────────────────────────────────
+  # The HTTP layer and batching of services/forecaster, against a stand-in
+  # model: numpy only, no torch, no weights.
+  forecaster-test:
+    name: Forecaster Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/forecaster
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - run: pip install "$(grep '^numpy==' requirements.txt)"
+
+      - name: Run tests
+        run: python -m unittest -v test_app.py
+
   # ── End-to-end acceptance ────────────────────────────────────────────────────
   # Runs the ASSEMBLED stack and follows real paths across process boundaries.
   # This is the only job that can catch the failure mode that produced this
@@ -557,3 +578,19 @@ jobs:
               ghcr.io/inferis995/openedge/web-ui:latest
             cache-from: type=gha
             cache-to: type=gha,mode=max
+
+      # Built, not pushed: the image is optional and large (torch), and a
+      # broken Dockerfile should fail here rather than in the nightly scan.
+      - name: Build forecaster image
+        uses: Wandalen/wretry.action@v3
+        with:
+          attempt_limit: 4
+          attempt_delay: 120000
+          action: docker/build-push-action@v7
+          with: |
+            context: .
+            file: services/forecaster/Dockerfile
+            push: false
+            tags: openedge-forecaster:ci
+            cache-from: type=gha,scope=forecaster
+            cache-to: type=gha,mode=max,scope=forecaster
