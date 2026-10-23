@@ -44,6 +44,7 @@ import {
     TabsTrigger,
 } from '@/components/ui/tabs';
 import { TagAlarmsTab } from '@/components/tags/TagAlarmsTab';
+import { TagForecastTab } from '@/components/tags/TagForecastTab';
 
 import { Plus, Trash2, Database, Upload, Download, ArrowUp, ArrowDown, CheckSquare, Square, X, Bell, BellRing, Pencil, History, Search, WifiOff, Clock, Settings2 } from 'lucide-react';
 import TagHistoryChart from '@/components/TagHistoryChart';
@@ -1005,11 +1006,14 @@ const TagsPage = () => {
                                             {updatingTagId ? tr('tagsPage.edit_desc') : tr('tagsPage.create_desc')}
                                         </DialogDescription>
                                     </DialogHeader>
-                                    <Tabs defaultValue="general" className="w-full mt-4">
-                                        <TabsList className="mb-4">
+                                    <Tabs defaultValue="general" className="w-full min-w-0 mt-4">
+                                        {/* Four tabs do not fit a phone: the row scrolls instead of
+                                            widening the dialog past the screen. */}
+                                        <TabsList className="mb-4 max-w-full justify-start overflow-x-auto [scrollbar-width:none]">
                                             <TabsTrigger value="general">{tr('tagsPage.tab_general')}</TabsTrigger>
                                             <TabsTrigger value="scaling">{tr('tagsPage.tab_scaling')}</TabsTrigger>
                                             {updatingTagId && <TabsTrigger value="alarms">{tr('tagsPage.tab_alarms')}</TabsTrigger>}
+                                            {updatingTagId && formData.data_type !== 'STRING' && <TabsTrigger value="forecast">{tr('forecast.tab')}</TabsTrigger>}
                                         </TabsList>
                                         <TabsContent value="general">
                                             <div className="grid gap-6 py-4">
@@ -1353,6 +1357,11 @@ const TagsPage = () => {
                                         {updatingTagId && (
                                             <TabsContent value="alarms">
                                                 <TagAlarmsTab tagId={updatingTagId} dataType={formData.data_type || 'REAL'} onSave={refreshAlarmData} />
+                                            </TabsContent>
+                                        )}
+                                        {updatingTagId && formData.data_type !== 'STRING' && (
+                                            <TabsContent value="forecast">
+                                                <TagForecastTab tagId={updatingTagId} />
                                             </TabsContent>
                                         )}
                                     </Tabs>

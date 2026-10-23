@@ -1,6 +1,7 @@
 import { Eye, EyeOff, X, GripVertical, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from 'react-i18next';
+import type { ForecastStatus } from '@/api/forecast';
 
 export interface PenStats {
     min: number | null;
@@ -21,6 +22,8 @@ export interface Pen {
     lastSampleAt?: number | null;
     /** The tag's gateway: when it last reported, and whether it is online. */
     contact?: { at: number | null; online: boolean } | null;
+    /** The tag's forecast, when forecasts are shown: whether it is drawn, and why not. */
+    forecast?: { status: ForecastStatus; reason?: string } | null;
 }
 
 /** "4 h ago", in the user's language. */
@@ -164,6 +167,12 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
                                     {!pen.contact.online && ` · ${t('historian.gateway_offline')}`}
                                 </span>
                             )}
+                        </div>
+                    )}
+                    {pen.forecast && (
+                        <div className={`pl-5 mt-0.5 text-[10px] ${pen.forecast.status === 'ok' ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-500'}`}
+                            title={pen.forecast.reason}>
+                            {t(`forecast.pen_${pen.forecast.status}`)}
                         </div>
                     )}
                 </div>

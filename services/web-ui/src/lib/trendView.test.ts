@@ -13,6 +13,14 @@ describe('trend view in the address', () => {
         expect(decodeView(new URLSearchParams(q.toString()))).toEqual(v);
     });
 
+    it('remembers that forecasts are shown', () => {
+        const v: TrendView = { pens: [{ tagId: 7, color: '#3b82f6', visible: true }], range: { preset: '24h' }, agg: 'mean', live: true, cmp: 'off', y: {}, layout: 'lanes', fc: true };
+        const q = encodeView(v);
+        expect(q.get('fc')).toBe('1');
+        expect(decodeView(new URLSearchParams(q.toString()))).toEqual(v);
+        expect(encodeView({ ...v, fc: false }).has('fc')).toBe(false);
+    });
+
     it('keeps a picked window as absolute times, and never live', () => {
         const v = decodeView(new URLSearchParams('pens=3:00ff00&from=2026-10-01T00:00:00.000Z&to=2026-10-02T00:00:00.000Z&live=1'));
         expect(v?.range).toEqual({ from: Date.parse('2026-10-01T00:00:00Z'), to: Date.parse('2026-10-02T00:00:00Z') });

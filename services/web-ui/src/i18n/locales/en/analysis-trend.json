@@ -70,7 +70,13 @@
     "layout_to_overlay": "Overlay the curves on one area",
     "layout_to_lanes": "One lane per axis, one under the other",
     "resize_browser": "Resize tag panel",
-    "no_data_in_range": "No data in this range"
+    "no_data_in_range": "No data in this range",
+    "forecast": "Forecast",
+    "forecast_hint": "Show each curve's forecast after now, with its band (only where it is reliable)",
+    "forecast_suffix": "forecast",
+    "forecast_legend": "Forecast (P10–P90 band)",
+    "forecast_none": "No reliable forecast for these curves",
+    "now": "now"
   },
   "trend": {
     "favorite_add": "Add to favorites",

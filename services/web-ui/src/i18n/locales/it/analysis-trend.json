@@ -70,7 +70,13 @@
     "layout_to_overlay": "Curve sovrapposte sulla stessa area",
     "layout_to_lanes": "Una corsia per asse, una sotto l'altra",
     "resize_browser": "Allarga pannello tag",
-    "no_data_in_range": "Nessun dato in questo intervallo"
+    "no_data_in_range": "Nessun dato in questo intervallo",
+    "forecast": "Previsione",
+    "forecast_hint": "Mostra dopo adesso la previsione di ogni curva, con la sua fascia (solo dove è affidabile)",
+    "forecast_suffix": "previsione",
+    "forecast_legend": "Previsione (fascia P10–P90)",
+    "forecast_none": "Nessuna previsione affidabile per queste curve",
+    "now": "adesso"
   },
   "trend": {
     "favorite_add": "Aggiungi ai preferiti",

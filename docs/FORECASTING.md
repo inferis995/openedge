@@ -87,17 +87,19 @@ insufficiente), `error`.
 
 ### Fase 1 — fondamenta (in corso)
 - [x] Piano
-- [ ] Migrazioni: `forecast_profiles`, `tag_forecasts`
-- [ ] `internal/forecast`: serie, ricampionamento, classificazione, previsione
+- [x] Migrazioni: `forecast_profiles`, `tag_forecasts`
+- [x] `internal/forecast`: serie, ricampionamento, classificazione, previsione
       statistica, backtest, fusione profili, interfaccia `Forecaster`, client HTTP
-- [ ] Runner in core-api (pianificazione, lotti, timeout, metriche Prometheus)
-- [ ] API: `GET /api/tags/:id/forecast`, `POST /api/tags/:id/forecast/refresh`,
+- [x] Runner in core-api (pianificazione, lotti, timeout, metriche Prometheus)
+- [x] API: `GET /api/tags/:id/forecast`, `POST /api/tags/:id/forecast/refresh`,
       `GET|PUT /api/forecast/profiles`
-- [ ] Servizio `services/forecaster` (Python, Timestral su CPU), profilo compose
+- [x] Servizio `services/forecaster` (Python, Timestral su CPU), profilo compose
       `forecast`, `FORECASTER_URL` in core-api
-- [ ] Trend: fascia di previsione e indicatore di affidabilità
-- [ ] Tag: scheda *Previsione* (attiva, tipo, orizzonte, stato attuale)
-- [ ] Test e documentazione d'esercizio
+- [x] Trend: fascia di previsione e indicatore di affidabilità
+- [x] Tag: scheda *Previsione* (attiva, tipo, orizzonte, stato attuale)
+- [x] Test e documentazione d'esercizio
+- [ ] Prova sui dati veri (Sorical) e scelta della dimensione del modello
+- [ ] Profili per sito/area/gateway dall'interfaccia (oggi: API e scheda del tag)
 
 ### Fase 2 — previsioni operative
 - Allarme previsto: probabilità di superare le soglie già configurate (allarmi e
@@ -117,6 +119,16 @@ insufficiente), `error`.
 - Pacchetti di settore (profili JSON).
 - Previsioni su contatori e KPI/OEE (fine turno, fine mese).
 - Strumento `forecast` per il server MCP della CLI.
+
+## Test
+
+```bash
+# Go, con un Postgres usa-e-getta (le tabelle vengono ricreate):
+FORECAST_TEST_DSN='postgres://user@127.0.0.1:5432/scratch?sslmode=disable' \
+  go test -p 1 ./internal/forecast/ ./internal/handlers/ -run 'Forecast|Postgres'
+# Servizio Python, con un modello finto (solo numpy):
+cd services/forecaster && python -m unittest -v test_app.py
+```
 
 ## Esercizio
 

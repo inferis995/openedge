@@ -58,6 +58,11 @@ interface Props {
     live?: boolean;
     /** Called when the user selects (mouse drag, or pinch) a sub-range to zoom */
     onZoom?: (fromMs: number, toMs: number) => void;
+    /**
+     * Time shown after the window's right edge, in ms: room for forecasts.
+     * A line marks now when there is any.
+     */
+    ahead?: number;
 }
 
 /** An alarm on the time axis: raised at `start`, cleared at `end` (null: still active). */
@@ -422,18 +427,51 @@ function marksPlugin(getMarks: () => { a: number | null; b: number | null } | un
     };
 }
 
+/** A dashed line at now, labelled, when the chart shows time after it. */
+function nowPlugin(getAhead: () => number, label: string): uPlot.Plugin {
+    return {
+        hooks: {
+            draw: (u) => {
+                if (getAhead() <= 0) return;
+                const x = u.valToPos(Date.now() / 1000, 'x', true);
+                const { left, top, width, height } = u.bbox;
+                if (x < left || x > left + width) return;
+                const ctx = u.ctx;
+                ctx.save();
+                ctx.beginPath();
+                ctx.setLineDash([3 * devicePixelRatio, 3 * devicePixelRatio]);
+                ctx.strokeStyle = TEXT_COLOR;
+                ctx.globalAlpha = 0.6;
+                ctx.lineWidth = devicePixelRatio;
+                ctx.moveTo(x, top);
+                ctx.lineTo(x, top + height);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.globalAlpha = 0.85;
+                ctx.fillStyle = TEXT_COLOR;
+                ctx.font = `${10 * devicePixelRatio}px Inter, system-ui, sans-serif`;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                ctx.fillText(label, x + 4 * devicePixelRatio, top + 2 * devicePixelRatio);
+                ctx.restore();
+            },
+        },
+    };
+}
+
 /**
  * The historian chart. Fills its parent: give the parent a height (flex-1,
  * h-full…) and the chart follows it, on resize and on rotation.
  */
 export function UPlotChart({
     timestamps, values, pens, bands, events = [], yRanges, range, live = false, onZoom,
-    measure = false, marks, onMeasureClick, stacked = false,
+    measure = false, marks, onMeasureClick, stacked = false, ahead = 0,
 }: Props) {
     const containerRef = useRef<HTMLDivElement>(null);
     const plotRef = useRef<uPlot | null>(null);
     // The latest window, read by uPlot's callbacks (axis labels) between renders.
     const rangeRef = useRef(range);
+    const aheadRef = useRef(ahead);
     // Events and measurement cursors are read by the plugins at draw time;
     // a change only redraws.
     const eventsRef = useRef(events);
@@ -617,6 +655,7 @@ export function UPlotChart({
             plugins: [
                 tooltipPlugin(pens, () => eventsRef.current), touchPlugin(measure ? undefined : onZoom),
                 holdLastPlugin(pens), eventsPlugin(() => eventsRef.current), marksPlugin(() => marksRef.current),
+                nowPlugin(() => aheadRef.current, i18n.t('trendPage.now')),
                 // A lane holding several pens of one unit is named by the unit.
                 lanesPlugin(() => (lanes ? units.map(([key, first]) => ({
                     label: pens.filter(p => !p.ghost && scaleKey(p) === key).length > 1 && first.unit
@@ -648,7 +687,7 @@ export function UPlotChart({
             onMeasureClickRef.current?.(Math.round(plot.posToVal(left, 'x') * 1000));
         };
         plot.over.addEventListener('click', onClick);
-        plotRef.current.setScale('x', { min: rangeRef.current.from / 1000, max: rangeRef.current.to / 1000 });
+        plotRef.current.setScale('x', { min: rangeRef.current.from / 1000, max: (rangeRef.current.to + aheadRef.current) / 1000 });
 
         // Follow the parent's size in both directions (rotation, panels opening).
         const ro = new ResizeObserver(() => {
@@ -677,14 +716,16 @@ export function UPlotChart({
         const r = rangeRef.current;
         const span = r.to - r.from;
         const to = liveRef.current ? Date.now() : r.to;
-        u.setScale('x', { min: (to - span) / 1000, max: to / 1000 });
+        u.setScale('x', { min: (to - span) / 1000, max: (to + aheadRef.current) / 1000 });
     }, [data]);
 
     // A new window with the same data still has to move the axis.
     useEffect(() => {
         rangeRef.current = { from: range.from, to: range.to };
-        if (!live) plotRef.current?.setScale('x', { min: range.from / 1000, max: range.to / 1000 });
-    }, [range.from, range.to, live]);
+        aheadRef.current = ahead;
+        const to = live ? Date.now() : range.to;
+        plotRef.current?.setScale('x', { min: (to - (range.to - range.from)) / 1000, max: (to + ahead) / 1000 });
+    }, [range.from, range.to, live, ahead]);
 
     // Live: slide the window with the clock. One redraw per pixel of time
     // (a 1 h window 1000 px wide moves every 3.6 s, a 5 min one every 0.3 s),
@@ -701,7 +742,7 @@ export function UPlotChart({
                 if (t - last >= Math.max(50, span / pxWidth)) {
                     last = t;
                     const now = Date.now();
-                    u.setScale('x', { min: (now - span) / 1000, max: now / 1000 });
+                    u.setScale('x', { min: (now - span) / 1000, max: (now + aheadRef.current) / 1000 });
                 }
             }
             raf = requestAnimationFrame(tick);

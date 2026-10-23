@@ -18,6 +18,8 @@ export interface TrendView {
     y?: Record<string, YAxisMode>;
     /** Curves of different axes in lanes, one under the other (the default), or overlaid. */
     layout?: TrendLayout;
+    /** Forecasts drawn after now. */
+    fc?: boolean;
 }
 
 export type TrendLayout = 'lanes' | 'overlay';
@@ -54,6 +56,7 @@ export function encodeView(v: TrendView): URLSearchParams {
     if (v.agg !== 'mean') q.set('agg', v.agg);
     if (v.live) q.set('live', '1');
     if (v.cmp && v.cmp !== 'off') q.set('cmp', v.cmp);
+    if (v.fc) q.set('fc', '1');
     const y = Object.entries(v.y ?? {}).map(([k, m]) =>
         `${encodeURIComponent(k)}:${m === 'eu' ? 'eu' : `${m.min}~${m.max}`}`);
     if (y.length) q.set('y', y.join(','));
@@ -91,7 +94,7 @@ export function decodeView(q: URLSearchParams): TrendView | null {
         const [lo, hi] = m.split('~').map(Number);
         if (Number.isFinite(lo) && Number.isFinite(hi) && hi > lo) y[key] = { min: lo, max: hi };
     }
-    return { pens: pens.slice(0, 30), range, agg, live: q.get('live') === '1' && 'preset' in range, cmp, y, layout: q.get('lay') === 'ov' ? 'overlay' : 'lanes' };
+    return { pens: pens.slice(0, 30), range, agg, live: q.get('live') === '1' && 'preset' in range, cmp, y, layout: q.get('lay') === 'ov' ? 'overlay' : 'lanes', ...(q.get('fc') === '1' ? { fc: true } : {}) };
 }
 
 /** The concrete window of a view's range, now. */

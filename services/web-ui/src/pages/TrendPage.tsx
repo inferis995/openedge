@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import {
     Activity, Play, Pause, RefreshCw, Download, PanelLeft, PanelRight,
     BarChart2, Settings2, ZoomOut, ChevronLeft, ChevronRight, Ruler, GitCompareArrows, MoveVertical,
-    Bookmark, Trash2, Rows3, Layers,
+    Bookmark, Trash2, Rows3, Layers, TrendingUp,
 } from 'lucide-react';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -24,6 +24,8 @@ import { tagsApi } from '@/api/tags';
 import { gatewaysApi } from '@/api/gateways';
 import { alarmsApi } from '@/api/alarms';
 import { trendViewsApi } from '@/api/trendViews';
+import { forecastApi, type TagForecast } from '@/api/forecast';
+import { baseTagId, forecastEnd, forecastPenId, forecastPoints, isDrawable, isForecastPen, lastReading } from '@/lib/forecastTrend';
 import api from '@/api/client';
 import { saveBlob } from '@/lib/download';
 import { alignPens, mergeSeries, realtimePoint, shiftPoints, valueAt } from '@/lib/trendAlign';
@@ -191,6 +193,8 @@ export default function TrendPage() {
     const [compare, setCompare] = useState<CompareMode>(() => initialView?.cmp ?? 'off');
     const [yModes, setYModes] = useState<Record<string, YAxisMode>>(() => initialView?.y ?? {});
     const [layout, setLayout] = useState<TrendLayout>(() => initialView?.layout ?? 'lanes');
+    // Forecasts after now (docs/FORECASTING.md): off unless the view says so.
+    const [forecastOn, setForecastOn] = useState(() => !!initialView?.fc);
     const [measure, setMeasure] = useState(false);
     const [marks, setMarks] = useState<{ a: number | null; b: number | null }>({ a: null, b: null });
     // A first click places A, a second B, a third starts again.
@@ -258,7 +262,8 @@ export default function TrendPage() {
         cmp: compare,
         y: yModes,
         layout,
-    }).toString(), [rawPens, timeRange, aggregation, liveMode, compare, yModes, layout]);
+        fc: forecastOn,
+    }).toString(), [rawPens, timeRange, aggregation, liveMode, compare, yModes, layout, forecastOn]);
     useEffect(() => {
         setSearchParams(new URLSearchParams(viewQuery), { replace: true });
         try { localStorage.setItem(TREND_VIEW_KEY, viewQuery); } catch { /* private mode: the address still has it */ }
@@ -442,22 +447,65 @@ export default function TrendPage() {
         enabled: compare !== 'off' && penIds.length > 0,
         staleTime: 60_000,
     });
-    // Comparison pens carry the tag id negated; they are drawn dashed.
+    // ── Forecasts: each pen's latest, computed on the server every few minutes ──
+    const { data: forecasts, dataUpdatedAt: forecastsAt } = useQuery({
+        queryKey: ['trend-forecasts', penIds],
+        queryFn: async () => {
+            const got = await Promise.all(penIds.map(id => forecastApi.getTagForecast(id).catch(() => undefined)));
+            const m = new Map<number, TagForecast>();
+            got.forEach((f, i) => { if (f) m.set(penIds[i], f); });
+            return m;
+        },
+        enabled: forecastOn && penIds.length > 0,
+        refetchInterval: 5 * 60_000,
+        staleTime: 60_000,
+    });
+    // Time shown after the window for the forecasts: up to where the furthest
+    // ends, only when the window reaches now (a forecast made today says
+    // nothing about last month).
+    const forecastAhead = useMemo(() => {
+        if (!forecastOn || !forecasts) return 0;
+        // "Now" is when the forecasts were fetched: close enough to size the
+        // axis, and pure to compute.
+        const now = forecastsAt;
+        const edge = liveMode ? now : timeRange.to.getTime();
+        if (!liveMode && edge < now - 0.1 * spanMs) return 0;
+        return Math.max(0, forecastEnd([...forecasts.values()]) - edge);
+    }, [forecastOn, forecasts, forecastsAt, liveMode, timeRange, spanMs]);
+
+    // Comparison pens carry the tag id negated, forecast pens the id plus an
+    // offset (lib/forecastTrend); both are drawn dashed.
     const chartPens = useMemo(() => {
-        if (compare === 'off' || !compareData) return pens;
-        const suffix = tr(`trendPage.compare_suffix_${compare}`);
-        return [...pens, ...pens.map(p => ({ ...p, tagId: -p.tagId, label: `${p.label} (${suffix})` }))];
-    }, [pens, compare, compareData, tr]);
-    const chartSeriesData = useMemo(() => {
-        if (!series || compare === 'off' || !compareData) return series;
-        const out: Record<number, TrendDataPoint[]> = { ...series };
-        for (const p of pens) {
-            // Values only: the earlier window's envelope would hide this one's.
-            out[-p.tagId] = shiftPoints((compareData as Record<number, TrendDataPoint[]>)[p.tagId], cmpOffset)
-                .map(({ timestamp, value, quality }) => ({ timestamp, value, quality }));
+        const out = [...pens];
+        if (compare !== 'off' && compareData) {
+            const suffix = tr(`trendPage.compare_suffix_${compare}`);
+            out.push(...pens.map(p => ({ ...p, tagId: -p.tagId, label: `${p.label} (${suffix})` })));
+        }
+        if (forecastAhead > 0 && forecasts) {
+            const suffix = tr('trendPage.forecast_suffix');
+            out.push(...pens.filter(p => isDrawable(forecasts.get(p.tagId)))
+                .map(p => ({ ...p, tagId: forecastPenId(p.tagId), label: `${p.label} (${suffix})` })));
         }
         return out;
-    }, [series, compare, compareData, pens, cmpOffset]);
+    }, [pens, compare, compareData, tr, forecastAhead, forecasts]);
+    const chartSeriesData = useMemo(() => {
+        if (!series) return series;
+        const out: Record<number, TrendDataPoint[]> = { ...series };
+        if (compare !== 'off' && compareData) {
+            for (const p of pens) {
+                // Values only: the earlier window's envelope would hide this one's.
+                out[-p.tagId] = shiftPoints((compareData as Record<number, TrendDataPoint[]>)[p.tagId], cmpOffset)
+                    .map(({ timestamp, value, quality }) => ({ timestamp, value, quality }));
+            }
+        }
+        if (forecastAhead > 0 && forecasts) {
+            for (const p of pens) {
+                const fc = forecasts.get(p.tagId);
+                if (isDrawable(fc)) out[forecastPenId(p.tagId)] = forecastPoints(fc, lastReading(series[p.tagId]));
+            }
+        }
+        return out;
+    }, [series, compare, compareData, pens, cmpOffset, forecastAhead, forecasts]);
 
     const { timestamps, values, bands } = useMemo<ReturnType<typeof alignPens>>(() => {
         if (!chartSeriesData || chartPens.length === 0) return { timestamps: [], values: [], bands: [] };
@@ -510,9 +558,11 @@ export default function TrendPage() {
             if (lastSampleAt === null) lastSampleAt = currentValues.get(pen.tagId)?.timestamp ?? null;
             const gw = gateways?.find(g => g.id === tagMap.get(pen.tagId)?.gateway_id);
             const contact = gw ? { at: gw.last_seen ?? null, online: (gw.connection_status ?? gw.status) === 'online' } : null;
-            return { ...pen, stats: computeStats(pts), lastSampleAt, contact };
+            const fc = forecastOn ? forecasts?.get(pen.tagId) : undefined;
+            const forecast = fc ? { status: fc.status, reason: fc.reason } : null;
+            return { ...pen, stats: computeStats(pts), lastSampleAt, contact, forecast };
         });
-    }, [series, pens, gateways, tagMap, currentValues]);
+    }, [series, pens, gateways, tagMap, currentValues, forecastOn, forecasts]);
 
     // Build PenSeries for uPlot
     const penSeries = useMemo<PenSeries[]>(() =>
@@ -520,9 +570,9 @@ export default function TrendPage() {
             tagId: p.tagId,
             label: p.label,
             unit: p.unit,
-            decimals: tagMap.get(Math.abs(p.tagId))?.eu_decimals ?? undefined,
-            step: tagMap.get(Math.abs(p.tagId))?.data_type === 'BOOL',
-            ghost: p.tagId < 0,
+            decimals: tagMap.get(baseTagId(p.tagId))?.eu_decimals ?? undefined,
+            step: tagMap.get(baseTagId(p.tagId))?.data_type === 'BOOL',
+            ghost: p.tagId < 0 || isForecastPen(p.tagId),
             color: p.color,
             visible: p.visible,
         })), [chartPens, tagMap]);
@@ -574,6 +624,7 @@ export default function TrendPage() {
         setCompare(v.cmp ?? 'off');
         setYModes(v.y ?? {});
         setLayout(v.layout ?? 'lanes');
+        setForecastOn(!!v.fc);
         setZoomStack([]);
         setMeasure(false);
         setLiveMode(v.live);
@@ -829,6 +880,13 @@ export default function TrendPage() {
                             </SelectContent>
                         </Select>
 
+                        {/* Forecast */}
+                        <Button size="sm" variant={forecastOn ? 'default' : 'outline'} className="h-9 sm:h-7 text-xs gap-1"
+                            onClick={() => setForecastOn(v => !v)} aria-pressed={forecastOn}
+                            title={tr('trendPage.forecast_hint')}>
+                            <TrendingUp className="w-3 h-3" /> {tr('trendPage.forecast')}
+                        </Button>
+
                         {/* Saved views */}
                         <Popover>
                             <PopoverTrigger asChild>
@@ -1013,6 +1071,14 @@ export default function TrendPage() {
                                     {tr(`trendPage.compare_${compare}`)}
                                 </span>
                             )}
+                            {forecastOn && forecasts && (
+                                <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                                    <span className="inline-block w-3 border-t border-dashed border-current" />
+                                    {forecastAhead > 0 && chartPens.some(p => isForecastPen(p.tagId))
+                                        ? tr('trendPage.forecast_legend')
+                                        : tr('trendPage.forecast_none')}
+                                </span>
+                            )}
                         </div>
                         <div ref={chartBoxRef} className="relative flex-1 min-h-0 p-2 overflow-hidden">
                             {penSeries.length > 0 && !values.some(col => col.some(v => v !== null && v !== undefined)) && (
@@ -1034,6 +1100,7 @@ export default function TrendPage() {
                                 measure={measure}
                                 marks={marks}
                                 onMeasureClick={onMeasureClick}
+                                ahead={forecastAhead}
                             />
                         </div>
                     </>)}
