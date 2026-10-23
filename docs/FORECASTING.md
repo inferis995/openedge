@@ -1,6 +1,6 @@
 # Previsioni sui tag — piano e architettura
 
-Stato: **fase 1 in sviluppo** (branch `claude/ciao-Cvmm2`, non ancora su master).
+Stato: **fase 1 su master**: motore statistico sempre attivo, Timestral opzionale.
 
 ## Obiettivo
 
@@ -86,7 +86,7 @@ insufficiente), `error`.
 
 ## Fasi
 
-### Fase 1 — fondamenta (in corso)
+### Fase 1 — fondamenta (fatta)
 - [x] Piano
 - [x] Migrazioni: `forecast_profiles`, `tag_forecasts`
 - [x] `internal/forecast`: serie, ricampionamento, classificazione, previsione
@@ -99,7 +99,7 @@ insufficiente), `error`.
 - [x] Trend: fascia di previsione e indicatore di affidabilità
 - [x] Tag: scheda *Previsione* (attiva, tipo, orizzonte, stato attuale)
 - [x] Test e documentazione d'esercizio
-- [ ] Prova sui dati veri (Sorical) e scelta della dimensione del modello
+- [x] Modello predefinito: Timestral-28M (cambiabile con `TIMESTRAL_MODEL`, vedi "Installare il modello")
 - [x] Pagina **Previsioni** (Analisi → Previsioni): riepilogo per stato, elenco
       filtrabile, dettaglio con storico e previsione, impostazioni per
       organizzazione, sito, area e gateway con ereditarietà
@@ -135,20 +135,139 @@ OPENEDGE_TEST_DSN='postgres://user@127.0.0.1:5432/scratch?sslmode=disable' \
 cd services/forecaster && python -m unittest -v test_app.py
 ```
 
-## Esercizio
+## Installare il modello Timestral
+
+### Serve davvero?
+
+No. Le previsioni funzionano **senza installare niente**: core-api ha il motore
+statistico in Go, attivo di default su ogni installazione (on-prem, VPS,
+Coolify). Timestral è un secondo motore, opzionale. Quando c'è, per ogni tag
+core-api prova entrambi sullo storico già noto e tiene quello che ha fatto
+meglio. Se il servizio si ferma, si torna da soli al motore statistico.
+
+### Cosa succede, e quando si scarica cosa
+
+| Momento | Cosa viene scaricato | Da dove | Quanto |
+|---|---|---|---|
+| Build dell'immagine (`make forecast-up`, o Coolify) | Python, PyTorch per CPU, codice `timestral` | PyPI, download.pytorch.org, GitHub | ~1–1,5 GB di immagine |
+| Al posto della build, con GHCR | l'immagine già pronta | ghcr.io/inferis995/openedge/forecaster | idem |
+| **Primo avvio** del container | i pesi del modello scelto | Hugging Face (`mistralai/Timestral-*`) | da 21 MB a 837 MB |
+| Avvii successivi | niente: i pesi restano nel volume `forecaster-models` | — | — |
+
+Finché i pesi non sono caricati, `/health` del servizio risponde 503 e core-api
+usa solo il motore statistico.
+
+### Requisiti
+
+Server x86_64 o ARM64 con Docker, **nessuna GPU**. Valori indicativi per il
+container (pesi + PyTorch + margine), da confermare con `docker stats` sul
+proprio carico:
+
+| Modello (`TIMESTRAL_MODEL`) | Pesi | RAM per il container | Quando |
+|---|---|---|---|
+| `mistralai/Timestral-5M` | 21 MB | 1 GB | macchine piccole, edge |
+| `mistralai/Timestral-28M` (**default**) | 111 MB | 2 GB | scelta normale |
+| `mistralai/Timestral-123M` | 490 MB | 3 GB | più precisione |
+| `mistralai/Timestral-209M` | 837 MB | 4 GB | il più preciso |
+
+- CPU: 2 core (`FORECASTER_CPUS`, `FORECASTER_THREADS`). Il calcolo è a lotti
+  ogni minuto per i tag in scadenza, non a ogni apertura di pagina.
+- Disco: immagine ~1,5 GB + pesi.
+- Rete: in uscita verso Hugging Face al primo avvio, oppure installazione
+  offline (sotto).
+- La durata reale di un lotto si legge nei log: `N series in X s`.
+
+### On-prem (`docker-compose.yml`)
 
 ```bash
-# Attivare il motore Timestral (opzionale)
-docker compose --profile forecast up -d forecaster
-# core-api: FORECASTER_URL=http://forecaster:8000
+make forecast-up          # aggiunge FORECASTER_URL al .env, avvia il servizio, riavvia core-api
+make forecast-status      # {"status": "ok", "model": "mistralai/Timestral-28M"} quando è pronto
+make forecast-logs        # "model … loaded in …s", poi "N series in X s"
+make forecast-down        # spegne il modello, resta il motore statistico
 ```
 
-Il modello predefinito è `mistralai/Timestral-28M` (111 MB, CPU). Si cambia con
-`TIMESTRAL_MODEL`. I pesi si scaricano una volta da Hugging Face e restano nel
-volume `forecaster-cache`; per un server senza internet si copiano nel volume e si
-imposta `HF_HUB_OFFLINE=1`.
+Modello diverso: `TIMESTRAL_MODEL=mistralai/Timestral-123M` nel `.env`, poi
+`make forecast-up` (e alza `FORECASTER_MEM_LIMIT`, vedi la tabella).
 
-**Licenza.** Il codice di inferenza (`timestral`) è Apache-2.0; i pesi sono sotto
-"Modified MIT" (file `LICENSE` in ogni repository su Hugging Face). Leggerla prima
-di installare presso clienti grandi: se i pesi vengono distribuiti con
+### VPS (Traefik)
+
+Come on-prem, con `STACK=vps`:
+
+```bash
+make forecast-up STACK=vps
+make forecast-status STACK=vps
+```
+
+Con le immagini già pronte invece della build (consigliato su VPS piccoli):
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.vps.yml -f docker-compose.ghcr.yml \
+  --profile forecast pull forecaster
+make forecast-up STACK=vps
+```
+
+### Coolify
+
+1. Nella risorsa OpenEdge, attiva il profilo compose **`forecast`** (come per
+   `edge`).
+2. Variabili d'ambiente: `FORECASTER_URL=http://forecaster:8000` e, se vuoi,
+   `TIMESTRAL_MODEL`, `FORECASTER_MEM_LIMIT`, `FORECASTER_CPUS`.
+3. Redeploy. Il servizio non ha dominio né porte: parla solo con core-api.
+4. Controllo: log del container `forecaster` → `model … loaded`.
+
+### Server senza internet
+
+Su una macchina con internet:
+
+```bash
+pip install huggingface_hub
+huggingface-cli download mistralai/Timestral-28M --local-dir Timestral-28M
+# copia la cartella sul server (config.json + model.safetensors)
+```
+
+Sul server:
+
+```bash
+make forecast-import-model DIR=./Timestral-28M
+# nel .env:
+TIMESTRAL_MODEL=/models/Timestral-28M
+HF_HUB_OFFLINE=1
+make forecast-up
+```
+
+L'immagine va costruita o scaricata (GHCR) dove c'è rete e poi caricata con
+`docker save` / `docker load`.
+
+### Come verificare che lo usi davvero
+
+- Pagina **Analisi → Previsioni**: in alto *Motori: statistico · Timestral*.
+- Dettaglio di un tag: *Motore: timestral · mistralai/Timestral-28M* sui tag
+  dove ha fatto meglio del motore statistico (sugli altri resta *statistical*:
+  è voluto).
+- Prometheus: `openedge_forecast_results_total{engine="timestral"}` cresce;
+  `openedge_forecast_engine_errors_total{engine="timestral"}` resta fermo.
+- CLI: `openedge forecast list` stampa `Engines: statistical, timestral`.
+
+### Se qualcosa non va
+
+| Sintomo | Causa probabile | Cosa fare |
+|---|---|---|
+| `forecast-status`: "Not ready" per minuti | download dei pesi in corso o bloccato | `make forecast-logs`; rete verso huggingface.co, oppure installazione offline |
+| log: `could not load model … OSError` | pesi non trovati con `HF_HUB_OFFLINE=1` | controlla `TIMESTRAL_MODEL` e il contenuto del volume |
+| container riavviato, `OOMKilled` | RAM insufficiente per il modello | alza `FORECASTER_MEM_LIMIT` o scegli un modello più piccolo |
+| motori: solo *statistico* | `FORECASTER_URL` assente o core-api non riavviato | `make forecast-up` riavvia core-api |
+| errori `engine_errors_total{engine="timestral"}` | servizio giù o lento | i tag continuano con il motore statistico; vedi i log |
+
+### Spegnere
+
+- Solo il modello: `make forecast-down` (resta il motore statistico).
+- Tutte le previsioni: `FORECAST_ENABLED=false` su core-api.
+- Per una sola organizzazione: Organizzazioni → Impostazioni → Pagine visibili →
+  togli *Previsioni*.
+
+### Licenza
+
+Il codice di inferenza (`timestral`) è Apache-2.0. I pesi sono sotto "Modified
+MIT" (file `LICENSE` in ogni repository su Hugging Face). Leggerla prima di
+installare presso clienti grandi: se i pesi vengono distribuiti con
 l'installazione, i termini valgono per loro.

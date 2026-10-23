@@ -86,6 +86,15 @@ Backup): se usi solo lo script dal server, attiva anche quelli.
 Prova un avviso: ferma un driver (`docker stop <container>`) e aspetta che
 `GatewaysOffline` arrivi dove l'hai configurato.
 
+## 6b. Previsioni (opzionale)
+
+Attive di default con il motore statistico: non serve niente. Per il modello
+Timestral (più preciso, su CPU): `make forecast-up` (on-prem),
+`make forecast-up STACK=vps`, o profilo `forecast` in Coolify. Requisiti,
+download, installazione offline e verifica: `docs/FORECASTING.md`, sezione
+"Installare il modello Timestral". Leggi la licenza dei pesi prima di
+installarlo presso un cliente grande.
+
 ## 7. Accessi del cliente
 
 - Utenti con il ruolo giusto: sola lettura per chi guarda, admin

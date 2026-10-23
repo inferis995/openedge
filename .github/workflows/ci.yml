@@ -579,8 +579,9 @@ jobs:
             cache-from: type=gha
             cache-to: type=gha,mode=max
 
-      # Built, not pushed: the image is optional and large (torch), and a
-      # broken Dockerfile should fail here rather than in the nightly scan.
+      # Optional service, but published like the others so a host can pull it
+      # instead of building torch (docker-compose.ghcr.yml). A broken
+      # Dockerfile fails here rather than in the nightly scan.
       - name: Build forecaster image
         uses: Wandalen/wretry.action@v3
         with:
@@ -590,7 +591,9 @@ jobs:
           with: |
             context: .
             file: services/forecaster/Dockerfile
-            push: false
-            tags: openedge-forecaster:ci
+            push: ${{ github.ref == 'refs/heads/master' }}
+            tags: |
+              ghcr.io/inferis995/openedge/forecaster:${{ github.sha }}
+              ghcr.io/inferis995/openedge/forecaster:latest
             cache-from: type=gha,scope=forecaster
             cache-to: type=gha,mode=max,scope=forecaster

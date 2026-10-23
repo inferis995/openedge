@@ -132,6 +132,10 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       OPENEDGE_INITIAL_ADMIN_PASSWORD: ${OPENEDGE_INITIAL_ADMIN_PASSWORD:-}
       PUBLIC_HOST: ${PUBLIC_HOST}
+      # Tag forecasting (docs/FORECASTING.md): on with the statistical engine;
+      # FORECASTER_URL=http://forecaster:8000 adds the Timestral service below.
+      FORECAST_ENABLED: ${FORECAST_ENABLED:-true}
+      FORECASTER_URL: ${FORECASTER_URL:-}
     volumes:
       - backups:/backups
     depends_on:
@@ -315,9 +319,34 @@ services:
     deploy:
       replicas: 0
 
+  # ── Forecaster — optional, profile: forecast ────────────────────────────────
+  # Timestral on CPU for tag forecasts (docs/FORECASTING.md, "Installare il
+  # modello"). Enable the "forecast" profile in Coolify, and set
+  # FORECASTER_URL=http://forecaster:8000 on core-api. No port, no domain: only
+  # core-api talks to it. The weights are downloaded once into
+  # forecaster-models on first start.
+  forecaster:
+    profiles: ["forecast"]
+    build:
+      context: .
+      dockerfile: services/forecaster/Dockerfile
+    image: ${FORECASTER_IMAGE:-openedge-forecaster:latest}
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: ${FORECASTER_MEM_LIMIT:-2g}
+    cpus: ${FORECASTER_CPUS:-2.0}
+    environment:
+      TIMESTRAL_MODEL: ${TIMESTRAL_MODEL:-mistralai/Timestral-28M}
+      TORCH_THREADS: ${FORECASTER_THREADS:-2}
+      HF_HUB_OFFLINE: ${HF_HUB_OFFLINE:-0}
+    volumes:
+      - forecaster-models:/models
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   redis-data:
   mosquitto-data:
   mosquitto-log:
   backups:
+  forecaster-models:

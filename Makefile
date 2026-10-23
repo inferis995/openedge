@@ -1,3 +1,4 @@
+.PHONY: forecast-up forecast-down forecast-status forecast-logs forecast-import-model
 .PHONY: build up start down restart logs clean help setup-env install-service uninstall-service onprem-tls onprem-tls-down backup-now backup-to-usb restore export-root-ca update update-check kiosk-linux lint lint-go lint-frontend test test-go test-frontend test-coverage swagger hooks-install vps-up vps-up-edge vps-down vps-logs vps-status coolify-build coolify-up coolify-down monitoring-up monitoring-down monitoring-logs build-cli install-cli
 
 COMPOSE         = docker compose
@@ -238,6 +239,54 @@ coolify-up-edge: setup-env
 ## Stop local Coolify test stack
 coolify-down:
 	$(COMPOSE_COOLIFY) down
+
+# ── Forecasting model (Timestral on CPU, optional) ───────────────────────────
+## The statistical engine is always on; these add the model. STACK picks the
+## compose files: onprem (default), vps or coolify. See docs/FORECASTING.md.
+STACK ?= onprem
+ifeq ($(STACK),vps)
+FORECAST_COMPOSE = $(COMPOSE_VPS)
+else ifeq ($(STACK),coolify)
+FORECAST_COMPOSE = $(COMPOSE_COOLIFY)
+else
+FORECAST_COMPOSE = $(COMPOSE)
+endif
+
+## Start the model and point core-api at it (first start downloads the weights)
+forecast-up: setup-env
+	@grep -q '^FORECASTER_URL=' .env || { printf 'FORECASTER_URL=http://forecaster:8000\n' >> .env; echo "[forecast] FORECASTER_URL added to .env"; }
+	$(FORECAST_COMPOSE) --profile forecast build forecaster
+	$(FORECAST_COMPOSE) --profile forecast up -d forecaster
+	$(FORECAST_COMPOSE) up -d core-api
+	@echo ""
+	@echo "Forecaster starting. The first start downloads the model weights:"
+	@echo "  make forecast-status    # ready when it says \"status\": \"ok\""
+
+## Stop the model and go back to the statistical engine only
+forecast-down:
+	@sed -i.bak '/^FORECASTER_URL=/d' .env && rm -f .env.bak
+	$(FORECAST_COMPOSE) --profile forecast stop forecaster
+	$(FORECAST_COMPOSE) up -d core-api
+
+## Is the model loaded? (answers from inside the container)
+forecast-status:
+	@$(FORECAST_COMPOSE) --profile forecast exec forecaster python -c "import urllib.request,json; \
+	r=urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5); print(json.dumps(json.load(r)))" \
+	|| echo "Not ready: see make forecast-logs"
+
+## Follow the model's logs
+forecast-logs:
+	$(FORECAST_COMPOSE) --profile forecast logs -f forecaster
+
+## Server without internet: copy weights downloaded elsewhere into the volume.
+##   make forecast-import-model DIR=./Timestral-28M   (config.json + model.safetensors)
+## then set TIMESTRAL_MODEL=/models/Timestral-28M and HF_HUB_OFFLINE=1 in .env
+forecast-import-model:
+	@: $${DIR:?DIR is required: a folder with config.json and model.safetensors}
+	@test -f "$(DIR)/config.json" -a -f "$(DIR)/model.safetensors" || { echo "$(DIR) must contain config.json and model.safetensors"; exit 1; }
+	$(FORECAST_COMPOSE) --profile forecast run --rm --no-deps -v "$(abspath $(DIR)):/src:ro" --entrypoint sh forecaster \
+		-c 'mkdir -p /models/$(notdir $(abspath $(DIR))) && cp /src/config.json /src/model.safetensors /models/$(notdir $(abspath $(DIR)))/ && ls -l /models/$(notdir $(abspath $(DIR)))'
+	@echo "Now set TIMESTRAL_MODEL=/models/$(notdir $(abspath $(DIR))) and HF_HUB_OFFLINE=1 in .env, then make forecast-up"
 
 # ── Observability (Prometheus + Grafana + Loki) ──────────────────────────────
 ## Start full stack + monitoring (Prometheus, Grafana, AlertManager, Loki + 4 exporters)

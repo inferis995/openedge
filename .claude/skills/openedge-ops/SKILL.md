@@ -764,19 +764,22 @@ Dettagli: `docs/FORECASTING.md`. Le previsioni sono **attive di default** con
 il motore statistico in Go: non serve installare niente. Timestral è un
 miglioramento opzionale, gira sul processore e i dati non escono dal server.
 
-Chiedi all'utente se vuole attivare Timestral. Se sì:
+Chiedi all'utente se vuole attivare Timestral, e con quale modello (default
+`Timestral-28M`, 2 GB di RAM per il container; tabella dei requisiti in
+`docs/FORECASTING.md` → "Installare il modello Timestral"). Se sì:
 
 ```bash
-# .env
-FORECASTER_URL=http://forecaster:8000
-TIMESTRAL_MODEL=mistralai/Timestral-28M   # 5M, 28M (default), 123M, 209M
-FORECASTER_MEM_LIMIT=2g
-FORECASTER_CPUS=2.0
-
-docker compose --profile forecast up -d forecaster
-docker compose up -d core-api            # per leggere FORECASTER_URL
-docker logs openedge-forecaster          # "model … loaded"
+make forecast-up                 # on-prem: FORECASTER_URL nel .env, avvio, riavvio core-api
+make forecast-up STACK=vps       # VPS con Traefik
+make forecast-status             # {"status": "ok", ...} quando i pesi sono caricati
+make forecast-logs
+make forecast-down               # torna al solo motore statistico
 ```
+
+Coolify: attiva il profilo compose `forecast` e imposta
+`FORECASTER_URL=http://forecaster:8000` nelle variabili della risorsa, poi
+redeploy. Server senza internet: `make forecast-import-model DIR=./Timestral-28M`
+con `TIMESTRAL_MODEL=/models/Timestral-28M` e `HF_HUB_OFFLINE=1`.
 
 - Il primo avvio scarica i pesi da Hugging Face nel volume `forecaster-models`.
   Server senza internet: copiare i pesi nel volume e `HF_HUB_OFFLINE=1`.

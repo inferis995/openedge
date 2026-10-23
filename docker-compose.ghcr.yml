@@ -9,6 +9,9 @@
 # Images are published by CI on every master push
 # (ghcr.io/inferis995/openedge/{core-api,web-ui}:<sha> and :latest).
 # Drivers keep the local build (they change rarely and are per-gateway).
+# The forecaster (compose profile "forecast") is published too: pulling it
+# skips building torch on the host.
+#   docker compose ... -f docker-compose.ghcr.yml --profile forecast pull forecaster
 #
 # First time on a host (public packages need no login):
 #   echo $GITHUB_TOKEN | docker login ghcr.io -u inferis995 --password-stdin
@@ -21,3 +24,7 @@ services:
   web-ui:
     build: !override null
     image: ghcr.io/inferis995/openedge/web-ui:${OPENEDGE_IMAGE_TAG:-latest}
+
+  forecaster:
+    build: !override null
+    image: ghcr.io/inferis995/openedge/forecaster:${OPENEDGE_IMAGE_TAG:-latest}
