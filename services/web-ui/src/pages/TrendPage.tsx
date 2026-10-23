@@ -34,6 +34,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Input } from '@/components/ui/input';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useNavigationStore } from '@/stores/useNavigationStore';
+import { useOrgModules } from '@/hooks/useOrgModules';
 import { type TrendDataPoint, type AggregationType, type TagWithHierarchy } from '@/types/trend';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -193,8 +195,12 @@ export default function TrendPage() {
     const [compare, setCompare] = useState<CompareMode>(() => initialView?.cmp ?? 'off');
     const [yModes, setYModes] = useState<Record<string, YAxisMode>>(() => initialView?.y ?? {});
     const [layout, setLayout] = useState<TrendLayout>(() => initialView?.layout ?? 'lanes');
-    // Forecasts after now (docs/FORECASTING.md): off unless the view says so.
-    const [forecastOn, setForecastOn] = useState(() => !!initialView?.fc);
+    // Forecasts after now (docs/FORECASTING.md): off unless the view says so,
+    // and never for an organization that switched the forecast page off.
+    const [forecastWanted, setForecastOn] = useState(() => !!initialView?.fc);
+    const orgModules = useOrgModules(useNavigationStore(s => s.selectedOrgId));
+    const forecastAvailable = !orgModules || orgModules.has('forecast');
+    const forecastOn = forecastWanted && forecastAvailable;
     const [measure, setMeasure] = useState(false);
     const [marks, setMarks] = useState<{ a: number | null; b: number | null }>({ a: null, b: null });
     // A first click places A, a second B, a third starts again.
@@ -881,11 +887,11 @@ export default function TrendPage() {
                         </Select>
 
                         {/* Forecast */}
-                        <Button size="sm" variant={forecastOn ? 'default' : 'outline'} className="h-9 sm:h-7 text-xs gap-1"
+                        {forecastAvailable && <Button size="sm" variant={forecastOn ? 'default' : 'outline'} className="h-9 sm:h-7 text-xs gap-1"
                             onClick={() => setForecastOn(v => !v)} aria-pressed={forecastOn}
                             title={tr('trendPage.forecast_hint')}>
                             <TrendingUp className="w-3 h-3" /> {tr('trendPage.forecast')}
-                        </Button>
+                        </Button>}
 
                         {/* Saved views */}
                         <Popover>

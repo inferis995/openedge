@@ -8,7 +8,7 @@ import (
 
 // An unknown module key must never be written: it would be a silent typo.
 func TestValidateModuleKeys(t *testing.T) {
-	for _, k := range []string{"oee", "synoptics", "recipes", "shifts", "kpis", "trend", "alarms", "tags", "maintenance", "reports", "users", "dashboard", "setup", "sites", "areas", "gateways", "inventory", "historian", "i3x", "connected-apps"} {
+	for _, k := range []string{"oee", "synoptics", "recipes", "shifts", "kpis", "trend", "alarms", "tags", "maintenance", "reports", "users", "dashboard", "setup", "sites", "areas", "gateways", "inventory", "historian", "i3x", "connected-apps", "forecast"} {
 		if !modules.Valid(k) {
 			t.Errorf("known module %q rejected", k)
 		}
@@ -23,7 +23,7 @@ func TestValidateModuleKeys(t *testing.T) {
 
 // Backend groups and the frontend menu must resolve to the same modules.
 func TestModuleForGroupCoverage(t *testing.T) {
-	for _, g := range []string{"synoptics", "recipes", "reports", "trend-views", "shifts", "custom-kpis", "maintenance", "oee", "i3x/v1"} {
+	for _, g := range []string{"synoptics", "recipes", "reports", "trend-views", "shifts", "custom-kpis", "maintenance", "oee", "i3x/v1", "forecast"} {
 		if modules.ModuleForGroup("/"+g) == "" {
 			t.Errorf("API group %q has no module mapping", g)
 		}

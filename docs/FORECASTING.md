@@ -39,6 +39,7 @@ core-api ── forecast.Runner ──► legge tag_history (aggregati Timescale
           tag_forecasts (una riga per tag, ultima previsione)
                │
      GET /api/tags/:id/forecast ──► Trend: fascia di previsione dopo "adesso"
+     GET /api/forecast/overview ──► pagina Previsioni
 ```
 
 ### Tipi di segnale (`kind`)
@@ -99,7 +100,11 @@ insufficiente), `error`.
 - [x] Tag: scheda *Previsione* (attiva, tipo, orizzonte, stato attuale)
 - [x] Test e documentazione d'esercizio
 - [ ] Prova sui dati veri (Sorical) e scelta della dimensione del modello
-- [ ] Profili per sito/area/gateway dall'interfaccia (oggi: API e scheda del tag)
+- [x] Pagina **Previsioni** (Analisi → Previsioni): riepilogo per stato, elenco
+      filtrabile, dettaglio con storico e previsione, impostazioni per
+      organizzazione, sito, area e gateway con ereditarietà
+- [x] Modulo `forecast` tra le pagine visibili: spento per un'organizzazione,
+      non si calcola nulla per lei e l'interfaccia lo nasconde
 
 ### Fase 2 — previsioni operative
 - Allarme previsto: probabilità di superare le soglie già configurate (allarmi e

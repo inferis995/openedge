@@ -10,6 +10,7 @@ import { orgModulesKey } from '@/hooks/useOrgModules';
 const moduleNavKey: Record<string, string> = {
     oee: 'oee_profiles',
     'connected-apps': 'connected_apps',
+    forecast: 'forecasts',
 };
 
 /** Which pages the organization may use: one checkbox per module, saved as it is ticked. */

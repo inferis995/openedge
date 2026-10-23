@@ -131,13 +131,15 @@
       "fleet": "State of every installation",
       "releases": "Versions and updates",
       "users": "People, roles and invitations",
-      "setup": "From an empty plant to the first values from a PLC, step by step"
+      "setup": "From an empty plant to the first values from a PLC, step by step",
+      "forecasts": "Where tags are going: forecasts and reliability"
     },
     "mqtt_reconnecting": "Live data connection lost: reconnecting…",
     "setup": "Getting started",
     "all_orgs": "All organizations",
     "select_org": "Select organization",
-    "mqtt_failed": "Could not connect to live data: reload the page."
+    "mqtt_failed": "Could not connect to live data: reload the page.",
+    "forecasts": "Forecasts"
   },
   "system": {
     "title": "Settings",

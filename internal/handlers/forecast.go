@@ -365,3 +365,141 @@ func tagsUnder(scope forecast.Scope) string {
 		return base + `t.id = $1`
 	}
 }
+
+// OverviewTag is one row of GET /api/forecast/overview.
+type OverviewTag struct {
+	TagID       int        `json:"tag_id"`
+	Alias       string     `json:"alias"`
+	Unit        string     `json:"unit,omitempty"`
+	DataType    string     `json:"data_type"`
+	GatewayID   int        `json:"gateway_id"`
+	GatewayName string     `json:"gateway_name"`
+	AreaID      int        `json:"area_id"`
+	AreaName    string     `json:"area_name"`
+	SiteID      int        `json:"site_id"`
+	SiteName    string     `json:"site_name"`
+	Status      string     `json:"status"`
+	Reason      string     `json:"reason,omitempty"`
+	Kind        string     `json:"kind,omitempty"`
+	Engine      string     `json:"engine,omitempty"`
+	Skill       *float64   `json:"skill,omitempty"`
+	Coverage    *float64   `json:"coverage,omitempty"`
+	GeneratedAt *time.Time `json:"generated_at,omitempty"`
+	// HorizonHours is the tag's effective horizon (its profiles merged).
+	HorizonHours int `json:"horizon_hours"`
+	// End is the forecast at the last step: where the tag is expected to be.
+	End *ForecastPoint `json:"end,omitempty"`
+}
+
+// OverviewResponse is GET /api/forecast/overview.
+type OverviewResponse struct {
+	// Engines the server forecasts with, statistical first.
+	Engines []string       `json:"engines"`
+	Summary map[string]int `json:"summary"`
+	Tags    []OverviewTag  `json:"tags"`
+}
+
+// Overview lists the organization's forecastable tags with the state of their
+// forecast: every historized numeric or BOOL tag, forecast or not yet.
+func (h *ForecastHandler) Overview(c *gin.Context) {
+	orgID, ok := middleware.GetOrganizationID(c)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "select an organization first"})
+		return
+	}
+	if !visible(c, orgID) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "organization not found"})
+		return
+	}
+	ctx := c.Request.Context()
+	profiles, err := forecast.LoadProfiles(ctx, h.db, []int{orgID})
+	if err != nil {
+		log.Printf("[FORECAST] overview profiles: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read forecasts"})
+		return
+	}
+	rows, err := h.db.QueryContext(ctx, `
+		SELECT t.id, t.alias, COALESCE(t.eu_unit, ''), t.data_type,
+		       g.id, g.name, a.id, a.name, s.id, s.name,
+		       COALESCE(f.status, 'pending'), COALESCE(f.reason, ''), COALESCE(f.kind, ''),
+		       COALESCE(f.engine, ''), f.skill, f.coverage, f.generated_at,
+		       f.start_at, COALESCE(f.step_seconds, 0), f.quantiles
+		FROM tags t
+		JOIN gateways g ON g.id = t.gateway_id
+		JOIN areas a    ON a.id = g.area_id
+		JOIN sites s    ON s.id = a.site_id
+		LEFT JOIN tag_forecasts f ON f.tag_id = t.id
+		WHERE s.org_id = $1 AND t.historize = TRUE
+		  AND t.data_type IN ('INT', 'DINT', 'REAL', 'BOOL')
+		ORDER BY s.name, a.name, g.name, t.alias
+		LIMIT 5000`, orgID)
+	if err != nil {
+		log.Printf("[FORECAST] overview: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read forecasts"})
+		return
+	}
+	defer func() { _ = rows.Close() }()
+
+	resp := OverviewResponse{Summary: map[string]int{}, Tags: []OverviewTag{}}
+	if h.runner != nil {
+		for _, e := range h.runner.Engines {
+			resp.Engines = append(resp.Engines, e.Name())
+		}
+	}
+	for rows.Next() {
+		var (
+			t               OverviewTag
+			skill, coverage sql.NullFloat64
+			generated       sql.NullTime
+			startAt         sql.NullTime
+			step            int
+			quantiles       []byte
+		)
+		if err := rows.Scan(&t.TagID, &t.Alias, &t.Unit, &t.DataType, &t.GatewayID, &t.GatewayName,
+			&t.AreaID, &t.AreaName, &t.SiteID, &t.SiteName, &t.Status, &t.Reason, &t.Kind, &t.Engine,
+			&skill, &coverage, &generated, &startAt, &step, &quantiles); err != nil {
+			log.Printf("[FORECAST] overview row: %v", err)
+			continue
+		}
+		if skill.Valid {
+			t.Skill = &skill.Float64
+		}
+		if coverage.Valid {
+			t.Coverage = &coverage.Float64
+		}
+		if generated.Valid {
+			t.GeneratedAt = &generated.Time
+		}
+		t.HorizonHours = profiles.Effective(orgID, t.SiteID, t.AreaID, t.GatewayID, t.TagID).HorizonHours
+		t.End = lastPoint(startAt, step, quantiles)
+		resp.Summary[t.Status]++
+		resp.Tags = append(resp.Tags, t)
+	}
+	resp.Summary["total"] = len(resp.Tags)
+	c.JSON(http.StatusOK, resp)
+}
+
+// lastPoint is the last step of a stored forecast that has a value.
+func lastPoint(startAt sql.NullTime, step int, quantiles []byte) *ForecastPoint {
+	if !startAt.Valid || step <= 0 || len(quantiles) == 0 {
+		return nil
+	}
+	var q forecast.Quantiles
+	if json.Unmarshal(quantiles, &q) != nil {
+		return nil
+	}
+	for i := len(q.Q50) - 1; i >= 0; i-- {
+		if q.Q50[i] != q.Q50[i] { // NaN
+			continue
+		}
+		p := &ForecastPoint{T: startAt.Time.Add(time.Duration(i*step) * time.Second), Q50: finitePtr(q.Q50[i])}
+		if i < len(q.Q10) {
+			p.Q10 = finitePtr(q.Q10[i])
+		}
+		if i < len(q.Q90) {
+			p.Q90 = finitePtr(q.Q90[i])
+		}
+		return p
+	}
+	return nil
+}

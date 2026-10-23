@@ -8,6 +8,7 @@ import RequireAdmin from '@/components/RequireAdmin';
 
 import OrganizationsPage from '@/pages/OrganizationsPage';
 import OrgSettingsPage from '@/pages/OrgSettingsPage';
+import ForecastsPage from '@/pages/ForecastsPage';
 import DashboardPage from '@/pages/DashboardPage';
 import SetupWizardPage from '@/pages/SetupWizardPage';
 import SitesPage from '@/pages/SitesPage';
@@ -167,6 +168,7 @@ function App() {
                     <Route path="/tags" element={<TagsPage />} />
                     <Route path="/system" element={<SystemPage />} />
                     <Route path="/trend" element={<TrendPage />} />
+                    <Route path="/forecasts" element={<ForecastsPage />} />
                     <Route path="/history" element={<HistoryPage />} />
                     <Route path="/alarms" element={<AlarmsPage />} />
                     <Route path="/recipes" element={<RecipesPage />} />

@@ -76,7 +76,7 @@ func forecastDB(t *testing.T) *sql.DB {
 		`CREATE TABLE sites (id SERIAL PRIMARY KEY, org_id INT REFERENCES organizations(id), name TEXT)`,
 		`CREATE TABLE areas (id SERIAL PRIMARY KEY, site_id INT REFERENCES sites(id), name TEXT)`,
 		`CREATE TABLE gateways (id SERIAL PRIMARY KEY, area_id INT REFERENCES areas(id), name TEXT)`,
-		`CREATE TABLE tags (id SERIAL PRIMARY KEY, gateway_id INT REFERENCES gateways(id), alias TEXT, data_type TEXT, historize BOOLEAN)`,
+		`CREATE TABLE tags (id SERIAL PRIMARY KEY, gateway_id INT REFERENCES gateways(id), alias TEXT, data_type TEXT, historize BOOLEAN, eu_unit TEXT NOT NULL DEFAULT '')`,
 		`CREATE TABLE forecast_profiles (id SERIAL PRIMARY KEY, org_id INT NOT NULL REFERENCES organizations(id),
 			scope TEXT NOT NULL, scope_id INT NOT NULL, settings JSONB NOT NULL DEFAULT '{}',
 			updated_by INT REFERENCES users(id), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE (scope, scope_id))`,
@@ -182,5 +182,39 @@ func TestForecastProfileAPI(t *testing.T) {
 	_ = db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM forecast_profiles WHERE scope = 'tag'`).Scan(&n)
 	if n != 0 {
 		t.Error("an emptied profile should be removed")
+	}
+}
+
+func TestForecastOverview(t *testing.T) {
+	db := forecastDB(t)
+	h := NewForecastHandler(db, nil)
+
+	w := forecastCall(t, h.Overview, http.MethodGet, "/api/forecast/overview", nil, 1, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("overview: %d %s", w.Code, w.Body)
+	}
+	var got OverviewResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Tags) != 1 || got.Tags[0].TagID != 1 {
+		t.Fatalf("tags %+v: only organization 1's tag", got.Tags)
+	}
+	tag := got.Tags[0]
+	if tag.Status != "ok" || tag.SiteName != "SA" || tag.HorizonHours != forecast.Defaults.HorizonHours {
+		t.Errorf("row %+v", tag)
+	}
+	if tag.End == nil || tag.End.Q50 == nil || *tag.End.Q50 != 2 {
+		t.Errorf("end %+v: the last step with a value", tag.End)
+	}
+	if got.Summary["ok"] != 1 || got.Summary["total"] != 1 {
+		t.Errorf("summary %v", got.Summary)
+	}
+
+	// Organization 2 sees its own tag, never forecast yet.
+	w = forecastCall(t, h.Overview, http.MethodGet, "/api/forecast/overview", nil, 2, nil)
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if len(got.Tags) != 1 || got.Tags[0].TagID != 2 || got.Tags[0].Status != "pending" {
+		t.Errorf("organization 2: %+v", got.Tags)
 	}
 }

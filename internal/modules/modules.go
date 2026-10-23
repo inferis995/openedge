@@ -19,6 +19,7 @@ var groupModules = map[string]string{
 	"/i3x/v1":      "i3x",
 	"/reports":     "reports",
 	"/trend-views": "trend",
+	"/forecast":    "forecast",
 }
 
 // All lists every module key the organizations UI offers, in menu order.
@@ -26,7 +27,7 @@ var All = []string{
 	"dashboard", "setup",
 	"sites", "areas", "gateways", "map", "tags", "inventory",
 	"synoptics", "alarms", "recipes", "shifts", "maintenance",
-	"trend", "historian", "reports", "kpis", "oee",
+	"trend", "forecast", "historian", "reports", "kpis", "oee",
 	"i3x", "connected-apps", "users",
 }
 

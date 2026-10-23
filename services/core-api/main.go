@@ -615,8 +615,9 @@ func main() {
 		}
 		forecastHandler := handlers.NewForecastHandler(database, forecastRunner)
 		forecastGroup := api.Group("/forecast")
-		forecastGroup.Use(middleware.RequireAuth, middleware.OrganizationContext())
+		forecastGroup.Use(middleware.RequireAuth, middleware.OrganizationContext(), middleware.RequireModule(database, "forecast"))
 		{
+			forecastGroup.GET("/overview", forecastHandler.Overview)
 			forecastGroup.GET("/profiles", forecastHandler.GetProfile)
 			forecastGroup.PUT("/profiles", middleware.RequireRole(models.RoleAdmin), forecastHandler.PutProfile)
 		}

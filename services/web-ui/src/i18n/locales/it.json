@@ -131,13 +131,15 @@
       "fleet": "Stato di tutte le installazioni",
       "releases": "Versioni e aggiornamenti",
       "users": "Persone, ruoli e inviti",
-      "setup": "Dall'impianto vuoto ai primi valori dal PLC, passo per passo"
+      "setup": "Dall'impianto vuoto ai primi valori dal PLC, passo per passo",
+      "forecasts": "Dove vanno i tag: previsioni e affidabilità"
     },
     "mqtt_reconnecting": "Connessione ai dati in tempo reale persa: riconnessione in corso…",
     "setup": "Primi passi",
     "all_orgs": "Tutte le organizzazioni",
     "select_org": "Scegli organizzazione",
-    "mqtt_failed": "Connessione ai dati in tempo reale non riuscita: ricarica la pagina."
+    "mqtt_failed": "Connessione ai dati in tempo reale non riuscita: ricarica la pagina.",
+    "forecasts": "Previsioni"
   },
   "system": {
     "title": "Impostazioni",

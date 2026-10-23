@@ -6,6 +6,7 @@ import { alarmsApi } from '@/api/alarms';
 import { useGateways } from '@/hooks/useGateways';
 import { useRealtime } from '@/hooks/useRealtime';
 import { useNavigationStore } from '@/stores/useNavigationStore';
+import { useOrgModules } from '@/hooks/useOrgModules';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useStaleData, getDataStatus } from '@/hooks/useStaleData';
 import { timeAgo } from '@/lib/relativeTime';
@@ -91,6 +92,9 @@ const TagsPage = () => {
     const [sortField, setSortField] = useState<'alias' | 'code' | 'data_type' | 'sort_order' | null>(null);
     const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
     const { selectedOrgId } = useNavigationStore();
+    // The Forecast tab, unless the organization switched forecasts off.
+    const orgModules = useOrgModules(selectedOrgId);
+    const forecastAvailable = !orgModules || orgModules.has('forecast');
     const { isAdmin, user } = useAuthStore();
     // Tag export: admins always, regular users with the export flag
     // (the backend enforces it too — this only shows the button).
@@ -1013,7 +1017,7 @@ const TagsPage = () => {
                                             <TabsTrigger value="general">{tr('tagsPage.tab_general')}</TabsTrigger>
                                             <TabsTrigger value="scaling">{tr('tagsPage.tab_scaling')}</TabsTrigger>
                                             {updatingTagId && <TabsTrigger value="alarms">{tr('tagsPage.tab_alarms')}</TabsTrigger>}
-                                            {updatingTagId && formData.data_type !== 'STRING' && <TabsTrigger value="forecast">{tr('forecast.tab')}</TabsTrigger>}
+                                            {updatingTagId && forecastAvailable && formData.data_type !== 'STRING' && <TabsTrigger value="forecast">{tr('forecast.tab')}</TabsTrigger>}
                                         </TabsList>
                                         <TabsContent value="general">
                                             <div className="grid gap-6 py-4">
@@ -1359,7 +1363,7 @@ const TagsPage = () => {
                                                 <TagAlarmsTab tagId={updatingTagId} dataType={formData.data_type || 'REAL'} onSave={refreshAlarmData} />
                                             </TabsContent>
                                         )}
-                                        {updatingTagId && formData.data_type !== 'STRING' && (
+                                        {updatingTagId && forecastAvailable && formData.data_type !== 'STRING' && (
                                             <TabsContent value="forecast">
                                                 <TagForecastTab tagId={updatingTagId} />
                                             </TabsContent>

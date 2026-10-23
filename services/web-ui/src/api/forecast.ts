@@ -71,3 +71,40 @@ export const forecastApi = {
     putProfile: async (scope: ForecastScope, scopeId: number, settings: ForecastProfileSettings): Promise<ForecastProfile> =>
         (await api.put('/forecast/profiles', { scope, scope_id: scopeId, settings })).data,
 };
+
+export interface ForecastOverviewTag {
+    tag_id: number;
+    alias: string;
+    unit?: string;
+    data_type: string;
+    gateway_id: number;
+    gateway_name: string;
+    area_id: number;
+    area_name: string;
+    site_id: number;
+    site_name: string;
+    status: ForecastStatus;
+    reason?: string;
+    kind?: ForecastKind;
+    engine?: string;
+    skill?: number;
+    coverage?: number;
+    generated_at?: string;
+    horizon_hours: number;
+    /** The forecast at its last step: where the tag is expected to be. */
+    end?: ForecastPoint;
+}
+
+export interface ForecastOverview {
+    /** Engines the server forecasts with, statistical first. */
+    engines: string[];
+    summary: Partial<Record<ForecastStatus | 'total', number>>;
+    tags: ForecastOverviewTag[];
+}
+
+export const forecastOverviewApi = {
+    get: async (): Promise<ForecastOverview> => {
+        const d = (await api.get('/forecast/overview')).data as ForecastOverview;
+        return { engines: d.engines ?? [], summary: d.summary ?? {}, tags: d.tags ?? [] };
+    },
+};

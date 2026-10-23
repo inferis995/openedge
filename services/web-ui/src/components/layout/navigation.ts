@@ -9,7 +9,7 @@ import {
     Activity, Bell, Building2, ChefHat, ClipboardList, Clock, Cpu, Factory,
     FileText, Gauge, History, LayoutDashboard, LayoutTemplate, Lock, Map, MapPin,
     Network, PackageOpen, Plug, Radio, Rocket, Server, Settings, Shield, Tags, Target,
-    TrendingUp, Users, Wrench,
+    TrendingUp, Users, Wrench, Sparkles,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -52,6 +52,7 @@ const pathModuleEntries: [string, string][] = [
     ['/shifts', 'shifts'],
     ['/maintenance', 'maintenance'],
     ['/trend', 'trend'],
+    ['/forecasts', 'forecast'],
     ['/history', 'historian'],
     ['/reports', 'reports'],
     ['/kpis', 'kpis'],
@@ -139,6 +140,7 @@ export function navSections(access: NavAccess, enabledModules?: Set<string> | nu
             key: 'nav.section.analysis',
             items: [
                 { key: 'nav.trend', path: '/trend', icon: TrendingUp, hint: 'nav.hint.trend' },
+                { key: 'nav.forecasts', path: '/forecasts', icon: Sparkles, hint: 'nav.hint.forecasts' },
                 { key: 'nav.historian', path: '/history', icon: History, hint: 'nav.hint.historian' },
                 { key: 'nav.reports', path: '/reports', icon: FileText, hint: 'nav.hint.reports' },
                 { key: 'nav.kpis', path: '/kpis', icon: Target, hint: 'nav.hint.kpis' },

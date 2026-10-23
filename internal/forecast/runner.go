@@ -164,10 +164,19 @@ func (r *Runner) forecast(ctx context.Context, tags []tagRow) error {
 	if err != nil {
 		return err
 	}
+	off, err := r.modulesOff(ctx, orgsOf(tags))
+	if err != nil {
+		return err
+	}
 	now := r.Now()
 	jobs := make([]Job, 0, len(tags))
 	for _, t := range tags {
 		eff := profiles.Effective(t.org, t.site, t.area, t.gateway, t.id)
+		if off[t.org] {
+			// The organization does not use forecasts (its "forecast" page is
+			// switched off): nothing is computed for it.
+			eff.Enabled = false
+		}
 		j := Job{TagID: t.id, IsBool: t.isBool, Settings: eff}
 		if eff.Enabled {
 			s, err := r.history(ctx, t.id, eff, now)
@@ -196,6 +205,26 @@ func (r *Runner) forecast(ctx context.Context, tags []tagRow) error {
 		metricResults.WithLabelValues(res.Status, res.Engine).Inc()
 	}
 	return nil
+}
+
+// modulesOff are the organizations, among these, that switched the forecast
+// module off.
+func (r *Runner) modulesOff(ctx context.Context, orgs []int) (map[int]bool, error) {
+	off := map[int]bool{}
+	rows, err := r.DB.QueryContext(ctx, `SELECT org_id FROM organization_modules
+		WHERE module_key = 'forecast' AND enabled = false AND org_id = ANY($1)`, pq.Array(orgs))
+	if err != nil {
+		// A database without the table (tests, an old schema) has every module on.
+		return off, nil //nolint:nilerr
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err == nil {
+			off[id] = true
+		}
+	}
+	return off, rows.Err()
 }
 
 func orgsOf(tags []tagRow) []int {
