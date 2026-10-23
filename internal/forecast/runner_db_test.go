@@ -12,17 +12,17 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// The runner against a real Postgres. Set FORECAST_TEST_DSN to a database
+// The runner against a real Postgres. Set OPENEDGE_TEST_DSN to a database
 // that may be wiped, e.g.
 //
-//	FORECAST_TEST_DSN='postgres://test@127.0.0.1:55432/postgres?sslmode=disable'
+//	OPENEDGE_TEST_DSN='postgres://test@127.0.0.1:55432/postgres?sslmode=disable'
 //
 // It builds the few tables it needs itself and uses no TimescaleDB, so it also
 // covers the path without continuous aggregates.
 func testDB(t *testing.T) *sql.DB {
-	dsn := os.Getenv("FORECAST_TEST_DSN")
+	dsn := os.Getenv("OPENEDGE_TEST_DSN")
 	if dsn == "" {
-		t.Skip("FORECAST_TEST_DSN not set")
+		t.Skip("OPENEDGE_TEST_DSN not set")
 	}
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {

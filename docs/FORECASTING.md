@@ -124,7 +124,7 @@ insufficiente), `error`.
 
 ```bash
 # Go, con un Postgres usa-e-getta (le tabelle vengono ricreate):
-FORECAST_TEST_DSN='postgres://user@127.0.0.1:5432/scratch?sslmode=disable' \
+OPENEDGE_TEST_DSN='postgres://user@127.0.0.1:5432/scratch?sslmode=disable' \
   go test -p 1 ./internal/forecast/ ./internal/handlers/ -run 'Forecast|Postgres'
 # Servizio Python, con un modello finto (solo numpy):
 cd services/forecaster && python -m unittest -v test_app.py

@@ -57,12 +57,12 @@ func TestForecastRequestsAreCheckedBeforeTheDatabase(t *testing.T) {
 	}
 }
 
-// Against a real Postgres (FORECAST_TEST_DSN, wiped): two organizations, a tag
+// Against a real Postgres (OPENEDGE_TEST_DSN, wiped): two organizations, a tag
 // each, a stored forecast for the first.
 func forecastDB(t *testing.T) *sql.DB {
-	dsn := os.Getenv("FORECAST_TEST_DSN")
+	dsn := os.Getenv("OPENEDGE_TEST_DSN")
 	if dsn == "" {
-		t.Skip("FORECAST_TEST_DSN not set")
+		t.Skip("OPENEDGE_TEST_DSN not set")
 	}
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
