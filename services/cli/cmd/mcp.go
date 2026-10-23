@@ -541,6 +541,61 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 			InputSchema: jsonSchema(map[string]interface{}{}),
 		},
 
+		// ── Forecasts ───────────────────────────────────────────────────────
+		//
+		// Where tags are going. A forecast is shown only when it beat
+		// repeating the last value on the known history (status "ok");
+		// "unreliable" ones exist but must not be presented as predictions.
+
+		{
+			Name: "get_forecast_overview",
+			Description: "Every forecastable tag of the current organization with its forecast status " +
+				"(ok, unreliable, learning, disabled, error, pending), signal kind, skill against a naive " +
+				"forecast, and the value expected at the end of the horizon with its P10–P90 band",
+			InputSchema: jsonSchema(map[string]interface{}{
+				"status": propStr("Only this status (optional): ok, unreliable, learning, disabled, error, pending"),
+				"site":   propStr("Only tags of this site, by name (optional)"),
+			}),
+		},
+		{
+			Name:        "get_tag_forecast",
+			Description: "One tag's latest forecast: status, kind, engine and model, skill, coverage, and every step with P10/P50/P90",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"tag_id": propInt("The tag ID"),
+			}, []string{"tag_id"}),
+		},
+		{
+			Name:        "refresh_tag_forecast",
+			Description: "Forecast a tag now instead of waiting for its next scheduled run (admin), and return it",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"tag_id": propInt("The tag ID"),
+			}, []string{"tag_id"}),
+		},
+		{
+			Name: "get_forecast_settings",
+			Description: "Forecast settings of one level of the hierarchy: its own profile, what it inherits " +
+				"from the levels above, and the effective result",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"scope":    propStr("org, site, area, gateway or tag"),
+				"scope_id": propInt("The ID at that level (the organization's own ID for org)"),
+			}, []string{"scope", "scope_id"}),
+		},
+		{
+			Name: "set_forecast_settings",
+			Description: "Change the forecast settings of one level (admin). Fields not given keep their value; " +
+				"\"inherit\" (or horizon_hours 0) puts a field back to inheriting; clear removes the level's " +
+				"profile. The levels below inherit unless they set their own.",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"scope":         propStr("org, site, area, gateway or tag"),
+				"scope_id":      propInt("The ID at that level"),
+				"enabled":       propStr("on, off or inherit"),
+				"kind":          propStr("auto, process, cyclic, degradation, counter, state, or inherit"),
+				"horizon_hours": propInt("How far ahead, in hours (1–720; 0 = inherit)"),
+				"context_days":  propInt("How much history to learn from, in days (1–365; 0 = inherit)"),
+				"clear":         propBool("Remove the level's profile: inherit everything"),
+			}, []string{"scope", "scope_id"}),
+		},
+
 		// ── Provisioning ────────────────────────────────────────────────────
 		//
 		// Everything below builds a plant rather than reading one. The read
@@ -734,6 +789,13 @@ func openedgePrompts() []mcpPrompt {
 			},
 		},
 		{
+			Name:        "forecast-review",
+			Description: "Dove stanno andando i tag: previsioni affidabili, soglie a rischio, tag da sistemare",
+			Arguments: []mcpPromptArg{
+				{Name: "org_id", Description: "Organization ID", Required: true},
+			},
+		},
+		{
 			Name:        "commission-gateway",
 			Description: "Checklist di messa in servizio: gateway, tag, allarmi, verifica",
 			Arguments: []mcpPromptArg{
@@ -781,6 +843,13 @@ func (s *mcpServer) handlePromptsGet(req *jsonRPCRequest) *jsonRPCResponse {
 			"1) get_fleet_status per lo stato, 2) per ogni gateway offline get_tag_shadows " +
 			"e get_tag_history per datare l'ultimo dato reale. " +
 			"Distingui 'mai contattato' da 'muto da una data': il secondo va in campo."
+	case "forecast-review":
+		org := arg("org_id")
+		text = "Rivedi le previsioni dell'organization " + org + ": " +
+			"1) get_forecast_overview, 2) per i tag 'ok' confronta il valore previsto a fine orizzonte " +
+			"(e la fascia P10–P90) con le soglie di list_active_alarms e get_tag_value, 3) get_tag_forecast " +
+			"sui tag a rischio. Rispondi in italiano: prima i tag che usciranno dalle soglie, poi quelli in " +
+			"degrado. Una previsione 'unreliable' o 'learning' NON è una previsione: dilla come tale, mai come dato."
 	case "commission-gateway":
 		gw := arg("gateway_id")
 		text = "Metti in servizio il gateway " + gw + " in ordine: " +
@@ -980,6 +1049,52 @@ func (s *mcpServer) executeTool(name string, args map[string]interface{}) (strin
 			hours = 24
 		}
 		return s.toolGet(fmt.Sprintf("/api/aiops/alarms/digest?hours=%d", hours))
+
+	case "get_forecast_overview":
+		raw, err := s.client.RawGet("/api/forecast/overview")
+		if err != nil {
+			return "", err
+		}
+		var ov forecastOverview
+		if err := json.Unmarshal(raw, &ov); err != nil {
+			return prettyJSON(raw), nil
+		}
+		ov.Tags = filterForecastOverview(ov.Tags, strArg(args, "status"), strArg(args, "site"))
+		data, _ := json.MarshalIndent(ov, "", "  ")
+		return string(data), nil
+
+	case "get_tag_forecast", "refresh_tag_forecast":
+		tagID := intArg(args, "tag_id")
+		if tagID == 0 {
+			return "", fmt.Errorf("tag_id is required")
+		}
+		if name == "refresh_tag_forecast" {
+			return s.toolPost(fmt.Sprintf("/api/tags/%d/forecast/refresh", tagID), nil)
+		}
+		return s.toolGet(fmt.Sprintf("/api/tags/%d/forecast", tagID))
+
+	case "get_forecast_settings", "set_forecast_settings":
+		scope, id := strArg(args, "scope"), intArg(args, "scope_id")
+		if scope == "" || id == 0 {
+			return "", fmt.Errorf("scope and scope_id are required")
+		}
+		if name == "get_forecast_settings" {
+			return s.toolGet(forecastProfilePath(scope, id))
+		}
+		changes := map[string]interface{}{}
+		for _, k := range []string{"enabled", "kind", "horizon_hours", "context_days"} {
+			if v, ok := args[k]; ok {
+				changes[k] = v
+			}
+		}
+		raw, err := setForecastSettings(s.client.RawGet, func(path string, body interface{}) ([]byte, error) {
+			out, err := s.toolPut(path, body)
+			return []byte(out), err
+		}, scope, id, changes, boolArg(args, "clear"))
+		if err != nil {
+			return "", err
+		}
+		return string(raw), nil
 
 	case "check_health":
 		var liveResult interface{}

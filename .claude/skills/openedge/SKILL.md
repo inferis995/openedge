@@ -1,6 +1,6 @@
 ---
 name: openedge
-description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, OEE via REST + i3X. Multi-tenant SaaS. CLI (openedge) con MCP server mode: 39 tool, l'agente costruisce l'impianto oltre a leggerlo. LoRaWAN auto-discovery + tag import + downlink. Tag Shadows (digital twin). Fleet OTA. SSO/OIDC. RBAC granulare. Slack/Teams/PagerDuty. InfluxDB connector. Usa openedge-ops per deploy/configurazione.
+description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, previsioni (Timestral), OEE via REST + i3X. Multi-tenant SaaS. CLI (openedge) con MCP server mode: 37 tool, l'agente costruisce l'impianto oltre a leggerlo. LoRaWAN auto-discovery + tag import + downlink. Tag Shadows (digital twin). Fleet OTA. SSO/OIDC. RBAC granulare. Slack/Teams/PagerDuty. InfluxDB connector. Usa openedge-ops per deploy/configurazione.
 version: 7.0.0
 tags: [industrial, iot, provisioning, alarms, historian, timeseries, scada, i3x, cesmii, monitoring, multi-tenant, saas, oee, webhooks, security, nis2, infrastructure, health, ota, fleet, lorawan, shadows, sso, oidc, rbac, cli, mcp, influxdb, slack, teams, pagerduty]
 ---
@@ -419,6 +419,36 @@ GET /api/aiops/alarms/digest?hours=24
 ```
 
 Ritorna: raggruppamento allarmi per severity con conteggio e lista eventi.
+
+### Previsioni dei tag
+
+Ogni tag numerico o digitale con lo storico attivo viene previsto in automatico
+(motore statistico sempre presente; Timestral su CPU se il server ha il servizio
+`forecaster`). Il **tipo di segnale** (`process`, `cyclic`, `degradation`,
+`counter`, `state`) è dedotto dai dati o impostato. Ogni previsione è provata sui
+dati già noti contro "ripeti l'ultimo valore":
+
+| status | significato | come presentarla |
+|---|---|---|
+| `ok` | ha battuto la previsione ingenua | previsione, con la sua fascia P10–P90 |
+| `unreliable` | non l'ha battuta | **non** è una previsione: dirlo |
+| `learning` | storico insufficiente | non disponibile |
+| `disabled` | spenta da un profilo o dal modulo `forecast` | non disponibile |
+| `pending` / `error` | non ancora calcolata / nessun motore ha risposto | non disponibile |
+
+```
+GET  /api/forecast/overview                 # tutti i tag dell'org: status, kind, skill, valore a fine orizzonte
+GET  /api/tags/42/forecast                  # una previsione: points[] con t, q10, q50, q90
+POST /api/tags/42/forecast/refresh          # ricalcola ora (admin)
+GET  /api/forecast/profiles?scope=site&scope_id=3
+PUT  /api/forecast/profiles                 # (admin) {"scope":"site","scope_id":3,"settings":{"horizon_hours":48}}
+```
+
+Le impostazioni (`enabled`, `kind`, `horizon_hours` 1–720, `context_days` 1–365)
+si ereditano: organizzazione → sito → area → gateway → tag. Un campo assente
+eredita; `settings: {}` rimuove il profilo del livello. `skill` = 1 − errore /
+errore della previsione ingenua (0,4 = 40% meglio); `coverage` = quota dei valori
+veri dentro la fascia (ideale ≈ 0,8).
 
 ---
 
@@ -846,6 +876,16 @@ openedge aiops summary [--hours 24]
 openedge aiops anomalies --tag 42
 openedge aiops digest
 
+# Previsioni
+openedge forecast list [--status ok] [--site Sorical]
+openedge forecast show --tag 42
+openedge forecast refresh --tag 42
+openedge forecast settings --scope site --id 3                  # legge
+openedge forecast settings --scope org --id 1 --horizon 48      # cambia (admin)
+openedge forecast settings --scope tag --id 42 --kind degradation
+openedge forecast settings --scope gateway --id 7 --enabled inherit
+openedge forecast settings --scope site --id 3 --clear
+
 # Health / diagnostics
 openedge health
 openedge diagnostics
@@ -889,9 +929,10 @@ client remoto. Gli stessi 39 tool su entrambi i trasporti.
 }
 ```
 
-Dopo la configurazione, Claude Code vede 39 tool nativi OpenEdge.
+Dopo la configurazione, Claude Code vede 37 tool nativi OpenEdge e 4 prompt guidati
+(`daily-digest`, `offline-triage`, `forecast-review`, `commission-gateway`).
 
-I primi 18 **leggono** un impianto. I restanti lo **costruiscono**: gerarchia,
+I primi 23 **leggono** un impianto (18 su stato, allarmi e storico, 5 sulle previsioni). I restanti lo **costruiscono**: gerarchia,
 gateway con il loro driver, tag, tipi definiti dall'utente e pagine sinottiche.
 Un agente può quindi mettere in servizio una linea da zero — sito, area,
 gateway Modbus, tipo «Motore», dieci istanze, pagina sinottica — senza toccare
@@ -918,6 +959,18 @@ l'interfaccia.
 | `get_alarm_digest` | GET /api/aiops/alarms/digest |
 | `check_health` | GET /health + /ready |
 
+**Previsioni** — dove vanno i tag:
+
+| Tool MCP | Equivalente REST |
+|----------|-----------------|
+| `get_forecast_overview` (filtri `status`, `site`) | GET /api/forecast/overview |
+| `get_tag_forecast` | GET /api/tags/{id}/forecast |
+| `refresh_tag_forecast` | POST /api/tags/{id}/forecast/refresh |
+| `get_forecast_settings` | GET /api/forecast/profiles |
+| `set_forecast_settings` (cambia solo i campi dati; `inherit`, `clear`) | PUT /api/forecast/profiles |
+
+Prompt guidato: `forecast-review` (tag che usciranno dalle soglie, tag in degrado).
+
 **Provisioning** — costruire l'impianto:
 
 | Tool MCP | Equivalente REST |
@@ -928,6 +981,7 @@ l'interfaccia.
 | `create_tag` | POST /api/tags |
 | `delete_tag` | DELETE /api/tags/{id} |
 | `set_tag_alarms` | PUT /api/tags/{id}/alarms |
+| `import_html_widget` | POST /api/synoptics (pagina widget HTML con binding) |
 
 **Sinottici** — pagine SCADA:
 
@@ -1032,6 +1086,9 @@ quello che l'utente ha approvato.
 "Ci sono allarmi Critical attivi nell'organizzazione 2?"
 "Rileva anomalie sul tag Pressione_Rete (id=42) nell'ultima settimana"
 "Genera un digest degli allarmi delle ultime 24 ore"
+"Quali tag dell'org 2 usciranno dalle soglie nelle prossime 24 ore?"
+"Le batterie dei logger di Sorical: quali scenderanno sotto 3,3 V e quando?"
+"Imposta l'orizzonte di previsione a 72 ore per tutto il sito 3"
 "L'edge è online per l'org 5?"
 "Calcola l'OEE dell'ultimo turno per il profilo Linea-A"
 "I webhook dell'org 3 stanno consegnando? Qual è l'ultimo status code?"

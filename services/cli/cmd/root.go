@@ -72,6 +72,7 @@ func init() {
 	rootCmd.AddCommand(alarmsCmd)
 	rootCmd.AddCommand(fleetCmd)
 	rootCmd.AddCommand(aiopsCmd)
+	rootCmd.AddCommand(forecastCmd)
 	rootCmd.AddCommand(healthCmd)
 	rootCmd.AddCommand(diagnosticsCmd)
 	rootCmd.AddCommand(mcpCmd)

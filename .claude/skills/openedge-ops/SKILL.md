@@ -1,6 +1,6 @@
 ---
 name: openedge-ops
-description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), on-prem multi-tenant dietro VPN Tailscale, VPS con Traefik, Coolify, edge profile. Commissioning da CLI (org, siti, aree, gateway, import tag da foglio, decoder MQTT, utenti). Data logger MQTT con payload binari (preset MiDo, storico nel pacchetto). Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security, MFA TOTP con recovery codes e mfa_required per org.
+description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), on-prem multi-tenant dietro VPN Tailscale, VPS con Traefik, Coolify, edge profile. Commissioning da CLI (org, siti, aree, gateway, import tag da foglio, decoder MQTT, utenti). Data logger MQTT con payload binari (preset MiDo, storico nel pacchetto). Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security, MFA TOTP con recovery codes e mfa_required per org. Previsioni dei tag (motore statistico sempre attivo, Timestral su CPU opzionale con profilo compose forecast). ACL MQTT isolate per tenant.
 version: 9.0.0
 tags: [industrial, iot, commissioning, tailscale, vpn, mqtt-decoder, mido, data-logger, tag-import, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan, mfa, totp, 2fa, recovery-codes]
 requires: [docker, curl, git]
@@ -755,6 +755,52 @@ con quell'etichetta nel messaggio AN — verifica con `decoders test` su un AN
 prima di importare), `batteria`, `rssi`, `sqi`, bit di stato e di allarme.
 Ogni lettura è storicizzata al suo orario; il valore corrente resta il più
 recente anche se un pacchetto vecchio arriva dopo.
+
+---
+
+## Previsioni dei tag (Timestral)
+
+Dettagli: `docs/FORECASTING.md`. Le previsioni sono **attive di default** con
+il motore statistico in Go: non serve installare niente. Timestral è un
+miglioramento opzionale, gira sul processore e i dati non escono dal server.
+
+Chiedi all'utente se vuole attivare Timestral. Se sì:
+
+```bash
+# .env
+FORECASTER_URL=http://forecaster:8000
+TIMESTRAL_MODEL=mistralai/Timestral-28M   # 5M, 28M (default), 123M, 209M
+FORECASTER_MEM_LIMIT=2g
+FORECASTER_CPUS=2.0
+
+docker compose --profile forecast up -d forecaster
+docker compose up -d core-api            # per leggere FORECASTER_URL
+docker logs openedge-forecaster          # "model … loaded"
+```
+
+- Il primo avvio scarica i pesi da Hugging Face nel volume `forecaster-models`.
+  Server senza internet: copiare i pesi nel volume e `HF_HUB_OFFLINE=1`.
+- **Licenza**: codice di inferenza Apache-2.0, pesi "Modified MIT". Farla
+  leggere all'utente prima di installare presso clienti grandi.
+- Per tag core-api tiene il motore che ha fatto meglio sullo storico: con
+  Timestral acceso il motore statistico resta come confronto e riserva.
+- Spegnere tutto: `FORECAST_ENABLED=false` su core-api. Per una sola
+  organizzazione: Organizzazioni → Impostazioni → Pagine visibili → Previsioni.
+- Impostazioni per livello (orizzonte, tipo di segnale): pagina Analisi →
+  Previsioni → Impostazioni, oppure CLI `openedge forecast settings`.
+- Metriche Prometheus: `openedge_forecast_run_seconds`,
+  `openedge_forecast_results_total{status,engine}`,
+  `openedge_forecast_engine_errors_total`.
+
+## ACL MQTT per tenant
+
+Ogni organizzazione ha due ruoli sul broker (edge e sola lettura per browser e
+sistemi esterni), costruiti dai suoi siti e gateway e chiusi da un "nega tutto
+il resto": un tenant non legge né scrive i topic di un altro, su qualsiasi
+broker. core-api li ricostruisce all'avvio e ogni minuto se cambiano siti o
+gateway (log `mqtt roles: rebuilt`). Nomi di organizzazioni o siti con `+`/`#`,
+o che finirebbero sugli stessi topic di un'altra organizzazione, sono rifiutati
+(409).
 
 ---
 
