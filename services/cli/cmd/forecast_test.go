@@ -51,6 +51,11 @@ func TestFilterForecastOverview(t *testing.T) {
 	if got := filterForecastOverview(rows, "", ""); len(got) != 3 {
 		t.Errorf("no filter: %d rows", len(got))
 	}
+	rows[2].Risks = []forecastRisk{{Likelihood: "likely"}}
+	rows[1].Risks = []forecastRisk{{Likelihood: "possible"}}
+	if got := filterForecastOverview(rows, "at_risk", ""); len(got) != 1 || got[0].TagID != 3 {
+		t.Errorf("at_risk: %v (a possible risk is not at risk)", got)
+	}
 }
 
 // The MCP tool reads the level's profile, changes only what was asked, and

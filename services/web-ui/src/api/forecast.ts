@@ -18,6 +18,36 @@ export interface ForecastPoint {
     q90: number | null;
 }
 
+/**
+ * An alarm rule the forecast may trip. almost_certain: even the optimistic
+ * edge of the band crosses (~90%); likely: the median does; possible: only the
+ * pessimistic edge; trend: a slow drift reaches it after the horizon (the
+ * remaining useful life — an extrapolation, not a forecast).
+ */
+export type RiskLikelihood = 'almost_certain' | 'likely' | 'possible' | 'trend';
+
+export interface ForecastRisk {
+    rule_id: number;
+    type: 'high' | 'high_high' | 'low' | 'low_low' | 'bool_true' | 'bool_false';
+    threshold: number;
+    severity?: string;
+    message?: string;
+    likelihood: RiskLikelihood;
+    at: string;
+    extrapolated?: boolean;
+}
+
+/** The values that arrived, against the previous forecast's band. */
+export interface ForecastAnomaly {
+    checked: number;
+    outside: number;
+    at?: string;
+    value?: number;
+    low?: number;
+    high?: number;
+    expected?: number;
+}
+
 export interface ForecastSettings {
     enabled: boolean;
     kind: ForecastKind;
@@ -40,6 +70,8 @@ export interface TagForecast {
     coverage?: number;
     points: ForecastPoint[];
     settings: ForecastSettings;
+    risks: ForecastRisk[];
+    anomaly?: ForecastAnomaly;
 }
 
 export type ForecastScope = 'org' | 'site' | 'area' | 'gateway' | 'tag';
@@ -58,12 +90,12 @@ export interface ForecastProfile {
 export const forecastApi = {
     getTagForecast: async (tagId: number): Promise<TagForecast> => {
         const data = (await api.get(`/tags/${tagId}/forecast`)).data as TagForecast;
-        return { ...data, points: data.points ?? [] };
+        return { ...data, points: data.points ?? [], risks: data.risks ?? [] };
     },
     /** Forecast the tag now (admin) and return the result. */
     refresh: async (tagId: number): Promise<TagForecast> => {
         const data = (await api.post(`/tags/${tagId}/forecast/refresh`)).data as TagForecast;
-        return { ...data, points: data.points ?? [] };
+        return { ...data, points: data.points ?? [], risks: data.risks ?? [] };
     },
     getProfile: async (scope: ForecastScope, scopeId: number): Promise<ForecastProfile> =>
         (await api.get('/forecast/profiles', { params: { scope, scope_id: scopeId } })).data,
@@ -93,12 +125,15 @@ export interface ForecastOverviewTag {
     horizon_hours: number;
     /** The forecast at its last step: where the tag is expected to be. */
     end?: ForecastPoint;
+    /** Alarm rules the forecast may trip, soonest first. */
+    risks?: ForecastRisk[];
+    anomaly?: ForecastAnomaly;
 }
 
 export interface ForecastOverview {
     /** Engines the server forecasts with, statistical first. */
     engines: string[];
-    summary: Partial<Record<ForecastStatus | 'total', number>>;
+    summary: Partial<Record<ForecastStatus | 'total' | 'at_risk' | 'anomalous', number>>;
     tags: ForecastOverviewTag[];
 }
 

@@ -44,6 +44,9 @@ type Runner struct {
 	Batch int
 	// Now is the clock (tests).
 	Now func() time.Time
+	// OnRisk, when set, is told of every predicted alarm that has just become
+	// likely or almost certain (see RiskNotice).
+	OnRisk func(RiskNotice)
 }
 
 // NewRunner returns a runner with the statistical engine and, when url is not
@@ -117,11 +120,12 @@ func (r *Runner) RunTags(ctx context.Context, ids []int) error {
 type tagRow struct {
 	id, gateway, area, site, org int
 	isBool                       bool
+	alias                        string
 }
 
 func (r *Runner) dueTags(ctx context.Context, ids []int) ([]tagRow, error) {
 	q := `
-		SELECT t.id, t.data_type = 'BOOL', t.gateway_id, g.area_id, a.site_id, s.org_id
+		SELECT t.id, t.data_type = 'BOOL', t.gateway_id, g.area_id, a.site_id, s.org_id, COALESCE(t.alias, '')
 		FROM tags t
 		JOIN gateways g ON g.id = t.gateway_id
 		JOIN areas    a ON a.id = g.area_id
@@ -145,7 +149,7 @@ func (r *Runner) dueTags(ctx context.Context, ids []int) ([]tagRow, error) {
 	var out []tagRow
 	for rows.Next() {
 		var t tagRow
-		if err := rows.Scan(&t.id, &t.isBool, &t.gateway, &t.area, &t.site, &t.org); err != nil {
+		if err := rows.Scan(&t.id, &t.isBool, &t.gateway, &t.area, &t.site, &t.org, &t.alias); err != nil {
 			return nil, err
 		}
 		out = append(out, t)
@@ -187,7 +191,20 @@ func (r *Runner) forecast(ctx context.Context, tags []tagRow) error {
 		}
 		jobs = append(jobs, j)
 	}
+	ids := make([]int, len(tags))
+	for i, t := range tags {
+		ids[i] = t.id
+	}
+	rules := r.thresholds(ctx, ids)
+	prev := r.previousForecasts(ctx, ids)
 	results := Run(ctx, jobs, r.Engines)
+	var notices []RiskNotice
+	for i := range results {
+		t := tags[i]
+		p := prev[t.id]
+		assess(&results[i], &jobs[i], rules[t.id], &p)
+		notices = append(notices, newNotices(t.org, t.id, t.alias, results[i].Risks, prev[t.id].risks)...)
+	}
 	for _, e := range r.Engines {
 		for k := range results {
 			if _, failed := results[k].Errors[e.Name()]; failed {
@@ -204,6 +221,7 @@ func (r *Runner) forecast(ctx context.Context, tags []tagRow) error {
 		}
 		metricResults.WithLabelValues(res.Status, res.Engine).Inc()
 	}
+	r.notify(notices)
 	return nil
 }
 
@@ -380,17 +398,29 @@ func (r *Runner) store(ctx context.Context, res *Result, step time.Duration, now
 		coverage = res.Score.Coverage
 	}
 	next := now.Add(Refresh(res.Status, step))
+	risks := res.Risks
+	if risks == nil {
+		risks = []Risk{}
+	}
+	risksJSON, _ := json.Marshal(risks)
+	var anomaly any
+	if res.Anomaly != nil {
+		aj, _ := json.Marshal(res.Anomaly)
+		anomaly = string(aj)
+	}
 	_, err = r.DB.ExecContext(ctx, `
 		INSERT INTO tag_forecasts (tag_id, status, reason, kind, engine, step_seconds, start_at,
-		                           quantiles, skill, coverage, details, generated_at, next_run_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11::jsonb, $12, $13)
+		                           quantiles, skill, coverage, details, generated_at, next_run_at,
+		                           risks, anomaly)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11::jsonb, $12, $13, $14::jsonb, $15::jsonb)
 		ON CONFLICT (tag_id) DO UPDATE SET
 			status = EXCLUDED.status, reason = EXCLUDED.reason, kind = EXCLUDED.kind,
 			engine = EXCLUDED.engine, step_seconds = EXCLUDED.step_seconds,
 			start_at = EXCLUDED.start_at, quantiles = EXCLUDED.quantiles,
 			skill = EXCLUDED.skill, coverage = EXCLUDED.coverage, details = EXCLUDED.details,
-			generated_at = EXCLUDED.generated_at, next_run_at = EXCLUDED.next_run_at`,
+			generated_at = EXCLUDED.generated_at, next_run_at = EXCLUDED.next_run_at,
+			risks = EXCLUDED.risks, anomaly = EXCLUDED.anomaly`,
 		res.TagID, res.Status, res.Reason, string(res.Kind), res.Engine, int(step.Seconds()),
-		startAt, quantiles, skill, coverage, string(detailsJSON), now, next)
+		startAt, quantiles, skill, coverage, string(detailsJSON), now, next, string(risksJSON), anomaly)
 	return err
 }

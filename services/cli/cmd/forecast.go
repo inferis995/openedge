@@ -69,7 +69,7 @@ var (
 )
 
 func init() {
-	forecastListCmd.Flags().StringVar(&fcStatus, "status", "", "Only this status: ok, unreliable, learning, disabled, error, pending")
+	forecastListCmd.Flags().StringVar(&fcStatus, "status", "", "Only this status: ok, unreliable, learning, disabled, error, pending, or at_risk")
 	forecastListCmd.Flags().StringVar(&fcSite, "site", "", "Only tags of this site (name)")
 
 	for _, c := range []*cobra.Command{forecastShowCmd, forecastRefreshCmd} {
@@ -103,27 +103,55 @@ type forecastPoint struct {
 }
 
 type forecastRowOut struct {
-	TagID        int            `json:"tag_id"`
-	Alias        string         `json:"alias"`
-	Unit         string         `json:"unit,omitempty"`
-	GatewayName  string         `json:"gateway_name"`
-	AreaName     string         `json:"area_name"`
-	SiteName     string         `json:"site_name"`
-	Status       string         `json:"status"`
-	Reason       string         `json:"reason,omitempty"`
-	Kind         string         `json:"kind,omitempty"`
-	Engine       string         `json:"engine,omitempty"`
-	Skill        *float64       `json:"skill,omitempty"`
-	HorizonHours int            `json:"horizon_hours"`
-	End          *forecastPoint `json:"end,omitempty"`
+	TagID        int             `json:"tag_id"`
+	Alias        string          `json:"alias"`
+	Unit         string          `json:"unit,omitempty"`
+	GatewayName  string          `json:"gateway_name"`
+	AreaName     string          `json:"area_name"`
+	SiteName     string          `json:"site_name"`
+	Status       string          `json:"status"`
+	Reason       string          `json:"reason,omitempty"`
+	Kind         string          `json:"kind,omitempty"`
+	Engine       string          `json:"engine,omitempty"`
+	Skill        *float64        `json:"skill,omitempty"`
+	HorizonHours int             `json:"horizon_hours"`
+	End          *forecastPoint  `json:"end,omitempty"`
+	Risks        []forecastRisk  `json:"risks,omitempty"`
+	Anomaly      json.RawMessage `json:"anomaly,omitempty"`
+}
+
+// forecastRisk is an alarm rule the forecast may trip.
+type forecastRisk struct {
+	RuleID       int     `json:"rule_id"`
+	Type         string  `json:"type"`
+	Threshold    float64 `json:"threshold"`
+	Severity     string  `json:"severity,omitempty"`
+	Message      string  `json:"message,omitempty"`
+	Likelihood   string  `json:"likelihood"`
+	At           string  `json:"at"`
+	Extrapolated bool    `json:"extrapolated,omitempty"`
+}
+
+func (r forecastRowOut) serious() bool {
+	for _, k := range r.Risks {
+		if k.Likelihood == "likely" || k.Likelihood == "almost_certain" {
+			return true
+		}
+	}
+	return false
 }
 
 // filterForecastOverview keeps the rows of one status and/or site (by name,
-// case-insensitive). Empty filters keep everything.
+// case-insensitive). Empty filters keep everything. status "at_risk" keeps the
+// tags with an alarm rule likely or almost certain to trip.
 func filterForecastOverview(rows []forecastRowOut, status, site string) []forecastRowOut {
 	out := make([]forecastRowOut, 0, len(rows))
 	for _, r := range rows {
-		if status != "" && r.Status != status {
+		if status == "at_risk" {
+			if !r.serious() {
+				continue
+			}
+		} else if status != "" && r.Status != status {
 			continue
 		}
 		if site != "" && !strings.EqualFold(r.SiteName, site) {
@@ -155,14 +183,19 @@ func runForecastList(_ *cobra.Command, _ []string) {
 	fmt.Printf("Engines: %s · reliable %d · unreliable %d · learning %d · total %d\n\n",
 		strings.Join(ov.Engines, ", "), ov.Summary["ok"], ov.Summary["unreliable"], ov.Summary["learning"], ov.Summary["total"])
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, ColorBold+"ID\tTAG\tWHERE\tKIND\tSTATUS\tSKILL\tEXPECTED"+ColorReset)
+	fmt.Fprintln(w, ColorBold+"ID\tTAG\tWHERE\tKIND\tSTATUS\tSKILL\tEXPECTED\tRISK"+ColorReset)
 	for _, r := range rows {
 		expected := "—"
 		if r.Status == "ok" && r.End != nil {
 			expected = fmt.Sprintf("%s %s (%s–%s) in %d h", fmtNum(r.End.Q50), r.Unit, fmtNum(r.End.Q10), fmtNum(r.End.Q90), r.HorizonHours)
 		}
-		fmt.Fprintf(w, "%d\t%s\t%s / %s / %s\t%s\t%s\t%s\t%s\n", r.TagID, r.Alias, r.SiteName, r.AreaName, r.GatewayName,
-			orDash(r.Kind), r.Status, fmtNum(r.Skill), expected)
+		risk := "—"
+		if len(r.Risks) > 0 {
+			k := r.Risks[0]
+			risk = fmt.Sprintf("%s %s %g at %s", k.Likelihood, k.Type, k.Threshold, k.At)
+		}
+		fmt.Fprintf(w, "%d\t%s\t%s / %s / %s\t%s\t%s\t%s\t%s\t%s\n", r.TagID, r.Alias, r.SiteName, r.AreaName, r.GatewayName,
+			orDash(r.Kind), r.Status, fmtNum(r.Skill), expected, risk)
 	}
 	_ = w.Flush()
 }

@@ -1084,6 +1084,16 @@ func runAutoMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_tag_forecasts_next_run ON tag_forecasts (next_run_at)`); err != nil {
 		log.Printf("Warning: failed to index tag_forecasts: %v", err)
 	}
+	// Phase 2: the alarm rules a forecast may trip, and how the values that
+	// arrived compare with the previous forecast.
+	for _, q := range []string{
+		`ALTER TABLE tag_forecasts ADD COLUMN IF NOT EXISTS risks JSONB NOT NULL DEFAULT '[]'`,
+		`ALTER TABLE tag_forecasts ADD COLUMN IF NOT EXISTS anomaly JSONB`,
+	} {
+		if _, err := db.ExecContext(context.Background(), q); err != nil {
+			log.Printf("Warning: failed to extend tag_forecasts: %v", err)
+		}
+	}
 	// Synoptics can be filed under the plant hierarchy (site → area → line)
 	// to power a navigation work tree. Both nullable: an org-level synoptic
 	// with no site/area is the "General" node.

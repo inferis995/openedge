@@ -444,6 +444,17 @@ GET  /api/forecast/profiles?scope=site&scope_id=3
 PUT  /api/forecast/profiles                 # (admin) {"scope":"site","scope_id":3,"settings":{"horizon_hours":48}}
 ```
 
+Ogni previsione `ok` porta anche:
+
+- `risks[]`: le regole d'allarme del tag che potrebbe superare, con
+  `likelihood` (`almost_certain` ~90%, `likely` = la mediana la supera,
+  `possible` = solo il bordo pessimista, `trend` = vita residua estrapolata
+  oltre l'orizzonte) e `at` (quando). Presentare `trend` come "se l'andamento
+  continua", mai come certezza.
+- `anomaly`: quanti valori arrivati sono finiti fuori dalla previsione
+  precedente (`outside` su `checked`) e l'ultimo.
+- In `GET /api/forecast/overview`: `summary.at_risk` e `summary.anomalous`.
+
 Le impostazioni (`enabled`, `kind`, `horizon_hours` 1–720, `context_days` 1–365)
 si ereditano: organizzazione → sito → area → gateway → tag. Un campo assente
 eredita; `settings: {}` rimuove il profilo del livello. `skill` = 1 − errore /

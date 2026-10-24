@@ -7,6 +7,7 @@ const fc = (status: TagForecast['status'], q50: (number | null)[]): TagForecast 
     status,
     points: q50.map((v, i) => ({ t: new Date(Date.UTC(2026, 9, 22, 12 + i)).toISOString(), q10: v === null ? null : v - 1, q50: v, q90: v === null ? null : v + 1 })),
     settings: { enabled: true, kind: 'auto', horizon_hours: 24, context_days: 28 },
+    risks: [],
 });
 
 describe('forecast pens', () => {

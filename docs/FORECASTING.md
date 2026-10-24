@@ -106,12 +106,39 @@ insufficiente), `error`.
 - [x] Modulo `forecast` tra le pagine visibili: spento per un'organizzazione,
       non si calcola nulla per lei e l'interfaccia lo nasconde
 
-### Fase 2 — previsioni operative
-- Allarme previsto: probabilità di superare le soglie già configurate (allarmi e
-  `tag_bands`) entro l'orizzonte, come avviso ISA-18.2, non come allarme.
-- Vita residua per `degradation`: tempo stimato al limite.
-- Anomalia: valore reale fuori dalla fascia prevista in precedenza (sostituisce
-  lo z-score di `/api/aiops/anomalies`).
+### Fase 2 — previsioni operative (fatta)
+
+Su ogni tag con una previsione **affidabile** (mai su una poco affidabile):
+
+- [x] **Allarme previsto.** La previsione è confrontata con le regole
+      d'allarme già configurate sul tag (`alarm_definitions`: soglie alta,
+      altissima, bassa, bassissima; stati attivo/non attivo per i digitali).
+      Nessuna configurazione in più. Probabilità letta dalla fascia:
+
+      | likelihood | quando | |
+      |---|---|---|
+      | `almost_certain` | anche il bordo ottimista (P10 per una soglia alta) la supera | ~90% |
+      | `likely` | la mediana la supera | più probabile che no |
+      | `possible` | solo il bordo pessimista (P90) la supera | ~10–50% |
+
+      Una regola già superata adesso non è una previsione (ci pensa il sistema
+      d'allarmi). Quando una regola diventa `likely` o `almost_certain` parte
+      **una** notifica sui canali degli allarmi (email, Telegram, Slack…),
+      come avviso: soggetto `previsione/<tag>`, nessuna riga in `alarm_events`.
+- [x] **Vita residua** per i segnali `degradation`: se la soglia è oltre
+      l'orizzonte, la tendenza della mediana viene seguita fino a lei (al
+      massimo un anno): `likelihood: trend`, `extrapolated: true`. È
+      un'estrapolazione, e l'interfaccia la presenta come tale ("se
+      l'andamento continua").
+- [x] **Anomalie.** A ogni giro i valori arrivati sono confrontati con la
+      previsione precedente: anomalo un valore oltre mezza fascia fuori da
+      P10–P90 (circa fuori P1–P99). Più robusto dello z-score di
+      `/api/aiops/anomalies`, perché tiene conto di cicli e tendenze.
+- [x] Dove si vedono: pagina Previsioni (riquadri *A rischio soglia* e *Fuori
+      previsione*, colonna *Rischio*, dettaglio), scheda Previsione del tag,
+      API (`risks`, `anomaly`, `summary.at_risk`, `summary.anomalous`), CLI
+      (`openedge forecast list --status at_risk`), MCP
+      (`get_forecast_overview` con `status: at_risk`).
 
 ### Fase 3 — macchine
 - Asset: gruppo di tag della stessa macchina, previsti insieme (multivariato).

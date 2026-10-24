@@ -16,7 +16,8 @@ import { SettingsCard } from '@/components/settings/SettingsCard';
 import { UPlotChart, type PenSeries } from '@/components/historian/UPlotChart';
 import { ForecastProfileForm } from '@/components/forecast/ForecastProfileForm';
 import { TagForecastTab } from '@/components/tags/TagForecastTab';
-import { FORECAST_STATUS_VARIANT, forecastProfileKey, tagForecastKey } from '@/lib/forecastUi';
+import { FORECAST_STATUS_VARIANT, forecastProfileKey, isSerious, tagForecastKey } from '@/lib/forecastUi';
+import { ForecastRiskList } from '@/components/forecast/ForecastRisks';
 import {
     forecastApi, forecastOverviewApi, type ForecastOverviewTag, type ForecastScope, type ForecastStatus,
 } from '@/api/forecast';
@@ -30,7 +31,7 @@ import { useAuthStore } from '@/stores/useAuthStore';
 import { useNavigationStore } from '@/stores/useNavigationStore';
 import type { TrendDataPoint } from '@/types/trend';
 
-type StatusFilter = 'all' | ForecastStatus | 'other';
+type StatusFilter = 'all' | ForecastStatus | 'other' | 'at_risk' | 'anomalous';
 const OTHER: ForecastStatus[] = ['disabled', 'error', 'pending'];
 
 /**
@@ -111,10 +112,10 @@ function TagsSection({ tags }: { tags: ForecastOverviewTag[] }) {
         return [...m.entries()].sort((a, b) => a[1].localeCompare(b[1]));
     }, [tags]);
     const inSite = useMemo(() => tags.filter(tg => site === 'all' || String(tg.site_id) === site), [tags, site]);
-    const count = (s: StatusFilter) => inSite.filter(tg => matchStatus(tg.status, s)).length;
+    const count = (s: StatusFilter) => inSite.filter(tg => matchFilter(tg, s)).length;
     const shown = useMemo(() => {
         const q = query.trim().toLowerCase();
-        return inSite.filter(tg => matchStatus(tg.status, status) && (!q
+        return inSite.filter(tg => matchFilter(tg, status) && (!q
             || tg.alias.toLowerCase().includes(q) || tg.gateway_name.toLowerCase().includes(q)
             || tg.area_name.toLowerCase().includes(q)));
     }, [inSite, status, query]);
@@ -122,6 +123,8 @@ function TagsSection({ tags }: { tags: ForecastOverviewTag[] }) {
     if (tags.length === 0) return <EmptyState text={t('forecast.empty')} />;
 
     const tiles: { key: StatusFilter; label: string; tone: string }[] = [
+        { key: 'at_risk', label: t('forecast.tile_at_risk'), tone: 'bg-red-500' },
+        { key: 'anomalous', label: t('forecast.tile_anomalous'), tone: 'bg-orange-500' },
         { key: 'ok', label: t('forecast.tile_ok'), tone: 'bg-emerald-500' },
         { key: 'unreliable', label: t('forecast.tile_unreliable'), tone: 'bg-amber-500' },
         { key: 'learning', label: t('forecast.tile_learning'), tone: 'bg-sky-500' },
@@ -131,7 +134,7 @@ function TagsSection({ tags }: { tags: ForecastOverviewTag[] }) {
     return (
         <>
             {/* Summary: each tile filters the list */}
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
                 {tiles.map(tile => (
                     <button key={tile.key} type="button" onClick={() => setStatus(s => (s === tile.key ? 'all' : tile.key))}
                         aria-pressed={status === tile.key}
@@ -185,6 +188,7 @@ function TagsSection({ tags }: { tags: ForecastOverviewTag[] }) {
                                     </div>
                                     <Badge variant={FORECAST_STATUS_VARIANT[tg.status]} className="shrink-0">{t(`forecast.status_${tg.status}`)}</Badge>
                                 </div>
+                                {(tg.risks ?? []).length > 0 && <div className="mt-2"><RiskCell tag={tg} /></div>}
                                 <div className="mt-2 flex items-end justify-between gap-3">
                                     <SkillBar skill={tg.skill} />
                                     <span className="text-right tabular-nums"><Expected tag={tg} /></span>
@@ -200,6 +204,7 @@ function TagsSection({ tags }: { tags: ForecastOverviewTag[] }) {
                                 <TableHead>{t('forecast.col_tag')}</TableHead>
                                 <TableHead>{t('forecast.col_kind')}</TableHead>
                                 <TableHead>{t('forecast.col_status')}</TableHead>
+                                <TableHead>{t('forecast.col_risk')}</TableHead>
                                 <TableHead className="text-right">{t('forecast.col_skill')}</TableHead>
                                 <TableHead className="text-right">{t('forecast.col_expected')}</TableHead>
                                 <TableHead>{t('forecast.col_generated')}</TableHead>
@@ -217,6 +222,7 @@ function TagsSection({ tags }: { tags: ForecastOverviewTag[] }) {
                                     <TableCell>
                                         <Badge variant={FORECAST_STATUS_VARIANT[tg.status]} title={tg.reason}>{t(`forecast.status_${tg.status}`)}</Badge>
                                     </TableCell>
+                                    <TableCell><RiskCell tag={tg} /></TableCell>
                                     <TableCell className="text-right"><SkillBar skill={tg.skill} /></TableCell>
                                     <TableCell className="text-right tabular-nums">
                                         <Expected tag={tg} />
@@ -248,8 +254,29 @@ function TagsSection({ tags }: { tags: ForecastOverviewTag[] }) {
     );
 }
 
-function matchStatus(s: ForecastStatus, f: StatusFilter) {
-    return f === 'all' || (f === 'other' ? OTHER.includes(s) : s === f);
+function matchFilter(tg: ForecastOverviewTag, f: StatusFilter) {
+    if (f === 'at_risk') return (tg.risks ?? []).some(isSerious);
+    if (f === 'anomalous') return (tg.anomaly?.outside ?? 0) > 0;
+    return f === 'all' || (f === 'other' ? OTHER.includes(tg.status) : tg.status === f);
+}
+
+/** The soonest rule the forecast may trip, and how many more. */
+function RiskCell({ tag }: { tag: ForecastOverviewTag }) {
+    const { t } = useTranslation();
+    const risks = tag.risks ?? [];
+    const anomalous = (tag.anomaly?.outside ?? 0) > 0;
+    if (risks.length === 0) {
+        return anomalous
+            ? <Badge variant="warning">{t('forecast.anomaly_badge')}</Badge>
+            : <span className="text-muted-foreground">—</span>;
+    }
+    return (
+        <div className="space-y-1">
+            <ForecastRiskList risks={risks.slice(0, 1)} unit={tag.unit} compact />
+            {risks.length > 1 && <span className="text-xs text-muted-foreground">{t('forecast.risks_more', { count: risks.length - 1 })}</span>}
+            {anomalous && <Badge variant="warning">{t('forecast.anomaly_badge')}</Badge>}
+        </div>
+    );
 }
 
 /** How much better than repeating the last value, as a bar: 0 to 100%. */

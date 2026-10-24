@@ -611,6 +611,9 @@ func main() {
 		var forecastRunner *forecast.Runner
 		if getEnv("FORECAST_ENABLED", "true") != "false" {
 			forecastRunner = forecast.NewRunner(database, getEnv("FORECASTER_URL", ""))
+			// A predicted alarm goes where alarms go, once, when it becomes
+			// likely or almost certain.
+			forecastRunner.OnRisk = func(n forecast.RiskNotice) { announceForecastRisk(notifDispatcher, n) }
 			go forecastRunner.Start(context.Background())
 		}
 		forecastHandler := handlers.NewForecastHandler(database, forecastRunner)
@@ -2222,4 +2225,41 @@ func normalizeMillis(ts int64) int64 {
 		return ts * 1000
 	}
 	return ts
+}
+
+// announceForecastRisk tells the operator's channels that an alarm rule is
+// forecast to trip. It is an advisory, not an alarm: no row in alarm_events,
+// no definition id (a channel that deduplicates on it would merge it with the
+// real alarm), and the subject says it is a forecast.
+func announceForecastRisk(d *notifications.Dispatcher, n forecast.RiskNotice) {
+	if d == nil {
+		return
+	}
+	likelihood := map[string]string{
+		forecast.AlmostCertain: "quasi certo",
+		forecast.Likely:        "probabile",
+	}[n.Risk.Likelihood]
+	limit := map[string]string{
+		"high": "soglia alta", "high_high": "soglia altissima",
+		"low": "soglia bassa", "low_low": "soglia bassissima",
+		"bool_true": "stato attivo", "bool_false": "stato non attivo",
+	}[n.Risk.Type]
+	desc := fmt.Sprintf("Previsione: %s raggiungerà la %s (%g) verso %s — %s.",
+		n.Alias, limit, n.Risk.Value, n.Risk.At.In(time.Local).Format("02/01 15:04"), likelihood)
+	if n.Risk.Message != "" {
+		desc += " " + n.Risk.Message
+	}
+	severity := n.Risk.Severity
+	if severity == "" {
+		severity = "warning"
+	}
+	d.Dispatch(notifications.Event{
+		TagAlias:    "previsione/" + n.Alias,
+		Severity:    severity,
+		Status:      "ACTIVE",
+		Threshold:   n.Risk.Value,
+		Description: desc,
+		OccurredAt:  time.Now().UTC(),
+		OrgID:       n.OrgID,
+	})
 }

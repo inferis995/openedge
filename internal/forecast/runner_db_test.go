@@ -38,7 +38,7 @@ func testDB(t *testing.T) *sql.DB {
 }
 
 var schema = []string{
-	`DROP TABLE IF EXISTS tag_forecasts, forecast_profiles, tag_history, tags, gateways, areas, sites, users, organizations CASCADE`,
+	`DROP TABLE IF EXISTS alarm_definitions, tag_forecasts, forecast_profiles, tag_history, tags, gateways, areas, sites, users, organizations CASCADE`,
 	`CREATE TABLE organizations (id SERIAL PRIMARY KEY, name TEXT)`,
 	`CREATE TABLE users (id SERIAL PRIMARY KEY)`,
 	`CREATE TABLE sites (id SERIAL PRIMARY KEY, org_id INT REFERENCES organizations(id), name TEXT)`,
@@ -61,7 +61,10 @@ var schema = []string{
 		engine TEXT NOT NULL DEFAULT '', step_seconds INT NOT NULL DEFAULT 0, start_at TIMESTAMPTZ,
 		quantiles JSONB, skill DOUBLE PRECISION, coverage DOUBLE PRECISION,
 		details JSONB NOT NULL DEFAULT '{}', generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		next_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`,
+		next_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		risks JSONB NOT NULL DEFAULT '[]', anomaly JSONB)`,
+	`CREATE TABLE alarm_definitions (id SERIAL PRIMARY KEY, tag_id INT REFERENCES tags(id) ON DELETE CASCADE,
+		alarm_type TEXT, threshold DOUBLE PRECISION, severity TEXT, message TEXT, enabled BOOLEAN DEFAULT TRUE)`,
 	`INSERT INTO organizations (name) VALUES ('A')`,
 	`INSERT INTO sites (org_id, name) VALUES (1, 'S')`,
 	`INSERT INTO areas (site_id, name) VALUES (1, 'Ar')`,
@@ -73,6 +76,10 @@ var schema = []string{
 		(1, 'notkept', 'REAL', false),  -- 4: not historized: never forecast
 		(2, 'off',     'REAL', true)    -- 5: on a gateway switched off
 	`,
+	// In the 12 h after noon the daily cycle falls to 7 at 18:00: a low limit
+	// at 7.5 is crossed this evening, one at 4 never.
+	`INSERT INTO alarm_definitions (tag_id, alarm_type, threshold, severity, message) VALUES
+		(1, 'low', 7.5, 'warning', 'cycle low'), (1, 'low', 4, 'critical', 'never')`,
 	`INSERT INTO forecast_profiles (org_id, scope, scope_id, settings)
 		VALUES (1, 'gateway', 2, '{"enabled": false}'), (1, 'org', 1, '{"horizon_hours": 12}')`,
 }
@@ -134,6 +141,8 @@ func TestRunnerAgainstPostgres(t *testing.T) {
 	seed(t, db)
 	r := NewRunner(db, "")
 	r.Now = func() time.Time { return dbNow }
+	var notices []RiskNotice
+	r.OnRisk = func(n RiskNotice) { notices = append(notices, n) }
 	n, err := r.RunDue(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -179,6 +188,24 @@ func TestRunnerAgainstPostgres(t *testing.T) {
 		_ = db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM tag_forecasts WHERE tag_id = 4`).Scan(&none)
 		if none != 0 {
 			t.Error("a tag that is not historized was forecast")
+		}
+	})
+
+	t.Run("predicted alarm", func(t *testing.T) {
+		var raw []byte
+		if err := db.QueryRowContext(context.Background(), `SELECT risks FROM tag_forecasts WHERE tag_id = 1`).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var risks []Risk
+		_ = json.Unmarshal(raw, &risks)
+		if len(risks) != 1 || risks[0].Value != 7.5 || risks[0].Likelihood == "" {
+			t.Fatalf("risks %s: the 7.5 limit, not the 4 one", raw)
+		}
+		if h := risks[0].At.Sub(dbNow).Hours(); h < 3 || h > 7 {
+			t.Errorf("crossed %.1f h from now, want this evening", h)
+		}
+		if len(notices) != 1 || notices[0].TagID != 1 || notices[0].Alias != "cycle" || notices[0].OrgID != 1 {
+			t.Errorf("notices %+v", notices)
 		}
 	})
 

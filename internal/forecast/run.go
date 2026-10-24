@@ -47,6 +47,11 @@ type Result struct {
 	Engines map[string]Score
 	// Errors are the engines that failed, with why.
 	Errors map[string]string
+	// Risks are the tag's alarm rules this forecast may trip (reliable
+	// forecasts only).
+	Risks []Risk
+	// Anomaly compares the values that arrived with the previous forecast.
+	Anomaly *Anomaly
 }
 
 // HorizonSteps converts a horizon in hours to steps of the given size, at

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { forecastApi, type ForecastStatus, type TagForecast } from '@/api/forecast';
 import { ForecastProfileForm } from '@/components/forecast/ForecastProfileForm';
+import { ForecastAnomalyNote, ForecastRiskList } from '@/components/forecast/ForecastRisks';
 import { FORECAST_STATUS_VARIANT, forecastProfileKey, tagForecastKey } from '@/lib/forecastUi';
 import { timeAgo } from '@/lib/relativeTime';
 import { showApiError } from '@/lib/api-error-handler';
@@ -96,6 +97,15 @@ export function ForecastStatusCard({ forecast }: { forecast?: TagForecast }) {
                         </div>
                     ))}
                 </dl>
+            )}
+            {status === 'ok' && forecast && (
+                <div className="space-y-2 border-t pt-3">
+                    <h4 className="text-xs font-medium text-muted-foreground">{t('forecast.risks_title')}</h4>
+                    {forecast.risks.length > 0
+                        ? <ForecastRiskList risks={forecast.risks} />
+                        : <p className="text-sm text-muted-foreground">{t('forecast.risks_none')}</p>}
+                    <ForecastAnomalyNote anomaly={forecast.anomaly} />
+                </div>
             )}
         </section>
     );

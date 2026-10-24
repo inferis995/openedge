@@ -551,9 +551,11 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 			Name: "get_forecast_overview",
 			Description: "Every forecastable tag of the current organization with its forecast status " +
 				"(ok, unreliable, learning, disabled, error, pending), signal kind, skill against a naive " +
-				"forecast, and the value expected at the end of the horizon with its P10–P90 band",
+				"forecast, the value expected at the end of the horizon with its P10–P90 band, the alarm " +
+				"rules it may trip (risks: likelihood almost_certain / likely / possible, or trend = remaining " +
+				"useful life, with when) and whether recent values fell outside the previous forecast (anomaly)",
 			InputSchema: jsonSchema(map[string]interface{}{
-				"status": propStr("Only this status (optional): ok, unreliable, learning, disabled, error, pending"),
+				"status": propStr("Only this status (optional): ok, unreliable, learning, disabled, error, pending, or at_risk (an alarm rule likely or almost certain to trip)"),
 				"site":   propStr("Only tags of this site, by name (optional)"),
 			}),
 		},

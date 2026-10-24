@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -121,6 +122,10 @@ type TagForecastResponse struct {
 	Coverage    *float64           `json:"coverage,omitempty"`
 	Points      []ForecastPoint    `json:"points"`
 	Settings    forecast.Effective `json:"settings"`
+	// Risks are the tag's alarm rules the forecast may trip.
+	Risks []forecast.Risk `json:"risks"`
+	// Anomaly compares the values that arrived with the previous forecast.
+	Anomaly *forecast.Anomaly `json:"anomaly,omitempty"`
 }
 
 func finitePtr(x float64) *float64 {
@@ -149,21 +154,23 @@ func (h *ForecastHandler) GetTagForecast(c *gin.Context) {
 		return
 	}
 	resp := TagForecastResponse{TagID: id, Status: "pending", Points: []ForecastPoint{},
-		Settings: forecast.Merge(x.layers(profiles)...)}
+		Settings: forecast.Merge(x.layers(profiles)...), Risks: []forecast.Risk{}}
 
 	var (
 		startAt         sql.NullTime
 		generated       time.Time
 		quantiles       []byte
 		detailsRaw      []byte
+		risksRaw        []byte
+		anomalyRaw      []byte
 		skill, coverage sql.NullFloat64
 	)
 	err = h.db.QueryRowContext(ctx, `
 		SELECT status, reason, kind, engine, step_seconds, start_at, quantiles, skill, coverage,
-		       details, generated_at
+		       details, generated_at, risks, anomaly
 		FROM tag_forecasts WHERE tag_id = $1`, id).Scan(
 		&resp.Status, &resp.Reason, &resp.Kind, &resp.Engine, &resp.StepSeconds, &startAt,
-		&quantiles, &skill, &coverage, &detailsRaw, &generated)
+		&quantiles, &skill, &coverage, &detailsRaw, &generated, &risksRaw, &anomalyRaw)
 	if errors.Is(err, sql.ErrNoRows) {
 		c.JSON(http.StatusOK, resp)
 		return
@@ -185,6 +192,7 @@ func (h *ForecastHandler) GetTagForecast(c *gin.Context) {
 	}
 	_ = json.Unmarshal(detailsRaw, &d)
 	resp.Model = d.Model
+	decodeAssessment(risksRaw, anomalyRaw, &resp.Risks, &resp.Anomaly)
 
 	if startAt.Valid && len(quantiles) > 0 && resp.StepSeconds > 0 {
 		var q forecast.Quantiles
@@ -389,6 +397,9 @@ type OverviewTag struct {
 	HorizonHours int `json:"horizon_hours"`
 	// End is the forecast at the last step: where the tag is expected to be.
 	End *ForecastPoint `json:"end,omitempty"`
+	// Risks are the alarm rules the forecast may trip, soonest first.
+	Risks   []forecast.Risk   `json:"risks,omitempty"`
+	Anomaly *forecast.Anomaly `json:"anomaly,omitempty"`
 }
 
 // OverviewResponse is GET /api/forecast/overview.
@@ -423,7 +434,7 @@ func (h *ForecastHandler) Overview(c *gin.Context) {
 		       g.id, g.name, a.id, a.name, s.id, s.name,
 		       COALESCE(f.status, 'pending'), COALESCE(f.reason, ''), COALESCE(f.kind, ''),
 		       COALESCE(f.engine, ''), f.skill, f.coverage, f.generated_at,
-		       f.start_at, COALESCE(f.step_seconds, 0), f.quantiles
+		       f.start_at, COALESCE(f.step_seconds, 0), f.quantiles, f.risks, f.anomaly
 		FROM tags t
 		JOIN gateways g ON g.id = t.gateway_id
 		JOIN areas a    ON a.id = g.area_id
@@ -454,10 +465,11 @@ func (h *ForecastHandler) Overview(c *gin.Context) {
 			startAt         sql.NullTime
 			step            int
 			quantiles       []byte
+			risks, anomaly  []byte
 		)
 		if err := rows.Scan(&t.TagID, &t.Alias, &t.Unit, &t.DataType, &t.GatewayID, &t.GatewayName,
 			&t.AreaID, &t.AreaName, &t.SiteID, &t.SiteName, &t.Status, &t.Reason, &t.Kind, &t.Engine,
-			&skill, &coverage, &generated, &startAt, &step, &quantiles); err != nil {
+			&skill, &coverage, &generated, &startAt, &step, &quantiles, &risks, &anomaly); err != nil {
 			log.Printf("[FORECAST] overview row: %v", err)
 			continue
 		}
@@ -472,6 +484,13 @@ func (h *ForecastHandler) Overview(c *gin.Context) {
 		}
 		t.HorizonHours = profiles.Effective(orgID, t.SiteID, t.AreaID, t.GatewayID, t.TagID).HorizonHours
 		t.End = lastPoint(startAt, step, quantiles)
+		decodeAssessment(risks, anomaly, &t.Risks, &t.Anomaly)
+		if seriousRisk(t.Risks) {
+			resp.Summary["at_risk"]++
+		}
+		if t.Anomaly != nil && t.Anomaly.Outside > 0 {
+			resp.Summary["anomalous"]++
+		}
 		resp.Summary[t.Status]++
 		resp.Tags = append(resp.Tags, t)
 	}
@@ -502,4 +521,31 @@ func lastPoint(startAt sql.NullTime, step int, quantiles []byte) *ForecastPoint 
 		return p
 	}
 	return nil
+}
+
+// decodeAssessment reads the stored risks (soonest first) and anomaly.
+func decodeAssessment(risksRaw, anomalyRaw []byte, risks *[]forecast.Risk, anomaly **forecast.Anomaly) {
+	if len(risksRaw) > 0 {
+		var rs []forecast.Risk
+		if json.Unmarshal(risksRaw, &rs) == nil && len(rs) > 0 {
+			sort.Slice(rs, func(i, j int) bool { return rs[i].At.Before(rs[j].At) })
+			*risks = rs
+		}
+	}
+	if len(anomalyRaw) > 0 {
+		var a forecast.Anomaly
+		if json.Unmarshal(anomalyRaw, &a) == nil {
+			*anomaly = &a
+		}
+	}
+}
+
+// seriousRisk: a rule likely or almost certain to trip within the horizon.
+func seriousRisk(rs []forecast.Risk) bool {
+	for _, r := range rs {
+		if r.Likelihood == forecast.Likely || r.Likelihood == forecast.AlmostCertain {
+			return true
+		}
+	}
+	return false
 }
