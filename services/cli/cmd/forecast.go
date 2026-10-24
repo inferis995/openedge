@@ -86,7 +86,7 @@ func init() {
 	_ = forecastSettingsCmd.MarkFlagRequired("scope")
 	_ = forecastSettingsCmd.MarkFlagRequired("id")
 
-	forecastCmd.AddCommand(forecastListCmd, forecastShowCmd, forecastRefreshCmd, forecastSettingsCmd)
+	forecastCmd.AddCommand(forecastListCmd, forecastShowCmd, forecastRefreshCmd, forecastSettingsCmd, forecastProductionCmd)
 }
 
 type forecastOverview struct {
@@ -118,6 +118,7 @@ type forecastRowOut struct {
 	End          *forecastPoint  `json:"end,omitempty"`
 	Risks        []forecastRisk  `json:"risks,omitempty"`
 	Anomaly      json.RawMessage `json:"anomaly,omitempty"`
+	Periods      []periodTotal   `json:"periods,omitempty"`
 }
 
 // forecastRisk is an alarm rule the forecast may trip.

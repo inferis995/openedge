@@ -1115,6 +1115,8 @@ func runAutoMigrations(db *sql.DB) error {
 	for _, q := range []string{
 		`ALTER TABLE tag_forecasts ADD COLUMN IF NOT EXISTS risks JSONB NOT NULL DEFAULT '[]'`,
 		`ALTER TABLE tag_forecasts ADD COLUMN IF NOT EXISTS anomaly JSONB`,
+		// Phase 4: totals of a counter or a state by the end of the shift, day, month.
+		`ALTER TABLE tag_forecasts ADD COLUMN IF NOT EXISTS periods JSONB NOT NULL DEFAULT '[]'`,
 	} {
 		if _, err := db.ExecContext(context.Background(), q); err != nil {
 			log.Printf("Warning: failed to extend tag_forecasts: %v", err)

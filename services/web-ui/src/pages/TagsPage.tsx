@@ -1365,7 +1365,7 @@ const TagsPage = () => {
                                         )}
                                         {updatingTagId && forecastAvailable && formData.data_type !== 'STRING' && (
                                             <TabsContent value="forecast">
-                                                <TagForecastTab tagId={updatingTagId} />
+                                                <TagForecastTab tagId={updatingTagId} unit={formData.eu_unit || undefined} />
                                             </TabsContent>
                                         )}
                                     </Tabs>

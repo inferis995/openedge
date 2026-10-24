@@ -58,6 +58,9 @@ type Result struct {
 	Anomaly *Anomaly
 	// StateTagID: forecast from running time only (Job.StateTagID).
 	StateTagID int
+	// Periods: a counter's or a state's totals by the end of the shift, the
+	// day and the month (reliable forecasts only).
+	Periods []PeriodTotal
 }
 
 // HorizonSteps converts a horizon in hours to steps of the given size, at

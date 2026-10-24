@@ -197,18 +197,18 @@ func (r *Runner) calendars(ctx context.Context, orgs []int, now time.Time) map[i
 		out[o] = &Calendar{Loc: time.Local}
 	}
 	rows, err := r.DB.QueryContext(ctx, `
-		SELECT o.id, s.start_time::text, s.end_time::text, s.weekdays
+		SELECT o.id, s.name, s.start_time::text, s.end_time::text, s.weekdays
 		FROM shifts s JOIN organizations o ON s.org_id = o.id OR s.org_id IS NULL
 		WHERE s.active AND o.id = ANY($1)`, pq.Array(orgs))
 	if err == nil {
 		for rows.Next() {
 			var org int
-			var st, et string
+			var name, st, et string
 			var days pq.Int64Array
-			if rows.Scan(&org, &st, &et, &days) != nil || out[org] == nil {
+			if rows.Scan(&org, &name, &st, &et, &days) != nil || out[org] == nil {
 				continue
 			}
-			w := ShiftWindow{Start: clock(st), End: clock(et), Weekdays: map[time.Weekday]bool{}}
+			w := ShiftWindow{Name: name, Start: clock(st), End: clock(et), Weekdays: map[time.Weekday]bool{}}
 			for _, d := range days {
 				w.Weekdays[time.Weekday(d)] = true
 			}

@@ -80,3 +80,26 @@ func TestMachineChangesFromArgs(t *testing.T) {
 		t.Error("a non-number tag accepted")
 	}
 }
+
+func TestProductionForecast(t *testing.T) {
+	raw := func(path string) ([]byte, error) {
+		switch path {
+		case "/api/forecast/oee":
+			return []byte(`{"profiles":[{"profile_id":1,"name":"L1","oee":{"q10":60,"q50":70,"q90":75},"missing":[]}]}`), nil
+		case "/api/forecast/overview":
+			return []byte(`{"tags":[
+				{"tag_id":1,"alias":"kwh","site_name":"A","kind":"counter","periods":[{"period":"day","q50":240}]},
+				{"tag_id":2,"alias":"temp","site_name":"A","kind":"process"},
+				{"tag_id":3,"alias":"m3","site_name":"B","kind":"counter","periods":[{"period":"day","q50":5}]}]}`), nil
+		}
+		t.Fatalf("GET %s", path)
+		return nil, nil
+	}
+	out, err := productionForecast(raw, "A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.OEE) != 1 || out.OEE[0].OEE.Q50 != 70 || len(out.Totals) != 1 || out.Totals[0].TagID != 1 {
+		t.Errorf("%+v", out)
+	}
+}

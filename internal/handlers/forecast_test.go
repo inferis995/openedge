@@ -85,7 +85,7 @@ func forecastDB(t *testing.T) *sql.DB {
 			step_seconds INT NOT NULL DEFAULT 0, start_at TIMESTAMPTZ, quantiles JSONB, skill DOUBLE PRECISION,
 			coverage DOUBLE PRECISION, details JSONB NOT NULL DEFAULT '{}',
 			generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), next_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			risks JSONB NOT NULL DEFAULT '[]', anomaly JSONB)`,
+			risks JSONB NOT NULL DEFAULT '[]', anomaly JSONB, periods JSONB NOT NULL DEFAULT '[]')`,
 		`INSERT INTO users DEFAULT VALUES`,
 		`INSERT INTO organizations (name) VALUES ('A'), ('B')`,
 		`INSERT INTO sites (org_id, name) VALUES (1, 'SA'), (2, 'SB')`,

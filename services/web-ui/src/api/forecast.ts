@@ -48,6 +48,24 @@ export interface ForecastAnomaly {
     expected?: number;
 }
 
+/**
+ * A counter's total by the end of a period (in its unit), or a state's hours
+ * on: so_far is measured, the rest is the forecast. extrapolated: the period
+ * ends past the horizon, so the rest follows the forecast's rate.
+ */
+export interface PeriodTotal {
+    period: 'shift' | 'day' | 'month';
+    /** The shift's name. */
+    name?: string;
+    start: string;
+    end: string;
+    so_far: number;
+    q10: number;
+    q50: number;
+    q90: number;
+    extrapolated?: boolean;
+}
+
 export interface ForecastSettings {
     enabled: boolean;
     kind: ForecastKind;
@@ -72,6 +90,7 @@ export interface TagForecast {
     settings: ForecastSettings;
     risks: ForecastRisk[];
     anomaly?: ForecastAnomaly;
+    periods: PeriodTotal[];
 }
 
 export type ForecastScope = 'org' | 'site' | 'area' | 'gateway' | 'tag';
@@ -90,12 +109,12 @@ export interface ForecastProfile {
 export const forecastApi = {
     getTagForecast: async (tagId: number): Promise<TagForecast> => {
         const data = (await api.get(`/tags/${tagId}/forecast`)).data as TagForecast;
-        return { ...data, points: data.points ?? [], risks: data.risks ?? [] };
+        return { ...data, points: data.points ?? [], risks: data.risks ?? [], periods: data.periods ?? [] };
     },
     /** Forecast the tag now (admin) and return the result. */
     refresh: async (tagId: number): Promise<TagForecast> => {
         const data = (await api.post(`/tags/${tagId}/forecast/refresh`)).data as TagForecast;
-        return { ...data, points: data.points ?? [], risks: data.risks ?? [] };
+        return { ...data, points: data.points ?? [], risks: data.risks ?? [], periods: data.periods ?? [] };
     },
     getProfile: async (scope: ForecastScope, scopeId: number): Promise<ForecastProfile> =>
         (await api.get('/forecast/profiles', { params: { scope, scope_id: scopeId } })).data,
@@ -128,6 +147,8 @@ export interface ForecastOverviewTag {
     /** Alarm rules the forecast may trip, soonest first. */
     risks?: ForecastRisk[];
     anomaly?: ForecastAnomaly;
+    /** Counters and states: totals by the end of the shift, the day, the month. */
+    periods?: PeriodTotal[];
 }
 
 export interface ForecastOverview {
@@ -203,4 +224,39 @@ export const assetsApi = {
     remove: async (id: number): Promise<void> => { await api.delete(`/forecast/assets/${id}`); },
     /** One machine per gateway that has none yet. */
     fromGateways: async (): Promise<{ created: number }> => (await api.post('/forecast/assets/from-gateways')).data,
+};
+
+export interface Band {
+    q10: number;
+    q50: number;
+    q90: number;
+}
+
+/**
+ * An OEE profile's OEE expected by the end of the shift (or the day), from
+ * the forecasts of its run, pieces and good-pieces tags — the OEE page's
+ * formula over the period. missing: inputs without a reliable forecast (run
+ * time and good pieces then count as 100%, as on the OEE page).
+ */
+export interface OEEForecast {
+    profile_id: number;
+    name: string;
+    target_oee: number;
+    period?: 'shift' | 'day';
+    period_name?: string;
+    start?: string;
+    end?: string;
+    oee?: Band;
+    availability?: Band;
+    performance?: Band;
+    quality?: Band;
+    produced?: Band;
+    good?: Band;
+    run_hours?: Band;
+    missing: ('run_time' | 'produced' | 'good')[];
+    extrapolated?: boolean;
+}
+
+export const oeeForecastApi = {
+    list: async (): Promise<OEEForecast[]> => ((await api.get('/forecast/oee')).data?.profiles ?? []) as OEEForecast[],
 };

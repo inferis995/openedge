@@ -25,3 +25,6 @@ export const HEALTH_TONE: Record<'good' | 'watch' | 'critical' | 'unknown', { ba
     critical: { bar: 'bg-red-500', text: 'text-red-600 dark:text-red-400' },
     unknown: { bar: 'bg-muted-foreground/40', text: 'text-muted-foreground' },
 };
+
+/** "h" for a state's hours on, the tag's unit for a counter. */
+export const totalUnit = (kind: ForecastKind | undefined, unit?: string) => (kind === 'state' ? 'h' : (unit ?? ''));

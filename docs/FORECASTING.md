@@ -182,9 +182,34 @@ impianto: il gruppo lo decide chi lo configura, non il codice.
 su un data logger il gateway è la macchina; un PLC che comanda più macchine
 va diviso dopo, a mano.
 
-### Fase 4 — estensioni
-- Pacchetti di settore (profili JSON).
-- Previsioni su contatori e KPI/OEE (fine turno, fine mese).
+### Fase 4 — produzione (fatta)
+
+- [x] **Totali di periodo** per ogni contatore (energia, volumi, pezzi) e
+      stato (ore attive) con una previsione affidabile: quanto avrà contato a
+      fine **turno** (se ce n'è uno attivo, da `shifts`), fine **giornata** e
+      fine **mese**, nell'ora locale dell'impianto. La parte già trascorsa è
+      misurata (aumento senza azzeramenti; dalla storia oraria se la serie
+      appresa non arriva all'inizio del periodo), il resto è la previsione con
+      la sua fascia. Oltre l'orizzonte il resto segue il ritmo previsto
+      (`extrapolated: true`, al massimo 31 giorni). Colonna `periods` in
+      `tag_forecasts`.
+- [x] **OEE a fine turno** per ogni profilo OEE attivo (fine giornata se non
+      c'è un turno): ore di marcia dal tag di marcia, pezzi e pezzi buoni dai
+      contatori, con la **stessa formula** della pagina OEE sul periodo
+      (disponibilità = ore in marcia / ore del periodo, prestazioni = pezzi /
+      (obiettivo/ora × ore), qualità = buoni / pezzi). Fascia da marcia e
+      pezzi; qualità alla mediana. Un ingresso senza previsione affidabile
+      conta 100%, come sulla pagina OEE, ed è dichiarato in `missing`; senza
+      pezzi non c'è previsione.
+- [x] Dove si vedono: pagina Previsioni, scheda **Produzione**; scheda
+      Previsione del tag (*Totali di periodo*); API `periods` su
+      `/api/tags/{id}/forecast` e `/api/forecast/overview`,
+      `GET /api/forecast/oee`; CLI `openedge forecast production [--site]`;
+      MCP `get_production_forecast`.
+
+Ancora da fare: pacchetti di settore (profili JSON pronti per acquedotti,
+energia, manifattura). Oggi il tipo di segnale è riconosciuto dai dati e i
+profili si impostano per livello, quindi servono solo come scorciatoia.
 
 ## Test
 

@@ -598,6 +598,16 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 			}, []string{"scope", "scope_id"}),
 		},
 		{
+			Name: "get_production_forecast",
+			Description: "Production by the end of the shift, the day and the month: each OEE profile's OEE " +
+				"expected at the end of the shift (or day) with availability, performance, quality, pieces and the " +
+				"P10–P90 band, and every counter (energy, volume, pieces) or state (hours on) with its period " +
+				"totals — so_far measured, q50 expected at the period's end, extrapolated when past the horizon",
+			InputSchema: jsonSchema(map[string]interface{}{
+				"site": propStr("Only counters of this site, by name (optional)"),
+			}),
+		},
+		{
 			Name: "list_machines",
 			Description: "Machines of the current organization: tags grouped by equipment, each with a health " +
 				"score 0–100 (100 minus the worst problem among its tags: an alarm rule the forecast may trip, " +
@@ -1138,6 +1148,14 @@ func (s *mcpServer) executeTool(name string, args map[string]interface{}) (strin
 			return "", err
 		}
 		return string(raw), nil
+
+	case "get_production_forecast":
+		data, err := productionForecast(s.client.RawGet, strArg(args, "site"))
+		if err != nil {
+			return "", err
+		}
+		out, _ := json.MarshalIndent(data, "", "  ")
+		return string(out), nil
 
 	case "list_machines":
 		return s.toolGet("/api/forecast/assets")

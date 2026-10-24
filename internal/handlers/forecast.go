@@ -129,6 +129,9 @@ type TagForecastResponse struct {
 	// StateTagID: forecast from the machine's running time only, as said by
 	// this tag.
 	StateTagID int `json:"state_tag_id,omitempty"`
+	// Periods: a counter's (or a state's, in hours on) totals by the end of
+	// the shift, the day and the month.
+	Periods []forecast.PeriodTotal `json:"periods"`
 }
 
 func finitePtr(x float64) *float64 {
@@ -157,7 +160,8 @@ func (h *ForecastHandler) GetTagForecast(c *gin.Context) {
 		return
 	}
 	resp := TagForecastResponse{TagID: id, Status: "pending", Points: []ForecastPoint{},
-		Settings: forecast.Merge(x.layers(profiles)...), Risks: []forecast.Risk{}}
+		Settings: forecast.Merge(x.layers(profiles)...), Risks: []forecast.Risk{},
+		Periods: []forecast.PeriodTotal{}}
 
 	var (
 		startAt         sql.NullTime
@@ -166,14 +170,15 @@ func (h *ForecastHandler) GetTagForecast(c *gin.Context) {
 		detailsRaw      []byte
 		risksRaw        []byte
 		anomalyRaw      []byte
+		periodsRaw      []byte
 		skill, coverage sql.NullFloat64
 	)
 	err = h.db.QueryRowContext(ctx, `
 		SELECT status, reason, kind, engine, step_seconds, start_at, quantiles, skill, coverage,
-		       details, generated_at, risks, anomaly
+		       details, generated_at, risks, anomaly, periods
 		FROM tag_forecasts WHERE tag_id = $1`, id).Scan(
 		&resp.Status, &resp.Reason, &resp.Kind, &resp.Engine, &resp.StepSeconds, &startAt,
-		&quantiles, &skill, &coverage, &detailsRaw, &generated, &risksRaw, &anomalyRaw)
+		&quantiles, &skill, &coverage, &detailsRaw, &generated, &risksRaw, &anomalyRaw, &periodsRaw)
 	if errors.Is(err, sql.ErrNoRows) {
 		c.JSON(http.StatusOK, resp)
 		return
@@ -197,6 +202,7 @@ func (h *ForecastHandler) GetTagForecast(c *gin.Context) {
 	_ = json.Unmarshal(detailsRaw, &d)
 	resp.Model, resp.StateTagID = d.Model, d.StateTagID
 	decodeAssessment(risksRaw, anomalyRaw, &resp.Risks, &resp.Anomaly)
+	decodePeriods(periodsRaw, &resp.Periods)
 
 	if startAt.Valid && len(quantiles) > 0 && resp.StepSeconds > 0 {
 		var q forecast.Quantiles
@@ -404,6 +410,8 @@ type OverviewTag struct {
 	// Risks are the alarm rules the forecast may trip, soonest first.
 	Risks   []forecast.Risk   `json:"risks,omitempty"`
 	Anomaly *forecast.Anomaly `json:"anomaly,omitempty"`
+	// Periods: totals by the end of the shift, the day and the month.
+	Periods []forecast.PeriodTotal `json:"periods,omitempty"`
 }
 
 // OverviewResponse is GET /api/forecast/overview.
@@ -438,7 +446,7 @@ func (h *ForecastHandler) Overview(c *gin.Context) {
 		       g.id, g.name, a.id, a.name, s.id, s.name,
 		       COALESCE(f.status, 'pending'), COALESCE(f.reason, ''), COALESCE(f.kind, ''),
 		       COALESCE(f.engine, ''), f.skill, f.coverage, f.generated_at,
-		       f.start_at, COALESCE(f.step_seconds, 0), f.quantiles, f.risks, f.anomaly
+		       f.start_at, COALESCE(f.step_seconds, 0), f.quantiles, f.risks, f.anomaly, f.periods
 		FROM tags t
 		JOIN gateways g ON g.id = t.gateway_id
 		JOIN areas a    ON a.id = g.area_id
@@ -470,10 +478,11 @@ func (h *ForecastHandler) Overview(c *gin.Context) {
 			step            int
 			quantiles       []byte
 			risks, anomaly  []byte
+			periods         []byte
 		)
 		if err := rows.Scan(&t.TagID, &t.Alias, &t.Unit, &t.DataType, &t.GatewayID, &t.GatewayName,
 			&t.AreaID, &t.AreaName, &t.SiteID, &t.SiteName, &t.Status, &t.Reason, &t.Kind, &t.Engine,
-			&skill, &coverage, &generated, &startAt, &step, &quantiles, &risks, &anomaly); err != nil {
+			&skill, &coverage, &generated, &startAt, &step, &quantiles, &risks, &anomaly, &periods); err != nil {
 			log.Printf("[FORECAST] overview row: %v", err)
 			continue
 		}
@@ -489,6 +498,7 @@ func (h *ForecastHandler) Overview(c *gin.Context) {
 		t.HorizonHours = profiles.Effective(orgID, t.SiteID, t.AreaID, t.GatewayID, t.TagID).HorizonHours
 		t.End = lastPoint(startAt, step, quantiles)
 		decodeAssessment(risks, anomaly, &t.Risks, &t.Anomaly)
+		decodePeriods(periods, &t.Periods)
 		if seriousRisk(t.Risks) {
 			resp.Summary["at_risk"]++
 		}
@@ -525,6 +535,14 @@ func lastPoint(startAt sql.NullTime, step int, quantiles []byte) *ForecastPoint 
 		return p
 	}
 	return nil
+}
+
+// decodePeriods reads the stored period totals, when there are any.
+func decodePeriods(raw []byte, out *[]forecast.PeriodTotal) {
+	var ps []forecast.PeriodTotal
+	if len(raw) > 0 && json.Unmarshal(raw, &ps) == nil && len(ps) > 0 {
+		*out = ps
+	}
 }
 
 // decodeAssessment reads the stored risks (soonest first) and anomaly.

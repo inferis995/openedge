@@ -19,6 +19,7 @@ import { TagForecastTab } from '@/components/tags/TagForecastTab';
 import { FORECAST_STATUS_VARIANT, forecastProfileKey, isSerious, tagForecastKey } from '@/lib/forecastUi';
 import { ForecastRiskList } from '@/components/forecast/ForecastRisks';
 import { MachinesSection } from '@/components/forecast/MachinesSection';
+import { ProductionSection } from '@/components/forecast/ProductionSection';
 import {
     forecastApi, forecastOverviewApi, type ForecastOverviewTag, type ForecastScope, type ForecastStatus,
 } from '@/api/forecast';
@@ -43,7 +44,7 @@ export default function ForecastsPage() {
     const { t } = useTranslation();
     const { selectedOrgId } = useNavigationStore();
     const [params, setParams] = useSearchParams();
-    const tab = ['settings', 'machines'].includes(params.get('tab') ?? '') ? params.get('tab') as string : 'tags';
+    const tab = ['settings', 'machines', 'production'].includes(params.get('tab') ?? '') ? params.get('tab') as string : 'tags';
     const setTab = (v: string) => setParams(p => { p.set('tab', v); return p; }, { replace: true });
 
     const { data, isLoading, isError } = useQuery({
@@ -78,6 +79,7 @@ export default function ForecastsPage() {
                 <TabsList>
                     <TabsTrigger value="tags">{t('forecast.tab_tags')}</TabsTrigger>
                     <TabsTrigger value="machines">{t('forecast.tab_machines')}</TabsTrigger>
+                    <TabsTrigger value="production">{t('forecast.tab_production')}</TabsTrigger>
                     <TabsTrigger value="settings">{t('forecast.tab_settings')}</TabsTrigger>
                 </TabsList>
                 <TabsContent value="tags" className="mt-6 space-y-6">
@@ -87,6 +89,9 @@ export default function ForecastsPage() {
                 </TabsContent>
                 <TabsContent value="machines" className="mt-6">
                     <MachinesSection tags={data?.tags ?? []} />
+                </TabsContent>
+                <TabsContent value="production" className="mt-6">
+                    <ProductionSection tags={data?.tags ?? []} />
                 </TabsContent>
                 <TabsContent value="settings" className="mt-6">
                     <SettingsSection orgId={selectedOrgId} tags={data?.tags ?? []} />
@@ -251,7 +256,7 @@ function TagsSection({ tags }: { tags: ForecastOverviewTag[] }) {
                             <DialogDescription>{open.site_name} · {open.area_name} · {open.gateway_name}</DialogDescription>
                         </DialogHeader>
                         <ForecastChart tag={open} />
-                        <TagForecastTab tagId={open.tag_id} />
+                        <TagForecastTab tagId={open.tag_id} unit={open.unit} />
                     </DialogContent>
                 )}
             </Dialog>

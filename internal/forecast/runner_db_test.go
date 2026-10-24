@@ -63,7 +63,7 @@ var schema = []string{
 		quantiles JSONB, skill DOUBLE PRECISION, coverage DOUBLE PRECISION,
 		details JSONB NOT NULL DEFAULT '{}', generated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		next_run_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		risks JSONB NOT NULL DEFAULT '[]', anomaly JSONB)`,
+		risks JSONB NOT NULL DEFAULT '[]', anomaly JSONB, periods JSONB NOT NULL DEFAULT '[]')`,
 	`CREATE TABLE alarm_definitions (id SERIAL PRIMARY KEY, tag_id INT REFERENCES tags(id) ON DELETE CASCADE,
 		alarm_type TEXT, threshold DOUBLE PRECISION, severity TEXT, message TEXT, enabled BOOLEAN DEFAULT TRUE)`,
 	`CREATE TABLE assets (id SERIAL PRIMARY KEY, org_id INT, name TEXT, state_tag_id INT REFERENCES tags(id))`,
@@ -78,7 +78,8 @@ var schema = []string{
 		(1, 'running', 'BOOL', true),   -- 3: on in the day
 		(1, 'notkept', 'REAL', false),  -- 4: not historized: never forecast
 		(2, 'off',     'REAL', true),   -- 5: on a gateway switched off
-		(1, 'mach',    'REAL', true)    -- 6: 60 while running, 20 stopped
+		(1, 'mach',    'REAL', true),   -- 6: 60 while running, 20 stopped
+		(1, 'energy',  'REAL', true)    -- 7: a kWh counter, 10 kWh an hour
 	`,
 	// In the 12 h after noon the daily cycle falls to 7 at 18:00: a low limit
 	// at 7.5 is crossed this evening, one at 4 never.
@@ -118,6 +119,7 @@ func seed(t *testing.T, db *sql.DB) {
 		put(ts, 6, 20+40*running)
 		put(ts, 4, 1)
 		put(ts, 5, 2)
+		put(ts, 7, 2.5*float64(ts.Sub(dbNow.Add(-21*24*time.Hour))/(15*time.Minute)))
 	}
 	for i := 0; i < 5; i++ {
 		put(dbNow.Add(-time.Duration(i)*time.Hour), 2, float64(i))
@@ -155,8 +157,8 @@ func TestRunnerAgainstPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 5 {
-		t.Fatalf("%d tags forecast, want 5 (not the one that is not historized)", n)
+	if n != 6 {
+		t.Fatalf("%d tags forecast, want 6 (not the one that is not historized)", n)
 	}
 
 	t.Run("daily cycle", func(t *testing.T) {
@@ -241,6 +243,43 @@ func TestRunnerAgainstPostgres(t *testing.T) {
 			if !math.IsNaN(v) && math.Abs(v-60) > 1 {
 				t.Fatalf("step %d: %.1f — forecast from running time only should stay at 60, not mix in the stops", i, v)
 			}
+		}
+	})
+
+	t.Run("period totals", func(t *testing.T) {
+		var raw []byte
+		_ = db.QueryRowContext(context.Background(), `SELECT periods FROM tag_forecasts WHERE tag_id = 7`).Scan(&raw)
+		var ps []PeriodTotal
+		_ = json.Unmarshal(raw, &ps)
+		got := map[string]PeriodTotal{}
+		for _, p := range ps {
+			got[p.Period] = p
+		}
+		first := dbNow.Add(-21 * 24 * time.Hour)
+		for _, name := range []string{PeriodDay, PeriodMonth} {
+			p, ok := got[name]
+			if !ok {
+				t.Fatalf("periods %s: no %s", raw, name)
+			}
+			from := p.Start
+			if from.Before(first) {
+				from = first // no data before
+			}
+			want := 10 * p.End.Sub(from).Hours()
+			if math.Abs(p.Q50-want) > 0.03*want || p.Q10 > p.Q50 || p.Q90 < p.Q50 {
+				t.Errorf("%s: %.0f (%.0f–%.0f) kWh, want about %.0f", name, p.Q50, p.Q10, p.Q90, want)
+			}
+			if so := 10 * dbNow.Sub(from).Hours(); math.Abs(p.SoFar-so) > 0.03*so {
+				t.Errorf("%s so far: %.0f, want about %.0f", name, p.SoFar, so)
+			}
+		}
+		if !got[PeriodMonth].Extrapolated || got[PeriodDay].Extrapolated {
+			t.Errorf("the month is past the 12 h horizon, the day is not: %s", raw)
+		}
+		var none []byte
+		_ = db.QueryRowContext(context.Background(), `SELECT periods FROM tag_forecasts WHERE tag_id = 1`).Scan(&none)
+		if string(none) != "[]" {
+			t.Errorf("a process value has no total: %s", none)
 		}
 	})
 

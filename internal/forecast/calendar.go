@@ -13,6 +13,7 @@ import (
 
 // ShiftWindow is one recurring shift, in the plant's local time.
 type ShiftWindow struct {
+	Name       string
 	Start, End time.Duration // since local midnight; End < Start runs past midnight
 	Weekdays   map[time.Weekday]bool
 }

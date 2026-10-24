@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { forecastApi, type ForecastStatus, type TagForecast } from '@/api/forecast';
 import { ForecastProfileForm } from '@/components/forecast/ForecastProfileForm';
 import { ForecastAnomalyNote, ForecastRiskList } from '@/components/forecast/ForecastRisks';
+import { PeriodTotalsList } from '@/components/forecast/PeriodTotals';
 import { FORECAST_STATUS_VARIANT, forecastProfileKey, tagForecastKey } from '@/lib/forecastUi';
 import { timeAgo } from '@/lib/relativeTime';
 import { showApiError } from '@/lib/api-error-handler';
@@ -17,7 +18,7 @@ import { useAuthStore } from '@/stores/useAuthStore';
  * known history) and the tag's own settings, each of which can be left to
  * inherit from the gateway, area, site or organization.
  */
-export function TagForecastTab({ tagId, sticky = true }: { tagId: number; sticky?: boolean }) {
+export function TagForecastTab({ tagId, unit, sticky = true }: { tagId: number; unit?: string; sticky?: boolean }) {
     const { t } = useTranslation();
     const qc = useQueryClient();
     const { isAdmin } = useAuthStore();
@@ -41,7 +42,7 @@ export function TagForecastTab({ tagId, sticky = true }: { tagId: number; sticky
 
     return (
         <div className="space-y-6 py-4">
-            <ForecastStatusCard forecast={forecast} />
+            <ForecastStatusCard forecast={forecast} unit={unit} />
             <section className="space-y-4">
                 <div className="space-y-1">
                     <h3 className="text-sm font-semibold">{t('forecast.settings_title')}</h3>
@@ -71,7 +72,7 @@ function pct(x: number | undefined) {
 }
 
 /** Where the tag's forecast stands, and how it did on the known history. */
-export function ForecastStatusCard({ forecast }: { forecast?: TagForecast }) {
+export function ForecastStatusCard({ forecast, unit }: { forecast?: TagForecast; unit?: string }) {
     const { t, i18n } = useTranslation();
     const status: ForecastStatus = forecast?.status ?? 'pending';
     const rows: [string, string][] = forecast && (status === 'ok' || status === 'unreliable') ? [
@@ -105,6 +106,14 @@ export function ForecastStatusCard({ forecast }: { forecast?: TagForecast }) {
                         ? <ForecastRiskList risks={forecast.risks} />
                         : <p className="text-sm text-muted-foreground">{t('forecast.risks_none')}</p>}
                     <ForecastAnomalyNote anomaly={forecast.anomaly} />
+                </div>
+            )}
+            {status === 'ok' && forecast && forecast.periods.length > 0 && (
+                <div className="space-y-2 border-t pt-3">
+                    <h4 className="text-xs font-medium text-muted-foreground">
+                        {t(forecast.kind === 'state' ? 'forecast.periods_title_state' : 'forecast.periods_title')}
+                    </h4>
+                    <PeriodTotalsList periods={forecast.periods} kind={forecast.kind} unit={unit} />
                 </div>
             )}
         </section>

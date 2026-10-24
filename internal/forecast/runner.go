@@ -221,6 +221,7 @@ func (r *Runner) forecast(ctx context.Context, tags []tagRow) error {
 		t := tags[i]
 		p := prev[t.id]
 		assess(&results[i], &jobs[i], rules[t.id], &p)
+		results[i].Periods = r.periods(ctx, &results[i], &jobs[i], now)
 		notices = append(notices, newNotices(t.org, t.id, t.alias, results[i].Risks, prev[t.id].risks)...)
 	}
 	for _, e := range r.Engines {
@@ -427,6 +428,11 @@ func (r *Runner) store(ctx context.Context, res *Result, step time.Duration, now
 		risks = []Risk{}
 	}
 	risksJSON, _ := json.Marshal(risks)
+	periods := res.Periods
+	if periods == nil {
+		periods = []PeriodTotal{}
+	}
+	periodsJSON, _ := json.Marshal(periods)
 	var anomaly any
 	if res.Anomaly != nil {
 		aj, _ := json.Marshal(res.Anomaly)
@@ -435,16 +441,16 @@ func (r *Runner) store(ctx context.Context, res *Result, step time.Duration, now
 	_, err = r.DB.ExecContext(ctx, `
 		INSERT INTO tag_forecasts (tag_id, status, reason, kind, engine, step_seconds, start_at,
 		                           quantiles, skill, coverage, details, generated_at, next_run_at,
-		                           risks, anomaly)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11::jsonb, $12, $13, $14::jsonb, $15::jsonb)
+		                           risks, anomaly, periods)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11::jsonb, $12, $13, $14::jsonb, $15::jsonb, $16::jsonb)
 		ON CONFLICT (tag_id) DO UPDATE SET
 			status = EXCLUDED.status, reason = EXCLUDED.reason, kind = EXCLUDED.kind,
 			engine = EXCLUDED.engine, step_seconds = EXCLUDED.step_seconds,
 			start_at = EXCLUDED.start_at, quantiles = EXCLUDED.quantiles,
 			skill = EXCLUDED.skill, coverage = EXCLUDED.coverage, details = EXCLUDED.details,
 			generated_at = EXCLUDED.generated_at, next_run_at = EXCLUDED.next_run_at,
-			risks = EXCLUDED.risks, anomaly = EXCLUDED.anomaly`,
+			risks = EXCLUDED.risks, anomaly = EXCLUDED.anomaly, periods = EXCLUDED.periods`,
 		res.TagID, res.Status, res.Reason, string(res.Kind), res.Engine, int(step.Seconds()),
-		startAt, quantiles, skill, coverage, string(detailsJSON), now, next, string(risksJSON), anomaly)
+		startAt, quantiles, skill, coverage, string(detailsJSON), now, next, string(risksJSON), anomaly, string(periodsJSON))
 	return err
 }
