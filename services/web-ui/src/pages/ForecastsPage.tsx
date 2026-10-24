@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
-    Building2, ChevronRight, Cpu, Factory, Lock, MapPin, Search, Sparkles, TrendingUp,
+    Building2, ChevronRight, Cpu, Factory, ListChecks, Lock, MapPin, Search, Sparkles, TrendingUp,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -20,6 +20,8 @@ import { FORECAST_STATUS_VARIANT, forecastProfileKey, isSerious, tagForecastKey 
 import { ForecastRiskList } from '@/components/forecast/ForecastRisks';
 import { MachinesSection } from '@/components/forecast/MachinesSection';
 import { ProductionSection } from '@/components/forecast/ProductionSection';
+import { SetupGuide } from '@/components/forecast/SetupGuide';
+import { setupProgress, useSetupSteps } from '@/hooks/useForecastSetup';
 import {
     forecastApi, forecastOverviewApi, type ForecastOverviewTag, type ForecastScope, type ForecastStatus,
 } from '@/api/forecast';
@@ -53,6 +55,9 @@ export default function ForecastsPage() {
         enabled: !!selectedOrgId,
         refetchInterval: 60_000,
     });
+    const steps = useSetupSteps(data);
+    const progress = setupProgress(steps);
+    const { isAdmin } = useAuthStore();
 
     if (!selectedOrgId) {
         return <EmptyState text={t('forecast.select_org')} />;
@@ -83,6 +88,20 @@ export default function ForecastsPage() {
                     <TabsTrigger value="settings">{t('forecast.tab_settings')}</TabsTrigger>
                 </TabsList>
                 <TabsContent value="tags" className="mt-6 space-y-6">
+                    {isAdmin() && progress.total > 0 && progress.done < progress.total && (
+                        <div className="flex flex-col gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="flex items-start gap-3">
+                                <ListChecks className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
+                                <div>
+                                    <p className="text-sm font-medium">{t('forecast.setup_banner', progress)}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                        {steps.filter(st => st.state === 'todo').map(st => st.title).join(' · ')}
+                                    </p>
+                                </div>
+                            </div>
+                            <Button size="sm" variant="outline" className="shrink-0" onClick={() => setTab('settings')}>{t('forecast.setup_complete')}</Button>
+                        </div>
+                    )}
                     {isLoading && <p className="text-sm text-muted-foreground">{t('forecast.loading')}</p>}
                     {isError && <p className="text-sm text-destructive">{t('forecast.failed')}</p>}
                     {data && <TagsSection tags={data.tags} />}
@@ -93,7 +112,8 @@ export default function ForecastsPage() {
                 <TabsContent value="production" className="mt-6">
                     <ProductionSection tags={data?.tags ?? []} />
                 </TabsContent>
-                <TabsContent value="settings" className="mt-6">
+                <TabsContent value="settings" className="mt-6 space-y-6">
+                    <SetupGuide steps={steps} onTab={setTab} />
                     <SettingsSection orgId={selectedOrgId} tags={data?.tags ?? []} />
                 </TabsContent>
             </Tabs>
@@ -399,6 +419,12 @@ function SettingsSection({ orgId, tags }: { orgId: number; tags: ForecastOvervie
         }
         return out;
     }, [hier, orgId]);
+    const { data: custom } = useQuery({
+        queryKey: ['forecast-custom-profiles', orgId],
+        queryFn: () => forecastApi.customProfiles(),
+        staleTime: 60_000,
+    });
+    const own = useMemo(() => new Set((custom ?? []).map(c => `${c.scope}:${c.scope_id}`)), [custom]);
     const [selKey, setSelKey] = useState<string | null>(null);
     const formRef = useRef<HTMLDivElement>(null);
     const select = (key: string) => {
@@ -428,7 +454,10 @@ function SettingsSection({ orgId, tags }: { orgId: number; tags: ForecastOvervie
     return (
         <div className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)] lg:items-start">
             <nav aria-label={t('forecast.tab_settings')} className="rounded-lg border bg-card p-2 lg:sticky lg:top-4">
-                <p className="px-2 pb-2 pt-1 text-xs font-medium text-muted-foreground">{t('forecast.levels')}</p>
+                <p className="flex items-center justify-between gap-2 px-2 pb-2 pt-1 text-xs font-medium text-muted-foreground">
+                    {t('forecast.levels')}
+                    {own.size > 0 && <span className="inline-flex items-center gap-1 font-normal"><span className="size-1.5 rounded-full bg-primary" />{t('forecast.level_custom')}</span>}
+                </p>
                 <ul className="max-h-72 space-y-0.5 overflow-y-auto lg:max-h-[70vh]">
                     {levels.map(l => {
                         const LIcon = { org: Building2, site: Factory, area: MapPin, gateway: Cpu, tag: Cpu }[l.scope];
@@ -440,6 +469,9 @@ function SettingsSection({ orgId, tags }: { orgId: number; tags: ForecastOvervie
                                     style={{ paddingLeft: `${0.5 + l.depth * 0.9}rem` }}>
                                     <LIcon className="size-4 shrink-0" />
                                     <span className="truncate">{l.name}</span>
+                                    {own.has(`${l.scope}:${l.id}`) && (
+                                        <span className="ml-auto size-1.5 shrink-0 rounded-full bg-primary" title={t('forecast.level_custom')} aria-label={t('forecast.level_custom')} />
+                                    )}
                                 </button>
                             </li>
                         );

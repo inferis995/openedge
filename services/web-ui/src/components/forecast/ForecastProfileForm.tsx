@@ -58,6 +58,7 @@ export function ForecastProfileForm({ scope, scopeId, profile, canEdit = true, s
             const p = await forecastApi.putProfile(scope, scopeId, settings);
             qc.setQueryData(forecastProfileKey(scope, scopeId), p);
             await qc.invalidateQueries({ queryKey: ['forecast-overview'] });
+            await qc.invalidateQueries({ queryKey: ['forecast-custom-profiles'] });
             toast.success(t('forecast.saved'));
             await onSaved?.(p);
         } catch (e) {

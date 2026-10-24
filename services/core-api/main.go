@@ -630,6 +630,7 @@ func main() {
 			forecastGroup.PUT("/assets/:id", middleware.RequireRole(models.RoleAdmin), forecastHandler.UpdateAsset)
 			forecastGroup.DELETE("/assets/:id", middleware.RequireRole(models.RoleAdmin), forecastHandler.DeleteAsset)
 			forecastGroup.GET("/profiles", forecastHandler.GetProfile)
+			forecastGroup.GET("/profiles/custom", forecastHandler.CustomProfiles)
 			forecastGroup.PUT("/profiles", middleware.RequireRole(models.RoleAdmin), forecastHandler.PutProfile)
 		}
 

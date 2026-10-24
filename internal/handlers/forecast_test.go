@@ -175,6 +175,17 @@ func TestForecastProfileAPI(t *testing.T) {
 		t.Errorf("reading another organization's tag: %d, want 404", w.Code)
 	}
 
+	// The levels with their own settings, of this organization only.
+	var custom struct{ Profiles []CustomProfile }
+	_ = json.Unmarshal(forecastCall(t, h.CustomProfiles, http.MethodGet, "/api/forecast/profiles/custom", nil, 1, nil).Body.Bytes(), &custom)
+	if len(custom.Profiles) != 2 || custom.Profiles[0].Scope != forecast.ScopeSite || custom.Profiles[1].Scope != forecast.ScopeTag {
+		t.Errorf("custom %+v: the site, then the tag", custom.Profiles)
+	}
+	_ = json.Unmarshal(forecastCall(t, h.CustomProfiles, http.MethodGet, "/api/forecast/profiles/custom", nil, 2, nil).Body.Bytes(), &custom)
+	if len(custom.Profiles) != 0 {
+		t.Errorf("organization 2 sees %+v", custom.Profiles)
+	}
+
 	// Empty settings: back to inheriting everything.
 	if w := put(1, map[string]any{"scope": "tag", "scope_id": 1, "settings": map[string]any{}}); w.Code != http.StatusOK {
 		t.Fatalf("clear: %d", w.Code)

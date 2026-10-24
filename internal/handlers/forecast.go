@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -570,4 +571,41 @@ func seriousRisk(rs []forecast.Risk) bool {
 		}
 	}
 	return false
+}
+
+// CustomProfile is a level with its own forecast settings.
+type CustomProfile struct {
+	Scope    forecast.Scope    `json:"scope"`
+	ScopeID  int               `json:"scope_id"`
+	Settings forecast.Settings `json:"settings"`
+}
+
+// CustomProfiles is GET /api/forecast/profiles/custom: the organization's
+// levels that set something of their own, for the settings tree and setup.
+func (h *ForecastHandler) CustomProfiles(c *gin.Context) {
+	org, ok := orgFromContext(c)
+	if !ok {
+		return
+	}
+	profiles, err := forecast.LoadProfiles(c.Request.Context(), h.db, []int{org})
+	if err != nil {
+		log.Printf("[FORECAST] custom profiles: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read forecast settings"})
+		return
+	}
+	out := []CustomProfile{}
+	for _, sc := range forecast.Scopes {
+		for id, s := range profiles[sc] {
+			if s.Enabled != nil || s.Kind != nil || s.HorizonHours != nil || s.ContextDays != nil {
+				out = append(out, CustomProfile{Scope: sc, ScopeID: id, Settings: s})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Scope != out[j].Scope {
+			return slices.Index(forecast.Scopes, out[i].Scope) < slices.Index(forecast.Scopes, out[j].Scope)
+		}
+		return out[i].ScopeID < out[j].ScopeID
+	})
+	c.JSON(http.StatusOK, gin.H{"profiles": out})
 }

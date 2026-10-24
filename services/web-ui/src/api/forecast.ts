@@ -121,6 +121,9 @@ export const forecastApi = {
     /** Empty settings remove the level's profile: it inherits everything again. */
     putProfile: async (scope: ForecastScope, scopeId: number, settings: ForecastProfileSettings): Promise<ForecastProfile> =>
         (await api.put('/forecast/profiles', { scope, scope_id: scopeId, settings })).data,
+    /** The organization's levels that set something of their own. */
+    customProfiles: async (): Promise<{ scope: ForecastScope; scope_id: number; settings: ForecastProfileSettings }[]> =>
+        ((await api.get('/forecast/profiles/custom')).data?.profiles ?? []),
 };
 
 export interface ForecastOverviewTag {
