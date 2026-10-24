@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math"
 	"time"
@@ -139,4 +140,143 @@ func (r *Runner) notify(notices []RiskNotice) {
 			r.OnRisk(*n)
 		}()
 	}
+}
+
+// stateTags maps each of these tags to the tag that says its machine is
+// running, for tags that belong to a machine that has one.
+func (r *Runner) stateTags(ctx context.Context, ids []int) map[int]int {
+	out := map[int]int{}
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT at.tag_id, a.state_tag_id FROM asset_tags at
+		JOIN assets a ON a.id = at.asset_id
+		WHERE a.state_tag_id IS NOT NULL AND at.tag_id = ANY($1) AND at.tag_id <> a.state_tag_id
+		ORDER BY a.id`, pq.Array(ids))
+	if err != nil {
+		return out // no machines table yet: nothing to condition on
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var tag, state int
+		if rows.Scan(&tag, &state) == nil {
+			if _, ok := out[tag]; !ok {
+				out[tag] = state
+			}
+		}
+	}
+	return out
+}
+
+// MaskStopped hides the steps where the machine was not running (its state
+// below 0.5) so a forecast learns from running time only: a temperature that
+// drops at every stop says nothing about the temperature in operation. A step
+// whose state is unknown is kept. It reports how many steps it hid.
+func MaskStopped(s *Series, state Series) int {
+	if state.Step != s.Step || len(s.Values) == 0 {
+		return 0
+	}
+	hidden := 0
+	for i := range s.Values {
+		t := s.Start.Add(time.Duration(i) * s.Step)
+		j := int(t.Sub(state.Start) / state.Step)
+		if j < 0 || j >= len(state.Values) || math.IsNaN(state.Values[j]) || math.IsNaN(s.Values[i]) {
+			continue
+		}
+		if state.Values[j] < 0.5 {
+			s.Values[i] = math.NaN()
+			hidden++
+		}
+	}
+	return hidden
+}
+
+// calendars reads each organization's shifts (its own and the platform's)
+// and its maintenance windows around now.
+func (r *Runner) calendars(ctx context.Context, orgs []int, now time.Time) map[int]*Calendar {
+	out := map[int]*Calendar{}
+	for _, o := range orgs {
+		out[o] = &Calendar{Loc: time.Local}
+	}
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT o.id, s.start_time::text, s.end_time::text, s.weekdays
+		FROM shifts s JOIN organizations o ON s.org_id = o.id OR s.org_id IS NULL
+		WHERE s.active AND o.id = ANY($1)`, pq.Array(orgs))
+	if err == nil {
+		for rows.Next() {
+			var org int
+			var st, et string
+			var days pq.Int64Array
+			if rows.Scan(&org, &st, &et, &days) != nil || out[org] == nil {
+				continue
+			}
+			w := ShiftWindow{Start: clock(st), End: clock(et), Weekdays: map[time.Weekday]bool{}}
+			for _, d := range days {
+				w.Weekdays[time.Weekday(d)] = true
+			}
+			out[org].Shifts = append(out[org].Shifts, w)
+		}
+		_ = rows.Close()
+	}
+	rows, err = r.DB.QueryContext(ctx, `
+		SELECT org_id, start_at, end_at FROM maintenance_windows
+		WHERE org_id = ANY($1) AND end_at > $2 AND start_at < $3`,
+		pq.Array(orgs), now.Add(-MaxContextDays*24*time.Hour), now.Add(MaxHorizonHours*time.Hour))
+	if err == nil {
+		for rows.Next() {
+			var org int
+			var a, b time.Time
+			if rows.Scan(&org, &a, &b) == nil && out[org] != nil {
+				out[org].Maintenance = append(out[org].Maintenance, [2]time.Time{a, b})
+			}
+		}
+		_ = rows.Close()
+	}
+	return out
+}
+
+// clock parses "HH:MM[:SS]" into the time since midnight.
+func clock(s string) time.Duration {
+	var h, m, sec int
+	_, _ = fmt.Sscanf(s, "%d:%d:%d", &h, &m, &sec)
+	return time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(sec)*time.Second
+}
+
+// machineGroups are, among these tags, the members of each machine: indexes
+// into tags, for machines with two or more of them in this batch.
+func (r *Runner) machineGroups(ctx context.Context, tags []tagRow) [][]int {
+	idx := map[int]int{}
+	ids := make([]int, len(tags))
+	for i, t := range tags {
+		idx[t.id] = i
+		ids[i] = t.id
+	}
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT at.asset_id, at.tag_id FROM asset_tags at
+		JOIN assets a ON a.id = at.asset_id
+		WHERE at.tag_id = ANY($1) AND at.tag_id IS DISTINCT FROM a.state_tag_id
+		ORDER BY at.asset_id, at.tag_id`, pq.Array(ids))
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = rows.Close() }()
+	byAsset := map[int][]int{}
+	var order []int
+	used := map[int]bool{}
+	for rows.Next() {
+		var asset, tag int
+		if rows.Scan(&asset, &tag) != nil || used[tag] {
+			continue // a tag in two machines is forecast with the first
+		}
+		if _, ok := byAsset[asset]; !ok {
+			order = append(order, asset)
+		}
+		byAsset[asset] = append(byAsset[asset], idx[tag])
+		used[tag] = true
+	}
+	var out [][]int
+	for _, a := range order {
+		if len(byAsset[a]) >= 2 {
+			out = append(out, byAsset[a])
+		}
+	}
+	return out
 }

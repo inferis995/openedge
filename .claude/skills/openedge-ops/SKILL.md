@@ -1,6 +1,6 @@
 ---
 name: openedge-ops
-description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), on-prem multi-tenant dietro VPN Tailscale, VPS con Traefik, Coolify, edge profile. Commissioning da CLI (org, siti, aree, gateway, import tag da foglio, decoder MQTT, utenti). Data logger MQTT con payload binari (preset MiDo, storico nel pacchetto). Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security, MFA TOTP con recovery codes e mfa_required per org. Previsioni dei tag (motore statistico sempre attivo, Timestral su CPU opzionale con profilo compose forecast). ACL MQTT isolate per tenant.
+description: OpenEdge Operations — installa, configura e gestisce OpenEdge in produzione. Chiede sempre all'utente cosa vuole fare prima di agire. Supporta self-hosted/on-prem (Linux+Windows), on-prem multi-tenant dietro VPN Tailscale, VPS con Traefik, Coolify, edge profile. Commissioning da CLI (org, siti, aree, gateway, import tag da foglio, decoder MQTT, utenti). Data logger MQTT con payload binari (preset MiDo, storico nel pacchetto). Include driver industriali (Modbus/S7/OPC-UA/MQTT/LoRaWAN), multi-tenant, backup, monitoring professionale (Prometheus+Grafana+AlertManager+Loki+4 exporter), OTA updates, security, MFA TOTP con recovery codes e mfa_required per org. Previsioni dei tag e salute delle macchine (motore statistico sempre attivo, Timestral su CPU opzionale con profilo compose forecast). ACL MQTT isolate per tenant.
 version: 9.0.0
 tags: [industrial, iot, commissioning, tailscale, vpn, mqtt-decoder, mido, data-logger, tag-import, devops, docker, deploy, coolify, traefik, vps, on-prem, self-hosted, multi-tenant, install, troubleshoot, mqtt, webhooks, backup, monitoring, health-checks, ota-updates, security, lorawan, mfa, totp, 2fa, recovery-codes]
 requires: [docker, curl, git]
@@ -791,6 +791,9 @@ con `TIMESTRAL_MODEL=/models/Timestral-28M` e `HF_HUB_OFFLINE=1`.
   organizzazione: Organizzazioni → Impostazioni → Pagine visibili → Previsioni.
 - Impostazioni per livello (orizzonte, tipo di segnale): pagina Analisi →
   Previsioni → Impostazioni, oppure CLI `openedge forecast settings`.
+- Macchine: Previsioni → Macchine → *Crea dai gateway* (o
+  `openedge forecast machines from-gateways`) come partenza, poi un tag di
+  marcia BOOL per macchina dove c'è: le previsioni imparano solo da quando gira.
 - Metriche Prometheus: `openedge_forecast_run_seconds`,
   `openedge_forecast_results_total{status,engine}`,
   `openedge_forecast_engine_errors_total`.

@@ -31,6 +31,10 @@ type Job struct {
 	Series   Series
 	IsBool   bool
 	Settings Effective
+	// StateTagID: the series was conditioned on this running-state tag.
+	StateTagID int
+	// Calendar is the organization's known future (shifts, maintenance).
+	Calendar *Calendar
 }
 
 // Result is the outcome for one Job.
@@ -52,6 +56,8 @@ type Result struct {
 	Risks []Risk
 	// Anomaly compares the values that arrived with the previous forecast.
 	Anomaly *Anomaly
+	// StateTagID: forecast from running time only (Job.StateTagID).
+	StateTagID int
 }
 
 // HorizonSteps converts a horizon in hours to steps of the given size, at
@@ -94,6 +100,7 @@ type prepared struct {
 	holdout int
 	kind    Kind
 	period  int
+	known   [][]float64 // len(series)+horizon
 }
 
 // Run forecasts every job with every engine, scores each engine on the data
@@ -104,7 +111,7 @@ func Run(ctx context.Context, jobs []Job, engines []Forecaster) []Result {
 	results := make([]Result, len(jobs))
 	var preps []prepared
 	for i := range jobs {
-		results[i] = Result{TagID: jobs[i].TagID, Engines: map[string]Score{}, Errors: map[string]string{}}
+		results[i] = Result{TagID: jobs[i].TagID, StateTagID: jobs[i].StateTagID, Engines: map[string]Score{}, Errors: map[string]string{}}
 		if p, ok := prepare(&jobs[i], &results[i]); ok {
 			p.idx = i
 			preps = append(preps, p)
@@ -120,8 +127,11 @@ func Run(ctx context.Context, jobs []Job, engines []Forecaster) []Result {
 	for k := range preps {
 		p := &preps[k]
 		reqs = append(reqs,
-			Request{Series: p.series, Horizon: p.horizon, Kind: p.kind, Period: p.period},
-			Request{Series: p.series.Head(p.holdout), Horizon: p.holdout, Kind: p.kind, Period: p.period},
+			Request{Series: p.series, Horizon: p.horizon, Kind: p.kind, Period: p.period, Known: p.known},
+			// The test forecast ends where the history does: its known
+			// covariates are the history's.
+			Request{Series: p.series.Head(p.holdout), Horizon: p.holdout, Kind: p.kind, Period: p.period,
+				Known: cut(p.known, len(p.series.Values))},
 		)
 	}
 	chosen := make([]choice, len(preps))
@@ -174,6 +184,7 @@ func prepare(j *Job, r *Result) (prepared, bool) {
 	if kind == KindCounter {
 		p.series, p.shift = withoutResets(j.Series)
 	}
+	p.known = j.Calendar.Known(j.Series.Start, j.Series.Step, len(j.Series.Values)+p.horizon)
 	r.Kind, r.Period = kind, period
 	return p, true
 }
@@ -210,7 +221,7 @@ func conclude(r *Result, c *choice) {
 	}
 	r.Engine, r.Forecast, r.Score = c.name, c.f, c.score
 	if c.score.Reliable() {
-		r.Status = StatusOK
+		r.Status, r.Reason = StatusOK, ""
 		return
 	}
 	r.Status = StatusUnreliable
@@ -272,4 +283,19 @@ func unshift(f *Forecast, d float64) Forecast {
 		g.Q10[i], g.Q50[i], g.Q90[i] = f.Q10[i]+d, f.Q50[i]+d, f.Q90[i]+d
 	}
 	return g
+}
+
+// cut keeps the first n columns of each row.
+func cut(rows [][]float64, n int) [][]float64 {
+	if rows == nil {
+		return nil
+	}
+	out := make([][]float64, len(rows))
+	for i, r := range rows {
+		if n > len(r) {
+			n = len(r)
+		}
+		out[i] = r[:n]
+	}
+	return out
 }

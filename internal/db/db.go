@@ -1084,6 +1084,32 @@ func runAutoMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_tag_forecasts_next_run ON tag_forecasts (next_run_at)`); err != nil {
 		log.Printf("Warning: failed to index tag_forecasts: %v", err)
 	}
+	// Phase 3: machines. An asset groups the tags of one machine; its health
+	// comes from their forecasts. state_tag_id, when set, is the tag that says
+	// the machine is running: the members' forecasts learn from running time
+	// only.
+	for _, q := range []string{
+		`CREATE TABLE IF NOT EXISTS assets (
+			id           SERIAL PRIMARY KEY,
+			org_id       INT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+			name         TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 120),
+			description  TEXT NOT NULL DEFAULT '',
+			state_tag_id INT REFERENCES tags(id) ON DELETE SET NULL,
+			created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (org_id, name)
+		)`,
+		`CREATE TABLE IF NOT EXISTS asset_tags (
+			asset_id INT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+			tag_id   INT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+			PRIMARY KEY (asset_id, tag_id)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_asset_tags_tag ON asset_tags (tag_id)`,
+	} {
+		if _, err := db.ExecContext(context.Background(), q); err != nil {
+			log.Printf("Warning: failed to create assets: %v", err)
+		}
+	}
 	// Phase 2: the alarm rules a forecast may trip, and how the values that
 	// arrived compare with the previous forecast.
 	for _, q := range []string{

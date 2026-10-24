@@ -621,6 +621,13 @@ func main() {
 		forecastGroup.Use(middleware.RequireAuth, middleware.OrganizationContext(), middleware.RequireModule(database, "forecast"))
 		{
 			forecastGroup.GET("/overview", forecastHandler.Overview)
+			// Machines: tags grouped per machine, with a health from their forecasts.
+			forecastGroup.GET("/assets", forecastHandler.ListAssets)
+			forecastGroup.GET("/assets/:id", forecastHandler.GetAsset)
+			forecastGroup.POST("/assets", middleware.RequireRole(models.RoleAdmin), forecastHandler.CreateAsset)
+			forecastGroup.POST("/assets/from-gateways", middleware.RequireRole(models.RoleAdmin), forecastHandler.AssetsFromGateways)
+			forecastGroup.PUT("/assets/:id", middleware.RequireRole(models.RoleAdmin), forecastHandler.UpdateAsset)
+			forecastGroup.DELETE("/assets/:id", middleware.RequireRole(models.RoleAdmin), forecastHandler.DeleteAsset)
 			forecastGroup.GET("/profiles", forecastHandler.GetProfile)
 			forecastGroup.PUT("/profiles", middleware.RequireRole(models.RoleAdmin), forecastHandler.PutProfile)
 		}

@@ -18,6 +18,7 @@ import { ForecastProfileForm } from '@/components/forecast/ForecastProfileForm';
 import { TagForecastTab } from '@/components/tags/TagForecastTab';
 import { FORECAST_STATUS_VARIANT, forecastProfileKey, isSerious, tagForecastKey } from '@/lib/forecastUi';
 import { ForecastRiskList } from '@/components/forecast/ForecastRisks';
+import { MachinesSection } from '@/components/forecast/MachinesSection';
 import {
     forecastApi, forecastOverviewApi, type ForecastOverviewTag, type ForecastScope, type ForecastStatus,
 } from '@/api/forecast';
@@ -42,7 +43,7 @@ export default function ForecastsPage() {
     const { t } = useTranslation();
     const { selectedOrgId } = useNavigationStore();
     const [params, setParams] = useSearchParams();
-    const tab = params.get('tab') === 'settings' ? 'settings' : 'tags';
+    const tab = ['settings', 'machines'].includes(params.get('tab') ?? '') ? params.get('tab') as string : 'tags';
     const setTab = (v: string) => setParams(p => { p.set('tab', v); return p; }, { replace: true });
 
     const { data, isLoading, isError } = useQuery({
@@ -76,12 +77,16 @@ export default function ForecastsPage() {
             <Tabs value={tab} onValueChange={setTab}>
                 <TabsList>
                     <TabsTrigger value="tags">{t('forecast.tab_tags')}</TabsTrigger>
+                    <TabsTrigger value="machines">{t('forecast.tab_machines')}</TabsTrigger>
                     <TabsTrigger value="settings">{t('forecast.tab_settings')}</TabsTrigger>
                 </TabsList>
                 <TabsContent value="tags" className="mt-6 space-y-6">
                     {isLoading && <p className="text-sm text-muted-foreground">{t('forecast.loading')}</p>}
                     {isError && <p className="text-sm text-destructive">{t('forecast.failed')}</p>}
                     {data && <TagsSection tags={data.tags} />}
+                </TabsContent>
+                <TabsContent value="machines" className="mt-6">
+                    <MachinesSection tags={data?.tags ?? []} />
                 </TabsContent>
                 <TabsContent value="settings" className="mt-6">
                     <SettingsSection orgId={selectedOrgId} tags={data?.tags ?? []} />

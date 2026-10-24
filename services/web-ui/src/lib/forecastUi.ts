@@ -18,3 +18,10 @@ export const RISK_VARIANT: Record<RiskLikelihood, 'alarm' | 'warning' | 'muted' 
 
 /** A rule likely or almost certain to trip within the horizon. */
 export const isSerious = (r: ForecastRisk) => r.likelihood === 'likely' || r.likelihood === 'almost_certain';
+
+export const HEALTH_TONE: Record<'good' | 'watch' | 'critical' | 'unknown', { bar: string; text: string }> = {
+    good: { bar: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
+    watch: { bar: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-400' },
+    critical: { bar: 'bg-red-500', text: 'text-red-600 dark:text-red-400' },
+    unknown: { bar: 'bg-muted-foreground/40', text: 'text-muted-foreground' },
+};

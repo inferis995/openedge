@@ -10,6 +10,11 @@ three quantiles per step:
     {"model": "mistralai/Timestral-28M",
      "forecasts": [{"q10": [...], "q50": [...], "q90": [...]}, ...]}
 
+A series may carry "known_covariates": rows known over history and horizon
+(time of day, weekend, shift on, maintenance), and "values" may be a list of
+rows — the variates of one machine, forecast jointly; the answer is then
+{"variates": [{"q10": …}, …]}, one per row.
+
     GET /health  -> 200 once the model is loaded, 503 before.
 
 null is a missing value, both ways. The model runs locally on CPU: no data
@@ -51,8 +56,30 @@ class BadRequest(ValueError):
     pass
 
 
-def parse_request(body: bytes) -> tuple[list[np.ndarray], list[int], tuple[float, ...]]:
-    """Validate a request; return the series (NaN for null), horizons, quantiles."""
+def _row(v, what: str) -> np.ndarray:
+    try:
+        return np.array([math.nan if x is None else float(x) for x in v], dtype=np.float32)
+    except (TypeError, ValueError) as e:
+        raise BadRequest(f"{what}: values must be numbers or null") from e
+
+
+class Item:
+    """One series of a request: V variates over T steps, forecast H steps ahead,
+    with C known-future covariate rows over T+H steps (C may be 0)."""
+
+    def __init__(self, values: np.ndarray, horizon: int, known: np.ndarray | None, joint: bool):
+        self.values = values      # (V, T)
+        self.horizon = horizon
+        self.known = known        # (C, T+H) or None
+        self.joint = joint        # answered with one forecast per variate
+
+    @property
+    def key(self):
+        return (self.horizon, self.values.shape[0], 0 if self.known is None else self.known.shape[0])
+
+
+def parse_request(body: bytes) -> tuple[list[Item], tuple[float, ...]]:
+    """Validate a request; return its items (NaN for null) and the quantiles."""
     try:
         req = json.loads(body)
     except ValueError as e:
@@ -65,7 +92,7 @@ def parse_request(body: bytes) -> tuple[list[np.ndarray], list[int], tuple[float
     quantiles = tuple(req.get("quantiles") or DEFAULT_QUANTILES)
     if not all(isinstance(q, (int, float)) and 0 < q < 1 for q in quantiles):
         raise BadRequest("quantiles must be numbers between 0 and 1")
-    values, horizons = [], []
+    items = []
     for i, s in enumerate(series):
         if not isinstance(s, dict) or not isinstance(s.get("values"), list):
             raise BadRequest(f"series {i}: needs a 'values' list")
@@ -73,15 +100,21 @@ def parse_request(body: bytes) -> tuple[list[np.ndarray], list[int], tuple[float
         if not isinstance(h, int) or not 1 <= h <= MAX_HORIZON:
             raise BadRequest(f"series {i}: horizon must be an integer between 1 and {MAX_HORIZON}")
         v = s["values"]
-        if not 1 <= len(v) <= MAX_LENGTH:
-            raise BadRequest(f"series {i}: between 1 and {MAX_LENGTH} values")
-        try:
-            arr = np.array([math.nan if x is None else float(x) for x in v], dtype=np.float32)
-        except (TypeError, ValueError) as e:
-            raise BadRequest(f"series {i}: values must be numbers or null") from e
-        values.append(arr)
-        horizons.append(h)
-    return values, horizons, quantiles
+        joint = len(v) > 0 and isinstance(v[0], list)
+        rows = [_row(r, f"series {i}") for r in v] if joint else [_row(v, f"series {i}")]
+        t = len(rows[0])
+        if not 1 <= t <= MAX_LENGTH or any(len(r) != t for r in rows):
+            raise BadRequest(f"series {i}: between 1 and {MAX_LENGTH} values, the same for every variate")
+        known = None
+        if s.get("known_covariates"):
+            k = s["known_covariates"]
+            if not isinstance(k, list) or not all(isinstance(r, list) for r in k):
+                raise BadRequest(f"series {i}: known_covariates must be a list of rows")
+            known = np.stack([_row(r, f"series {i} known_covariates") for r in k])
+            if known.shape[1] != t + h:
+                raise BadRequest(f"series {i}: each known_covariates row needs {t + h} values (history + horizon)")
+        items.append(Item(np.stack(rows), h, known, joint))
+    return items, quantiles
 
 
 def to_numpy(x) -> np.ndarray:
@@ -94,40 +127,47 @@ def nearest_level(levels: tuple[float, ...], q: float) -> float:
     return min(levels, key=lambda lv: abs(lv - q))
 
 
-def forecast_batch(model, values: list[np.ndarray], horizons: list[int],
-                   quantiles: tuple[float, ...]) -> list[dict[str, list[float | None]]]:
-    """Forecast every series, calling the model once per distinct horizon.
+def _bands(empty: bool, quantiles, h: int, arrs) -> dict:
+    out = {}
+    for q in quantiles:
+        vals = arrs[q][:h]
+        out[f"q{round(q * 100)}"] = [None if empty or not math.isfinite(x) else float(x) for x in vals]
+    return out
 
-    Series of one call must have the same length: shorter ones are padded on
-    the left with NaN, which the model reads as missing.
-    """
-    out: list[dict | None] = [None] * len(values)
-    by_horizon: dict[int, list[int]] = {}
-    for i, h in enumerate(horizons):
-        by_horizon.setdefault(h, []).append(i)
-    for h, idx in by_horizon.items():
-        width = max(len(values[i]) for i in idx)
-        ctx = np.full((len(idx), width), np.nan, dtype=np.float32)
+
+def forecast_batch(model, items: list[Item], quantiles: tuple[float, ...]) -> list[dict]:
+    """Forecast every item, calling the model once per (horizon, variates,
+    covariates) group. Items of one call must have the same length: shorter
+    ones are padded on the left with NaN, which the model reads as missing —
+    their covariates too."""
+    out: list[dict | None] = [None] * len(items)
+    groups: dict[tuple, list[int]] = {}
+    for i, it in enumerate(items):
+        groups.setdefault(it.key, []).append(i)
+    for (h, nv, nc), idx in groups.items():
+        width = max(items[i].values.shape[1] for i in idx)
+        ctx = np.full((len(idx), nv, width), np.nan, dtype=np.float32)
+        known = np.full((len(idx), nc, width + h), np.nan, dtype=np.float32) if nc else None
         for row, i in enumerate(idx):
-            v = values[i]
-            ctx[row, width - len(v):] = v
-        empty = np.isnan(ctx).all(axis=1)
-        if empty.any():
-            # A series with no value at all: nothing to forecast from. The
-            # model is not asked; core-api sees nulls.
-            ctx[empty] = 0.0
-        fc = model.forecast(ctx, prediction_length=h)
+            it = items[i]
+            t = it.values.shape[1]
+            ctx[row, :, width - t:] = it.values
+            if known is not None:
+                known[row, :, width - t:] = it.known
+        # A variate with no value at all: nothing to forecast from. The model
+        # is given zeros and core-api sees nulls.
+        empty = np.isnan(ctx).all(axis=2)  # (B, V)
+        ctx[empty] = 0.0
+        kwargs = {"prediction_length": h}
+        if known is not None:
+            kwargs["known_covariates"] = known
+        fc = model.forecast(ctx, **kwargs)
         levels = tuple(fc.quantile_levels)
-        bands = {}
-        for q in quantiles:
-            arr = to_numpy(fc.quantile(nearest_level(levels, q)))
-            bands[q] = arr.reshape(len(idx), -1)[:, :h]
+        bands = {q: to_numpy(fc.quantile(nearest_level(levels, q))).reshape(len(idx), nv, -1) for q in quantiles}
         for row, i in enumerate(idx):
-            item = {}
-            for q in quantiles:
-                vals = [None if empty[row] or not math.isfinite(x) else float(x) for x in bands[q][row]]
-                item[f"q{round(q * 100)}"] = vals
-            out[i] = item
+            per = [_bands(bool(empty[row, v]), quantiles, h, {q: bands[q][row, v] for q in quantiles})
+                   for v in range(nv)]
+            out[i] = {"variates": per} if items[i].joint else per[0]
     return out  # type: ignore[return-value]
 
 
@@ -153,9 +193,9 @@ class Service:
             log.exception("could not load model %s", self.name)
 
     def forecast(self, body: bytes) -> dict:
-        values, horizons, quantiles = parse_request(body)
+        items, quantiles = parse_request(body)
         with self.lock:
-            forecasts = forecast_batch(self.model, values, horizons, quantiles) if values else []
+            forecasts = forecast_batch(self.model, items, quantiles) if items else []
         return {"model": self.name, "forecasts": forecasts}
 
 

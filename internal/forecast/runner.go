@@ -173,6 +173,12 @@ func (r *Runner) forecast(ctx context.Context, tags []tagRow) error {
 		return err
 	}
 	now := r.Now()
+	ids := make([]int, len(tags))
+	for i, t := range tags {
+		ids[i] = t.id
+	}
+	states := r.stateTags(ctx, ids)
+	cals := r.calendars(ctx, orgsOf(tags), now)
 	jobs := make([]Job, 0, len(tags))
 	for _, t := range tags {
 		eff := profiles.Effective(t.org, t.site, t.area, t.gateway, t.id)
@@ -181,23 +187,35 @@ func (r *Runner) forecast(ctx context.Context, tags []tagRow) error {
 			// switched off): nothing is computed for it.
 			eff.Enabled = false
 		}
-		j := Job{TagID: t.id, IsBool: t.isBool, Settings: eff}
+		j := Job{TagID: t.id, IsBool: t.isBool, Settings: eff, Calendar: cals[t.org]}
 		if eff.Enabled {
 			s, err := r.history(ctx, t.id, eff, now)
 			if err != nil {
 				log.Printf("[FORECAST] tag %d: history: %v", t.id, err)
 			}
+			if st, ok := states[t.id]; ok && len(s.Values) > 0 {
+				// Its machine says when it runs: learn from running time only.
+				if state, serr := r.seriesAt(ctx, st, s.Step, len(s.Values), now); serr == nil {
+					MaskStopped(&s, state)
+					j.StateTagID = st
+				}
+			}
 			j.Series = s
 		}
 		jobs = append(jobs, j)
 	}
-	ids := make([]int, len(tags))
-	for i, t := range tags {
-		ids[i] = t.id
-	}
 	rules := r.thresholds(ctx, ids)
 	prev := r.previousForecasts(ctx, ids)
 	results := Run(ctx, jobs, r.Engines)
+	// Machines: their members forecast together, when an engine can, and kept
+	// per member only where that did better.
+	for _, e := range r.Engines {
+		if je, ok := e.(JointForecaster); ok {
+			if groups := r.machineGroups(ctx, tags); len(groups) > 0 {
+				RunJoint(ctx, je, groups, jobs, results)
+			}
+		}
+	}
 	var notices []RiskNotice
 	for i := range results {
 		t := tags[i]
@@ -281,7 +299,11 @@ func (r *Runner) history(ctx context.Context, tagID int, eff Effective, now time
 		return Series{Step: time.Hour, Start: now}, nil
 	}
 	step := ChooseStep(times)
-	n := ContextSteps(eff.ContextDays, step)
+	return r.seriesAt(ctx, tagID, step, ContextSteps(eff.ContextDays, step), now)
+}
+
+// seriesAt reads n steps of a tag's past at the given step, ending now.
+func (r *Runner) seriesAt(ctx context.Context, tagID int, step time.Duration, n int, now time.Time) (Series, error) {
 	from := now.Add(-time.Duration(n) * step)
 	stride := fmt.Sprintf("%d seconds", int(step.Seconds()))
 
@@ -367,10 +389,12 @@ type details struct {
 	Engines map[string]Score  `json:"engines,omitempty"`
 	Errors  map[string]string `json:"errors,omitempty"`
 	Model   string            `json:"model,omitempty"`
+	// StateTagID: forecast from running time only, as said by this tag.
+	StateTagID int `json:"state_tag_id,omitempty"`
 }
 
 func (r *Runner) store(ctx context.Context, res *Result, step time.Duration, now time.Time) error {
-	d := details{Period: res.Period, Engines: res.Engines, Errors: res.Errors}
+	d := details{Period: res.Period, Engines: res.Engines, Errors: res.Errors, StateTagID: res.StateTagID}
 	for _, e := range r.Engines {
 		if rm, ok := e.(*Remote); ok && res.Engine == rm.Name() {
 			d.Model = rm.Model

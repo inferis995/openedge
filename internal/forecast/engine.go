@@ -13,6 +13,10 @@ type Request struct {
 	Horizon int // steps
 	Kind    Kind
 	Period  int // season length in steps, cyclic signals
+	// Known are covariates known over the history and the horizon (one row
+	// each, len(Series.Values)+Horizon long): see Calendar. Engines that
+	// cannot use them ignore them.
+	Known [][]float64
 }
 
 // Forecast is the result for one Request: three quantiles per step after the

@@ -143,3 +143,64 @@ export const forecastOverviewApi = {
         return { engines: d.engines ?? [], summary: d.summary ?? {}, tags: d.tags ?? [] };
     },
 };
+
+export interface AssetMember {
+    tag_id: number;
+    alias: string;
+    status: ForecastStatus;
+    risks?: ForecastRisk[];
+    anomaly?: ForecastAnomaly;
+    unit?: string;
+    data_type: string;
+    gateway_name: string;
+    kind?: ForecastKind;
+}
+
+export interface AssetIssue {
+    tag_id: number;
+    alias: string;
+    kind: 'risk' | 'anomaly';
+    points: number;
+    risk?: ForecastRisk;
+    outside?: number;
+    checked?: number;
+}
+
+export type HealthLevel = 'good' | 'watch' | 'critical' | 'unknown';
+
+export interface AssetHealth {
+    /** 0–100; null when no member has a reliable forecast. */
+    score: number | null;
+    level: HealthLevel;
+    issues: AssetIssue[];
+    known: number;
+    members: number;
+}
+
+export interface Asset {
+    id: number;
+    name: string;
+    description: string;
+    state_tag_id: number | null;
+    state_alias?: string;
+    members: AssetMember[];
+    health: AssetHealth;
+    updated_at: string;
+}
+
+export interface AssetInput {
+    name: string;
+    description: string;
+    state_tag_id: number | null;
+    tag_ids: number[];
+}
+
+/** Machines: tags grouped per machine, with a health from their forecasts. */
+export const assetsApi = {
+    list: async (): Promise<Asset[]> => ((await api.get('/forecast/assets')).data?.assets ?? []) as Asset[],
+    create: async (a: AssetInput): Promise<Asset> => (await api.post('/forecast/assets', a)).data,
+    update: async (id: number, a: AssetInput): Promise<Asset> => (await api.put(`/forecast/assets/${id}`, a)).data,
+    remove: async (id: number): Promise<void> => { await api.delete(`/forecast/assets/${id}`); },
+    /** One machine per gateway that has none yet. */
+    fromGateways: async (): Promise<{ created: number }> => (await api.post('/forecast/assets/from-gateways')).data,
+};

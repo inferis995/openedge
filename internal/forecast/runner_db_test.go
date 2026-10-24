@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -38,7 +39,7 @@ func testDB(t *testing.T) *sql.DB {
 }
 
 var schema = []string{
-	`DROP TABLE IF EXISTS alarm_definitions, tag_forecasts, forecast_profiles, tag_history, tags, gateways, areas, sites, users, organizations CASCADE`,
+	`DROP TABLE IF EXISTS asset_tags, assets, alarm_definitions, tag_forecasts, forecast_profiles, tag_history, tags, gateways, areas, sites, users, organizations CASCADE`,
 	`CREATE TABLE organizations (id SERIAL PRIMARY KEY, name TEXT)`,
 	`CREATE TABLE users (id SERIAL PRIMARY KEY)`,
 	`CREATE TABLE sites (id SERIAL PRIMARY KEY, org_id INT REFERENCES organizations(id), name TEXT)`,
@@ -65,6 +66,8 @@ var schema = []string{
 		risks JSONB NOT NULL DEFAULT '[]', anomaly JSONB)`,
 	`CREATE TABLE alarm_definitions (id SERIAL PRIMARY KEY, tag_id INT REFERENCES tags(id) ON DELETE CASCADE,
 		alarm_type TEXT, threshold DOUBLE PRECISION, severity TEXT, message TEXT, enabled BOOLEAN DEFAULT TRUE)`,
+	`CREATE TABLE assets (id SERIAL PRIMARY KEY, org_id INT, name TEXT, state_tag_id INT REFERENCES tags(id))`,
+	`CREATE TABLE asset_tags (asset_id INT REFERENCES assets(id) ON DELETE CASCADE, tag_id INT REFERENCES tags(id) ON DELETE CASCADE)`,
 	`INSERT INTO organizations (name) VALUES ('A')`,
 	`INSERT INTO sites (org_id, name) VALUES (1, 'S')`,
 	`INSERT INTO areas (site_id, name) VALUES (1, 'Ar')`,
@@ -74,12 +77,16 @@ var schema = []string{
 		(1, 'young',   'REAL', true),   -- 2: five values
 		(1, 'running', 'BOOL', true),   -- 3: on in the day
 		(1, 'notkept', 'REAL', false),  -- 4: not historized: never forecast
-		(2, 'off',     'REAL', true)    -- 5: on a gateway switched off
+		(2, 'off',     'REAL', true),   -- 5: on a gateway switched off
+		(1, 'mach',    'REAL', true)    -- 6: 60 while running, 20 stopped
 	`,
 	// In the 12 h after noon the daily cycle falls to 7 at 18:00: a low limit
 	// at 7.5 is crossed this evening, one at 4 never.
 	`INSERT INTO alarm_definitions (tag_id, alarm_type, threshold, severity, message) VALUES
 		(1, 'low', 7.5, 'warning', 'cycle low'), (1, 'low', 4, 'critical', 'never')`,
+	// Tag 5 belongs to a machine whose running state is tag 3.
+	`INSERT INTO assets (org_id, name, state_tag_id) VALUES (1, 'M', 3)`,
+	`INSERT INTO asset_tags (asset_id, tag_id) VALUES (1, 5), (1, 3), (1, 6)`,
 	`INSERT INTO forecast_profiles (org_id, scope, scope_id, settings)
 		VALUES (1, 'gateway', 2, '{"enabled": false}'), (1, 'org', 1, '{"horizon_hours": 12}')`,
 }
@@ -108,6 +115,7 @@ func seed(t *testing.T, db *sql.DB) {
 			running = 1
 		}
 		put(ts, 3, running)
+		put(ts, 6, 20+40*running)
 		put(ts, 4, 1)
 		put(ts, 5, 2)
 	}
@@ -147,8 +155,8 @@ func TestRunnerAgainstPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 4 {
-		t.Fatalf("%d tags forecast, want 4 (not the one that is not historized)", n)
+	if n != 5 {
+		t.Fatalf("%d tags forecast, want 5 (not the one that is not historized)", n)
 	}
 
 	t.Run("daily cycle", func(t *testing.T) {
@@ -184,6 +192,13 @@ func TestRunnerAgainstPostgres(t *testing.T) {
 		if o := stored(t, db, 5); o.status != StatusDisabled {
 			t.Errorf("off: %+v", o)
 		}
+		// Tag 5 is off (its gateway's profile), so its machine's state is not
+		// read for it; the state tag itself is never conditioned on itself.
+		var d string
+		_ = db.QueryRowContext(context.Background(), `SELECT details::text FROM tag_forecasts WHERE tag_id = 3`).Scan(&d)
+		if strings.Contains(d, "state_tag_id") {
+			t.Errorf("the state tag was conditioned on itself: %s", d)
+		}
 		var none int
 		_ = db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM tag_forecasts WHERE tag_id = 4`).Scan(&none)
 		if none != 0 {
@@ -206,6 +221,26 @@ func TestRunnerAgainstPostgres(t *testing.T) {
 		}
 		if len(notices) != 1 || notices[0].TagID != 1 || notices[0].Alias != "cycle" || notices[0].OrgID != 1 {
 			t.Errorf("notices %+v", notices)
+		}
+	})
+
+	t.Run("machine running state", func(t *testing.T) {
+		m := stored(t, db, 6)
+		var d struct {
+			StateTagID int `json:"state_tag_id"`
+		}
+		var raw []byte
+		_ = db.QueryRowContext(context.Background(), `SELECT details FROM tag_forecasts WHERE tag_id = 6`).Scan(&raw)
+		_ = json.Unmarshal(raw, &d)
+		if d.StateTagID != 3 {
+			t.Fatalf("details %s: conditioned on tag 3", raw)
+		}
+		var q Quantiles
+		_ = json.Unmarshal(m.q, &q)
+		for i, v := range q.Q50 {
+			if !math.IsNaN(v) && math.Abs(v-60) > 1 {
+				t.Fatalf("step %d: %.1f — forecast from running time only should stay at 60, not mix in the stops", i, v)
+			}
 		}
 	})
 

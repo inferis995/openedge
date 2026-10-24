@@ -46,8 +46,9 @@ func NewRemote(url, name string, timeout time.Duration) *Remote {
 func (r *Remote) Name() string { return r.name }
 
 type wireSeries struct {
-	Values  nullFloats `json:"values"`
-	Horizon int        `json:"horizon"`
+	Values  nullFloats   `json:"values"`
+	Horizon int          `json:"horizon"`
+	Known   []nullFloats `json:"known_covariates,omitempty"`
 }
 
 type wireRequest struct {
@@ -90,7 +91,7 @@ func (r *Remote) Forecast(ctx context.Context, reqs []Request) ([]Forecast, erro
 func (r *Remote) call(ctx context.Context, reqs []Request) ([]Forecast, error) {
 	body := wireRequest{Quantiles: []float64{0.1, 0.5, 0.9}, Series: make([]wireSeries, len(reqs))}
 	for i, q := range reqs {
-		body.Series[i] = wireSeries{Values: q.Series.Values, Horizon: q.Horizon}
+		body.Series[i] = wireSeries{Values: q.Series.Values, Horizon: q.Horizon, Known: rows(q.Known)}
 	}
 	buf, err := json.Marshal(body)
 	if err != nil {
@@ -167,4 +168,15 @@ func (n *nullFloats) UnmarshalJSON(data []byte) error {
 	}
 	*n = out
 	return nil
+}
+
+func rows(r [][]float64) []nullFloats {
+	if len(r) == 0 {
+		return nil
+	}
+	out := make([]nullFloats, len(r))
+	for i := range r {
+		out[i] = r[i]
+	}
+	return out
 }

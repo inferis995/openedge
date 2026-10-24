@@ -140,17 +140,51 @@ Su ogni tag con una previsione **affidabile** (mai su una poco affidabile):
       (`openedge forecast list --status at_risk`), MCP
       (`get_forecast_overview` con `status: at_risk`).
 
-### Fase 3 — macchine
-- Asset: gruppo di tag della stessa macchina, previsti insieme (multivariato).
-- Condizionamento sullo stato di marcia (`state_tag_id`, profili OEE): il modello
-  vede solo i periodi in marcia.
-- Turni e finestre di manutenzione come covariate note in futuro.
-- Indice di salute dell'asset.
+### Fase 3 — macchine (fatta)
+
+Una **macchina** (asset) è un gruppo di tag della stessa organizzazione: i
+sensori di un compressore, di una pompa, di una linea. Vale per qualunque
+impianto: il gruppo lo decide chi lo configura, non il codice.
+
+- [x] **Tabelle** `assets` (`org_id`, nome unico per organizzazione,
+      `state_tag_id` facoltativo) e `asset_tags`. Un tag può stare in più
+      macchine, solo della sua organizzazione (verificato dall'API).
+- [x] **Stato di marcia.** Con un tag di stato (BOOL, vero quando la macchina
+      gira) i periodi da ferma sono tolti dalla storia di ogni tag della
+      macchina prima di imparare (`MaskStopped`): una pompa ferma la notte non
+      insegna al modello che la pressione crolla ogni notte. Il tag di stato
+      stesso non viene mascherato.
+- [x] **Covariate note in futuro**, dal calendario dell'organizzazione: ora del
+      giorno (seno/coseno), fine settimana, turno attivo (`shifts`) e
+      manutenzione programmata (`maintenance_windows`). Le riceve Timestral
+      (`known_covariates`); il motore statistico le ignora, la stagionalità la
+      vede già nella storia.
+- [x] **Previsione congiunta.** Se il motore lo sa fare (Timestral, via
+      `values` a più righe) i tag di una macchina sono previsti insieme, così
+      un sensore aiuta a prevedere l'altro (motore `timestral-asset`). Per ogni
+      tag il risultato congiunto si tiene solo se batte, nel backtest, quello
+      del tag da solo.
+- [x] **Indice di salute** 0–100: 100 meno la penalità del problema più grave
+      tra i tag della macchina — una macchina è sana quanto la sua parte
+      peggiore. Penalità: soglia `almost_certain` 45, `likely` 30, `possible`
+      10, vita residua 20 (entro l'orizzonte) o 8; valori fuori previsione fino
+      a 35. Livelli: buona ≥ 80, da tenere d'occhio ≥ 50, critica sotto,
+      *non nota* se nessun tag ha ancora una previsione affidabile (che non è
+      lo stesso di sana).
+- [x] Dove si vedono: pagina Previsioni, scheda **Macchine** (schede con
+      salute, problemi, dettaglio, nuova/modifica, *Crea dai gateway*); API
+      `/api/forecast/assets` (lettura per tutti, scrittura admin); CLI
+      `openedge forecast machines list|show|create|update|delete|from-gateways`;
+      MCP `list_machines`, `get_machine`, `save_machine`, `delete_machine`,
+      `create_machines_from_gateways`.
+
+*Crea dai gateway* fa una macchina per gateway con i suoi tag storicizzati:
+su un data logger il gateway è la macchina; un PLC che comanda più macchine
+va diviso dopo, a mano.
 
 ### Fase 4 — estensioni
 - Pacchetti di settore (profili JSON).
 - Previsioni su contatori e KPI/OEE (fine turno, fine mese).
-- Strumento `forecast` per il server MCP della CLI.
 
 ## Test
 

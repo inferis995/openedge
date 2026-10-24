@@ -126,6 +126,9 @@ type TagForecastResponse struct {
 	Risks []forecast.Risk `json:"risks"`
 	// Anomaly compares the values that arrived with the previous forecast.
 	Anomaly *forecast.Anomaly `json:"anomaly,omitempty"`
+	// StateTagID: forecast from the machine's running time only, as said by
+	// this tag.
+	StateTagID int `json:"state_tag_id,omitempty"`
 }
 
 func finitePtr(x float64) *float64 {
@@ -188,10 +191,11 @@ func (h *ForecastHandler) GetTagForecast(c *gin.Context) {
 		resp.Coverage = &coverage.Float64
 	}
 	var d struct {
-		Model string `json:"model"`
+		Model      string `json:"model"`
+		StateTagID int    `json:"state_tag_id"`
 	}
 	_ = json.Unmarshal(detailsRaw, &d)
-	resp.Model = d.Model
+	resp.Model, resp.StateTagID = d.Model, d.StateTagID
 	decodeAssessment(risksRaw, anomalyRaw, &resp.Risks, &resp.Anomaly)
 
 	if startAt.Valid && len(quantiles) > 0 && resp.StepSeconds > 0 {

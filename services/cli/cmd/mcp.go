@@ -597,6 +597,47 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 				"clear":         propBool("Remove the level's profile: inherit everything"),
 			}, []string{"scope", "scope_id"}),
 		},
+		{
+			Name: "list_machines",
+			Description: "Machines of the current organization: tags grouped by equipment, each with a health " +
+				"score 0–100 (100 minus the worst problem among its tags: an alarm rule the forecast may trip, " +
+				"or recent values outside the forecast), level good / watch / critical / unknown, and the issues",
+			InputSchema: jsonSchema(map[string]interface{}{}),
+		},
+		{
+			Name:        "get_machine",
+			Description: "One machine: health, issues, running-state tag, and every member tag with its forecast status",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"machine_id": propInt("The machine ID"),
+			}, []string{"machine_id"}),
+		},
+		{
+			Name: "save_machine",
+			Description: "Create a machine (no machine_id: name and tag_ids required) or change one (admin). " +
+				"Fields not given keep their value. A state tag (BOOL, true while running) makes the members' " +
+				"forecasts learn from running time only",
+			InputSchema: jsonSchema(map[string]interface{}{
+				"machine_id":   propInt("The machine to change; omit to create one"),
+				"name":         propStr("Name, unique in the organization"),
+				"description":  propStr("Description"),
+				"tag_ids":      propStr("Member tag IDs, comma separated (e.g. \"120,121,122\"); they replace the current ones"),
+				"state_tag_id": propInt("BOOL tag that is true while the machine runs; 0 removes it"),
+			}),
+		},
+		{
+			Name:        "delete_machine",
+			Description: "Delete a machine (admin). Its tags and their forecasts stay",
+			InputSchema: jsonSchemaRequired(map[string]interface{}{
+				"machine_id": propInt("The machine ID"),
+			}, []string{"machine_id"}),
+		},
+		{
+			Name: "create_machines_from_gateways",
+			Description: "Make one machine per gateway of the organization, with its historized numeric and BOOL " +
+				"tags (admin). Machines that already have the name are left alone. A starting point: on a data " +
+				"logger the gateway is the machine; split PLCs with several machines afterwards with save_machine",
+			InputSchema: jsonSchema(map[string]interface{}{}),
+		},
 
 		// ── Provisioning ────────────────────────────────────────────────────
 		//
@@ -1097,6 +1138,39 @@ func (s *mcpServer) executeTool(name string, args map[string]interface{}) (strin
 			return "", err
 		}
 		return string(raw), nil
+
+	case "list_machines":
+		return s.toolGet("/api/forecast/assets")
+
+	case "get_machine", "delete_machine":
+		id := intArg(args, "machine_id")
+		if id == 0 {
+			return "", fmt.Errorf("machine_id is required")
+		}
+		if name == "delete_machine" {
+			if _, err := s.toolDelete(fmt.Sprintf("/api/forecast/assets/%d", id)); err != nil {
+				return "", err
+			}
+			return fmt.Sprintf("machine %d deleted", id), nil
+		}
+		return s.toolGet(fmt.Sprintf("/api/forecast/assets/%d", id))
+
+	case "save_machine":
+		ch, err := machineChangesFromArgs(args)
+		if err != nil {
+			return "", err
+		}
+		raw, err := saveMachine(s.client.RawGet, s.client.RawPost, func(path string, body interface{}) ([]byte, error) {
+			out, perr := s.toolPut(path, body)
+			return []byte(out), perr
+		}, intArg(args, "machine_id"), ch)
+		if err != nil {
+			return "", err
+		}
+		return prettyJSON(raw), nil
+
+	case "create_machines_from_gateways":
+		return s.toolPost("/api/forecast/assets/from-gateways", map[string]interface{}{})
 
 	case "check_health":
 		var liveResult interface{}
