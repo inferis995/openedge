@@ -794,6 +794,10 @@ con `TIMESTRAL_MODEL=/models/Timestral-28M` e `HF_HUB_OFFLINE=1`.
 - Macchine: Previsioni → Macchine → *Crea dai gateway* (o
   `openedge forecast machines from-gateways`) come partenza, poi un tag di
   marcia BOOL per macchina dove c'è: le previsioni imparano solo da quando gira.
+- Configurazione completa, da interfaccia (Previsioni → Impostazioni, guida
+  passo per passo) o da CLI: `openedge forecast setup` dice cosa manca e il
+  comando per farlo (`shifts`, `maintenance`, `oee-profiles`, `forecast
+  machines`, `forecast settings`). Da agente: prompt MCP `forecast-setup`.
 - Metriche Prometheus: `openedge_forecast_run_seconds`,
   `openedge_forecast_results_total{status,engine}`,
   `openedge_forecast_engine_errors_total`.

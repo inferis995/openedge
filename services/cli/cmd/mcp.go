@@ -598,6 +598,14 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 			}, []string{"scope", "scope_id"}),
 		},
 		{
+			Name: "get_forecast_setup",
+			Description: "What forecasts already have to work with and what is missing, step by step: tags with " +
+				"history, the Timestral model, machines, running tags, shifts, planned maintenance, OEE profiles, " +
+				"levels with their own settings. Each step has state done / todo / wait / optional, a detail and " +
+				"the tool that sets it up. Start here to set up forecasts for an organization",
+			InputSchema: jsonSchema(map[string]interface{}{}),
+		},
+		{
 			Name: "get_production_forecast",
 			Description: "Production by the end of the shift, the day and the month: each OEE profile's OEE " +
 				"expected at the end of the shift (or day) with availability, performance, quality, pieces and the " +
@@ -803,6 +811,7 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 		},
 	}
 
+	tools = append(tools, resourceTools()...)
 	for i := range tools {
 		tools[i].Annotations = annotateTool(tools[i].Name)
 	}
@@ -844,6 +853,13 @@ func openedgePrompts() []mcpPrompt {
 		{
 			Name:        "forecast-review",
 			Description: "Dove stanno andando i tag: previsioni affidabili, soglie a rischio, tag da sistemare",
+			Arguments: []mcpPromptArg{
+				{Name: "org_id", Description: "Organization ID", Required: true},
+			},
+		},
+		{
+			Name:        "forecast-setup",
+			Description: "Configura le previsioni passo per passo: macchine, tag di marcia, turni, manutenzioni, profili OEE, orizzonte",
 			Arguments: []mcpPromptArg{
 				{Name: "org_id", Description: "Organization ID", Required: true},
 			},
@@ -903,6 +919,15 @@ func (s *mcpServer) handlePromptsGet(req *jsonRPCRequest) *jsonRPCResponse {
 			"(e la fascia P10–P90) con le soglie di list_active_alarms e get_tag_value, 3) get_tag_forecast " +
 			"sui tag a rischio. Rispondi in italiano: prima i tag che usciranno dalle soglie, poi quelli in " +
 			"degrado. Una previsione 'unreliable' o 'learning' NON è una previsione: dilla come tale, mai come dato."
+	case "forecast-setup":
+		org := arg("org_id")
+		text = "Configura le previsioni dell'organization " + org + ". 1) get_forecast_setup: elenca i passi " +
+			"(fatto / da fare / in corso / facoltativo). 2) Per ogni passo da fare proponi cosa fare con i dati " +
+			"reali (list_gateways, list_tags, list_machines, list_shifts, list_oee_profiles) e CHIEDI conferma prima " +
+			"di ogni scrittura: create_machines_from_gateways, save_machine con state_tag_id (un tag BOOL vero in " +
+			"marcia), save_shifts, save_maintenance, save_oee_profiles (contatore pezzi, obiettivo pezzi/ora), " +
+			"set_forecast_settings per orizzonte e storico di un sito o gateway. 3) Alla fine di nuovo " +
+			"get_forecast_setup e riepiloga in italiano. Non inventare tag o orari: se mancano, chiedili."
 	case "commission-gateway":
 		gw := arg("gateway_id")
 		text = "Metti in servizio il gateway " + gw + " in ordine: " +
@@ -950,6 +975,9 @@ func (s *mcpServer) handleToolsCall(req *jsonRPCRequest) *jsonRPCResponse {
 }
 
 func (s *mcpServer) executeTool(name string, args map[string]interface{}) (string, error) {
+	if out, ok, err := s.callResourceTool(name, args); ok {
+		return out, err
+	}
 	switch name {
 	case "list_organizations":
 		return s.toolGet("/api/organizations")
@@ -1148,6 +1176,14 @@ func (s *mcpServer) executeTool(name string, args map[string]interface{}) (strin
 			return "", err
 		}
 		return string(raw), nil
+
+	case "get_forecast_setup":
+		steps, err := forecastSetup(s.client.RawGet)
+		if err != nil {
+			return "", err
+		}
+		out, _ := json.MarshalIndent(steps, "", "  ")
+		return string(out), nil
 
 	case "get_production_forecast":
 		data, err := productionForecast(s.client.RawGet, strArg(args, "site"))

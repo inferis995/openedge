@@ -207,6 +207,15 @@ va diviso dopo, a mano.
       `GET /api/forecast/oee`; CLI `openedge forecast production [--site]`;
       MCP `get_production_forecast`.
 
+### Configurazione
+
+Pagina Previsioni → Impostazioni: una guida passo per passo (tag con storico,
+modello, macchine, tag di marcia, turni, manutenzioni, profili OEE, orizzonte)
+con il collegamento per ogni passo; un avviso sulla scheda Tag finché manca
+qualcosa. Lo stesso da CLI (`openedge forecast setup`, poi `openedge shifts`,
+`maintenance`, `oee-profiles`, `forecast machines`, `forecast settings`) e da
+MCP (`get_forecast_setup`, i `save_*`, prompt `forecast-setup`).
+
 Ancora da fare: pacchetti di settore (profili JSON pronti per acquedotti,
 energia, manifattura). Oggi il tipo di segnale è riconosciuto dai dati e i
 profili si impostano per livello, quindi servono solo come scorciatoia.

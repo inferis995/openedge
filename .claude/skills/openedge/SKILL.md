@@ -1,6 +1,6 @@
 ---
 name: openedge
-description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, previsioni (Timestral) e salute delle macchine, OEE via REST + i3X. Multi-tenant SaaS. CLI (openedge) con MCP server mode: 43 tool, l'agente costruisce l'impianto oltre a leggerlo. LoRaWAN auto-discovery + tag import + downlink. Tag Shadows (digital twin). Fleet OTA. SSO/OIDC. RBAC granulare. Slack/Teams/PagerDuty. InfluxDB connector. Usa openedge-ops per deploy/configurazione.
+description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, previsioni (Timestral) e salute delle macchine, OEE via REST + i3X. Multi-tenant SaaS. CLI (openedge) con MCP server mode: 53 tool, l'agente costruisce l'impianto oltre a leggerlo. LoRaWAN auto-discovery + tag import + downlink. Tag Shadows (digital twin). Fleet OTA. SSO/OIDC. RBAC granulare. Slack/Teams/PagerDuty. InfluxDB connector. Usa openedge-ops per deploy/configurazione.
 version: 7.0.0
 tags: [industrial, iot, provisioning, alarms, historian, timeseries, scada, i3x, cesmii, monitoring, multi-tenant, saas, oee, webhooks, security, nis2, infrastructure, health, ota, fleet, lorawan, shadows, sso, oidc, rbac, cli, mcp, influxdb, slack, teams, pagerduty]
 ---
@@ -923,7 +923,14 @@ openedge forecast settings --scope org --id 1 --horizon 48      # cambia (admin)
 openedge forecast settings --scope tag --id 42 --kind degradation
 openedge forecast settings --scope gateway --id 7 --enabled inherit
 openedge forecast settings --scope site --id 3 --clear
+openedge forecast setup                                         # cosa c'è e cosa manca, con il comando per ognuno
 openedge forecast production [--site Sorical]                   # OEE a fine turno, totali turno/giorno/mese
+openedge shifts list
+openedge shifts create --name Mattino --start 06:00 --end 14:00 --days 1,2,3,4,5
+openedge shifts update --id 4 --end 13:30                       # solo i campi dati
+openedge maintenance create --title "Revisione pompe" --start "2026-11-03 08:00" --end "2026-11-03 12:00"
+openedge oee-profiles create --name "Linea 1" --run-tag 119 --produced-tag 120 --good-tag 121 --target-pph 600
+openedge oee-profiles update --id 2 --target-oee 80
 openedge forecast machines list                                 # salute 0–100 di ogni macchina
 openedge forecast machines show --id 4
 openedge forecast machines create --name "Compressore 3" --tags 120,121,122 --state-tag 119   # admin
@@ -973,10 +980,10 @@ client remoto. Gli stessi 39 tool su entrambi i trasporti.
 }
 ```
 
-Dopo la configurazione, Claude Code vede 43 tool nativi OpenEdge e 4 prompt guidati
-(`daily-digest`, `offline-triage`, `forecast-review`, `commission-gateway`).
+Dopo la configurazione, Claude Code vede 53 tool nativi OpenEdge e 5 prompt guidati
+(`daily-digest`, `offline-triage`, `forecast-review`, `forecast-setup`, `commission-gateway`).
 
-I primi 26 **leggono** un impianto (18 su stato, allarmi e storico, 8 su previsioni, macchine e produzione). I restanti lo **costruiscono**: gerarchia,
+I primi 27 **leggono** un impianto (18 su stato, allarmi e storico, 9 su previsioni, macchine, produzione e configurazione). I restanti lo **costruiscono**: gerarchia,
 gateway con il loro driver, tag, tipi definiti dall'utente e pagine sinottiche.
 Un agente può quindi mettere in servizio una linea da zero — sito, area,
 gateway Modbus, tipo «Motore», dieci istanze, pagina sinottica — senza toccare
@@ -1012,6 +1019,7 @@ l'interfaccia.
 | `refresh_tag_forecast` | POST /api/tags/{id}/forecast/refresh |
 | `get_forecast_settings` | GET /api/forecast/profiles |
 | `set_forecast_settings` (cambia solo i campi dati; `inherit`, `clear`) | PUT /api/forecast/profiles |
+| `get_forecast_setup` (passi fatto / da fare / facoltativo, con il tool per ognuno) | più GET |
 | `get_production_forecast` (filtro `site`) | GET /api/forecast/oee + periods di /api/forecast/overview |
 | `list_machines` | GET /api/forecast/assets |
 | `get_machine` | GET /api/forecast/assets/{id} |
@@ -1019,7 +1027,25 @@ l'interfaccia.
 | `delete_machine` | DELETE /api/forecast/assets/{id} |
 | `create_machines_from_gateways` | POST /api/forecast/assets/from-gateways |
 
-Prompt guidato: `forecast-review` (tag che usciranno dalle soglie, tag in degrado).
+Prompt guidati: `forecast-review` (tag che usciranno dalle soglie, tag in degrado),
+`forecast-setup` (configura passo per passo, chiede conferma prima di scrivere).
+
+**Calendario dell'impianto** — turni, manutenzioni, profili OEE (letti dalle
+previsioni e dalla pagina OEE). `save_*` senza `id` crea, con `id` cambia solo
+i campi dati (il resto resta com'è):
+
+| Tool MCP | Equivalente REST |
+|----------|-----------------|
+| `list_shifts` / `save_shifts` / `delete_shifts` | /api/shifts (`name`, `start_time`/`end_time` HH:MM, `weekdays` 0=dom…6=sab, `active`) |
+| `list_maintenance` / `save_maintenance` / `delete_maintenance` | /api/maintenance (`title`, `start_at`/`end_at` RFC3339 o "2026-11-03 08:00", `reason`) |
+| `list_oee_profiles` / `save_oee_profiles` / `delete_oee_profiles` | /api/oee/profiles (`run_time_tag_id`, `produced_tag_id`, `good_tag_id`, `target_pieces_per_hour`, `target_oee`) |
+
+**Configurare le previsioni da zero** (agente o CLI), sempre chiedendo conferma
+prima di scrivere: `get_forecast_setup` → `create_machines_from_gateways` →
+`save_machine` con `state_tag_id` dove una macchina si ferma → `save_shifts` →
+`save_maintenance` (facoltativo) → `save_oee_profiles` dove si contano pezzi →
+`set_forecast_settings` per orizzonte/storico di un sito → `get_forecast_setup`.
+Orari e tag si chiedono all'utente, non si inventano.
 
 **Provisioning** — costruire l'impianto:
 

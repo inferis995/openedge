@@ -58,7 +58,10 @@ func TestSaveMachineNewNeedsNameAndTags(t *testing.T) {
 		t.Error("a machine without tags was accepted")
 	}
 	var sent machineInput
-	post = func(path string, body interface{}) ([]byte, error) { sent = body.(machineInput); return []byte("{}"), nil }
+	post = func(path string, body interface{}) ([]byte, error) {
+		sent = body.(machineInput)
+		return []byte("{}"), nil
+	}
 	if _, err := saveMachine(nil, post, nil, 0, &machineChanges{Name: &name, Tags: []int{1}}); err != nil {
 		t.Fatal(err)
 	}
