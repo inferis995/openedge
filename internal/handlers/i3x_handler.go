@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/ralph/industrial-edge-middleware/internal/i3x"
 	"github.com/ralph/industrial-edge-middleware/internal/middleware"
 
@@ -1278,12 +1279,16 @@ func (h *I3XHandler) AcknowledgeAlarm(c *gin.Context) {
 		return
 	}
 
-	// Get username from JWT claims.
+	// Get username from JWT claims (stored as jwt.MapClaims by RequireAuth).
 	var username string
 	if raw, exists := c.Get(middleware.UserKey); exists {
-		if claims, ok := raw.(map[string]interface{}); ok {
+		if claims, ok := raw.(jwt.MapClaims); ok {
 			username, _ = claims["username"].(string)
 		}
+	}
+	if username == "" {
+		c.JSON(http.StatusForbidden, gin.H{"code": "NO_USER", "message": "Cannot determine user from session"})
+		return
 	}
 
 	result, err := h.db.ExecContext(context.Background(), `

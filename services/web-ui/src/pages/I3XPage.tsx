@@ -475,12 +475,14 @@ export default function I3XPage() {
         if (selectedEq) loadProperties(selectedEq);
     };
 
-    // One alarm per tag+type (latest event wins): the engine used to stack a
-    // new open row every cycle for acknowledged alarms, inflating the count.
+    // One row per tag+type+severity (latest event wins): the engine used to
+    // stack a new open row every cycle for acknowledged alarms, inflating
+    // the count. Severity is part of the key so e.g. a warning and a
+    // critical on the same tag+type both stay visible.
     const openAlarms = [...alarms
         .filter(a => a.status !== 'Cleared')
         .reduce((m, a) => {
-            const k = `${a.propertyId}|${a.alarmType}`;
+            const k = `${a.propertyId}|${a.alarmType}|${a.severity}`;
             if (!m.has(k)) m.set(k, a);
             return m;
         }, new Map<string, typeof alarms[number]>())
