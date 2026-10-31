@@ -69,6 +69,22 @@ updates:
           - "jsdom"
           - "@testing-library/*"
         update-types: [minor, patch]
+      # A Vite major needs its plugins' majors in the same change (plugin-react
+      # declares one Vite major as its peer): one at a time, npm refuses the
+      # install and the PR can never go green.
+      vite-major:
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "vitest"
+          - "@vitest/*"
+        update-types: [major]
+    ignore:
+      # typescript-eslint, which lints the project, supports TypeScript below
+      # 6.1 only: a TypeScript major PR cannot install. Remove this once
+      # typescript-eslint's peer range includes the new major.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   # ── Container base images ─────────────────────────────────────────────────
   #
