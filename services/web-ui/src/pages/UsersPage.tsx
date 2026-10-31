@@ -114,14 +114,14 @@ const ScopeSelector = ({
     const allAreas = selectedAreaIds.length === 0;
 
     return (
-        <div className="col-span-4 space-y-3 border border-border rounded-md p-3 bg-muted/30">
+        <div className="space-y-3 border border-border rounded-md p-3 bg-muted/30">
             {/* Site scope */}
             <div>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                     <MapPin size={13} className="text-muted-foreground" />
                     <span className="text-sm font-medium">{t('usersPage.scope_sites')}</span>
                     {allSites && (
-                        <span className="text-xs text-muted-foreground ml-auto">{t('usersPage.scope_all_sites')}</span>
+                        <span className="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto">{t('usersPage.scope_all_sites')}</span>
                     )}
                 </div>
                 {loadingSites ? (
@@ -146,11 +146,11 @@ const ScopeSelector = ({
             {/* Area scope — visible only when at least one site is selected */}
             {selectedSiteIds.length > 0 && (
                 <div className="border-t border-border pt-3">
-                    <div className="flex items-center gap-2 mb-2">
+                    <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                         <Layers size={13} className="text-muted-foreground" />
                         <span className="text-sm font-medium">{t('usersPage.scope_areas')}</span>
                         {allAreas && (
-                            <span className="text-xs text-muted-foreground ml-auto">{t('usersPage.scope_all_areas')}</span>
+                            <span className="w-full text-xs text-muted-foreground sm:ml-auto sm:w-auto">{t('usersPage.scope_all_areas')}</span>
                         )}
                     </div>
                     {loadingAreas ? (
@@ -414,31 +414,31 @@ const UsersPage = () => {
                             <DialogTitle>{t('usersPage.create_title')}</DialogTitle>
                         </DialogHeader>
                         <div className="grid gap-4 py-4">
-                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
-                                <Label htmlFor="username" className="text-right">{t('usersPage.username')}</Label>
+                            <div className="grid gap-1.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-4">
+                                <Label htmlFor="username" className="sm:text-right">{t('usersPage.username')}</Label>
                                 <Input
                                     id="username"
                                     value={newUsername}
                                     onChange={(e) => setNewUsername(e.target.value)}
-                                    className="col-span-3"
+                                    className="w-full"
                                     placeholder={t('usersPage.username_placeholder')}
                                 />
                             </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
-                                <Label htmlFor="password" className="text-right">{t('usersPage.password')}</Label>
+                            <div className="grid gap-1.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-4">
+                                <Label htmlFor="password" className="sm:text-right">{t('usersPage.password')}</Label>
                                 <Input
                                     id="password"
                                     type="password"
                                     value={newPassword}
                                     onChange={(e) => setNewPassword(e.target.value)}
-                                    className="col-span-3"
+                                    className="w-full"
                                     placeholder={t('usersPage.password_placeholder')}
                                 />
                             </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
-                                <Label htmlFor="role" className="text-right">{t('usersPage.role')}</Label>
+                            <div className="grid gap-1.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-4">
+                                <Label htmlFor="role" className="sm:text-right">{t('usersPage.role')}</Label>
                                 <Select value={newRole} onValueChange={(v) => setNewRole(v as 'admin' | 'user')}>
-                                    <SelectTrigger className="col-span-3">
+                                    <SelectTrigger className="w-full">
                                         <SelectValue placeholder={t('usersPage.select_role')} />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -447,23 +447,23 @@ const UsersPage = () => {
                                     </SelectContent>
                                 </Select>
                             </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
-                                <Label htmlFor="fullname" className="text-right">{t('usersPage.full_name')}</Label>
+                            <div className="grid gap-1.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-4">
+                                <Label htmlFor="fullname" className="sm:text-right">{t('usersPage.full_name')}</Label>
                                 <Input
                                     id="fullname"
                                     value={newFullName}
                                     onChange={(e) => setNewFullName(e.target.value)}
-                                    className="col-span-3"
+                                    className="w-full"
                                     placeholder={t('usersPage.full_name_placeholder')}
                                 />
                             </div>
-                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
-                                <Label htmlFor="org" className="text-right">{t('common.organization')}</Label>
+                            <div className="grid gap-1.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-4">
+                                <Label htmlFor="org" className="sm:text-right">{t('common.organization')}</Label>
                                 <Select
                                     value={newOrgId?.toString() || 'global'}
                                     onValueChange={(v) => setNewOrgId(v === 'global' ? null : parseInt(v))}
                                 >
-                                    <SelectTrigger className="col-span-3">
+                                    <SelectTrigger className="w-full">
                                         <SelectValue placeholder={t('common.select_organization')} />
                                     </SelectTrigger>
                                     <SelectContent>
@@ -489,12 +489,12 @@ const UsersPage = () => {
                             )}
 
                             {newRole !== 'admin' && (
-                                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
-                                    <Label className="text-right flex items-center justify-end gap-1">
+                                <div className="grid gap-1.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-4">
+                                    <Label className="flex items-center gap-1 sm:justify-end sm:text-right">
                                         <Network size={13} className="text-muted-foreground" />
                                         {t('usersPage.write_permission')}
                                     </Label>
-                                    <div className="col-span-3 flex items-center gap-3">
+                                    <div className="flex items-center gap-3">
                                         <Switch
                                             checked={newI3xWrite}
                                             onCheckedChange={setNewI3xWrite}
@@ -684,21 +684,21 @@ const UsersPage = () => {
                         <DialogTitle>{t('usersPage.edit_title', { name: selectedUser?.username })}</DialogTitle>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
-                        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-password" className="text-right">{t('usersPage.new_password')}</Label>
+                        <div className="grid gap-1.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-4">
+                            <Label htmlFor="edit-password" className="sm:text-right">{t('usersPage.new_password')}</Label>
                             <Input
                                 id="edit-password"
                                 type="password"
                                 value={editPassword}
                                 onChange={(e) => setEditPassword(e.target.value)}
-                                className="col-span-3"
+                                className="w-full"
                                 placeholder={t('usersPage.new_password_placeholder')}
                             />
                         </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-role" className="text-right">{t('usersPage.role')}</Label>
+                        <div className="grid gap-1.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-4">
+                            <Label htmlFor="edit-role" className="sm:text-right">{t('usersPage.role')}</Label>
                             <Select value={editRole} onValueChange={(v) => setEditRole(v as 'admin' | 'user')}>
-                                <SelectTrigger className="col-span-3">
+                                <SelectTrigger className="w-full">
                                     <SelectValue placeholder={t('usersPage.select_role')} />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -707,22 +707,22 @@ const UsersPage = () => {
                                 </SelectContent>
             </Select>
                         </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-fullname" className="text-right">{t('usersPage.full_name')}</Label>
+                        <div className="grid gap-1.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-4">
+                            <Label htmlFor="edit-fullname" className="sm:text-right">{t('usersPage.full_name')}</Label>
                             <Input
                                 id="edit-fullname"
                                 value={editFullName}
                                 onChange={(e) => setEditFullName(e.target.value)}
-                                className="col-span-3"
+                                className="w-full"
                             />
                         </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
-                            <Label htmlFor="edit-org" className="text-right">{t('common.organization')}</Label>
+                        <div className="grid gap-1.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-4">
+                            <Label htmlFor="edit-org" className="sm:text-right">{t('common.organization')}</Label>
                             <Select
                                 value={editOrgId?.toString() || 'global'}
                                 onValueChange={(v) => setEditOrgId(v === 'global' ? null : parseInt(v))}
                             >
-                                <SelectTrigger className="col-span-3">
+                                <SelectTrigger className="w-full">
                                     <SelectValue placeholder={t('common.select_organization')} />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -748,12 +748,12 @@ const UsersPage = () => {
                         )}
 
                         {editRole !== 'admin' && (
-                            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 items-center gap-4">
-                                <Label className="text-right flex items-center justify-end gap-1">
+                            <div className="grid gap-1.5 sm:grid-cols-[9rem_minmax(0,1fr)] sm:items-center sm:gap-4">
+                                <Label className="flex items-center gap-1 sm:justify-end sm:text-right">
                                     <Network size={13} className="text-muted-foreground" />
                                     {t('usersPage.write_permission')}
                                 </Label>
-                                <div className="col-span-3 flex items-center gap-3">
+                                <div className="flex items-center gap-3">
                                     <Switch
                                         checked={editI3xWrite}
                                         onCheckedChange={setEditI3xWrite}
