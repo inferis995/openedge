@@ -1,0 +1,7 @@
+# Packages this service does not import but its dependencies bring in (torch,
+# huggingface_hub), raised to the releases that fix advisories the image scan
+# reports. Installed last, so they replace whatever version came with the
+# dependency. Remove a line once the dependency itself requires the fixed one.
+setuptools==84.2.1   # CVE-2025-47273; its vendored wheel (CVE-2026-24049) and jaraco.context (CVE-2026-23949)
+urllib3==2.8.0       # CVE-2026-97687, CVE-2026-97689
+msgpack==1.2.4       # CVE-2026-114613, GHSA-6v7p-g79w-8964
