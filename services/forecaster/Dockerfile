@@ -17,11 +17,12 @@ ARG TIMESTRAL_REF=a534bdbd244d64f3d9d743f46c7bf6fc330ed4ff
 
 RUN python -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
-COPY services/forecaster/requirements.txt /tmp/requirements.txt
+COPY services/forecaster/requirements.txt services/forecaster/requirements-security.txt /tmp/
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu "torch==${TORCH_VERSION}" \
     && pip install --no-cache-dir -r /tmp/requirements.txt \
     && pip install --no-cache-dir --no-deps "timestral @ git+https://github.com/mistralai/timestral.git@${TIMESTRAL_REF}" \
+    && pip install --no-cache-dir --upgrade -r /tmp/requirements-security.txt \
     && python -c "import torch, timestral; print('torch', torch.__version__)"
 
 # Runtime stage.
