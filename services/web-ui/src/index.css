@@ -424,6 +424,27 @@ layer(base);
         content: none;
     }
 
+    /* The bordered box a table sits in on a desktop would draw a second
+       frame around the cards: the cards are the frame on a phone. */
+    .border:has(> div > table.responsive-table) {
+        border-color: transparent;
+        background: transparent;
+    }
+    table.responsive-table tbody tr:last-child {
+        margin-bottom: 0;
+    }
+
+    /* A long URL, key or ID wraps inside its card instead of being cut off:
+       a desktop cell truncates it, a card has the room to show it all. */
+    table.responsive-table tbody td {
+        overflow-wrap: anywhere;
+    }
+    table.responsive-table tbody td.truncate,
+    table.responsive-table tbody td .truncate {
+        white-space: normal;
+        overflow: visible;
+    }
+
     /* An empty state spans every column and is a sentence, not a pair. */
     table.responsive-table tbody td[colspan]::before {
         content: none;
