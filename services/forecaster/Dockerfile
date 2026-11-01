@@ -23,7 +23,12 @@ RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /tmp/requirements.txt \
     && pip install --no-cache-dir --no-deps "timestral @ git+https://github.com/mistralai/timestral.git@${TIMESTRAL_REF}" \
     && pip install --no-cache-dir --upgrade -r /tmp/requirements-security.txt \
-    && python -c "import torch, timestral; print('torch', torch.__version__)"
+    && python -c "import torch, timestral; print('torch', torch.__version__)" \
+    # pip is only needed to build the venv. It ships its own copies of urllib3,
+    # msgpack and pkg_resources (declared in its SBOM), which the image scan
+    # reports whatever versions the venv has; the service never installs
+    # anything at run time.
+    && python -m pip uninstall -y pip
 
 # Runtime stage.
 FROM python:3.13-slim
@@ -32,7 +37,9 @@ FROM python:3.13-slim
 # the Alpine images' `apk upgrade`).
 RUN apt-get update \
     && apt-get upgrade -y \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # The base image's own pip, unused here, for the same reason as above.
+    && python -m pip uninstall -y pip
 
 RUN useradd --system --uid 10001 --home-dir /app forecaster \
     && mkdir -p /app /models \

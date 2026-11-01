@@ -29,6 +29,7 @@ on:
       - "services/web-ui/package.json"
       - "services/web-ui/package-lock.json"
       - "services/*/Dockerfile"
+      - "services/forecaster/requirements*.txt"
       - "scripts/*-gate.sh"
       - ".github/workflows/security.yml"
 
