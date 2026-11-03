@@ -91,6 +91,8 @@ export interface TagForecast {
     risks: ForecastRisk[];
     anomaly?: ForecastAnomaly;
     periods: PeriodTotal[];
+    /** Status ok because the signal has nothing more to predict than "it stays around where it is". */
+    stable?: boolean;
 }
 
 export type ForecastScope = 'org' | 'site' | 'area' | 'gateway' | 'tag';
@@ -152,12 +154,14 @@ export interface ForecastOverviewTag {
     anomaly?: ForecastAnomaly;
     /** Counters and states: totals by the end of the shift, the day, the month. */
     periods?: PeriodTotal[];
+    /** Status ok as "it stays around where it is". */
+    stable?: boolean;
 }
 
 export interface ForecastOverview {
     /** Engines the server forecasts with, statistical first. */
     engines: string[];
-    summary: Partial<Record<ForecastStatus | 'total' | 'at_risk' | 'anomalous', number>>;
+    summary: Partial<Record<ForecastStatus | 'total' | 'at_risk' | 'anomalous' | 'stable', number>>;
     tags: ForecastOverviewTag[];
 }
 

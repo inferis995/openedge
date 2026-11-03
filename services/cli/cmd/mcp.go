@@ -550,7 +550,8 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 		{
 			Name: "get_forecast_overview",
 			Description: "Every forecastable tag of the current organization with its forecast status " +
-				"(ok, unreliable, learning, disabled, error, pending), signal kind, skill against a naive " +
+				"(ok, unreliable, learning, disabled, error, pending; ok with stable=true means the signal has " +
+				"nothing more to predict than staying around its current value), signal kind, skill against a naive " +
 				"forecast, the value expected at the end of the horizon with its P10–P90 band, the alarm " +
 				"rules it may trip (risks: likelihood almost_certain / likely / possible, or trend = remaining " +
 				"useful life, with when) and whether recent values fell outside the previous forecast (anomaly)",

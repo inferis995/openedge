@@ -16,7 +16,7 @@ import { SettingsCard } from '@/components/settings/SettingsCard';
 import { UPlotChart, type PenSeries } from '@/components/historian/UPlotChart';
 import { ForecastProfileForm } from '@/components/forecast/ForecastProfileForm';
 import { TagForecastTab } from '@/components/tags/TagForecastTab';
-import { FORECAST_STATUS_VARIANT, forecastProfileKey, isSerious, tagForecastKey } from '@/lib/forecastUi';
+import { SHOWN_STATUS_VARIANT, forecastProfileKey, isSerious, shownStatus, tagForecastKey } from '@/lib/forecastUi';
 import { ForecastRiskList } from '@/components/forecast/ForecastRisks';
 import { MachinesSection } from '@/components/forecast/MachinesSection';
 import { ProductionSection } from '@/components/forecast/ProductionSection';
@@ -216,7 +216,7 @@ function TagsSection({ tags }: { tags: ForecastOverviewTag[] }) {
                                         <div className="truncate font-medium">{tg.alias}</div>
                                         <div className="truncate text-xs text-muted-foreground">{tg.area_name} · {tg.gateway_name}</div>
                                     </div>
-                                    <Badge variant={FORECAST_STATUS_VARIANT[tg.status]} className="shrink-0">{t(`forecast.status_${tg.status}`)}</Badge>
+                                    <Badge variant={SHOWN_STATUS_VARIANT[shownStatus(tg.status, tg.stable)]} className="shrink-0">{t(`forecast.status_${shownStatus(tg.status, tg.stable)}`)}</Badge>
                                 </div>
                                 {(tg.risks ?? []).length > 0 && <div className="mt-2"><RiskCell tag={tg} /></div>}
                                 <div className="mt-2 flex items-end justify-between gap-3">
@@ -250,7 +250,7 @@ function TagsSection({ tags }: { tags: ForecastOverviewTag[] }) {
                                     </TableCell>
                                     <TableCell className="text-sm">{tg.kind ? t(`forecast.kind_short_${tg.kind}`) : '—'}</TableCell>
                                     <TableCell>
-                                        <Badge variant={FORECAST_STATUS_VARIANT[tg.status]} title={tg.reason}>{t(`forecast.status_${tg.status}`)}</Badge>
+                                        <Badge variant={SHOWN_STATUS_VARIANT[shownStatus(tg.status, tg.stable)]} title={tg.reason}>{t(`forecast.status_${shownStatus(tg.status, tg.stable)}`)}</Badge>
                                     </TableCell>
                                     <TableCell><RiskCell tag={tg} /></TableCell>
                                     <TableCell className="text-right"><SkillBar skill={tg.skill} /></TableCell>

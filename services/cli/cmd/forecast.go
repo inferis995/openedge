@@ -119,6 +119,8 @@ type forecastRowOut struct {
 	Risks        []forecastRisk  `json:"risks,omitempty"`
 	Anomaly      json.RawMessage `json:"anomaly,omitempty"`
 	Periods      []periodTotal   `json:"periods,omitempty"`
+	// Stable: ok as "it stays around where it is".
+	Stable bool `json:"stable,omitempty"`
 }
 
 // forecastRisk is an alarm rule the forecast may trip.
@@ -195,8 +197,12 @@ func runForecastList(_ *cobra.Command, _ []string) {
 			k := r.Risks[0]
 			risk = fmt.Sprintf("%s %s %g at %s", k.Likelihood, k.Type, k.Threshold, k.At)
 		}
+		status := r.Status
+		if r.Stable && status == "ok" {
+			status = "ok (stable)"
+		}
 		fmt.Fprintf(w, "%d\t%s\t%s / %s / %s\t%s\t%s\t%s\t%s\t%s\n", r.TagID, r.Alias, r.SiteName, r.AreaName, r.GatewayName,
-			orDash(r.Kind), r.Status, fmtNum(r.Skill), expected, risk)
+			orDash(r.Kind), status, fmtNum(r.Skill), expected, risk)
 	}
 	_ = w.Flush()
 }

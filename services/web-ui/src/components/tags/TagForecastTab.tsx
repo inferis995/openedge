@@ -8,7 +8,7 @@ import { forecastApi, type ForecastStatus, type TagForecast } from '@/api/foreca
 import { ForecastProfileForm } from '@/components/forecast/ForecastProfileForm';
 import { ForecastAnomalyNote, ForecastRiskList } from '@/components/forecast/ForecastRisks';
 import { PeriodTotalsList } from '@/components/forecast/PeriodTotals';
-import { FORECAST_STATUS_VARIANT, forecastProfileKey, tagForecastKey } from '@/lib/forecastUi';
+import { SHOWN_STATUS_VARIANT, forecastProfileKey, shownStatus, tagForecastKey } from '@/lib/forecastUi';
 import { timeAgo } from '@/lib/relativeTime';
 import { showApiError } from '@/lib/api-error-handler';
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -75,6 +75,7 @@ function pct(x: number | undefined) {
 export function ForecastStatusCard({ forecast, unit }: { forecast?: TagForecast; unit?: string }) {
     const { t, i18n } = useTranslation();
     const status: ForecastStatus = forecast?.status ?? 'pending';
+    const shown = shownStatus(status, forecast?.stable);
     const rows: [string, string][] = forecast && (status === 'ok' || status === 'unreliable') ? [
         [t('forecast.kind_detected'), forecast.kind ? t(`forecast.kind_${forecast.kind}`) : '—'],
         [t('forecast.engine'), forecast.model ? `${forecast.engine} · ${forecast.model}` : (forecast.engine ?? '—')],
@@ -86,9 +87,9 @@ export function ForecastStatusCard({ forecast, unit }: { forecast?: TagForecast;
         <section className="rounded-lg border bg-card p-4 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
                 <h3 className="text-sm font-semibold">{t('forecast.status_title')}</h3>
-                <Badge variant={FORECAST_STATUS_VARIANT[status]}>{t(`forecast.status_${status}`)}</Badge>
+                <Badge variant={SHOWN_STATUS_VARIANT[shown]}>{t(`forecast.status_${shown}`)}</Badge>
             </div>
-            <p className="text-sm text-muted-foreground">{t(`forecast.desc_${status}`)}</p>
+            <p className="text-sm text-muted-foreground">{t(`forecast.desc_${shown}`)}</p>
             {rows.length > 0 && (
                 <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
                     {rows.map(([k, v]) => (

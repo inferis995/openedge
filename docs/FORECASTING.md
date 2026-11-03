@@ -207,6 +207,30 @@ va diviso dopo, a mano.
       `GET /api/forecast/oee`; CLI `openedge forecast production [--site]`;
       MCP `get_production_forecast`.
 
+### Segnali stabili e centraline a pacchetti
+
+Una centralina che manda un pacchetto ogni 8 ore (con le letture delle 8 ore
+dentro) ha spesso segnali senza un andamento da prevedere: una pressione quasi
+piatta, un livello che cambia a scalini. Per loro la previsione migliore è
+proprio «resta dov'è», cioè quella ingenua, e il confronto finiva a +0,00 o
+−0,00 per puro rumore: lo stato saltava tra *affidabile* e *poco affidabile* a
+ogni giro. Tre regole lo evitano:
+
+- **Margine.** Affidabile se fa meglio della previsione ingenua di più di 0,05
+  (`StableMargin`); poco affidabile se fa peggio di più di 0,05. In mezzo, se
+  la fascia ha contenuto almeno il 60% dei valori veri, è **stabile**: stato
+  `ok` con `stable: true`. Viene disegnata, con soglie a rischio e valori fuori
+  fascia, e l'interfaccia la chiama *Stabile*.
+- **Solo con dati nuovi.** Il giro automatico non ricalcola un tag che non ha
+  letture più recenti di quelle già usate (`data_until` nei dettagli): la
+  previsione fatta all'arrivo del pacchetto resta valida fino al successivo.
+  Prima la stessa finestra di dati veniva rigiudicata ogni ora, sempre più
+  vuota. *Ricalcola ora*, un cambio di impostazioni o di macchina ricalcolano
+  comunque.
+- Una previsione **poco affidabile non viene disegnata**: sui dati passati ha
+  sbagliato più di «resta com'è», e mostrarla farebbe prendere per previsione
+  qualcosa che ne sa meno dell'ultima lettura.
+
 ### Configurazione
 
 Pagina Previsioni → Impostazioni: una guida passo per passo (tag con storico,
