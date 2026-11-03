@@ -23,7 +23,7 @@ export interface Pen {
     /** The tag's gateway: when it last reported, and whether it is online. */
     contact?: { at: number | null; online: boolean } | null;
     /** The tag's forecast, when forecasts are shown: whether it is drawn, and why not. */
-    forecast?: { status: ForecastStatus; reason?: string } | null;
+    forecast?: { status: ForecastStatus; reason?: string; stable?: boolean } | null;
 }
 
 /** "4 h ago", in the user's language. */
@@ -172,7 +172,7 @@ export function PenPanel({ pens, onToggleVisibility, onRemove, onColorChange }: 
                     {pen.forecast && (
                         <div className={`pl-5 mt-0.5 text-[10px] ${pen.forecast.status === 'ok' ? 'text-muted-foreground' : 'text-amber-600 dark:text-amber-500'}`}
                             title={pen.forecast.reason}>
-                            {t(`forecast.pen_${pen.forecast.status}`)}
+                            {t(`forecast.pen_${pen.forecast.status === 'ok' && pen.forecast.stable ? 'stable' : pen.forecast.status}`)}
                         </div>
                     )}
                 </div>

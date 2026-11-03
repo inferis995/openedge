@@ -105,7 +105,65 @@ func (r *Runner) RunDue(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	tags = r.skipUnchanged(ctx, tags)
 	return len(tags), r.forecast(ctx, tags)
+}
+
+// skipUnchanged drops the due tags that have no reading newer than the one
+// their forecast was made from, and puts them back in the queue. A data
+// logger that delivers every 8 hours otherwise had the same data judged again
+// every hour on a window that kept shifting into the empty hours since its
+// last frame — and its verdict flipped with nothing new to go on. The forecast
+// made when the data arrived stands until more data does.
+//
+// Only reliable and unreliable forecasts are kept like this: learning, error
+// and disabled ones run on their own schedule. A profile or machine change
+// clears data_until, so it is always forecast again.
+func (r *Runner) skipUnchanged(ctx context.Context, tags []tagRow) []tagRow {
+	if len(tags) == 0 {
+		return tags
+	}
+	ids := make([]int, len(tags))
+	for i, t := range tags {
+		ids[i] = t.id
+	}
+	rows, err := r.DB.QueryContext(ctx, `
+		SELECT f.tag_id FROM tag_forecasts f
+		WHERE f.tag_id = ANY($1) AND f.status IN ('ok', 'unreliable')
+		  AND f.details ? 'data_until' AND f.details->>'data_until' IS NOT NULL
+		  AND NOT EXISTS (SELECT 1 FROM tag_history h
+		                  WHERE h.tag_id = f.tag_id AND h.time > (f.details->>'data_until')::timestamptz)`,
+		pq.Array(ids))
+	if err != nil {
+		return tags // cannot tell: forecast them all, as before
+	}
+	same := map[int]bool{}
+	var skipped []int64
+	for rows.Next() {
+		var id int
+		if rows.Scan(&id) == nil {
+			same[id] = true
+			skipped = append(skipped, int64(id))
+		}
+	}
+	_ = rows.Close()
+	if len(skipped) == 0 {
+		return tags
+	}
+	// Back in the queue on the usual cadence for its step.
+	if _, err := r.DB.ExecContext(ctx, `
+		UPDATE tag_forecasts
+		SET next_run_at = $2::timestamptz + make_interval(secs => LEAST(GREATEST(4 * step_seconds, 900), 21600))
+		WHERE tag_id = ANY($1)`, pq.Array(skipped), r.Now()); err != nil {
+		log.Printf("[FORECAST] reschedule unchanged: %v", err)
+	}
+	out := tags[:0]
+	for _, t := range tags {
+		if !same[t.id] {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // RunTags forecasts the given tags now, due or not.
@@ -392,10 +450,14 @@ type details struct {
 	Model   string            `json:"model,omitempty"`
 	// StateTagID: forecast from running time only, as said by this tag.
 	StateTagID int `json:"state_tag_id,omitempty"`
+	// Stable: reliable as "it stays around where it is" (Result.Stable).
+	Stable bool `json:"stable,omitempty"`
+	// data_until, the time of the newest reading the forecast had, is added
+	// by store's SQL: a run with nothing newer is skipped (skipUnchanged).
 }
 
 func (r *Runner) store(ctx context.Context, res *Result, step time.Duration, now time.Time) error {
-	d := details{Period: res.Period, Engines: res.Engines, Errors: res.Errors, StateTagID: res.StateTagID}
+	d := details{Period: res.Period, Engines: res.Engines, Errors: res.Errors, StateTagID: res.StateTagID, Stable: res.Stable}
 	for _, e := range r.Engines {
 		if rm, ok := e.(*Remote); ok && res.Engine == rm.Name() {
 			d.Model = rm.Model
@@ -442,7 +504,10 @@ func (r *Runner) store(ctx context.Context, res *Result, step time.Duration, now
 		INSERT INTO tag_forecasts (tag_id, status, reason, kind, engine, step_seconds, start_at,
 		                           quantiles, skill, coverage, details, generated_at, next_run_at,
 		                           risks, anomaly, periods)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11::jsonb, $12, $13, $14::jsonb, $15::jsonb, $16::jsonb)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10,
+		        $11::jsonb || jsonb_build_object('data_until',
+		            (SELECT max(time) FROM tag_history WHERE tag_id = $1 AND time <= $12)),
+		        $12, $13, $14::jsonb, $15::jsonb, $16::jsonb)
 		ON CONFLICT (tag_id) DO UPDATE SET
 			status = EXCLUDED.status, reason = EXCLUDED.reason, kind = EXCLUDED.kind,
 			engine = EXCLUDED.engine, step_seconds = EXCLUDED.step_seconds,

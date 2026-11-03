@@ -270,7 +270,7 @@ func (h *ForecastHandler) saveAsset(c *gin.Context, id int) {
 	}
 	if err == nil {
 		// The members are forecast again with the machine's running state.
-		_, err = tx.ExecContext(ctx, `UPDATE tag_forecasts SET next_run_at = NOW() WHERE tag_id = ANY($1)`, pq.Array(in.TagIDs))
+		_, err = tx.ExecContext(ctx, `UPDATE tag_forecasts SET next_run_at = NOW(), details = details - 'data_until' WHERE tag_id = ANY($1)`, pq.Array(in.TagIDs))
 	}
 	if err == nil {
 		err = tx.Commit()

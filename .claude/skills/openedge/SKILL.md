@@ -431,6 +431,7 @@ dati già noti contro "ripeti l'ultimo valore":
 | status | significato | come presentarla |
 |---|---|---|
 | `ok` | ha battuto la previsione ingenua | previsione, con la sua fascia P10–P90 |
+| `ok` + `stable: true` | pari alla previsione ingenua (±0,05) con fascia che regge | «resta intorno a X», con la fascia: non è un difetto |
 | `unreliable` | non l'ha battuta | **non** è una previsione: dirlo |
 | `learning` | storico insufficiente | non disponibile |
 | `disabled` | spenta da un profilo o dal modulo `forecast` | non disponibile |
