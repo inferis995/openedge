@@ -1,6 +1,6 @@
 module github.com/ralph/industrial-edge-middleware
 
-go 1.26.0
+go 1.26.10
 
 // Pinned, again, and for the reason the previous pin recorded before
 // Dependabot's PR #35 removed it along with the comment.
@@ -20,7 +20,7 @@ require (
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/dop251/goja v0.0.0-20260917113740-793a2a65c13b
 	github.com/eclipse/paho.mqtt.golang v1.5.1
-	github.com/gin-contrib/cors v1.7.9
+	github.com/gin-contrib/cors v1.7.10
 	github.com/gin-gonic/gin v1.12.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/gopcua/opcua v0.9.1
