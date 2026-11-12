@@ -789,7 +789,7 @@ read its comment for what that check does and does not prove.
 
 The same binary speaks [Model Context Protocol](https://modelcontextprotocol.io),
 so Claude Code — or any MCP client — can read plant data and act on it.
-**Thirty-nine tools**, covering tags, alarms, gateways, sites, areas, synoptics, UDT
+**Forty-three tools**, covering tags, alarms, gateways, sites, areas, synoptics, UDT
 types and instances, fleet, LoRaWAN and the AI-Ops endpoints.
 
 **Local — stdio.** The client starts the process and talks over its standard

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -617,6 +618,44 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 			}),
 		},
 		{
+			Name: "get_oee_history",
+			Description: "OEE history of one OEE profile with availability, performance and quality, " +
+				"bucketed by hour, day or shift. Use for trends and the OEE chart",
+			InputSchema: jsonSchema(map[string]interface{}{
+				"profile_id": propInt("The OEE profile ID (list_oee_profiles)"),
+				"from":       propStr("Start, RFC3339 or YYYY-MM-DD (optional: defaults to 24 h ago)"),
+				"to":         propStr("End, RFC3339 or YYYY-MM-DD (optional: defaults to now)"),
+				"bucket":     propStr("hour, day or shift (optional: default hour)"),
+			}),
+		},
+		{
+			Name:        "get_oee_by_shift",
+			Description: "The OEE matrix by shift × day for one OEE profile: each shift of each day with availability, performance, quality and OEE. Use for the weekly shift table",
+			InputSchema: jsonSchema(map[string]interface{}{
+				"profile_id": propInt("The OEE profile ID (list_oee_profiles)"),
+				"from":       propStr("Start, RFC3339 or YYYY-MM-DD (optional)"),
+				"to":         propStr("End, RFC3339 or YYYY-MM-DD (optional)"),
+			}),
+		},
+		{
+			Name:        "get_loss_tree",
+			Description: "The loss tree of one OEE profile: every downtime category with total minutes, occurrences and percent of total, sorted by duration (the Pareto of causes). Use to answer 'why is OEE low'",
+			InputSchema: jsonSchema(map[string]interface{}{
+				"profile_id": propInt("The OEE profile ID (list_oee_profiles)"),
+				"from":       propStr("Start, RFC3339 or YYYY-MM-DD (optional)"),
+				"to":         propStr("End, RFC3339 or YYYY-MM-DD (optional)"),
+			}),
+		},
+		{
+			Name:        "get_oee_reliability",
+			Description: "MTBF and MTTR of one OEE profile over a period: uptime, number of breakdowns, mean time between failures and mean time to repair. Use for the maintenance diagnosis",
+			InputSchema: jsonSchema(map[string]interface{}{
+				"profile_id": propInt("The OEE profile ID (list_oee_profiles)"),
+				"from":       propStr("Start, RFC3339 or YYYY-MM-DD (optional)"),
+				"to":         propStr("End, RFC3339 or YYYY-MM-DD (optional)"),
+			}),
+		},
+		{
 			Name: "list_machines",
 			Description: "Machines of the current organization: tags grouped by equipment, each with a health " +
 				"score 0–100 (100 minus the worst problem among its tags: an alarm rule the forecast may trip, " +
@@ -1193,6 +1232,53 @@ func (s *mcpServer) executeTool(name string, args map[string]interface{}) (strin
 		}
 		out, _ := json.MarshalIndent(data, "", "  ")
 		return string(out), nil
+
+	case "get_oee_history", "get_oee_by_shift", "get_loss_tree":
+		profileID := intArg(args, "profile_id")
+		if profileID == 0 {
+			return "", fmt.Errorf("profile_id is required")
+		}
+		var path string
+		switch {
+		case strings.HasPrefix(name, "get_oee_history"):
+			path = "/api/oee/history-v2"
+		case strings.HasPrefix(name, "get_oee_by_shift"):
+			path = "/api/oee/by-shift"
+		default:
+			path = "/api/oee/loss-tree"
+		}
+		q := url.Values{}
+		q.Set("profile_id", strconv.Itoa(profileID))
+		if v := strArg(args, "from"); v != "" {
+			q.Set("from", v)
+		}
+		if v := strArg(args, "to"); v != "" {
+			q.Set("to", v)
+		}
+		if name == "get_oee_history" {
+			if v := strArg(args, "bucket"); v != "" {
+				q.Set("bucket", v)
+			}
+		}
+		return s.toolGet(path + "?" + q.Encode())
+
+	case "get_oee_reliability":
+		profileID := intArg(args, "profile_id")
+		if profileID == 0 {
+			return "", fmt.Errorf("profile_id is required")
+		}
+		q := url.Values{}
+		if v := strArg(args, "from"); v != "" {
+			q.Set("from", v)
+		}
+		if v := strArg(args, "to"); v != "" {
+			q.Set("to", v)
+		}
+		qs := ""
+		if len(q) > 0 {
+			qs = "?" + q.Encode()
+		}
+		return s.toolGet(fmt.Sprintf("/api/oee/profiles/%d/reliability%s", profileID, qs))
 
 	case "list_machines":
 		return s.toolGet("/api/forecast/assets")
