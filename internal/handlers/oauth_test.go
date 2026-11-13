@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"net/http/httptest"
@@ -237,7 +238,7 @@ func TestConsentCSPAllowsTheRedirectOrigin(t *testing.T) {
 	csp := func(redirect string) string {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
-		c.Request = httptest.NewRequest("GET", "/oauth/authorize", nil)
+		c.Request = httptest.NewRequestWithContext(context.Background(), "GET", "/oauth/authorize", nil)
 		renderConsent(c, consentView{Request: &authzRequest{ClientID: "cid", RedirectURI: redirect, Scope: ScopeRead}})
 		return rec.Header().Get("Content-Security-Policy")
 	}
@@ -281,7 +282,7 @@ func TestConsentPageOffersWriteOnlyWhenAsked(t *testing.T) {
 	page := func(scope string) string {
 		rec := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(rec)
-		c.Request = httptest.NewRequest("GET", "/oauth/authorize", nil)
+		c.Request = httptest.NewRequestWithContext(context.Background(), "GET", "/oauth/authorize", nil)
 		renderConsent(c, consentView{Request: &authzRequest{ClientID: "cid", RedirectURI: "https://claude.ai/cb", Scope: scope}})
 		return rec.Body.String()
 	}
