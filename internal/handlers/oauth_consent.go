@@ -4,6 +4,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -155,12 +156,26 @@ func renderConsent(c *gin.Context, view consentView) {
 	// A page that asks for a password must not be cached or framed.
 	c.Header("Cache-Control", "no-store")
 	c.Header("X-Frame-Options", "DENY")
-	c.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'")
+	c.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action "+consentFormAction(view))
 	c.Status(http.StatusOK)
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	if err := consentTmpl.Execute(c.Writer, view); err != nil {
 		log.Printf("[OAUTH] render consent: %v", err)
 	}
+}
+
+// Chromium applies form-action to the redirect after the post too: allow the
+// origin of the (already validated) redirect URI alongside 'self'.
+func consentFormAction(view consentView) string {
+	if view.Request == nil {
+		return "'self'"
+	}
+	u, err := url.Parse(view.Request.RedirectURI)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") ||
+		strings.ContainsAny(u.Host, " ;'\"") {
+		return "'self'"
+	}
+	return "'self' " + u.Scheme + "://" + u.Host
 }
 
 func renderAuthzError(c *gin.Context, message string) {

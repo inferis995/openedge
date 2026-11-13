@@ -229,3 +229,27 @@ func TestBaseURLPrefersTheConfiguredIssuer(t *testing.T) {
 		t.Fatalf("unexpected derived base URL: %q", got)
 	}
 }
+
+// Chromium checks form-action on the redirect that follows the post, so the
+// consent page has to allow the redirect URI's origin — and nothing else.
+func TestConsentCSPAllowsTheRedirectOrigin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	csp := func(redirect string) string {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest("GET", "/oauth/authorize", nil)
+		renderConsent(c, consentView{Request: &authzRequest{ClientID: "cid", RedirectURI: redirect, Scope: ScopeRead}})
+		return rec.Header().Get("Content-Security-Policy")
+	}
+	if got := csp("https://claude.ai/api/mcp/auth_callback"); !strings.Contains(got, "form-action 'self' https://claude.ai") {
+		t.Errorf("redirect origin not allowed: %q", got)
+	}
+	for _, bad := range []string{"javascript:alert(1)", "https://a.example;script-src *", ""} {
+		if got := csp(bad); !strings.HasSuffix(got, "form-action 'self'") {
+			t.Errorf("%q: want only 'self', got %q", bad, got)
+		}
+	}
+	if got := consentFormAction(consentView{}); got != "'self'" {
+		t.Errorf("no request: got %q", got)
+	}
+}
