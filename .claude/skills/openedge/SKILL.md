@@ -1,6 +1,6 @@
 ---
 name: openedge
-description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, previsioni (Timestral) e salute delle macchine, OEE via REST + i3X. Multi-tenant SaaS. CLI (openedge) con MCP server mode: 53 tool, l'agente costruisce l'impianto oltre a leggerlo. LoRaWAN auto-discovery + tag import + downlink. Tag Shadows (digital twin). Fleet OTA. SSO/OIDC. RBAC granulare. Slack/Teams/PagerDuty. InfluxDB connector. Usa openedge-ops per deploy/configurazione.
+description: OpenEdge Industrial IoT — monitor allarmi, leggi dati real-time, storico, anomalie, previsioni (Timestral) e salute delle macchine, OEE via REST + i3X. Multi-tenant SaaS. CLI (openedge) con MCP server mode: 57 tool, l'agente costruisce l'impianto oltre a leggerlo. LoRaWAN auto-discovery + tag import + downlink. Tag Shadows (digital twin). Fleet OTA. SSO/OIDC. RBAC granulare. Slack/Teams/PagerDuty. InfluxDB connector. Usa openedge-ops per deploy/configurazione.
 version: 7.0.0
 tags: [industrial, iot, provisioning, alarms, historian, timeseries, scada, i3x, cesmii, monitoring, multi-tenant, saas, oee, webhooks, security, nis2, infrastructure, health, ota, fleet, lorawan, shadows, sso, oidc, rbac, cli, mcp, influxdb, slack, teams, pagerduty]
 ---
@@ -431,6 +431,7 @@ dati già noti contro "ripeti l'ultimo valore":
 | status | significato | come presentarla |
 |---|---|---|
 | `ok` | ha battuto la previsione ingenua | previsione, con la sua fascia P10–P90 |
+| `ok` + `stable: true` | pari alla previsione ingenua (±0,05) con fascia che regge | «resta intorno a X», con la fascia: non è un difetto |
 | `unreliable` | non l'ha battuta | **non** è una previsione: dirlo |
 | `learning` | storico insufficiente | non disponibile |
 | `disabled` | spenta da un profilo o dal modulo `forecast` | non disponibile |
@@ -980,10 +981,10 @@ client remoto. Gli stessi 39 tool su entrambi i trasporti.
 }
 ```
 
-Dopo la configurazione, Claude Code vede 53 tool nativi OpenEdge e 5 prompt guidati
+Dopo la configurazione, Claude Code vede 57 tool nativi OpenEdge e 5 prompt guidati
 (`daily-digest`, `offline-triage`, `forecast-review`, `forecast-setup`, `commission-gateway`).
 
-I primi 27 **leggono** un impianto (18 su stato, allarmi e storico, 9 su previsioni, macchine, produzione e configurazione). I restanti lo **costruiscono**: gerarchia,
+I primi 31 **leggono** un impianto (18 su stato, allarmi e storico, 4 su OEE e perdite, 9 su previsioni, macchine, produzione e configurazione). I restanti lo **costruiscono**: gerarchia,
 gateway con il loro driver, tag, tipi definiti dall'utente e pagine sinottiche.
 Un agente può quindi mettere in servizio una linea da zero — sito, area,
 gateway Modbus, tipo «Motore», dieci istanze, pagina sinottica — senza toccare
@@ -1029,6 +1030,17 @@ l'interfaccia.
 
 Prompt guidati: `forecast-review` (tag che usciranno dalle soglie, tag in degrado),
 `forecast-setup` (configura passo per passo, chiede conferma prima di scrivere).
+
+**OEE e perdite** (sola lettura). Il periodo è sempre inviato: senza `from`/`to`
+le ultime 24 ore. Una data senza ora vale come mezzanotte, quindi esclude quel
+giorno (per includere il 10 novembre: `to=2026-11-11`).
+
+| Tool MCP | Equivalente REST |
+|----------|-----------------|
+| `get_oee_history` (`profile_id` facoltativo: senza = intero stabilimento; `bucket` hour/day/shift) | GET /api/oee/history-v2 |
+| `get_oee_by_shift` (`profile_id` facoltativo) | GET /api/oee/by-shift |
+| `get_loss_tree` (`profile_id` obbligatorio) | GET /api/oee/loss-tree |
+| `get_oee_reliability` (`profile_id` obbligatorio: MTBF, MTTR) | GET /api/oee/profiles/{id}/reliability |
 
 **Calendario dell'impianto** — turni, manutenzioni, profili OEE (letti dalle
 previsioni e dalla pagina OEE). `save_*` senza `id` crea, con `id` cambia solo

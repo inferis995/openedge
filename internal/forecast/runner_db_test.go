@@ -296,6 +296,34 @@ func scheduling(t *testing.T, db *sql.DB, r *Runner) {
 	if err := r.RunTags(ctx, []int{1}); err != nil {
 		t.Fatal(err)
 	}
+
+	// Due again, but no reading newer than the ones each forecast was made
+	// from: reliable and unreliable forecasts stand and go back in the queue;
+	// only the others (learning, disabled) run.
+	if _, err := db.ExecContext(ctx, `UPDATE tag_forecasts SET next_run_at = $1`, dbNow.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	var others int
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tag_forecasts WHERE status NOT IN ('ok', 'unreliable')`).Scan(&others)
+	if n, err := r.RunDue(ctx); err != nil || n != others {
+		t.Errorf("nothing new: %d tags forecast, want %d (only those not ok or unreliable), %v", n, others, err)
+	}
+	var next time.Time
+	_ = db.QueryRowContext(ctx, `SELECT next_run_at FROM tag_forecasts WHERE tag_id = 1`).Scan(&next)
+	if !next.After(dbNow) {
+		t.Errorf("tag 1 not put back in the queue: next run %v", next)
+	}
+	// A new reading: forecast again.
+	if _, err := db.ExecContext(ctx, `INSERT INTO tag_history (time, tag_id, value) VALUES ($1, 1, 10)`, dbNow.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE tag_forecasts SET next_run_at = $1`, dbNow.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	_ = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tag_forecasts WHERE status NOT IN ('ok', 'unreliable')`).Scan(&others)
+	if n, err := r.RunDue(ctx); err != nil || n != others+1 {
+		t.Errorf("after a new reading on tag 1: %d tags forecast, want %d, %v", n, others+1, err)
+	}
 	// Another replica holding the lock: this one does nothing.
 	conn, err := db.Conn(ctx)
 	if err != nil {

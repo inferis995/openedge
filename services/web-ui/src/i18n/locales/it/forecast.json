@@ -216,6 +216,9 @@
     "setup_levels_default": "Valori predefiniti per tutta l'organizzazione: 24 ore avanti, 28 giorni di storico. Cambiali qui sotto per un sito, un'area o un gateway.",
     "setup_levels_custom_one": "{{count}} livello ha impostazioni proprie (segnato con un punto qui sotto); gli altri ereditano.",
     "setup_levels_custom_other": "{{count}} livelli hanno impostazioni proprie (segnati con un punto qui sotto); gli altri ereditano.",
-    "level_custom": "impostazioni proprie"
+    "level_custom": "impostazioni proprie",
+    "status_stable": "Stabile",
+    "desc_stable": "Il segnale non ha un andamento da prevedere oltre a «resta dov'è»: la previsione è il valore attuale con la sua fascia abituale di oscillazione, e sui dati già noti la fascia ha contenuto i valori veri. Viene mostrata nel Trend, con soglie a rischio e valori fuori fascia.",
+    "pen_stable": "Previsione: stabile intorno al valore attuale"
   }
 }
