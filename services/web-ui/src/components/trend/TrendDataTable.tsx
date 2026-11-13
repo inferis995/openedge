@@ -1,11 +1,14 @@
 import React, { useMemo } from 'react';
-import { useReactTable, getCoreRowModel, flexRender, ColumnDef } from '@tanstack/react-table';
+import { useTable, tableFeatures, columnSizingFeature, columnVisibilityFeature, flexRender, type ColumnDef } from '@tanstack/react-table';
 import { Button } from '@/components/ui/button';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
 import { Download, X, GripVertical } from 'lucide-react';
 import { TrendDataPoint, TagWithHierarchy, TAG_COLORS } from '@/types/trend';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
+
+// Sizing gives header.getSize(), visibility row.getVisibleCells(); the core row model is built in.
+const features = tableFeatures({ columnSizingFeature, columnVisibilityFeature });
 
 interface TrendDataTableProps {
     data: Map<number, TrendDataPoint[]>;
@@ -118,8 +121,8 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
     }, [data, selectedTagIds, tags, selectedTags, i18n.language]);
 
     // Define columns
-    const columns = useMemo<ColumnDef<TableRow>[]>(() => {
-        const cols: ColumnDef<TableRow>[] = [
+    const columns = useMemo<ColumnDef<typeof features, TableRow>[]>(() => {
+        const cols: ColumnDef<typeof features, TableRow>[] = [
             {
                 accessorKey: 'date',
                 header: tr('trend.col_date'),
@@ -212,10 +215,10 @@ export const TrendDataTable: React.FC<TrendDataTableProps> = ({
         return cols;
     }, [selectedTags, tr]);
 
-    const table = useReactTable({
+    const table = useTable({
+        features,
         data: tableData,
         columns,
-        getCoreRowModel: getCoreRowModel(),
     });
 
     const handleExportCSV = () => {
