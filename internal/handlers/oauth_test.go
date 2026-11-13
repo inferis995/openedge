@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"net/http/httptest"
@@ -227,5 +228,72 @@ func TestBaseURLPrefersTheConfiguredIssuer(t *testing.T) {
 	c.Request.Header.Set("X-Forwarded-Proto", "https")
 	if got := h.baseURL(c); got != "https://attacker.example.com" {
 		t.Fatalf("unexpected derived base URL: %q", got)
+	}
+}
+
+// Chromium checks form-action on the redirect that follows the post, so the
+// consent page has to allow the redirect URI's origin — and nothing else.
+func TestConsentCSPAllowsTheRedirectOrigin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	csp := func(redirect string) string {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequestWithContext(context.Background(), "GET", "/oauth/authorize", nil)
+		renderConsent(c, consentView{Request: &authzRequest{ClientID: "cid", RedirectURI: redirect, Scope: ScopeRead}})
+		return rec.Header().Get("Content-Security-Policy")
+	}
+	if got := csp("https://claude.ai/api/mcp/auth_callback"); !strings.Contains(got, "form-action 'self' https://claude.ai") {
+		t.Errorf("redirect origin not allowed: %q", got)
+	}
+	for _, bad := range []string{"javascript:alert(1)", "https://a.example;script-src *", ""} {
+		if got := csp(bad); !strings.HasSuffix(got, "form-action 'self'") {
+			t.Errorf("%q: want only 'self', got %q", bad, got)
+		}
+	}
+	if got := consentFormAction(consentView{}); got != "'self'" {
+		t.Errorf("no request: got %q", got)
+	}
+}
+
+// Writing is granted only when the user ticks the box for it.
+func TestWriteIsOptIn(t *testing.T) {
+	both := ScopeRead + " " + ScopeWrite
+	cases := []struct {
+		scope string
+		allow bool
+		want  string
+	}{
+		{both, false, ScopeRead},
+		{both, true, both},
+		{ScopeWrite, false, ScopeRead},
+		{ScopeRead, false, ScopeRead},
+	}
+	for _, tc := range cases {
+		if got := withoutUncheckedWrite(tc.scope, tc.allow); got != tc.want {
+			t.Errorf("withoutUncheckedWrite(%q, %v) = %q, want %q", tc.scope, tc.allow, got, tc.want)
+		}
+	}
+}
+
+// The write option is offered only when write is asked for, and never ticked
+// in advance.
+func TestConsentPageOffersWriteOnlyWhenAsked(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	page := func(scope string) string {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequestWithContext(context.Background(), "GET", "/oauth/authorize", nil)
+		renderConsent(c, consentView{Request: &authzRequest{ClientID: "cid", RedirectURI: "https://claude.ai/cb", Scope: scope}})
+		return rec.Body.String()
+	}
+	if body := page(ScopeRead); strings.Contains(body, `name="allow_write"`) {
+		t.Error("write option shown for a read-only request")
+	}
+	body := page(ScopeRead + " " + ScopeWrite)
+	if !strings.Contains(body, `name="allow_write"`) {
+		t.Fatal("write option missing when write is asked for")
+	}
+	if strings.Contains(body, "checked") {
+		t.Error("write option is ticked by default")
 	}
 }
