@@ -312,6 +312,24 @@ func (h *OAuthHandler) Authorize(c *gin.Context) {
 	})
 }
 
+// withoutUncheckedWrite drops openedge:write unless the user ticked the box
+// for it; with nothing left the grant is read-only.
+func withoutUncheckedWrite(scope string, allowWrite bool) string {
+	if allowWrite {
+		return scope
+	}
+	var out []string
+	for _, s := range strings.Fields(scope) {
+		if s != ScopeWrite {
+			out = append(out, s)
+		}
+	}
+	if len(out) == 0 {
+		return ScopeRead
+	}
+	return strings.Join(out, " ")
+}
+
 // Decision handles the submitted form: the user's credentials and their answer.
 //
 // The form asks for the password every time rather than riding an existing
@@ -336,6 +354,9 @@ func (h *OAuthHandler) Decision(c *gin.Context) {
 		renderConsent(c, view)
 		return
 	}
+	// Writing is opt-in. Narrowed only now, once the user is authenticated: a
+	// page shown again for a wrong password still offers the write option.
+	req.Scope = withoutUncheckedWrite(req.Scope, c.Request.FormValue("allow_write") == "1")
 
 	code, err := h.issueCode(c.Request.Context(), req, &user)
 	if err != nil {

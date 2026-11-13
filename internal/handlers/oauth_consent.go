@@ -48,6 +48,19 @@ func (v consentView) Scopes() []string {
 	return out
 }
 
+// AsksWrite: the client asks for openedge:write, which the user may leave out.
+func (v consentView) AsksWrite() bool {
+	if v.Request == nil {
+		return false
+	}
+	for _, s := range strings.Fields(v.Request.Scope) {
+		if s == ScopeWrite {
+			return true
+		}
+	}
+	return false
+}
+
 var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
 <html lang="it"><head>
 <meta charset="utf-8">
@@ -73,6 +86,7 @@ var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
           border:1px solid #d1d5db; border-radius:8px; font-size:15px; background:transparent;
           color:inherit; }
   @media (prefers-color-scheme: dark) { input { border-color:#334155; } }
+  label.opt { display:flex; gap:8px; align-items:center; font-weight:normal; margin-top:12px; }
   .row { display:flex; gap:10px; margin-top:22px; }
   button { flex:1; padding:10px 14px; border-radius:8px; font-size:15px; cursor:pointer;
            border:1px solid transparent; }
@@ -113,6 +127,11 @@ var consentTmpl = template.Must(template.New("consent").Parse(`<!doctype html>
              autocomplete="username" autofocus required>
       <label for="password">Password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
+    {{end}}
+
+    {{if .AsksWrite}}
+      <label class="opt"><input type="checkbox" name="allow_write" value="1">
+        Consenti anche la scrittura (senza spunta: solo lettura)</label>
     {{end}}
 
     <div class="row">
