@@ -216,6 +216,9 @@
     "setup_levels_default": "Defaults for the whole organization: 24 hours ahead, 28 days of history. Change them below for a site, an area or a gateway.",
     "setup_levels_custom_one": "{{count}} level has its own settings (marked with a dot below); the others inherit.",
     "setup_levels_custom_other": "{{count}} levels have their own settings (marked with a dot below); the others inherit.",
-    "level_custom": "own settings"
+    "level_custom": "own settings",
+    "status_stable": "Stable",
+    "desc_stable": "The signal has nothing more to predict than “it stays where it is”: the forecast is the current value with its usual band of variation, and on the known history the band held the true values. Shown in the Trend, with thresholds at risk and values outside the band.",
+    "pen_stable": "Forecast: stable around the current value"
   }
 }

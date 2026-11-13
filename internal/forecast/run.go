@@ -58,6 +58,9 @@ type Result struct {
 	Anomaly *Anomaly
 	// StateTagID: forecast from running time only (Job.StateTagID).
 	StateTagID int
+	// Stable: reliable because the signal has nothing more to predict than
+	// "it stays around where it is" (see StableMargin).
+	Stable bool
 	// Periods: a counter's or a state's totals by the end of the shift, the
 	// day and the month (reliable forecasts only).
 	Periods []PeriodTotal
@@ -223,12 +226,33 @@ func conclude(r *Result, c *choice) {
 		return
 	}
 	r.Engine, r.Forecast, r.Score = c.name, c.f, c.score
-	if c.score.Reliable() {
+	r.Stable = false
+	switch {
+	case c.score.Flat || c.score.Skill > StableMargin:
 		r.Status, r.Reason = StatusOK, ""
-		return
+	case stable(c.score):
+		// As good as "it stays where it is", within the margin, and the band
+		// holds what happened: the right forecast for a signal with nothing
+		// more to predict (a steady pressure, a level that moves in steps).
+		// Shown, with risks and anomalies, and said to be stable.
+		r.Status, r.Reason, r.Stable = StatusOK, "", true
+	default:
+		r.Status = StatusUnreliable
+		r.Reason = fmt.Sprintf("does not beat repeating the last value (skill %.2f)", c.score.Skill)
 	}
-	r.Status = StatusUnreliable
-	r.Reason = fmt.Sprintf("does not beat repeating the last value (skill %.2f)", c.score.Skill)
+}
+
+// StableMargin is how close to the naive forecast a skill counts as a tie.
+// Without it a steady signal, whose best forecast IS the naive one, scored
+// +0.00 or -0.00 by noise and flipped between reliable and not on every run.
+const StableMargin = 0.05
+
+// MinStableCoverage: a stable forecast's band must hold most of what happened
+// (an ideal P10–P90 band holds 0.8).
+const MinStableCoverage = 0.6
+
+func stable(s Score) bool {
+	return s.Points > 0 && s.Skill >= -StableMargin && s.Coverage >= MinStableCoverage
 }
 
 // better: reliability first, then skill, then the calibration of the band.

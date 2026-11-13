@@ -122,3 +122,4 @@ release-*/openedge-*.zip
 # swept into unrelated commits.
 *.tsbuildinfo
 .hermes/
+openedge-linux

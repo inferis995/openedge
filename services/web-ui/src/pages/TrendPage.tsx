@@ -565,7 +565,7 @@ export default function TrendPage() {
             const gw = gateways?.find(g => g.id === tagMap.get(pen.tagId)?.gateway_id);
             const contact = gw ? { at: gw.last_seen ?? null, online: (gw.connection_status ?? gw.status) === 'online' } : null;
             const fc = forecastOn ? forecasts?.get(pen.tagId) : undefined;
-            const forecast = fc ? { status: fc.status, reason: fc.reason } : null;
+            const forecast = fc ? { status: fc.status, reason: fc.reason, stable: fc.stable } : null;
             return { ...pen, stats: computeStats(pts), lastSampleAt, contact, forecast };
         });
     }, [series, pens, gateways, tagMap, currentValues, forecastOn, forecasts]);

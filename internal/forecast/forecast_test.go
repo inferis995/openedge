@@ -344,3 +344,26 @@ func TestRemote(t *testing.T) {
 		t.Errorf("error %v", err)
 	}
 }
+
+func TestConcludeStableMargin(t *testing.T) {
+	f := Forecast{Q50: []float64{1}}
+	for _, tc := range []struct {
+		name   string
+		score  Score
+		status string
+		stable bool
+	}{
+		{"clearly better", Score{Skill: 0.3, Coverage: 0.8, Points: 10}, StatusOK, false},
+		{"a tie, good band: stable", Score{Skill: -0.01, Coverage: 0.85, Points: 10}, StatusOK, true},
+		{"a hair better: stable, not a flip", Score{Skill: 0.02, Coverage: 0.8, Points: 10}, StatusOK, true},
+		{"a tie, band misses: unreliable", Score{Skill: 0, Coverage: 0.4, Points: 10}, StatusUnreliable, false},
+		{"clearly worse", Score{Skill: -0.2, Coverage: 0.9, Points: 10}, StatusUnreliable, false},
+		{"constant signal", Score{Flat: true, Points: 10}, StatusOK, false},
+	} {
+		r := Result{}
+		conclude(&r, &choice{ok: true, score: tc.score, name: "statistical", f: f})
+		if r.Status != tc.status || r.Stable != tc.stable {
+			t.Errorf("%s: status %s stable %v, want %s %v", tc.name, r.Status, r.Stable, tc.status, tc.stable)
+		}
+	}
+}

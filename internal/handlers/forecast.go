@@ -133,6 +133,9 @@ type TagForecastResponse struct {
 	// Periods: a counter's (or a state's, in hours on) totals by the end of
 	// the shift, the day and the month.
 	Periods []forecast.PeriodTotal `json:"periods"`
+	// Stable: status ok because the signal has nothing more to predict than
+	// "it stays around where it is" (forecast.StableMargin).
+	Stable bool `json:"stable,omitempty"`
 }
 
 func finitePtr(x float64) *float64 {
@@ -199,9 +202,11 @@ func (h *ForecastHandler) GetTagForecast(c *gin.Context) {
 	var d struct {
 		Model      string `json:"model"`
 		StateTagID int    `json:"state_tag_id"`
+		Stable     bool   `json:"stable"`
 	}
 	_ = json.Unmarshal(detailsRaw, &d)
 	resp.Model, resp.StateTagID = d.Model, d.StateTagID
+	resp.Stable = d.Stable && resp.Status == forecast.StatusOK
 	decodeAssessment(risksRaw, anomalyRaw, &resp.Risks, &resp.Anomaly)
 	decodePeriods(periodsRaw, &resp.Periods)
 
@@ -355,7 +360,7 @@ func (h *ForecastHandler) PutProfile(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save profile"})
 		return
 	}
-	if _, rerr := h.db.ExecContext(ctx, `UPDATE tag_forecasts SET next_run_at = NOW() WHERE tag_id IN (`+
+	if _, rerr := h.db.ExecContext(ctx, `UPDATE tag_forecasts SET next_run_at = NOW(), details = details - 'data_until' WHERE tag_id IN (`+
 		tagsUnder(req.Scope)+`)`, req.ScopeID); rerr != nil {
 		log.Printf("[FORECAST] reschedule after profile change: %v", rerr)
 	}
@@ -413,6 +418,8 @@ type OverviewTag struct {
 	Anomaly *forecast.Anomaly `json:"anomaly,omitempty"`
 	// Periods: totals by the end of the shift, the day and the month.
 	Periods []forecast.PeriodTotal `json:"periods,omitempty"`
+	// Stable: ok as "it stays around where it is".
+	Stable bool `json:"stable,omitempty"`
 }
 
 // OverviewResponse is GET /api/forecast/overview.
@@ -447,7 +454,8 @@ func (h *ForecastHandler) Overview(c *gin.Context) {
 		       g.id, g.name, a.id, a.name, s.id, s.name,
 		       COALESCE(f.status, 'pending'), COALESCE(f.reason, ''), COALESCE(f.kind, ''),
 		       COALESCE(f.engine, ''), f.skill, f.coverage, f.generated_at,
-		       f.start_at, COALESCE(f.step_seconds, 0), f.quantiles, f.risks, f.anomaly, f.periods
+		       f.start_at, COALESCE(f.step_seconds, 0), f.quantiles, f.risks, f.anomaly, f.periods,
+		       COALESCE((f.details->>'stable')::boolean, false)
 		FROM tags t
 		JOIN gateways g ON g.id = t.gateway_id
 		JOIN areas a    ON a.id = g.area_id
@@ -483,7 +491,7 @@ func (h *ForecastHandler) Overview(c *gin.Context) {
 		)
 		if err := rows.Scan(&t.TagID, &t.Alias, &t.Unit, &t.DataType, &t.GatewayID, &t.GatewayName,
 			&t.AreaID, &t.AreaName, &t.SiteID, &t.SiteName, &t.Status, &t.Reason, &t.Kind, &t.Engine,
-			&skill, &coverage, &generated, &startAt, &step, &quantiles, &risks, &anomaly, &periods); err != nil {
+			&skill, &coverage, &generated, &startAt, &step, &quantiles, &risks, &anomaly, &periods, &t.Stable); err != nil {
 			log.Printf("[FORECAST] overview row: %v", err)
 			continue
 		}
@@ -507,6 +515,9 @@ func (h *ForecastHandler) Overview(c *gin.Context) {
 			resp.Summary["anomalous"]++
 		}
 		resp.Summary[t.Status]++
+		if t.Stable && t.Status == forecast.StatusOK {
+			resp.Summary["stable"]++
+		}
 		resp.Tags = append(resp.Tags, t)
 	}
 	resp.Summary["total"] = len(resp.Tags)
