@@ -8,6 +8,17 @@ export const FORECAST_STATUS_VARIANT: Record<ForecastStatus, 'success' | 'warnin
     ok: 'success', unreliable: 'warning', learning: 'muted', disabled: 'muted', error: 'alarm', pending: 'muted',
 };
 
+/**
+ * The status as shown: a reliable forecast of a signal with nothing more to
+ * predict than "it stays where it is" is shown as stable, in its own tone.
+ */
+export type ShownStatus = ForecastStatus | 'stable';
+export const shownStatus = (status: ForecastStatus, stable?: boolean): ShownStatus =>
+    (status === 'ok' && stable ? 'stable' : status);
+export const SHOWN_STATUS_VARIANT: Record<ShownStatus, 'success' | 'warning' | 'muted' | 'alarm' | 'info'> = {
+    ...FORECAST_STATUS_VARIANT, stable: 'info',
+};
+
 export const forecastProfileKey = (scope: ForecastScope, id: number) => ['forecast-profile', scope, id];
 export const tagForecastKey = (tagId: number) => ['tag-forecast', tagId];
 
