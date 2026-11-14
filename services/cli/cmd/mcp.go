@@ -446,13 +446,15 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 			}, []string{"tag_id", "value"}),
 		},
 		{
-			Name:        "get_tag_history",
-			Description: "Get historical values for a tag",
+			Name: "get_tag_history",
+			Description: "Get a tag's historical values over a period (default: the last 24 hours). " +
+				"Long periods come back aggregated; set interval and agg to choose the buckets.",
 			InputSchema: jsonSchemaRequired(map[string]interface{}{
-				"tag_id": propInt("The tag ID"),
-				"from":   propStr("Start time in RFC3339 format (optional)"),
-				"to":     propStr("End time in RFC3339 format (optional)"),
-				"limit":  propInt("Max number of results (default 100)"),
+				"tag_id":   propInt("The tag ID"),
+				"from":     propStr("Start, RFC3339 e.g. 2026-11-13T08:00:00Z (optional: 24 h before the end)"),
+				"to":       propStr("End, RFC3339 (optional: now)"),
+				"interval": propStr("Bucket size: 1m, 5m, 1h or 1d (optional: chosen from the period)"),
+				"agg":      propStr("Aggregate per bucket: mean, min, max or last (optional: mean)"),
 			}, []string{"tag_id"}),
 		},
 		{
@@ -1058,21 +1060,11 @@ func (s *mcpServer) executeTool(name string, args map[string]interface{}) (strin
 		return s.toolPut(fmt.Sprintf("/api/i3x/v1/properties/tag-%d/value", tagID), body)
 
 	case "get_tag_history":
-		tagID := intArg(args, "tag_id")
-		if tagID == 0 {
-			return "", fmt.Errorf("tag_id is required")
+		path, query, err := historyToolRequest(args, time.Now())
+		if err != nil {
+			return "", err
 		}
-		path := fmt.Sprintf("/api/history/stats?tag_id=%d", tagID)
-		if from := strArg(args, "from"); from != "" {
-			path += "&from=" + from
-		}
-		if to := strArg(args, "to"); to != "" {
-			path += "&to=" + to
-		}
-		if limit := intArg(args, "limit"); limit > 0 {
-			path += "&limit=" + strconv.Itoa(limit)
-		}
-		return s.toolGet(path)
+		return s.toolGet(path + "?" + query.Encode())
 
 	case "get_tag_shadows":
 		path := "/api/tags/shadows"
