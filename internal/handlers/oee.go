@@ -92,12 +92,6 @@ type OEESnapshot struct {
 
 	WindowMinutes int      `json:"window_minutes"`
 	Target        *float64 `json:"target,omitempty"`
-	// PlannedMinutes is the planned production time in the window: the
-	// window itself, or what the shifts and maintenance leave of it when the
-	// profile respects them. Unplanned: none — a day with no shift. Such a
-	// window is not part of the OEE: it is left out of every average.
-	PlannedMinutes float64 `json:"planned_minutes"`
-	Unplanned      bool    `json:"unplanned,omitempty"`
 
 	CriticalDowntimeMin float64 `json:"critical_downtime_min"`
 	PiecesProduced      float64 `json:"pieces_produced,omitempty"`
@@ -165,21 +159,11 @@ func (h *OEEHandler) overviewFor(ctx context.Context, org *int) OEEOverview {
 			Enabled:     p.Enabled,
 			Snapshot:    snap,
 		})
-		if snap.Unplanned {
-			continue
-		}
 		rollupSum.a += snap.Availability
 		rollupSum.p += snap.Performance
 		rollupSum.q += snap.Quality
 		rollupSum.oee += snap.OEE
 		count++
-	}
-	if count == 0 {
-		// Every line off shift: nothing planned, no OEE to average.
-		out.Rollup = &OEESnapshot{
-			AvailabilitySource: "rollup", PerformanceSource: "rollup", QualitySource: "rollup",
-			WindowMinutes: profiles[0].WindowMinutes, Unplanned: true,
-		}
 	}
 	if count > 0 {
 		// Rollup = media aritmetica delle 4 metriche tra tutti i profili
@@ -348,8 +332,6 @@ func (h *OEEHandler) TestTag(c *gin.Context) {
 type OEEHistoryPoint struct {
 	Bucket time.Time `json:"bucket"`
 	OEE    float64   `json:"oee"`
-	// Unplanned: no shift that day, so no OEE (oee is 0 and means nothing).
-	Unplanned bool `json:"unplanned,omitempty"`
 }
 
 // History GET /api/oee/history — trend OEE ultimi 7 giorni. In modalità
@@ -374,26 +356,16 @@ func (h *OEEHandler) History(c *gin.Context) {
 			}
 			cfg := h.legacyConfig()
 			cfg.WindowMin = 24 * 60
-			snap := h.computeSnapshotAt(c.Request.Context(), end, &cfg)
-			out = append(out, OEEHistoryPoint{Bucket: d, OEE: snap.OEE, Unplanned: snap.Unplanned})
-			continue
-		}
-		sum, planned := 0.0, 0
-		for _, p := range profiles {
-			cfg := p.config()
-			cfg.WindowMin = 24 * 60
-			snap := h.computeSnapshotAt(c.Request.Context(), end, &cfg)
-			if snap.Unplanned {
-				continue
+			oeeVal = h.computeSnapshotAt(c.Request.Context(), end, &cfg).OEE
+		} else {
+			sum := 0.0
+			for _, p := range profiles {
+				cfg := p.config()
+				cfg.WindowMin = 24 * 60
+				sum += h.computeSnapshotAt(c.Request.Context(), end, &cfg).OEE
 			}
-			sum += snap.OEE
-			planned++
+			oeeVal = sum / float64(len(profiles))
 		}
-		if planned == 0 {
-			out = append(out, OEEHistoryPoint{Bucket: d, Unplanned: true})
-			continue
-		}
-		oeeVal = sum / float64(planned)
 		out = append(out, OEEHistoryPoint{Bucket: d, OEE: oeeVal})
 	}
 	c.JSON(http.StatusOK, out)
@@ -424,12 +396,7 @@ func (h *OEEHandler) ProfileHistory(c *gin.Context) {
 		}
 		cfg := p.config()
 		cfg.WindowMin = 24 * 60
-		snap := h.computeSnapshotAt(c.Request.Context(), end, &cfg)
-		if snap.Unplanned {
-			out = append(out, OEEHistoryPoint{Bucket: d, Unplanned: true})
-			continue
-		}
-		out = append(out, OEEHistoryPoint{Bucket: d, OEE: snap.OEE})
+		out = append(out, OEEHistoryPoint{Bucket: d, OEE: h.computeSnapshotAt(c.Request.Context(), end, &cfg).OEE})
 	}
 	c.JSON(http.StatusOK, out)
 }
@@ -440,11 +407,6 @@ func (h *OEEHandler) ProfileHistory(c *gin.Context) {
 func (h *OEEHandler) computeSnapshotAt(ctx context.Context, end time.Time, cfg *oeeConfig) OEESnapshot {
 	out := OEESnapshot{WindowMinutes: cfg.WindowMin}
 	start := end.Add(-time.Duration(cfg.WindowMin) * time.Minute)
-	out.PlannedMinutes = float64(cfg.WindowMin)
-	if cfg.RespectShifts || cfg.RespectMaintenance {
-		out.PlannedMinutes = finiteOr(h.computePPT(start, end, *cfg), 0)
-	}
-	out.Unplanned = out.PlannedMinutes <= 0
 
 	out.Availability, out.AvailabilitySource, out.CriticalDowntimeMin =
 		h.computeAvailability(ctx, start, end, cfg)
@@ -517,9 +479,7 @@ func (h *OEEHandler) computeAvailabilityFromAlarms(ctx context.Context, start, e
 		pptMin = h.computePPT(start, end, *cfg)
 	}
 	if pptMin <= 0 {
-		// Nothing planned (no shift, all maintenance): no downtime either.
-		// The window is marked unplanned and left out of the OEE.
-		return 100, "alarms", 0
+		pptMin = float64(cfg.WindowMin)
 	}
 	if downMin > pptMin {
 		downMin = pptMin
