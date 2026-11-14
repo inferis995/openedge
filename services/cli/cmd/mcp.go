@@ -425,10 +425,14 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 			}),
 		},
 		{
-			Name:        "list_tags",
-			Description: "List all tags, optionally filtered by gateway",
+			Name: "list_tags",
+			Description: "List tags: id, alias, gateway_id, data_type, eu_unit by default. " +
+				"Narrow with gateway_id or area_id and search; fields=full for every field.",
 			InputSchema: jsonSchema(map[string]interface{}{
-				"gateway_id": propInt("Filter by gateway ID (optional)"),
+				"gateway_id": propInt("Only this gateway's tags (optional)"),
+				"area_id":    propInt("Only this area's tags (optional; ignored with gateway_id)"),
+				"search":     propStr("Case-insensitive substring of the alias, or of the code when there is no alias (optional)"),
+				"fields":     propStr("compact (default) or full"),
 			}),
 		},
 		{
@@ -1074,11 +1078,11 @@ func (s *mcpServer) runTool(name string, args map[string]interface{}) (string, e
 		return s.toolGet(path)
 
 	case "list_tags":
-		path := "/api/tags"
-		if gwID := intArg(args, "gateway_id"); gwID > 0 {
-			path += "?gateway_id=" + strconv.Itoa(gwID)
+		data, err := s.client.RawGet(listTagsPath(args))
+		if err != nil {
+			return "", err
 		}
-		return s.toolGet(path)
+		return shapeTags(data, args)
 
 	case "get_tag_value":
 		tagID := intArg(args, "tag_id")
