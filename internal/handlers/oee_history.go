@@ -294,11 +294,15 @@ func profilesByOrg(profiles []OEEProfile) []orgProfiles {
 // mean of OEE/A/P/Q, the sum of downtime and pieces.
 func averageSnapshots(snaps []OEESnapshot, windowMin int) OEESnapshot {
 	out := OEESnapshot{WindowMinutes: windowMin}
-	if len(snaps) == 0 {
-		return out
-	}
+	n := 0
 	for i := range snaps {
 		s := &snaps[i]
+		// A line off shift has no OEE to bring to the average.
+		if s.Unplanned {
+			continue
+		}
+		n++
+		out.PlannedMinutes += s.PlannedMinutes
 		out.OEE += s.OEE
 		out.Availability += s.Availability
 		out.Performance += s.Performance
@@ -307,11 +311,14 @@ func averageSnapshots(snaps []OEESnapshot, windowMin int) OEESnapshot {
 		out.PiecesProduced += s.PiecesProduced
 		out.PiecesGood += s.PiecesGood
 	}
-	n := float64(len(snaps))
-	out.OEE /= n
-	out.Availability /= n
-	out.Performance /= n
-	out.Quality /= n
+	if n == 0 {
+		out.Unplanned = true
+		return out
+	}
+	out.OEE /= float64(n)
+	out.Availability /= float64(n)
+	out.Performance /= float64(n)
+	out.Quality /= float64(n)
 	// Never persist NaN: one poisoned snapshot breaks the history JSON.
 	out.OEE = finiteOr(out.OEE, 0)
 	out.Availability = finiteOr(out.Availability, 0)
@@ -357,6 +364,9 @@ func RecordHourlySnapshot(db *sql.DB, oee *OEEHandler, now time.Time) error {
 		cfg := oee.legacyConfig()
 		cfg.WindowMin = 60
 		snap := oee.computeSnapshotAt(ctx, bucketEnd, &cfg)
+		if snap.Unplanned {
+			return nil // off shift: not part of the OEE
+		}
 		return upsertHistory(ctx, db, nil, org, bucketStart, "hour", &snap, findActiveShiftAt(ctx, db, org, midpoint))
 	}
 
@@ -369,12 +379,20 @@ func RecordHourlySnapshot(db *sql.DB, oee *OEEHandler, now time.Time) error {
 			cfg := p.config()
 			cfg.WindowMin = 60 // forziamo a 1h indipendentemente dal window del profilo
 			snap := oee.computeSnapshotAt(ctx, bucketEnd, &cfg)
+			// An hour with no shift is not planned production time: no
+			// row, so it counts in no day, shift or loss tree.
+			if snap.Unplanned {
+				continue
+			}
 			if err := upsertHistory(ctx, db, &p.ID, &org, bucketStart, "hour", &snap, shiftID); err != nil {
 				return err
 			}
 			snaps = append(snaps, snap)
 		}
 		rollup := averageSnapshots(snaps, 60)
+		if rollup.Unplanned {
+			continue
+		}
 		if err := upsertHistory(ctx, db, nil, &org, bucketStart, "hour", &rollup, shiftID); err != nil {
 			return err
 		}
@@ -420,7 +438,7 @@ func RecordDailySnapshot(db *sql.DB, oee *OEEHandler, now time.Time) error {
 		if err := rows.Scan(
 			&pid, &org, &s.OEE, &s.Availability, &s.Performance, &s.Quality,
 			// planned/downtime/pieces vanno nei campi "diagnostica"
-			new(float64), &s.CriticalDowntimeMin,
+			&s.PlannedMinutes, &s.CriticalDowntimeMin,
 			&s.PiecesProduced, &s.PiecesGood,
 		); err != nil {
 			continue
@@ -485,7 +503,7 @@ func upsertHistory(ctx context.Context, db *sql.DB, profileID, orgID *int, bucke
 			shift_id = EXCLUDED.shift_id`,
 		profileID, orgID, bucketStart, bucketSize,
 		s.OEE, s.Availability, s.Performance, s.Quality,
-		float64(s.WindowMinutes), s.CriticalDowntimeMin,
+		s.PlannedMinutes, s.CriticalDowntimeMin,
 		s.PiecesProduced, s.PiecesGood, shiftID,
 	)
 	return err
