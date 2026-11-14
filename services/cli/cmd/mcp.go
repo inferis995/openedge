@@ -412,8 +412,9 @@ func (s *mcpServer) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 	tools := []mcpTool{
 		{
-			Name:        "list_organizations",
-			Description: "List all organizations in the OpenEdge platform",
+			Name: "list_organizations",
+			Description: "List the organizations this token can see. A global admin has no organization of its own: " +
+				"pick one here and pass its id as org_id to the other tools.",
 			InputSchema: jsonSchema(map[string]interface{}{}),
 		},
 		{
@@ -858,6 +859,7 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 	tools = append(tools, resourceTools()...)
 	for i := range tools {
 		tools[i].Annotations = annotateTool(tools[i].Name)
+		addOrgArg(&tools[i])
 	}
 	return s.okResponse(req.ID, mcpToolsListResult{Tools: tools})
 }
@@ -1018,7 +1020,45 @@ func (s *mcpServer) handleToolsCall(req *jsonRPCRequest) *jsonRPCResponse {
 	})
 }
 
+// orgArgHelp describes the org_id every organization-scoped tool takes.
+const orgArgHelp = "Organization to act on, sent as X-Organization-ID (optional: the server's default). " +
+	"A global admin should always pass one, from list_organizations: without it some endpoints " +
+	"answer for every organization and others refuse."
+
+// Tools that are not about one organization.
+var orgFreeTools = map[string]bool{"list_organizations": true, "check_health": true, "get_fleet_status": true}
+
+// addOrgArg gives an organization-scoped tool its optional org_id.
+func addOrgArg(t *mcpTool) {
+	if orgFreeTools[t.Name] {
+		return
+	}
+	schema, ok := t.InputSchema.(map[string]interface{})
+	if !ok {
+		return
+	}
+	props, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	if _, has := props["org_id"]; !has {
+		props["org_id"] = propInt(orgArgHelp)
+	}
+}
+
+// executeTool runs a tool, for the organization named by org_id when the
+// call gives one. Which organization the token may see is the core API's
+// decision, not this one's.
 func (s *mcpServer) executeTool(name string, args map[string]interface{}) (string, error) {
+	if org := intArg(args, "org_id"); org > 0 && !orgFreeTools[name] && org != s.client.OrgID() {
+		scoped := *s
+		scoped.client = s.client.WithOrg(org)
+		return scoped.runTool(name, args)
+	}
+	return s.runTool(name, args)
+}
+
+func (s *mcpServer) runTool(name string, args map[string]interface{}) (string, error) {
 	if out, ok, err := s.callResourceTool(name, args); ok {
 		return out, err
 	}
