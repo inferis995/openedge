@@ -187,6 +187,9 @@ services:
       # 50) apply. Raised only by the acceptance suite, which is not a plant.
       API_RATE_LIMIT_PER_MINUTE: ${API_RATE_LIMIT_PER_MINUTE:-}
       API_RATE_LIMIT_BURST: ${API_RATE_LIMIT_BURST:-}
+      # Proxies whose X-Forwarded-For is believed (IPs/CIDRs). Empty: loopback
+      # and the docker private ranges, where Traefik/Caddy/nginx run.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001}
       # Tag forecasting (docs/FORECASTING.md). On by default with the built-in
       # statistical engine; FORECASTER_URL adds the model served by the
