@@ -633,7 +633,7 @@ func (h *OEEHandler) bandTagWindows(ctx context.Context, start, end time.Time, c
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []bandTagWindow
 	for rows.Next() {
 		var t bandTagWindow
