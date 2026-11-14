@@ -412,8 +412,9 @@ func (s *mcpServer) handleInitialize(req *jsonRPCRequest) *jsonRPCResponse {
 func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 	tools := []mcpTool{
 		{
-			Name:        "list_organizations",
-			Description: "List all organizations in the OpenEdge platform",
+			Name: "list_organizations",
+			Description: "List the organizations this token can see. A global admin has no organization of its own: " +
+				"pick one here and pass its id as org_id to the other tools.",
 			InputSchema: jsonSchema(map[string]interface{}{}),
 		},
 		{
@@ -424,10 +425,14 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 			}),
 		},
 		{
-			Name:        "list_tags",
-			Description: "List all tags, optionally filtered by gateway",
+			Name: "list_tags",
+			Description: "List tags: id, alias, gateway_id, data_type, eu_unit by default. " +
+				"Narrow with gateway_id or area_id and search; fields=full for every field.",
 			InputSchema: jsonSchema(map[string]interface{}{
-				"gateway_id": propInt("Filter by gateway ID (optional)"),
+				"gateway_id": propInt("Only this gateway's tags (optional)"),
+				"area_id":    propInt("Only this area's tags (optional; ignored with gateway_id)"),
+				"search":     propStr("Case-insensitive substring of the alias, or of the code when there is no alias (optional)"),
+				"fields":     propStr("compact (default) or full"),
 			}),
 		},
 		{
@@ -446,13 +451,15 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 			}, []string{"tag_id", "value"}),
 		},
 		{
-			Name:        "get_tag_history",
-			Description: "Get historical values for a tag",
+			Name: "get_tag_history",
+			Description: "Get a tag's historical values over a period (default: the last 24 hours). " +
+				"Long periods come back aggregated; set interval and agg to choose the buckets.",
 			InputSchema: jsonSchemaRequired(map[string]interface{}{
-				"tag_id": propInt("The tag ID"),
-				"from":   propStr("Start time in RFC3339 format (optional)"),
-				"to":     propStr("End time in RFC3339 format (optional)"),
-				"limit":  propInt("Max number of results (default 100)"),
+				"tag_id":   propInt("The tag ID"),
+				"from":     propStr("Start, RFC3339 e.g. 2026-11-13T08:00:00Z (optional: 24 h before the end)"),
+				"to":       propStr("End, RFC3339 (optional: now)"),
+				"interval": propStr("Bucket size: 1m, 5m, 1h or 1d (optional: chosen from the period)"),
+				"agg":      propStr("Aggregate per bucket: mean, min, max or last (optional: mean)"),
 			}, []string{"tag_id"}),
 		},
 		{
@@ -856,6 +863,7 @@ func (s *mcpServer) handleToolsList(req *jsonRPCRequest) *jsonRPCResponse {
 	tools = append(tools, resourceTools()...)
 	for i := range tools {
 		tools[i].Annotations = annotateTool(tools[i].Name)
+		addOrgArg(&tools[i])
 	}
 	return s.okResponse(req.ID, mcpToolsListResult{Tools: tools})
 }
@@ -1016,7 +1024,45 @@ func (s *mcpServer) handleToolsCall(req *jsonRPCRequest) *jsonRPCResponse {
 	})
 }
 
+// orgArgHelp describes the org_id every organization-scoped tool takes.
+const orgArgHelp = "Organization to act on, sent as X-Organization-ID (optional: the server's default). " +
+	"A global admin should always pass one, from list_organizations: without it some endpoints " +
+	"answer for every organization and others refuse."
+
+// Tools that are not about one organization.
+var orgFreeTools = map[string]bool{"list_organizations": true, "check_health": true, "get_fleet_status": true}
+
+// addOrgArg gives an organization-scoped tool its optional org_id.
+func addOrgArg(t *mcpTool) {
+	if orgFreeTools[t.Name] {
+		return
+	}
+	schema, ok := t.InputSchema.(map[string]interface{})
+	if !ok {
+		return
+	}
+	props, ok := schema["properties"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	if _, has := props["org_id"]; !has {
+		props["org_id"] = propInt(orgArgHelp)
+	}
+}
+
+// executeTool runs a tool, for the organization named by org_id when the
+// call gives one. Which organization the token may see is the core API's
+// decision, not this one's.
 func (s *mcpServer) executeTool(name string, args map[string]interface{}) (string, error) {
+	if org := intArg(args, "org_id"); org > 0 && !orgFreeTools[name] && org != s.client.OrgID() {
+		scoped := *s
+		scoped.client = s.client.WithOrg(org)
+		return scoped.runTool(name, args)
+	}
+	return s.runTool(name, args)
+}
+
+func (s *mcpServer) runTool(name string, args map[string]interface{}) (string, error) {
 	if out, ok, err := s.callResourceTool(name, args); ok {
 		return out, err
 	}
@@ -1032,11 +1078,11 @@ func (s *mcpServer) executeTool(name string, args map[string]interface{}) (strin
 		return s.toolGet(path)
 
 	case "list_tags":
-		path := "/api/tags"
-		if gwID := intArg(args, "gateway_id"); gwID > 0 {
-			path += "?gateway_id=" + strconv.Itoa(gwID)
+		data, err := s.client.RawGet(listTagsPath(args))
+		if err != nil {
+			return "", err
 		}
-		return s.toolGet(path)
+		return shapeTags(data, args)
 
 	case "get_tag_value":
 		tagID := intArg(args, "tag_id")
@@ -1058,21 +1104,11 @@ func (s *mcpServer) executeTool(name string, args map[string]interface{}) (strin
 		return s.toolPut(fmt.Sprintf("/api/i3x/v1/properties/tag-%d/value", tagID), body)
 
 	case "get_tag_history":
-		tagID := intArg(args, "tag_id")
-		if tagID == 0 {
-			return "", fmt.Errorf("tag_id is required")
+		path, query, err := historyToolRequest(args, time.Now())
+		if err != nil {
+			return "", err
 		}
-		path := fmt.Sprintf("/api/history/stats?tag_id=%d", tagID)
-		if from := strArg(args, "from"); from != "" {
-			path += "&from=" + from
-		}
-		if to := strArg(args, "to"); to != "" {
-			path += "&to=" + to
-		}
-		if limit := intArg(args, "limit"); limit > 0 {
-			path += "&limit=" + strconv.Itoa(limit)
-		}
-		return s.toolGet(path)
+		return s.toolGet(path + "?" + query.Encode())
 
 	case "get_tag_shadows":
 		path := "/api/tags/shadows"

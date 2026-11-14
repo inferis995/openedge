@@ -27,6 +27,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -514,44 +515,56 @@ func (h *OEEHandler) computeAvailability(ctx context.Context, start, end time.Ti
 	// tag's learned band (tag_bands, re-learned every startup from 30 days
 	// of alarm-free history). A reading out of band means that point was not
 	// producing — pressure collapsed, flow gone — regardless of whether any
-	// alarm rule fired. A tag that learned a band but reports nothing in the
-	// window counts as stopped at the average reporting rate: silence is
-	// downtime, never absence of evidence.
-	var total, inBand, reportingTags, silentTags int
-	_ = h.db.QueryRowContext(ctx, `
-		SELECT COUNT(*),
-			COUNT(*) FILTER (WHERE h.value BETWEEN b.band_low AND b.band_high),
-			COUNT(DISTINCT h.tag_id)
-		FROM tag_history h
-		JOIN tags t ON t.id = h.tag_id
-		JOIN tag_bands b ON b.tag_id = h.tag_id
-		JOIN gateways g ON g.id = t.gateway_id
-		JOIN areas a ON a.id = g.area_id
-		JOIN sites s ON s.id = a.site_id
-		WHERE h.time > $1 AND h.time <= $2
-		  AND ($3 = 0 OR s.org_id = $3)
-		  AND ($4 = 0 OR a.id = $4)
-		  AND ($5 = 0 OR g.id = $5)`,
-		start, end, cfg.OrgID, cfg.AreaID, cfg.GatewayID,
-	).Scan(&total, &inBand, &reportingTags)
-	_ = h.db.QueryRowContext(ctx, `
-		SELECT COUNT(*)
-		FROM tags t
-		JOIN tag_bands b ON b.tag_id = t.id
-		JOIN gateways g ON g.id = t.gateway_id
-		JOIN areas a ON a.id = g.area_id
-		JOIN sites s ON s.id = a.site_id
-		WHERE ($1 = 0 OR s.org_id = $1)
-		  AND ($2 = 0 OR a.id = $2)
-		  AND ($3 = 0 OR g.id = $3)
-		  AND NOT EXISTS (
-			SELECT 1 FROM tag_history h
-			WHERE h.tag_id = t.id AND h.time > $4 AND h.time <= $5
-		  )`,
-		cfg.OrgID, cfg.AreaID, cfg.GatewayID, start, end,
-	).Scan(&silentTags)
+	// alarm rule fired.
+	tags, err := h.bandTagWindows(ctx, start, end, cfg)
+	if err != nil {
+		log.Printf("[OEE] availability values: %v", err)
+	}
+	return valuesAvailability(tags, start, end)
+}
+
+// bandTagWindow is one banded tag's readings in an availability window.
+type bandTagWindow struct {
+	Readings, InBand int
+	// Only for a tag with no reading in the window: its last reading before
+	// it, and the median gap between its readings over the past week.
+	LastBefore *time.Time
+	LastInBand bool
+	MedianGap  time.Duration
+}
+
+// silenceGrace is how long a tag may go without reporting before its
+// silence counts as downtime: twice its usual gap. A datalogger that sends
+// every 30 minutes, or every 8 hours, is not down in the hours in between.
+func silenceGrace(medianGap time.Duration) time.Duration { return 2 * medianGap }
+
+// valuesAvailability turns the per-tag windows into an availability.
+//
+// A tag silent in the window whose last reading is within its grace still
+// holds that reading's state: one reading, in band or not. A tag silent for
+// longer than that counts as stopped at the average reporting rate of the
+// tags that did report: silence is downtime, never absence of evidence.
+func valuesAvailability(tags []bandTagWindow, start, end time.Time) (float64, string, float64) {
+	var total, inBand, reported, reporting, silent int
+	for i := range tags {
+		t := &tags[i]
+		switch {
+		case t.Readings > 0:
+			total += t.Readings
+			inBand += t.InBand
+			reported += t.Readings
+			reporting++
+		case t.LastBefore != nil && t.MedianGap > 0 && end.Sub(*t.LastBefore) <= silenceGrace(t.MedianGap):
+			total++
+			if t.LastInBand {
+				inBand++
+			}
+		default:
+			silent++
+		}
+	}
 	if total == 0 {
-		if silentTags > 0 {
+		if silent > 0 {
 			// Every banded tag silent: the line is down for the whole
 			// window. (Must return before the division below: 0/0 is NaN,
 			// it poisons oee_history and kills the history page JSON.)
@@ -560,13 +573,83 @@ func (h *OEEHandler) computeAvailability(ctx context.Context, start, end time.Ti
 		// Nothing reported in this window: no evidence either way.
 		return 100, "no-data", 0
 	}
-	if reportingTags > 0 && silentTags > 0 {
-		avgPerTag := float64(total) / float64(reportingTags)
-		total += int(float64(silentTags)*avgPerTag + 0.5)
+	if silent > 0 {
+		perTag := 1.0
+		if reporting > 0 {
+			perTag = float64(reported) / float64(reporting)
+		}
+		total += int(float64(silent)*perTag + 0.5)
 	}
 	availability := float64(inBand) / float64(total) * 100
 	downMin := float64(total-inBand) / float64(total) * end.Sub(start).Minutes()
 	return availability, "values", downMin
+}
+
+// bandTagWindows reads, for every banded tag in the profile's scope, its
+// readings in (start, end]; for one with none, its last reading before the
+// window and its usual reporting gap.
+func (h *OEEHandler) bandTagWindows(ctx context.Context, start, end time.Time, cfg *oeeConfig) ([]bandTagWindow, error) {
+	rows, err := h.db.QueryContext(ctx, `
+		WITH scoped AS (
+			SELECT t.id, b.band_low, b.band_high
+			FROM tags t
+			JOIN tag_bands b ON b.tag_id = t.id
+			JOIN gateways g ON g.id = t.gateway_id
+			JOIN areas a ON a.id = g.area_id
+			JOIN sites s ON s.id = a.site_id
+			WHERE ($3 = 0 OR s.org_id = $3)
+			  AND ($4 = 0 OR a.id = $4)
+			  AND ($5 = 0 OR g.id = $5)
+		), win AS (
+			SELECT h.tag_id, COUNT(*) AS n,
+				COUNT(*) FILTER (WHERE h.value BETWEEN sc.band_low AND sc.band_high) AS inb
+			FROM tag_history h
+			JOIN scoped sc ON sc.id = h.tag_id
+			WHERE h.time > $1 AND h.time <= $2
+			GROUP BY h.tag_id
+		)
+		SELECT COALESCE(w.n, 0), COALESCE(w.inb, 0),
+			last.time, COALESCE(last.inband, false), COALESCE(gap.median_sec, 0)
+		FROM scoped sc
+		LEFT JOIN win w ON w.tag_id = sc.id
+		LEFT JOIN LATERAL (
+			SELECT h.time, h.value BETWEEN sc.band_low AND sc.band_high AS inband
+			FROM tag_history h
+			WHERE w.n IS NULL AND h.tag_id = sc.id AND h.time <= $1
+			ORDER BY h.time DESC LIMIT 1
+		) last ON true
+		LEFT JOIN LATERAL (
+			SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY d) AS median_sec
+			FROM (
+				SELECT EXTRACT(EPOCH FROM h.time - lag(h.time) OVER (ORDER BY h.time)) AS d
+				FROM tag_history h
+				WHERE w.n IS NULL AND h.tag_id = sc.id
+				  AND h.time > $1 - INTERVAL '7 days' AND h.time <= $1
+			) gaps
+			WHERE d > 0
+		) gap ON true`,
+		start, end, cfg.OrgID, cfg.AreaID, cfg.GatewayID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []bandTagWindow
+	for rows.Next() {
+		var t bandTagWindow
+		var last sql.NullTime
+		var median float64
+		if err := rows.Scan(&t.Readings, &t.InBand, &last, &t.LastInBand, &median); err != nil {
+			return nil, err
+		}
+		if last.Valid {
+			lt := last.Time
+			t.LastBefore = &lt
+		}
+		t.MedianGap = time.Duration(median * float64(time.Second))
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 // computePerformance — tag-driven se cfg.ProducedTagID > 0 && cfg.TargetPPH > 0.

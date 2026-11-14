@@ -335,6 +335,11 @@ func main() {
 
 	// Create Gin router
 	router := gin.Default()
+	// X-Forwarded-For only from our own proxies: otherwise every client picks
+	// its own IP, and the login rate limit with it.
+	if err := middleware.ConfigureTrustedProxies(router, middleware.TrustedProxies()); err != nil {
+		log.Fatalf("TRUSTED_PROXIES: %v", err)
+	}
 
 	// Request metrics — registered first so the observed latency includes every
 	// other middleware, which is what a client actually waits for.

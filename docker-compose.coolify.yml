@@ -118,6 +118,9 @@ services:
       BACKUP_PATH: /backups
       JWT_SECRET: ${JWT_SECRET}
       ALLOWED_ORIGINS: https://${PUBLIC_HOST}
+      # Proxies whose X-Forwarded-For is believed. Empty: loopback and the
+      # docker private ranges, where Coolify's Traefik and nginx run.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
       # Where OAuth sends the user to sign in, and what the discovery document
       # advertises. Derived from the request otherwise, which is one proxy
       # change away from publishing an unreachable URL.
